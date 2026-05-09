@@ -1,0 +1,137 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmcourier"
+version = "0.0.0"
+description = "CMCourier - banking document migration tool from IBM RVI on AS400 to IBM Content Manager via CMIS."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary"}
+authors = [{name = "bitBreaker"}]
+keywords = ["rvi", "cmis", "ibm-content-manager", "as400", "document-migration", "banking"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: Other/Proprietary License",
+  "Operating System :: OS Independent",
+  "Topic :: System :: Archiving",
+]
+dependencies = [
+  "pydantic>=2.0,<3.0",
+  "click>=8.1,<9.0",
+  "pyodbc>=5.0,<6.0",
+  "requests>=2.31,<3.0",
+  "requests-toolbelt>=1.0,<2.0",
+  "pandas>=2.0,<3.0",
+  "img2pdf>=0.5,<1.0",
+  "Pillow>=10.0,<12.0",
+  "PyPDF2>=3.0,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4,<9.0",
+  "pytest-cov>=4.1,<6.0",
+  "ruff>=0.4,<1.0",
+  "mypy>=1.8,<2.0",
+  "pre-commit>=3.5,<5.0",
+  "types-requests>=2.31,<3.0",
+  "pandas-stubs>=2.0,<3.0",
+]
+
+[project.scripts]
+cmcourier = "cmcourier.cli.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Ruff: lint + format. https://docs.astral.sh/ruff/
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # isort
+  "B",        # flake8-bugbear
+  "C4",       # flake8-comprehensions
+  "UP",       # pyupgrade
+  "N",        # pep8-naming
+  "SIM",      # flake8-simplify
+  "RET",      # flake8-return
+  "PTH",      # flake8-use-pathlib
+  "TID",      # flake8-tidy-imports
+]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["S101"]
+
+[tool.ruff.format]
+# defaults are fine; ruff format mimics black
+
+# ---------------------------------------------------------------------------
+# mypy: two-tier strictness. Strict on the inner hexagonal layers.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+files = ["src/cmcourier", "tests"]
+strict = false
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = [
+  "cmcourier.domain.*",
+  "cmcourier.services.*",
+  "cmcourier.orchestrators.*",
+]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["img2pdf", "pyodbc", "PyPDF2", "requests_toolbelt.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+  "unit: fast tests that mock all ports",
+  "integration: tests that exercise real adapters (SQLite, CSV, Alfresco, etc.)",
+  "slow: tests that take more than 5 seconds individually",
+]
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src/cmcourier"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]

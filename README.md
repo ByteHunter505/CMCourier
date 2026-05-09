@@ -37,14 +37,17 @@ No source code yet. The skeleton (`src/cmcourier/`, `tests/`, `pyproject.toml`, 
 
 ## Documentation map
 
-Read these in order if you are picking up the project cold.
+The canonical entry point is **[`docs/INDEX.md`](docs/INDEX.md)** — a single page that maps every documentation artifact in the repo. Below is a quick-access cheat sheet for the most common reads.
 
 | Document | Read when | Purpose |
 |----------|-----------|---------|
+| [`docs/INDEX.md`](docs/INDEX.md) | **Anytime** | Canonical map of all documentation, organized by purpose (Diátaxis-inspired) |
 | [`README.md`](README.md) | First | What the project is, current status, where to look for what |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Before writing anything | The 9 immutable engineering principles. Spec, design, code that violates these is rejected |
 | [`docs/domain/CMCOURIER_REBIRTH.md`](docs/domain/CMCOURIER_REBIRTH.md) | Before writing anything domain-related | The full domain context: source system (RVI/AS400), target system (CMIS/Content Manager), file formats, metadata resolution, CMIS integration quirks, stage architecture |
 | [`docs/roadmap/POST-MVP.md`](docs/roadmap/POST-MVP.md) | When asking "did we forget X?" | Every feature deferred beyond MVP, with intent + design + acceptance criteria |
+| [`docs/how-to/README.md`](docs/how-to/README.md) | When you need to *do* something | Index of recipes (problem-oriented). Empty at MVP start; grows as commands ship |
+| [`docs/explanation/README.md`](docs/explanation/README.md) | When you need to *understand* something | Index of explanations (understanding-oriented). Pairs with the canonical domain explanation in REBIRTH |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Before opening a PR | SDD workflow, commit rules, PR standards |
 | [`CHANGELOG.md`](CHANGELOG.md) | Anytime | Versioned history of every meaningful change to the project |
 
@@ -95,15 +98,68 @@ Settled by Constitution. Substitution requires constitutional amendment.
 
 ## Getting started
 
-The MVP has not been built yet. Once the implementation phase begins, this section will document:
+### Prerequisites
 
-- How to install dependencies (`pip install -e .[dev]` once `pyproject.toml` exists)
-- How to set required environment variables (`AS400_USERNAME`, `AS400_PASSWORD`, `CMIS_USERNAME`, `CMIS_PASSWORD`)
-- How to run the test suite (`pytest`)
-- How to run the doctor command against your environment (`cmcourier doctor`)
-- How to run the first migration end-to-end
+- **Python 3.11 or newer** (CMCourier is verified on 3.11 and 3.12).
+- **A C compiler and ODBC headers** — required by `pyodbc`:
+  - **Linux** (Debian/Ubuntu): `sudo apt install build-essential unixodbc-dev`
+  - **macOS**: `brew install unixodbc`
+  - **Windows**: install the [IBM iSeries Access ODBC Driver](https://www.ibm.com/support/pages/ibm-i-access-client-solutions) (the driver itself ships its own SDK).
+- **Git**.
 
-For now: read the constitution and the domain doc. Understanding comes first; code comes second (Constitution Principle IX).
+### Install (editable, with development tooling)
+
+```bash
+git clone <repo> CMCourier
+cd CMCourier
+python3 -m venv .venv
+source .venv/bin/activate          # Linux / macOS
+# .venv\Scripts\activate            # Windows
+pip install -e .[dev]
+pre-commit install
+pre-commit install --hook-type commit-msg
+```
+
+### Run the smoke test
+
+```bash
+pytest                             # all tests
+pytest -m unit                     # only unit tests
+pytest -m integration              # only integration tests
+pytest -m "not slow"               # skip slow tests
+```
+
+### Lint, format, type-check
+
+```bash
+ruff check src/ tests/             # lint
+ruff format src/ tests/            # auto-format
+ruff format --check src/ tests/    # CI-style check (no writes)
+mypy src/cmcourier/                # type-check (strict on inner layers)
+```
+
+### Pre-commit hook bypass
+
+You don't bypass pre-commit hooks. If a hook fails, fix the cause and create a new commit. Never `--no-verify` (Constitution / Git Safety Protocol).
+
+### Required environment variables (when running real migrations)
+
+Credentials live in the environment, never in committed YAML (Constitution Principle V & VIII):
+
+```bash
+export AS400_USERNAME="..."
+export AS400_PASSWORD="..."
+export CMIS_USERNAME="..."
+export CMIS_PASSWORD="..."
+```
+
+A real `config/config.yaml` and a working CLI command lands in subsequent changes. For now, the CLI prints its help message:
+
+```bash
+cmcourier --help
+```
+
+For the architecture, the domain context, and the roadmap: read the [docs/INDEX.md](docs/INDEX.md). Understanding comes first; code comes second (Constitution Principle IX).
 
 ---
 
@@ -138,9 +194,10 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Pre-flight validation defined (`§10.5`)
 - [x] Observability tiers defined (`§17.4`)
 - [x] Post-MVP roadmap captured
-- [ ] SDD context registered (`/sdd-init`)
-- [ ] First change: Python skeleton bootstrap
-- [ ] First change: MVP `rvabrep-pipeline` end-to-end
+- [x] SDD context registered (`/sdd-init`)
+- [x] First change: Python skeleton bootstrap
+- [ ] Second change: domain models, ports, exceptions
+- [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
 

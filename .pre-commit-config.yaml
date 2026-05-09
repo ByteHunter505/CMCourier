@@ -1,0 +1,42 @@
+# Pre-commit pipeline. Constitutional rules enforced from the first commit.
+# Install with: pre-commit install && pre-commit install --hook-type commit-msg
+
+default_language_version:
+  python: python3
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - "pydantic>=2.0,<3.0"
+          - "click>=8.1,<9.0"
+          - "types-requests>=2.31,<3.0"
+        files: ^src/cmcourier/
+        # Run only on staged Python files within src/cmcourier/.
+        # `click` ships its own type hints (PEP 561) but the hook's isolated
+        # venv must install it explicitly so mypy can resolve the decorators
+        # in cli/app.py without raising disallow_untyped_decorators.
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+        args: ["feat", "fix", "docs", "refactor", "test", "chore", "perf", "ci"]
+
+  - repo: local
+    hooks:
+      - id: no-co-authored-by
+        name: Block Co-Authored-By in commit messages
+        entry: bash scripts/hooks/no-co-authored-by.sh
+        language: system
+        stages: [commit-msg]
