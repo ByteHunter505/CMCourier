@@ -612,81 +612,158 @@ PENDING → METADATA_RESOLVED → ASSEMBLED → UPLOADING → UPLOADED
 
 ---
 
-## 10. Execution Modes
+## 10. Stage-Based Pipeline Architecture
 
-The system supports three operating modes. Each has its own use case and they share components.
+The system is built as **composable atomic stages**, not as a fixed set of "execution modes". Every operational flow is a specific composition of stages applied to a batch of documents. Stages are first-class entities with explicit inputs, outputs, and failure semantics; pipelines are named compositions exposed as CLI commands.
 
-### 10.1 Mode A: One-Shot Batch (Parallel)
+This replaces the old mental model of "Mode A / Mode B / Mode C" — each of those was a different composition, but the composition was hidden inside imperative code. By making stages explicit we gain: stage-by-stage resumability, granular failure diagnosis, deterministic batch behavior, and trivial composition of new pipelines.
 
-**CLI**: `cmcourier background --batch-size N` or `cmcourier migrate-batch N`
+### 10.1 The Atomic Stages
 
-**Flow**:
-1. Iterate trigger records (streamed, not all loaded)
-2. **Discovery thread pool** queries RVABREP in batches of 50 triggers (efficient SQL `WHERE shortname IN (...)`)
-3. **Worker thread pool** (configurable count, default 20) consumes from a queue
-4. Each worker handles one document end-to-end: metadata → assembly → upload → tracking
-5. Hybrid worker pattern: workers prioritize uploads over assembly (so the upload pipeline stays full)
-6. Live progress callback for the dashboard UI
+Every pipeline is built from these stages:
 
-**Use case**: Production runs. The fast path. Highest throughput.
+| Stage | Name | Input | Output | Failure mode |
+|-------|------|-------|--------|--------------|
+| **S0** | Trigger Acquisition | Source descriptor (CSV path, SQL, folder, RVABREP filter) | `Iterable<TriggerRecord>` | Source unreachable, malformed input |
+| **S1** | RVABREP Indexing | `TriggerRecord` | `List<RVABREPDocument>` | Record not found, duplicate matches, deleted (`ABACST != ""`) |
+| **S2** | Document Class Mapping | `RVABREPDocument.id_rvi` | `CMMapping` (cm_folder + cm_object_type + required_metadata_fields) | `ID RVI` not in Modelo Documental |
+| **S3** | Metadata Resolution | `RVABREPDocument` + `CMMapping` | `ResolvedMetadata` (dict of `BAC_*` → value) | All sources failed AND default invalid |
+| **S4** | File Verification & Assembly | `RVABREPDocument` | `StagedFile` (path + size_bytes + page_count) | Source files missing, assembly failure |
+| **S5** | Upload | `StagedFile` + `CMMapping` + `ResolvedMetadata` | `CMObjectId` | CMIS error, retry budget exhausted |
+| **S6** | Tracking *(transversal)* | Stage outcome (any of S0–S5, S7) | Persisted state in tracking store | DB write failure (logged, never blocks pipeline) |
+| **S7** | Cleanup | `StagedFile` | (deleted from temp) | I/O error (logged, non-fatal) |
 
-### 10.2 Mode B: Three-Phase Pipeline (Decoupled)
+**Why S2 is separate from S3**: a missing mapping (`ID RVI` not registered in Modelo Documental) is a different operational problem than a missing metadata value (CIF unresolved). Separating them gives the operator clearer diagnosis and lets the `doctor` command (§10.5) report each class of problem independently.
 
-**CLI**:
+**Why S6 is transversal**: tracking is invoked after every stage's success or failure to update per-document state. It is not serial; failures in S6 must never block the pipeline.
+
+**Why S7 is explicit**: bundling cleanup into S5 loses temp files when S5 fails partially. Explicit S7 ensures cleanup happens both on success and on graceful pipeline shutdown.
+
+### 10.2 Pipelines as CLI Commands
+
+A **pipeline** is a named, ordered subset of stages applied to a batch. **Each pipeline is its own CLI command**, never a config flag. This is a deliberate departure from the old `datasource_mode` config field.
+
+| Pipeline | Stages | Use case |
+|----------|--------|----------|
+| `rvabrep-pipeline` | `S0(direct_rvabrep) → S1 → S2 → S3 → S4 → S5 → S7` | Production: discover documents by RVI filter (e.g., all `FF17` in system `1`) and process end-to-end |
+| `csv-trigger-pipeline` | `S0(csv) → S1 → S2 → S3 → S4 → S5 → S7` | Controlled batches: explicit list of clients from CSV |
+| `as400-trigger-pipeline` | `S0(as400) → S1 → S2 → S3 → S4 → S5 → S7` | Production: trigger list comes from a custom AS400 query |
+| `local-scan-pipeline` | `S0(local_scan) → S1 → S2 → S3 → S4 → S5 → S7` | Files already extracted to disk; cross-reference RVABREP for metadata |
+| `single-doc` | `S1 → S2 → S3 → S4 → S5 → S7` (one shortname/system) | Debugging, ad-hoc operator pushes |
+
+S6 is implicit and runs after every other stage in every pipeline.
+
+Adding a new pipeline = adding a new command that composes existing stages. No changes to stage internals required.
+
+### 10.3 Stage-by-Stage Execution and Resume
+
+Any pipeline can be invoked at full speed (all stages back-to-back) or stage-by-stage on a previously-prepared batch. This generalizes the old "3-phase pipeline" mode to all pipelines.
+
 ```
-cmcourier resolve-metadata --batch-size N    # Phase 1
-cmcourier assemble-batch --batch-id X        # Phase 2
-cmcourier upload-batch --batch-id X          # Phase 3
+cmcourier rvabrep-pipeline run --batch-size 1000             # full run, all stages
+cmcourier rvabrep-pipeline run --batch <id> --stage S3       # only S3 on existing batch
+cmcourier rvabrep-pipeline run --batch <id> --from S3        # S3 onward (resume from S3)
+cmcourier rvabrep-pipeline run --batch <id> --resume         # auto-resume from last successful stage
 ```
 
-**Flow**:
-- **Phase 1** discovers documents and resolves metadata, writing to `preprocess_staging` with `status=METADATA_RESOLVED`. No file I/O, no CMIS calls. Fast — bound by AS400 query speed.
-- **Phase 2** reads `METADATA_RESOLVED` records, assembles each PDF, moves it to a staging directory (split into subfolders of max 1000 files each to avoid Windows directory slowdowns), updates `status=ASSEMBLED`.
-- **Phase 3** reads `ASSEMBLED` records and uploads to CMIS. No AS400 queries — all metadata is already resolved.
+**Per-stage state machine** in tracking (one row per document per batch):
 
-**Use case**: When the three phases need different infrastructure or scheduling. E.g., resolve metadata during business hours when AS400 is responsive, then upload overnight when the network is freer. Or when you want to QA-review the assembled PDFs before uploading.
+```
+S1_PENDING → S1_DONE → S2_PENDING → S2_DONE → S3_PENDING → S3_DONE
+          ↘                      ↘                      ↘
+        S1_FAILED              S2_FAILED              S3_FAILED
 
-### 10.3 Mode C: Single Document (Interactive)
+(continues through S5_DONE)
+```
 
-**CLI**: `cmcourier migrate-one SHORTNAME SYSTEM_ID`
+A stage processes only documents in `Sn_PENDING` for the given batch. Documents in `Sn_FAILED` are surfaced for explicit retry (`cmcourier batch retry-failed --batch <id> --stage Sn`).
 
-**Flow**: Sequential, no threading. Process one client's documents one at a time.
+### 10.4 Batch as First-Class
 
-**Use case**: Debugging, testing, or when an operator needs to manually push a specific client.
+All pipelines process documents in **configurable batches** (default 1000 per batch). Default batch size lives **per pipeline** in config — different pipelines have different optimal sizes (a `local-scan-pipeline` may want 100, a `rvabrep-pipeline` may want 1000+).
+
+**Two batches are kept in flight at any time**: one being uploaded (S5 active) and one being prepared (S0–S4 active for the next batch). This producer-consumer model maintains throughput by overlapping I/O-bound preparation with network-bound upload.
+
+**Why batch-then-upload (instead of streaming each doc through to upload)**:
+- The full size distribution of the batch is visible before upload begins, enabling the future heavy/light lane scheduler (§10.7) to make informed decisions.
+- Pre-flight validation (§10.5) can run on the full batch and abort cheaply if the batch is unprocessable.
+- Failure mode is predictable: a metadata-resolution failure in document 999 of 1000 surfaces during prep, not after 998 successful uploads.
+
+### 10.5 Pre-Flight Validation
+
+Before any pipeline executes, automatic pre-flight validation runs unless `--skip-doctor` is passed. The same validation logic is exposed as the standalone `cmcourier doctor` command for ad-hoc operator use.
+
+Validation checks:
+
+1. **Connectivity**: AS400 reachable + sample query OK; CMIS reachable + `repo_id` valid + JSESSIONID warmup OK
+2. **Mapping completeness**: every `ID RVI` that will appear in the upcoming batch has a mapping in Modelo Documental
+3. **CM type alignment**: for each unique CM class in the batch, the `cm_object_type` exists in CM (CMIS `getTypeDefinition`); required metadata fields per CM are all present in our config; warn on extra fields config that CM does not expect
+4. **Metadata source health**: for each metadata field, at least one source responds; if a `default_value` is defined, it must pass its own validation regex
+5. **Sample dry-run**: take the first document of the batch and process it through S1–S4 without uploading; surface any error early
+
+Pre-flight failures abort the pipeline before any side effect. The `doctor` command runs the same checks against arbitrary batches or globally.
+
+### 10.6 TUI by Default
+
+Every pipeline displays a Rich TUI with two switchable tabs:
+- **PREP tab**: live progress of S0–S4 on the batch being prepared (per-stage progress bars, error rate, current operation)
+- **UPLOAD tab**: live progress of S5 on the batch being uploaded (workers active, throughput, p95 latency, slow uploads)
+
+The exception is `cmcourier background` — file-logging only, no TUI, designed to run unattended (cron, scheduled task, supervised service).
+
+### 10.7 Adaptive Heavy / Light Upload Lanes (Post-MVP)
+
+A future enhancement splits S5 into two adaptive worker pools:
+- **Heavy lane**: few workers, large files
+- **Light lane**: many workers, small files
+- Lanes share total worker budget; rebalance dynamically based on queue depth
+
+This solves head-of-line blocking when a batch contains a heterogeneous file size distribution. Detailed design and acceptance criteria live in `docs/roadmap/POST-MVP.md §1`.
+
+**MVP behavior**: a single S5 worker pool with N configurable workers, no size-aware scheduling.
 
 ---
 
-## 11. CLI Surface — Required Commands
+## 11. CLI Surface
 
-Group structure under `cmcourier`:
+Top-level command structure under `cmcourier`. Each pipeline is a first-class command; utility commands live alongside.
 
 ```
 cmcourier
-├── interactive
-│   ├── status                   # Show migration dashboard
-│   ├── test-connection          # Verify AS400 + CMIS connectivity
-│   ├── as400-query "SQL"        # Run raw query (debugging)
-│   ├── preview-trigger          # Show first N triggers
-│   ├── preview-documents SN SYS # Show docs for a client
-│   ├── preview-mapping ID_RVI   # Show CM mapping for an ID RVI
-│   ├── mapping-stats            # Mapping table summary
-│   ├── migrate-one SN SYS       # Run Mode C
-│   ├── migrate-batch N          # Run Mode A (with TUI)
-│   ├── speed-test --limit N     # Mode A with detailed perf metrics
-│   ├── retry-failed             # Reset FAILED → PENDING and re-run
-│   └── export-report --format   # CSV/JSON report
 │
-├── background --batch-size N    # Mode A (file logging only, no TUI)
+├── doctor [--check connections|mapping|metadata|cm-types|all]
+│       Pre-flight validation (§10.5). Same checks as automatic
+│       pre-flight, runnable standalone for operator triage.
 │
-├── resolve-metadata             # Mode B Phase 1
-├── assemble-batch --batch-id X  # Mode B Phase 2
-├── upload-batch --batch-id X    # Mode B Phase 3
+├── rvabrep-pipeline run [--batch-size N | --batch <id> [--stage Sn | --from Sn | --resume]] [--skip-doctor]
+├── csv-trigger-pipeline run    [...same flags...]
+├── as400-trigger-pipeline run  [...same flags...]
+├── local-scan-pipeline run     [...same flags...]
+├── single-doc <shortname> <system_id>
+│       Pipelines (§10.2). All accept stage-by-stage / resume flags.
+│       TUI on by default; --no-tui for headless.
 │
-├── scan-folder PATH             # Custom: scan local files, cross-ref RVABREP
-└── upload-scan --batch-id X     # Custom: upload scanned files w/ TUI
+├── background --pipeline <name> --batch-size N
+│       Same pipelines, but no TUI. Designed for unattended execution
+│       (cron, scheduled task, supervised service).
+│
+├── batch
+│   ├── list [--status <status>]               # Show batches and their state
+│   ├── show <id>                              # Detailed batch state with per-stage counts
+│   ├── retry-failed --batch <id> [--stage Sn] # Reset FAILED → PENDING for retry
+│   └── export-report --batch <id> --format csv|json
+│
+├── inspect
+│   ├── trigger [--source <descriptor>]        # Preview first N triggers from any source
+│   ├── document <shortname> <system_id>       # Preview RVABREP records for one client
+│   ├── mapping <id_rvi>                       # Show CM mapping for an ID RVI
+│   └── mapping-stats                          # Modelo Documental summary
+│
+└── as400-query "SQL"
+        Raw debug query against AS400.
 ```
 
-All commands accept `--config / -c` to override the config file path.
+All commands accept `--config / -c` to override the config file path. `doctor` is invoked automatically before any pipeline run unless `--skip-doctor` is passed.
 
 ---
 
@@ -697,10 +774,10 @@ All commands accept `--config / -c` to override the config file path.
 The original `config.yaml` is well-designed and **must be copied verbatim** to the new project. Below is the complete shape annotated with intent:
 
 ```yaml
-# Default fallback when source is not specified explicitly elsewhere
-datasource_mode: "csv"              # "csv" or "as400"
-
-# Registry of named connections — referenced everywhere as "type:alias"
+# Registry of named connections — referenced everywhere as "type:alias".
+# Note: there is no global `datasource_mode` flag. Each pipeline command
+# selects its own source explicitly (§10.2), and per-field metadata sources
+# are listed in `metadata.<field>.sources` below.
 datasources:
   as400:
     default:                        # Alias name; can have multiple aliases
@@ -1267,12 +1344,43 @@ Don't bother. The CSV adapter covers all dev/test needs. AS400 testing happens i
 
 ### 17.4 Observability
 
-- Structured logging with timestamps
-- Per-phase timings (metadata_ms, assembly_ms, upload_ms)
-- p95 latency tracking
-- "Slowest 10 uploads" report after speed test
-- Live TUI dashboard during interactive runs
-- Telemetry summary at end of batch
+The system tracks operational metrics across multiple dimensions. Each dimension is independently switchable via the `observability` config section so production runs can disable expensive sampling.
+
+**Logging tiers** (separate files, configurable):
+- **Application log** (`./logs/app-{date}.log`) — structured JSON, one event per line. Includes `pipeline`, `stage`, `batch_id`, `txn_num`, `outcome`, `duration_ms`. Always on.
+- **Pipeline metrics** (`./logs/metrics-{date}.jsonl`) — per-stage timings (`s0_ms`, `s1_ms`, …, `s5_ms`), p50/p95/p99 latency, throughput in docs/sec. Cheap; default on.
+- **Network metrics** (`./logs/network-{date}.jsonl` or embedded) — per-request timing for AS400 queries and CMIS uploads: connection time, send time, server time, response size. Cheap; default on.
+- **System metrics** (`./logs/system-{date}.jsonl`) — CPU%, RAM, disk read/write IOPS, network bytes in/out, sampled at configurable interval (default 5s). Some CPU cost; **OFF by default in MVP**, post-MVP feature (see `docs/roadmap/POST-MVP.md §3`).
+- **Slow operations report** (`./logs/slow-ops-{batch_id}.jsonl`) — top-N slowest operations per batch, threshold configurable.
+
+**Configuration**:
+
+```yaml
+observability:
+  enabled: true                    # master switch
+  pipeline_metrics: true           # per-stage timings
+  network_metrics: true            # request timing
+  system_metrics: false            # MVP: off; psutil sampling has CPU cost
+  log_dir: "./logs"
+  log_format: "json"               # json | text
+  rotation_mb: 100
+  retention_days: 30
+  system_sample_interval_s: 5
+  slow_op_threshold_ms: 5000
+  slow_op_top_n: 20
+```
+
+**Bottleneck identification** — with all tiers enabled, offline log analysis (post-MVP tooling, see `docs/roadmap/POST-MVP.md §5`) attributes slow batches to:
+- **CPU**-bound (PDF assembly throughput, metadata regex validation)
+- **Memory**-bound (worker count too high, large files buffered)
+- **Disk IO**-bound (temp dir on slow disk, OneDrive sync interference, staging dir contention)
+- **Network**-bound (CMIS bandwidth ceiling, AS400 query latency, JSESSIONID re-warmup churn)
+
+**Live TUI dashboard** during pipeline runs (§10.6): two tabs (PREP / UPLOAD) with real-time progress, throughput, slow operations.
+
+**Telemetry summary** at end of batch: per-stage counts (DONE / FAILED), per-stage p50/p95 latency, total throughput, top-10 slowest operations, exit code reflecting any FAILED documents.
+
+**PII discipline** (Constitution Principle VIII): all loggers route through the central masking helper in `cli/ui/logging.py`. CIF, customer names, and account numbers never appear in INFO logs.
 
 ---
 
