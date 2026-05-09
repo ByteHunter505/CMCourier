@@ -196,7 +196,8 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Post-MVP roadmap captured
 - [x] SDD context registered (`/sdd-init`)
 - [x] First change: Python skeleton bootstrap
-- [ ] Second change: domain models, ports, exceptions
+- [x] Second change: domain models, ports, exceptions
+- [ ] Third change: first concrete adapter (CSV data source)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

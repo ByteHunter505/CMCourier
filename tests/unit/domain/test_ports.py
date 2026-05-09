@@ -1,0 +1,81 @@
+"""Unit tests for ``cmcourier.domain.ports``.
+
+The ports are abstract base classes; this suite proves they cannot be
+instantiated directly and that every advertised abstract method is in fact
+declared with ``@abstractmethod``.
+"""
+
+from __future__ import annotations
+
+import abc
+
+import pytest
+
+from cmcourier.domain.ports import (
+    IAssembler,
+    IDataSource,
+    ITrackingStore,
+    IUploader,
+    S0Strategy,
+)
+
+ALL_PORTS: tuple[type, ...] = (IDataSource, ITrackingStore, IAssembler, IUploader, S0Strategy)
+
+
+@pytest.mark.parametrize("port_cls", ALL_PORTS)
+def test_port_inherits_from_abc(port_cls: type) -> None:
+    assert issubclass(port_cls, abc.ABC)
+
+
+@pytest.mark.parametrize("port_cls", ALL_PORTS)
+def test_port_cannot_be_instantiated(port_cls: type) -> None:
+    """Constructor must raise ``TypeError`` because methods remain abstract."""
+    with pytest.raises(TypeError):
+        port_cls()  # type: ignore[abstract]
+
+
+class TestIDataSourceContract:
+    def test_abstract_methods(self) -> None:
+        expected = {
+            "query",
+            "query_stream",
+            "get_by_fields",
+            "get_by_fields_in",
+            "get_all",
+            "count",
+            "close",
+        }
+        assert IDataSource.__abstractmethods__ == frozenset(expected)
+
+
+class TestITrackingStoreContract:
+    def test_abstract_methods(self) -> None:
+        assert ITrackingStore.__abstractmethods__ == frozenset(
+            {
+                "is_uploaded",
+                "is_stage_done",
+                "mark_stage_pending",
+                "mark_stage_done",
+                "mark_stage_failed",
+                "start_batch",
+                "complete_batch",
+                "close",
+            }
+        )
+
+
+class TestIAssemblerContract:
+    def test_abstract_methods(self) -> None:
+        assert IAssembler.__abstractmethods__ == frozenset({"assemble"})
+
+
+class TestIUploaderContract:
+    def test_abstract_methods(self) -> None:
+        assert IUploader.__abstractmethods__ == frozenset(
+            {"ensure_folder", "upload", "test_connection"}
+        )
+
+
+class TestS0StrategyContract:
+    def test_abstract_methods(self) -> None:
+        assert S0Strategy.__abstractmethods__ == frozenset({"acquire"})
