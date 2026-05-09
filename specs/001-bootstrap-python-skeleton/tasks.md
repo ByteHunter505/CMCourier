@@ -127,12 +127,16 @@ Enforce the constitutional rules from the first commit onward.
 
 ## Phase 6 — Documentation update + verification
 
-Tie the loose ends, update docs, run the full verification suite.
+Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`), update docs, run the full verification suite.
 
 - [ ] **6.1** Update `README.md` "Getting started" section per `plan.md §8`.
 - [ ] **6.2** Update `README.md` Status checklist: tick the line about "Python skeleton bootstrap".
 - [ ] **6.3** Update `CHANGELOG.md` per `plan.md §9` — add the `[0.3.0]` block dated to the commit date, and adjust the `[Unreleased]` "Planned for next release" bullets.
-- [ ] **6.4** Run the full verification suite from `spec.md §8`:
+- [ ] **6.4** Create `docs/INDEX.md` following the template in `plan.md §13.5` — list every existing artifact (README, CHANGELOG, CONTRIBUTING, constitution, REBIRTH, POST-MVP, samples) with one-line descriptions; leave `how-to` and `explanation` sections empty with pointers to their READMEs.
+- [ ] **6.5** Create `docs/how-to/README.md` per `plan.md §13.4`: purpose statement (problem-oriented "How to use"), naming convention (`how-to/<task-slug>.md`, kebab-case), empty bullet list of available guides, link back to `docs/INDEX.md`.
+- [ ] **6.6** Create `docs/explanation/README.md` per `plan.md §13.4`: purpose statement (understanding-oriented "How it works"), naming convention (`explanation/<concept-slug>.md`), empty bullet list of available explanations, link to `docs/domain/CMCOURIER_REBIRTH.md` as canonical domain explanation, link back to `docs/INDEX.md`.
+- [ ] **6.7** Update `README.md` "Documentation map" section: add a top-row link to `docs/INDEX.md` as the canonical entry point. Keep the existing per-artifact rows for quick access.
+- [ ] **6.8** Run the full verification suite from `spec.md §8`:
   ```bash
   pip install -e .[dev]
   pytest -v
@@ -142,13 +146,13 @@ Tie the loose ends, update docs, run the full verification suite.
   pre-commit run --all-files
   ```
   Capture each output. All MUST pass before commit.
-- [ ] **6.5** Grep for PII in the new files (per `spec.md §4.8`):
+- [ ] **6.9** Grep for PII in the new files (per `spec.md §4.8`):
   ```bash
   rg -n '\b\d{6}\b' src/ tests/                      # 6-digit numbers (CIF pattern)
   rg -n -i '(juan|maria|carlos)\s?(perez|gomez|rodriguez)' src/ tests/   # common Argentine names
   ```
   Confirm no real-looking matches.
-- [ ] **6.6** Stage all the new and modified files. Confirm `git status` matches the expected file list:
+- [ ] **6.10** Stage all the new and modified files. Confirm `git status` matches the expected file list:
   ```
   modified: README.md
   modified: CHANGELOG.md
@@ -159,9 +163,11 @@ Tie the loose ends, update docs, run the full verification suite.
   added: scripts/hooks/no-co-authored-by.sh
   added: src/cmcourier/**/*.py
   added: tests/**/*.py
-  added: specs/001-bootstrap-python-skeleton/{spec,plan,tasks}.md
+  added: docs/INDEX.md
+  added: docs/how-to/README.md
+  added: docs/explanation/README.md
   ```
-- [ ] **6.7** Create the implementation commit on the feature branch:
+- [ ] **6.11** Create the implementation commit on the feature branch:
   ```
   feat: bootstrap Python skeleton with hexagonal layout and tooling
 
@@ -235,6 +241,10 @@ For traceability:
 | REQ-023 | 6.1 |
 | REQ-024 | 6.3 |
 | REQ-025 | 6.2 |
+| REQ-026 | 6.4 |
+| REQ-027 | 6.5 |
+| REQ-028 | 6.6 |
+| REQ-029 | 6.7 |
 
 | Acceptance scenario | Tasks that produce evidence |
 |---------------------|----------------------------|
@@ -245,7 +255,8 @@ For traceability:
 | 4.5 (Co-Authored-By blocked) | 5.5 |
 | 4.6 (non-conventional blocked) | 5.6 |
 | 4.7 (hexagonal layering visible) | 2.x |
-| 4.8 (no PII) | 6.5 |
+| 4.8 (no PII) | 6.9 |
+| 4.9 (documentation index discoverable) | 6.4, 6.5, 6.6, 6.7 |
 
 ---
 
@@ -256,8 +267,8 @@ For traceability:
 - Phase 3: 30 minutes (the meat: pyproject.toml + first install)
 - Phase 4: 15 minutes (smoke test + structure)
 - Phase 5: 25 minutes (pre-commit + hook validation)
-- Phase 6: 20 minutes (docs + verification + commit)
-- **Total**: ~2 hours of focused work for one contributor pair-programming with an agent.
+- Phase 6: 30 minutes (docs structure + README/CHANGELOG updates + verification + commit)
+- **Total**: ~2 hours and 5 minutes of focused work for one contributor pair-programming with an agent.
 
 This is consistent with REBIRTH §15 estimating "Phase 0 — Bootstrap (1 day)" — we are well under that, because much of the prep (constitution, REBIRTH, docs) is already done.
 

@@ -82,6 +82,13 @@ This change corresponds to **Phase 0** in `docs/domain/CMCOURIER_REBIRTH.md §15
 - **REQ-024**: A `CHANGELOG.md` entry under `[Unreleased]` MUST document this change before the commit lands.
 - **REQ-025**: The Status checklist in `README.md` MUST tick the bootstrap line.
 
+### 3.9 Documentation architecture
+
+- **REQ-026**: The repo MUST contain a top-level `docs/INDEX.md` that maps every documentation artifact (constitution, REBIRTH, roadmap, README, CHANGELOG, CONTRIBUTING, how-to, explanation, samples) with a one-line description and a link. The INDEX is the canonical entry point for documentation discovery.
+- **REQ-027**: The repo MUST contain `docs/how-to/README.md` describing the purpose of how-to guides (problem-oriented, practical steps for "how to use"), the naming convention (`how-to/<task-slug>.md`), and listing currently-available guides (empty bullet list at MVP start).
+- **REQ-028**: The repo MUST contain `docs/explanation/README.md` describing the purpose of explanation documents (understanding-oriented, "how it works"), the naming convention (`explanation/<concept-slug>.md`), and listing currently-available explanations (empty bullet list at MVP start).
+- **REQ-029**: The "Documentation map" section in `README.md` MUST link to `docs/INDEX.md` as the canonical entry point. Individual artifact links remain in the README map for quick access; INDEX.md is the navigable single-page mirror.
+
 ---
 
 ## 4. Acceptance Scenarios
@@ -145,6 +152,15 @@ Scenarios use Given/When/Then format. Each is independently verifiable.
 - **When** the contributor greps for known PII patterns (real-looking 6-digit CIFs, common Argentine names) under `src/`, `tests/`, `docs/samples/`
 - **Then** no matches are found
 - **And** any sample files use synthetic identifiers like `JUANPEREZ01` (already documented as synthetic in REBIRTH)
+
+### 4.9 Documentation index discoverable
+
+- **Given** the change is merged
+- **When** a new contributor opens `README.md`
+- **Then** they find a link to `docs/INDEX.md` in the "Documentation map" section
+- **And** opening `docs/INDEX.md` shows a complete map of all current documentation grouped by category
+- **And** opening `docs/how-to/README.md` shows the purpose statement, naming convention, and an (empty for now) bullet list of available guides
+- **And** opening `docs/explanation/README.md` shows the same structure for explanations
 
 ---
 
@@ -215,6 +231,11 @@ Verification of this spec happens in `/sdd-verify` (or its manual equivalent) by
 - REQ-023 → diff of `README.md` shows new content under "Getting started"
 - REQ-024 → diff of `CHANGELOG.md` shows new entry
 - REQ-025 → diff of `README.md` shows ticked checkbox
+- REQ-026 → `docs/INDEX.md` exists with all documented artifacts listed
+- REQ-027 → `docs/how-to/README.md` exists with purpose + naming + empty list
+- REQ-028 → `docs/explanation/README.md` exists with same structure
+- REQ-029 → diff of `README.md` shows link to `docs/INDEX.md` from "Documentation map"
+- Scenario 4.9 → manual click-through of README → INDEX → how-to/README → explanation/README
 
 ---
 

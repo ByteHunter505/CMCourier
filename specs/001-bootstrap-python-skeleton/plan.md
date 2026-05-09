@@ -498,10 +498,106 @@ The spec listed 4 open questions. Resolved here:
 
 ---
 
-## 13. Cross-References
+## 13. Documentation Architecture
+
+CMCourier uses a **Diátaxis-inspired** documentation layout (https://diataxis.fr): documentation is split by *purpose* rather than by topic. This avoids the typical mess of one giant README that tries to teach, explain, and reference all at once.
+
+### 13.1 The four quadrants of Diátaxis
+
+| Quadrant | Purpose | Reader's mindset |
+|----------|---------|------------------|
+| **Tutorials** | Learning-oriented | "I am new and want to learn by doing" |
+| **How-to guides** | Problem-oriented | "I need to solve this specific task" |
+| **Reference** | Information-oriented | "I need to look up a specific fact" |
+| **Explanation** | Understanding-oriented | "I want to understand how/why this works" |
+
+### 13.2 What we ship in 001 (pragmatic subset)
+
+For this change we materialize **only the two quadrants the user explicitly requested**: `how-to` and `explanation`. Tutorials and reference are deferred until natural content appears — a tutorial is best written when the first pipeline ships and there is something to walk through; a reference is best written when the CLI command surface stabilizes.
+
+```
+docs/
+├── INDEX.md                     # The map of all documentation (NEW)
+├── domain/                       # already exists — explanation-class but special
+│   └── CMCOURIER_REBIRTH.md     # domain ground truth (precedence #4)
+├── roadmap/                      # already exists
+│   └── POST-MVP.md
+├── samples/                      # already exists — reference fixtures
+│   └── {csv,excel,responses}/
+├── how-to/                       # NEW — "How to use"
+│   └── README.md                 # purpose + naming convention + index of guides
+└── explanation/                  # NEW — "How it works"
+    └── README.md                 # purpose + naming convention + index of explanations
+```
+
+`docs/domain/CMCOURIER_REBIRTH.md` stays where it is despite being explanation-class. It is the **domain ground truth** with precedence #4 in the constitution; moving it would invalidate cross-references in already-shipped artifacts (constitution, README, plan files). It is linked from `docs/explanation/README.md` as canonical domain explanation.
+
+### 13.3 Naming conventions
+
+- **How-to**: `docs/how-to/<task-slug>.md` (e.g., `run-rvabrep-pipeline.md`, `configure-cmis-credentials.md`, `recover-from-failed-batch.md`).
+- **Explanation**: `docs/explanation/<concept-slug>.md` (e.g., `stage-architecture.md`, `metadata-resolution-cascade.md`, `cmis-session-warmup.md`).
+- Slugs are kebab-case, descriptive, stable. Renaming an existing doc is a breaking change for external links — bump CHANGELOG.
+
+### 13.4 What goes in each subdirectory README
+
+Each `how-to/README.md` and `explanation/README.md`:
+
+1. States the purpose of that kind of doc in 2-3 sentences (the Diátaxis quadrant definition adapted to CMCourier).
+2. Lists the naming convention from §13.3.
+3. Lists currently-available content as a markdown bullet list (empty at MVP start; filled as docs are added — every change that ships a doc updates the appropriate README).
+4. Links back to `docs/INDEX.md` for navigation.
+
+### 13.5 What goes in `docs/INDEX.md`
+
+A single-page map of **every** documentation artifact in the repo, grouped by category, with one-line descriptions and links. Approximate shape:
+
+```markdown
+# CMCourier — Documentation Index
+
+The single map of every document in the project. Pick the quadrant that matches your intent.
+
+## For everyone
+- README.md — project overview, current status
+- CHANGELOG.md — versioned history (Keep a Changelog)
+- CONTRIBUTING.md — workflow, commit standards, PR rules
+
+## Engineering law
+- .specify/memory/constitution.md — 9 immutable principles
+
+## Domain ground truth
+- docs/domain/CMCOURIER_REBIRTH.md — full domain specification (RVI, CMIS, stages, metadata)
+
+## Project planning
+- docs/roadmap/POST-MVP.md — features deferred beyond MVP
+- specs/<NNN>/ — per-change SDD artifacts (spec, plan, tasks)
+
+## Reference data
+- docs/samples/csv/ — sample CSVs (Modelo Documental, trigger lists, metadata sources)
+- docs/samples/excel/RVILIB_RVABREP.xlsx — RVABREP table dump
+- docs/samples/responses/EjemploRespuestaCMIS.txt — real CMIS response example
+
+## How to use (recipes)
+- (none yet — see docs/how-to/README.md)
+
+## How it works (explanations)
+- (none yet — see docs/explanation/README.md)
+```
+
+The INDEX is updated by every change that adds or moves a documentation artifact (the change's `tasks.md` includes a task to update it; CONTRIBUTING.md will document this responsibility).
+
+### 13.6 Future evolution
+
+- When the first tutorial is written (likely when `rvabrep-pipeline` ships end-to-end and we have a real walkthrough to give a new operator), create `docs/tutorials/` with its own README.md following the same pattern.
+- When the CLI command surface stabilizes (post-MVP), create `docs/reference/` with a CLI command reference and a config schema reference.
+- Each addition is documented in CHANGELOG.md and the INDEX.md.
+
+---
+
+## 14. Cross-References
 
 - Spec: `specs/001-bootstrap-python-skeleton/spec.md`
 - Tasks: `specs/001-bootstrap-python-skeleton/tasks.md`
 - Constitution: `.specify/memory/constitution.md`
 - REBIRTH §14.2 (Project Layout), §15 (Implementation Order)
 - CONTRIBUTING.md (workflow conventions this change enforces via hooks)
+- Diátaxis framework: https://diataxis.fr
