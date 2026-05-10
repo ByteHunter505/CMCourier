@@ -104,6 +104,65 @@ _BATCH_FLUSH_SIZE = 500
 _BATCH_FLUSH_INTERVAL_S = 1.0
 
 
+# is_stage_done(stage) returns True if the row has reached AT LEAST that
+# stage's success state. After mark_stage_done(SN_DONE), the row may
+# subsequently transition to a later stage's PENDING/DONE/FAILED — those
+# all count as "past SN_DONE" so resume logic can skip redoing the work.
+_STATUSES_AT_OR_PAST: dict[StageStatus, frozenset[str]] = {
+    StageStatus.S1_DONE: frozenset(
+        {
+            "S1_DONE",
+            "S2_PENDING",
+            "S2_DONE",
+            "S2_FAILED",
+            "S3_PENDING",
+            "S3_DONE",
+            "S3_FAILED",
+            "S4_PENDING",
+            "S4_DONE",
+            "S4_FAILED",
+            "S5_PENDING",
+            "S5_DONE",
+            "S5_FAILED",
+        }
+    ),
+    StageStatus.S2_DONE: frozenset(
+        {
+            "S2_DONE",
+            "S3_PENDING",
+            "S3_DONE",
+            "S3_FAILED",
+            "S4_PENDING",
+            "S4_DONE",
+            "S4_FAILED",
+            "S5_PENDING",
+            "S5_DONE",
+            "S5_FAILED",
+        }
+    ),
+    StageStatus.S3_DONE: frozenset(
+        {
+            "S3_DONE",
+            "S4_PENDING",
+            "S4_DONE",
+            "S4_FAILED",
+            "S5_PENDING",
+            "S5_DONE",
+            "S5_FAILED",
+        }
+    ),
+    StageStatus.S4_DONE: frozenset(
+        {
+            "S4_DONE",
+            "S5_PENDING",
+            "S5_DONE",
+            "S5_FAILED",
+        }
+    ),
+    StageStatus.S5_DONE: frozenset({"S5_DONE"}),
+}
+
+
 # ---------------------------------------------------------------------------
 # Write-task envelope
 # ---------------------------------------------------------------------------
@@ -279,15 +338,28 @@ class SQLiteTrackingStore:
 
     def is_stage_done(self, txn_num: str, batch_id: str, stage: StageStatus) -> bool:
         _require_state(stage, "DONE")
+        valid = _STATUSES_AT_OR_PAST[stage]
+        placeholders = ",".join("?" * len(valid))
         try:
             row = self._reader.execute(
-                "SELECT 1 FROM migration_log "
-                "WHERE rvabrep_txn_num = ? AND batch_id = ? AND status = ? LIMIT 1",
-                (txn_num, batch_id, stage.value),
+                f"SELECT 1 FROM migration_log "
+                f"WHERE rvabrep_txn_num = ? AND batch_id = ? AND status IN ({placeholders}) "
+                f"LIMIT 1",
+                (txn_num, batch_id, *valid),
             ).fetchone()
         except sqlite3.Error as exc:
             raise TrackingError("is_stage_done failed", txn_num=txn_num) from exc
         return row is not None
+
+    def list_txn_nums_for_batch(self, batch_id: str) -> set[str]:
+        try:
+            rows = self._reader.execute(
+                "SELECT DISTINCT rvabrep_txn_num FROM migration_log WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise TrackingError("list_txn_nums_for_batch failed", batch_id=batch_id) from exc
+        return {row[0] for row in rows}
 
     def close(self) -> None:
         """Idempotent shutdown: drain queue, stop writer, close reader."""

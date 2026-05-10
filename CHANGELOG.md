@@ -12,7 +12,148 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- First MVP orchestrator wiring S0..S6 together. With S5 (CMIS upload) now in place, ALL adapters and services for the `rvabrep-pipeline` command are real — no more stubs to plan around. The next change is the orchestrator + CLI command + tracking integration.
+- CLI Click command + Pydantic config + YAML loader for the csv-trigger-pipeline. With the orchestrator now in place, the next change exposes it as `cmcourier csv-trigger-pipeline run --triggers <path> --config <yaml>` so operators can invoke the migration loop without writing Python.
+
+---
+
+## [0.13.0] — 2026-05-10 — **MVP pipeline end-to-end**
+
+This release ships the **first runnable MVP migration pipeline**. With
+`CsvTriggerPipeline`, all of S0..S6 are wired against real adapters and
+services — no stubs, no placeholders. The orchestrator IS the wiring;
+every collaborator it imports has been on `main` since changes 003-010.
+
+### Added
+
+- **`cmcourier.orchestrators.csv_trigger.CsvTriggerPipeline`** — the first
+  runnable orchestrator. Implements REBIRTH §10.2's `csv-trigger-pipeline`
+  composition: `S0(csv) → S1 → S2 → S3 → S4 → S5 → S6 (transversal)`.
+  Constructor takes the seven collaborators by keyword (`trigger_strategy`,
+  `indexing_service`, `mapping_service`, `metadata_service`, `assembler`,
+  `uploader`, `tracking_store`); `run()` returns a `RunReport` with
+  per-stage counters and elapsed time.
+- **`cmcourier.orchestrators.csv_trigger.RunReport`** — frozen+slots
+  dataclass with `batch_id`, `total_triggers`, `total_docs`, per-stage
+  `_done` / `_failed` counters, `s1_skipped_cross_batch`, and
+  `elapsed_seconds`. Counter invariant: `s(N)_done + s(N)_failed == s(N-1)_done`.
+- **Cross-batch idempotency** (REBIRTH §10): docs that are already at
+  `S5_DONE` in any **prior** batch are skipped silently — no
+  `migration_log` row in the new batch, no CMIS calls. Counts toward
+  `RunReport.s1_skipped_cross_batch` with an INFO log carrying
+  `reason="cross_batch_uploaded"`. If the doc is already at S5_DONE in
+  the **current** batch (idempotent rerun), the cross-batch skip does
+  NOT fire and the doc flows through stages with per-stage skip-checks.
+- **Stage-by-stage resume** (REBIRTH §10.3): `run(batch_id=..., from_stage=N)`
+  reuses an existing batch. S0+S1 still re-execute (re-read CSV, re-index
+  RVABREP) but the orchestrator filters the fresh S1 output through
+  `tracking_store.list_txn_nums_for_batch(batch_id)` — docs not in the
+  prior batch's scope are logged at INFO with `reason="resume_out_of_scope"`
+  and dropped. Within each stage, `is_stage_done` (new semantic — see
+  Changed) per-doc short-circuits the work for already-done docs.
+  Re-running with `from_stage=1` on a completed batch issues ZERO uploads.
+- **20 pipeline integration tests** in
+  `tests/integration/pipeline/test_csv_trigger_pipeline.py` across 9
+  groups: parameter validation, fresh full run, S1 error handling,
+  cross-batch skip, per-stage failures (S2/S3/S4/S5), resume (3 modes),
+  heterogeneous batch, S0 failure, healed-CIF propagation.
+  Branch coverage on `orchestrators/csv_trigger.py`: **96%**.
+- **Pipeline test harness** at `tests/integration/pipeline/conftest.py`:
+  wires every adapter / service from the existing fixture set, plus a
+  `register_cmis_for_docs(txn_nums)` helper that pre-stubs warmup /
+  folder creation / upload responses via the `responses` library. Each
+  test composes its scenario by writing a trigger CSV under `tmp_path`,
+  building a pipeline via the factory, and asserting on the `RunReport`
+  plus side effects in the tracking store.
+- **Pipeline RVABREP fixture** at `tests/fixtures/pipeline/rvabrep.csv` —
+  6 synthetic rows tailored to the orchestrator test scenarios
+  (happy path, unmapped id_rvi, missing files, metadata-source-fail,
+  CIF self-healing) and pointing at the assembly fixtures from change 009.
+- **`ITrackingStore.list_txn_nums_for_batch(batch_id) -> set[str]`** —
+  new abstract method. Returns the set of `rvabrep_txn_num` values in
+  `migration_log` for the given batch. Unknown batches return `set()`.
+  Implemented in `SQLiteTrackingStore` via
+  `SELECT DISTINCT rvabrep_txn_num FROM migration_log WHERE batch_id = ?`.
+- **`ITrackingStore.flush()` abstract method** — promoted from
+  `SQLiteTrackingStore` to the port. Orchestrators call this before any
+  read that depends on writes from the same run (the "read my own writes"
+  anchor). Synchronous implementations may make this a no-op.
+
+### Changed
+
+- **`SQLiteTrackingStore.is_stage_done(txn, batch_id, stage)`** semantic
+  changed from "row's `status` field equals exactly `stage.value`" to
+  "row has reached at least `stage` in this batch". Implementation now
+  uses an `IN (...)` clause against the set of statuses ≥ the requested
+  stage (e.g., `is_stage_done(S2_DONE)` returns True for rows currently
+  at S2_DONE, S3_PENDING, S3_DONE, S3_FAILED, …, S5_FAILED). The old
+  semantic was unusable for resume logic — after S5_DONE, every prior
+  `is_stage_done(S(N)_DONE)` would return False because the row's status
+  had moved on. Existing 007 tests still pass (they only check
+  immediately after `mark_stage_done`); two new tests in
+  `TestListTxnNumsForBatch` lock in the new semantic. **This is a
+  behavioral change but no public callers existed before this change.**
+- `src/cmcourier/orchestrators/__init__.py` re-exports
+  `CsvTriggerPipeline` and `RunReport`.
+- `src/cmcourier/domain/ports.py` gains two abstract methods on
+  `ITrackingStore` (above). `tests/unit/domain/test_ports.py` updated.
+
+### Verification
+
+- `pytest -v`: **337 / 337 pass** in ~58 s (314 from earlier changes + 20
+  pipeline tests + 2 SQLite port-amendment tests + 1 ports test).
+- `pytest --cov=src/cmcourier`: total branch coverage **96.07%**;
+  `orchestrators/csv_trigger.py` at **96%** (target ≥ 85%);
+  `adapters/tracking/sqlite.py` holds at **92%**.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 30 source files.
+- `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy
+  all pass.
+
+### Rationale
+
+- **First MVP pipeline**. Every adapter and service from changes 003-010
+  is now reachable through `CsvTriggerPipeline.run`. The only remaining
+  blocker before operators can run real migrations is the CLI + config
+  layer (Click command, Pydantic v2 config schema, YAML loader). That is
+  the next change, NOT this one.
+- **`is_stage_done` semantic redesign justified by real consumer**. The
+  exception's first real consumer (the orchestrator) needed "has the doc
+  reached at least stage N", not "is the doc currently at stage N
+  exactly". The old semantic was speculation — useful for 007's spec but
+  unusable for 011. Existing tests survived because they only checked
+  the state immediately after a transition. Changing the semantic in
+  one place (the adapter) avoids two competing methods on the port.
+- **Cross-batch is_uploaded skip checks the SAME batch first**. Without
+  this branch, idempotent re-runs (`run(batch_id=existing)`) would treat
+  every doc as cross-batch-skipped because `is_uploaded(txn)` queries
+  for `S5_DONE` in ANY batch, including the current one. The orchestrator
+  preempts this by first asking `is_stage_done(txn, batch_id, S1_DONE)`
+  for the current batch; if True, the doc flows through stages with
+  per-stage skip-checks. If False, `is_uploaded` is consulted for the
+  cross-batch case.
+- **Trigger-level errors stay out of `migration_log`**. `RVABREPNotFoundError`
+  and `RVABREPDeletedError` fire before any doc identity exists for the
+  trigger. Creating a row would force a fake `rvabrep_txn_num`. Logging
+  at WARNING with `shortname` + `system_id` is the right granularity;
+  trigger-level metrics (how many triggers, how many empty) come from
+  the `RunReport.total_triggers` vs `total_docs` ratio.
+- **`flush` is part of the port**. The orchestrator needs the
+  "read-your-writes" guarantee before reading state it just wrote
+  (`is_stage_done` after `mark_stage_done`). Making `flush` abstract
+  forces every implementation to declare its consistency model —
+  asynchronous stores block, synchronous stores no-op.
+- **Resume re-runs S0 + S1 wastefully**. The orchestrator re-reads the
+  trigger CSV and re-indexes RVABREP on every resume invocation. A
+  more efficient design (rehydrate (trigger, doc) state from
+  `migration_log` rows) would require storing more fields per row and
+  is a clear post-MVP optimization. The current cost is bounded by
+  batch size, and resume is an operator-driven action — not a hot path.
+- **Per-stage methods follow the same shape but are not abstracted**.
+  Constitution III rule of three: 5 similar `_stage_sN` bodies (~25
+  LOC each) is under the abstraction budget. Other pipelines (rvabrep,
+  as400, local-scan, single-doc) will reuse most of this shape — when
+  the 2nd pipeline lands, the orchestrator's stage skeleton becomes a
+  candidate for extraction.
 
 ---
 

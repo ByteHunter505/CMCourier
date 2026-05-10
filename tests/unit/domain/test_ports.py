@@ -59,6 +59,8 @@ class TestITrackingStoreContract:
                 "mark_stage_failed",
                 "start_batch",
                 "complete_batch",
+                "list_txn_nums_for_batch",
+                "flush",
                 "close",
             }
         )

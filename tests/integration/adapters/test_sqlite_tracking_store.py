@@ -402,3 +402,24 @@ class TestBatchFlushCap:
         conn.close()
         store.close()
         assert count == 600
+
+
+# ---------------------------------------------------------------------------
+# Group 8 — list_txn_nums_for_batch (011 port amendment)
+# ---------------------------------------------------------------------------
+
+
+class TestListTxnNumsForBatch:
+    def test_returns_distinct_txns_for_batch(self, store: SQLiteTrackingStore) -> None:
+        batch_id = store.start_batch(total_records=3)
+        for txn in ("TXN_A", "TXN_B", "TXN_C"):
+            store.mark_stage_pending(_make_record(batch_id, txn), StageStatus.S1_PENDING)
+        store.flush()
+        result = store.list_txn_nums_for_batch(batch_id)
+        store.close()
+        assert result == {"TXN_A", "TXN_B", "TXN_C"}
+
+    def test_unknown_batch_returns_empty_set(self, store: SQLiteTrackingStore) -> None:
+        result = store.list_txn_nums_for_batch("does-not-exist")
+        store.close()
+        assert result == set()

@@ -142,6 +142,27 @@ class ITrackingStore(ABC):
         """Mark the batch closed (no more rows will be added)."""
 
     @abstractmethod
+    def list_txn_nums_for_batch(self, batch_id: str) -> set[str]:
+        """Return every ``rvabrep_txn_num`` currently tracked under *batch_id*.
+
+        Used by orchestrators to scope resume runs: re-running S0+S1 may emit
+        documents that did not exist in the prior batch (e.g., the trigger CSV
+        changed). The orchestrator filters the fresh S1 output through this
+        set so only docs that belong to the prior batch are processed.
+
+        Unknown ``batch_id`` MUST return an empty set, NOT raise.
+        """
+
+    @abstractmethod
+    def flush(self) -> None:
+        """Block until pending writes are durable on disk.
+
+        Orchestrators call this before any read that depends on writes from
+        the same run (the "read my own writes" anchor). Synchronous
+        implementations MAY implement this as a no-op.
+        """
+
+    @abstractmethod
     def close(self) -> None:
         """Release any resources (writer thread, cursors, file handles)."""
 

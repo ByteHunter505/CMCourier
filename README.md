@@ -205,6 +205,8 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Eighth change: IndexingService (S1 — RVABREP lookup)
 - [x] Ninth change: PdfAssembler (S4 — img2pdf + Pillow/PyPDF2 fallback)
 - [x] Tenth change: CmisUploader (S5 — CMIS Browser Binding + retry policy + bandwidth limiter)
+- [x] Eleventh change: CsvTriggerPipeline orchestrator (S0..S6 end-to-end, library) — **MVP pipeline complete**
+- [ ] MVP CLI: `cmcourier csv-trigger-pipeline run --triggers <path>` (Click + Pydantic config)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
