@@ -74,7 +74,7 @@ class TestIAssemblerContract:
 class TestIUploaderContract:
     def test_abstract_methods(self) -> None:
         assert IUploader.__abstractmethods__ == frozenset(
-            {"ensure_folder", "upload", "test_connection"}
+            {"ensure_folder", "upload", "test_connection", "get_type_definition"}
         )
 
 

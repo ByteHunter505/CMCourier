@@ -207,6 +207,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Tenth change: CmisUploader (S5 — CMIS Browser Binding + retry policy + bandwidth limiter)
 - [x] Eleventh change: CsvTriggerPipeline orchestrator (S0..S6 end-to-end, library) — **MVP pipeline complete**
 - [x] Twelfth change: CLI + Pydantic config + YAML loader — **MVP CLI usable end-to-end**
+- [x] Thirteenth change: `cmcourier doctor` pre-flight (REBIRTH §10.5)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

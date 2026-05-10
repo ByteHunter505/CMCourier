@@ -220,6 +220,20 @@ class IUploader(ABC):
         """Verify the CM endpoint is reachable and the credentials are valid.
         Returns a dict of repository info for diagnostics."""
 
+    @abstractmethod
+    def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
+        """Return the CMIS typeDefinition for *object_type_id*.
+
+        Used by the pre-flight ``doctor`` command (REBIRTH §10.5) to verify
+        that every ``cm_object_type`` referenced by the Modelo Documental
+        exists on the CM server. Bypasses any retry policy — pre-flight
+        prefers fail-loud over retry-quietly.
+
+        Raises:
+            CMISClientError: 4xx (typically 404 for missing types).
+            CMISServerError: 5xx.
+        """
+
 
 # ---------------------------------------------------------------------------
 # S0Strategy — stage S0 (REBIRTH §10.1)

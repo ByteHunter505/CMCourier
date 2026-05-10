@@ -23,6 +23,7 @@ from pathlib import Path
 import click
 
 from cmcourier import __version__
+from cmcourier.cli.doctor import DoctorReport, run_doctor
 from cmcourier.cli.logging_setup import configure as configure_logging
 from cmcourier.config.loader import load_config, load_secrets
 from cmcourier.config.schema import PipelineConfig, TriggerCsvConfig
@@ -153,6 +154,52 @@ def _emit_summary(report: RunReport) -> None:
         f"s5_done={report.s5_done} "
         f"s5_failed={report.s5_failed} "
         f"elapsed_seconds={report.elapsed_seconds:.2f}"
+    )
+
+
+@main.command(name="doctor")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="Path to the pipeline YAML config file.",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(_LOG_LEVELS, case_sensitive=False),
+    default="INFO",
+    help="Logging level for stderr output.",
+)
+def doctor_command(config_path: Path, log_level: str) -> None:
+    """Run pre-flight validation (REBIRTH §10.5)."""
+    configure_logging(log_level)
+    try:
+        config = load_config(config_path)
+        secrets = load_secrets()
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+    try:
+        report = run_doctor(config, secrets)
+    except Exception:
+        _log.exception("doctor crashed unexpectedly")
+        sys.exit(3)
+    _emit_doctor_report(report)
+    sys.exit(1 if report.has_failures else 0)
+
+
+def _emit_doctor_report(report: DoctorReport) -> None:
+    for result in report.results:
+        click.echo(f"[{result.status.value}] {result.name} — {result.message}")
+        for key in sorted(result.details.keys()):
+            click.echo(f"    {key}={result.details[key]}")
+    click.echo(
+        f"{report.passed_count} passed, "
+        f"{report.failed_count} failed, "
+        f"{report.warn_count} warnings, "
+        f"{report.skip_count} skipped "
+        f"in {report.elapsed_seconds:.2f}s"
     )
 
 

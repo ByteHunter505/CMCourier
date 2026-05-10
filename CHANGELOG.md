@@ -13,7 +13,113 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Planned for next release
 
 - Additional pipelines (`rvabrep-pipeline`, `as400-trigger-pipeline`, `local-scan-pipeline`, `single-doc`) — each lands as its own change, differing only in the S0 strategy.
-- REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `doctor`, `inspect rvabrep/triggers`) — incremental.
+- REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`) — incremental.
+- Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
+
+---
+
+## [0.15.0] — 2026-05-10 — **pre-flight `doctor` command**
+
+Operators get a fast pre-flight check before the first real
+`csv-trigger-pipeline run`. A mis-configured pipeline that previously
+failed 5-30 s in (after side effects had started) now fails in under
+5 seconds with a structured report naming the specific check.
+
+### Added
+
+- **`cmcourier doctor --config <yaml>`** — new top-level Click command
+  (sibling of `csv-trigger-pipeline`). Runs 6 checks in order and
+  prints a `[STATUS] check_name — message` line per check, indented
+  details (`key=value`), and a summary line. Exit codes: 0 if no
+  FAIL (PASS/WARN/SKIP allowed), 1 on any FAIL, 2 on config error,
+  3 on unhandled exception.
+- **`cmcourier.cli.doctor`** module with:
+  - `CheckStatus` (`enum.StrEnum`): `PASS` / `FAIL` / `WARN` / `SKIP`.
+  - `CheckResult` (frozen+slots): `name`, `status`, `message`,
+    `details: Mapping[str, str]`.
+  - `DoctorReport` (frozen+slots): `results`, `elapsed_seconds`, plus
+    `passed_count` / `failed_count` / `warn_count` / `skip_count` /
+    `has_failures` properties.
+  - `run_doctor(config, secrets) -> DoctorReport` — entry point that
+    never raises; per-check exceptions become `FAIL` results.
+  - 6 private `_check_*` functions covering:
+    1. **`cmis_connectivity`** — warmup + repositoryInfo + non-empty
+       `repository_id`.
+    2. **`tracking_openable`** — `SQLiteTrackingStore` opens at the
+       configured `db_path` and closes cleanly.
+    3. **`mapping_completeness`** — Modelo Documental has ≥1 row
+       (WARN if zero, FAIL on adapter exception).
+    4. **`metadata_sources`** — every CSV alias has ≥1 row.
+    5. **`cm_type_alignment`** — every distinct `cm_object_type` in
+       the mapping resolves via CMIS `getTypeDefinition`. Surfaces
+       ALL missing types in one pass. SKIPped if check 1 FAILed.
+    6. **`sample_dry_run`** — manually walks S1→S2→S3→S4 on the first
+       trigger's first doc, no upload. Cleans up the staged PDF on
+       success. SKIPped if zero triggers or zero docs.
+- **`IUploader.get_type_definition(object_type_id) -> Mapping[str, Any]`**
+  — new abstract method. `CmisUploader` implements via
+  `GET {base_url}/{repo_id}?cmisselector=typeDefinition&typeId=<id>`.
+  Bypasses the retry loop — pre-flight prefers fail-loud over
+  retry-quietly. Raises `CMISClientError` on 4xx (typically 404 for
+  missing types) and `CMISServerError` on 5xx.
+- **12 integration tests** in `tests/integration/cli/test_doctor.py`
+  covering happy path, every check's failure mode, and CLI exit
+  codes. Plus 3 new `TestGetTypeDefinition` tests in
+  `tests/integration/adapters/test_cmis_uploader.py`.
+
+### Changed
+
+- `IUploader` port gains one abstract method (`get_type_definition`).
+  `tests/unit/domain/test_ports.py` updated to include it in the
+  abstract-method set.
+- `src/cmcourier/cli/app.py` gains the `doctor` command + a small
+  `_emit_doctor_report(report)` helper.
+
+### Verification
+
+- `pytest -v`: **395 / 395 pass** in ~65 s (380 from earlier + 15
+  new: 12 doctor + 3 type-definition).
+- `pytest --cov=src/cmcourier`: total branch coverage **95.94%**.
+  `cli/doctor.py` at **93%**; `adapters/upload/cmis_uploader.py`
+  at **94%**.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 35 source files.
+- `pre-commit run --all-files`: clean.
+- Smoke: `cmcourier doctor --help` lists `--config` and `--log-level`.
+
+### Rationale
+
+- **Pre-flight or pre-flight**: every operational failure mode
+  reachable at validation time is. A 5-second SKIP at the
+  trigger-CSV-empty case beats a 60-second batch-load that aborts
+  mid-S2.
+- **`get_type_definition` bypasses retry**. A 5xx during pre-flight
+  is worth surfacing immediately; if it's flaky, the operator
+  re-runs doctor — that's the equivalent of "retry once" but with
+  human judgement attached. Production uploads still benefit from
+  the retry policy.
+- **`cm_type_alignment` surfaces ALL missing types** (not
+  short-circuit). Operators fix multiple gaps in one round-trip
+  instead of running doctor seven times.
+- **`sample_dry_run` walks S1-S4 manually**, NOT via the
+  orchestrator. The orchestrator would open the tracking store,
+  call `start_batch`, etc. — irrelevant side effects for a
+  read-only validation. The dry-run accesses the pipeline's
+  private collaborator fields (`_trigger_strategy`,
+  `_indexing_service`, etc.) — an intentional internal coupling
+  that the doctor pays for in exchange for not duplicating the
+  full wiring logic from `build_pipeline`.
+- **Staged PDF cleaned up**. `contextlib.suppress(OSError)` around
+  the unlink keeps doctor as close to "leaves no artifacts" as the
+  filesystem allows.
+- **No `--skip-doctor` flag on `run`**. Doctor is opt-in. Forcing
+  it into the run loop adds latency to every iteration and couples
+  two commands; operators run doctor when they want, not as a
+  retried side-effect.
+- **AS400 connectivity SKIPped**. The adapter doesn't exist yet;
+  silently reporting SKIP is honest. When AS400 lands, doctor
+  picks up the check by reading `config.cmis` vs a future
+  `config.as400`.
 
 ---
 

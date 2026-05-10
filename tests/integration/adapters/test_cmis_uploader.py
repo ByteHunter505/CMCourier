@@ -597,3 +597,70 @@ class TestLoggingDiscipline:
         for record in caplog.records:
             assert sensitive not in record.getMessage()
             assert sensitive not in str(record.__dict__.get("extra", ""))
+
+
+# ---------------------------------------------------------------------------
+# Group 10 — get_type_definition (REBIRTH §10.5 pre-flight)
+# ---------------------------------------------------------------------------
+
+
+class TestGetTypeDefinition:
+    @responses.activate
+    def test_200_returns_parsed_dict(self) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.GET,
+            _repo_info_url(),
+            json={"id": "$t!-2_BAC_01_02_04_01_01v-1", "displayName": "Auth SMS"},
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {
+                        "cmisselector": "typeDefinition",
+                        "typeId": "$t!-2_BAC_01_02_04_01_01v-1",
+                    }
+                )
+            ],
+        )
+        uploader = CmisUploader(_make_config())
+        result = uploader.get_type_definition("$t!-2_BAC_01_02_04_01_01v-1")
+        assert result["id"] == "$t!-2_BAC_01_02_04_01_01v-1"
+        assert result["displayName"] == "Auth SMS"
+
+    @responses.activate
+    def test_404_raises_client_error(self) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.GET,
+            _repo_info_url(),
+            json={"error": "type not found"},
+            status=404,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "typeDefinition", "typeId": "MISSING"}
+                )
+            ],
+        )
+        uploader = CmisUploader(_make_config())
+        with pytest.raises(CMISClientError) as ei:
+            uploader.get_type_definition("MISSING")
+        assert ei.value.status_code == 404
+
+    @responses.activate
+    def test_500_raises_server_error(self) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.GET,
+            _repo_info_url(),
+            json={"error": "boom"},
+            status=500,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "typeDefinition", "typeId": "X"}
+                )
+            ],
+        )
+        uploader = CmisUploader(_make_config())
+        with pytest.raises(CMISServerError) as ei:
+            uploader.get_type_definition("X")
+        assert ei.value.status_code == 500

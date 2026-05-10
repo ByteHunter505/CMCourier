@@ -159,6 +159,26 @@ class CmisUploader:
             "vendor_name": str(data.get("vendorName", "")),
         }
 
+    def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
+        """GET cmisselector=typeDefinition&typeId=<id>. Bypasses the retry loop."""
+        if not self._warm:
+            self._warmup_session()
+        resp = self._session.get(
+            f"{self._cfg.base_url}/{self._cfg.repo_id}",
+            params={"cmisselector": "typeDefinition", "typeId": object_type_id},
+            timeout=self._cfg.timeout_seconds,
+        )
+        body = _truncate(resp.text)
+        if resp.status_code >= 500:
+            raise CMISServerError(status_code=resp.status_code, response_body=body)
+        if resp.status_code >= 400:
+            raise CMISClientError(status_code=resp.status_code, response_body=body)
+        try:
+            data = resp.json()
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
     def ensure_folder(self, folder_path: str) -> None:
         """Create ``folder_path`` recursively. Idempotent + cached."""
         segments = [
