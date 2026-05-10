@@ -324,6 +324,7 @@ class TestMigrationRecord:
             "trigger_system_id": "1",
             "rvabrep_txn_num": "123456789",
             "rvabrep_file_name": "DAAAH9X4.001",
+            "batch_id": "batch-test-001",
             "status": StageStatus.S1_PENDING,
             "created_at": datetime(2025, 11, 17, 10, 30),
         }
@@ -336,6 +337,20 @@ class TestMigrationRecord:
         assert r.cm_folder is None
         assert r.error_message is None
         assert r.retry_count == 0
+        assert r.batch_id == "batch-test-001"
+
+    def test_batch_id_is_required(self) -> None:
+        # MigrationRecord.batch_id has no default — omission must raise TypeError.
+        with pytest.raises(TypeError):
+            MigrationRecord(  # type: ignore[call-arg]
+                trigger_shortname="JUANPEREZ01",
+                trigger_cif="123456",
+                trigger_system_id="1",
+                rvabrep_txn_num="123456789",
+                rvabrep_file_name="DAAAH9X4.001",
+                status=StageStatus.S1_PENDING,
+                created_at=datetime(2025, 11, 17, 10, 30),
+            )
 
     def test_construction_with_optional(self) -> None:
         r = self._build(

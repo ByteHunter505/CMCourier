@@ -201,7 +201,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Fourth change: first service (MappingService over Modelo Documental)
 - [x] Fifth change: MetadataService (fallback chain + CIF self-healing)
 - [x] Sixth change: S0 trigger strategies (CSV + direct_rvabrep + stubs)
-- [ ] Seventh change: SQLite tracking store (idempotency + per-stage state)
+- [x] Seventh change: SQLite tracking store (idempotency + per-stage state)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

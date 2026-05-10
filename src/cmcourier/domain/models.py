@@ -257,6 +257,7 @@ class MigrationRecord:
     trigger_system_id: str
     rvabrep_txn_num: str
     rvabrep_file_name: str
+    batch_id: str
     status: StageStatus
     created_at: datetime
 
