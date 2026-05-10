@@ -54,6 +54,7 @@ See [`docs/how-to/README.md`](how-to/README.md) for the index of how-to guides a
 See [`docs/explanation/README.md`](explanation/README.md) for the index of explanations and the naming convention.
 
 - *(none yet — this section grows as architectural concepts get standalone walkthroughs; the comprehensive explanation lives in `docs/domain/CMCOURIER_REBIRTH.md`)*
+- Future: `docs/explanation/tabular-data-source.md` (deferred — the spec/plan in `specs/003-tabular-data-source-adapter/` is sufficient for now)
 
 ---
 

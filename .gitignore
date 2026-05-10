@@ -71,3 +71,6 @@ Thumbs.db
 
 # pyenv
 .python-version
+
+# Generated XLSX test fixtures (deterministic regeneration via tests/conftest.py)
+tests/fixtures/sources/*.xlsx
