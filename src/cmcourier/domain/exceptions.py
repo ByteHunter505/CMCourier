@@ -110,16 +110,23 @@ class RVABREPNotFoundError(IndexingError):
 
 
 class RVABREPDeletedError(IndexingError):
-    """RVABREP row exists but is marked deleted (``ABACST`` non-empty)."""
+    """Every RVABREP row matching the trigger is marked deleted (``ABACST`` non-empty).
 
-    def __init__(self, *, txn_num: str, delete_code: str) -> None:
+    Raised by stage S1 when ``(shortname, system_id)`` returns one or more
+    rows but all of them carry a non-empty delete code. ``deleted_count`` is
+    the number of deleted rows seen.
+    """
+
+    def __init__(self, *, shortname: str, system_id: str, deleted_count: int) -> None:
         super().__init__(
-            "RVABREP record is marked deleted",
-            txn_num=txn_num,
-            delete_code=delete_code,
+            "Every RVABREP record for the trigger is marked deleted",
+            shortname=shortname,
+            system_id=system_id,
+            deleted_count=deleted_count,
         )
-        self.txn_num = txn_num
-        self.delete_code = delete_code
+        self.shortname = shortname
+        self.system_id = system_id
+        self.deleted_count = deleted_count
 
 
 class RVABREPDuplicateError(IndexingError):

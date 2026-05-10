@@ -12,7 +12,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- First MVP orchestrator wiring S0..S6 together. The tracking store, mapping service, metadata service, and trigger strategies are all in place; the next change connects them into the first runnable pipeline command.
+- First MVP orchestrator wiring S0..S6 together. The service triangle (S1 IndexingService, S2 MappingService, S3 MetadataService) plus S0 trigger strategies and S6 tracking store are all in place; the next change connects them into the first runnable pipeline command.
+
+---
+
+## [0.10.0] — 2026-05-10
+
+### Added
+
+- **`cmcourier.services.indexing.IndexingService`** — concrete Stage S1 (REBIRTH §10.1). Given a `TriggerRecord`, returns every non-deleted `RVABREPDocument` matching `(shortname, system_id)`. CIF is intentionally NOT a filter — CIF self-healing is the responsibility of Stage S3 (REBIRTH §6.5).
+- **Two public APIs**: `find_documents(trigger) -> list[RVABREPDocument]` raises `RVABREPNotFoundError` / `RVABREPDeletedError` / `IndexingError`; `find_documents_batch(triggers) -> Iterator[(trigger, list)]` yields one pair per input trigger with empty lists on miss (silent — orchestrators decide semantics). Batched API chunks input into IN-list batches of 50 (REBIRTH §10.1) issuing one `get_by_fields_in` call per chunk.
+- **`cmcourier.services.indexing.IndexingColumnsConfig`** — frozen+slots dataclass mapping adapter row keys onto `RVABREPDocument` fields. Defaults match REBIRTH §3.2 physical column names verbatim (`ABABCD`, `ABAACD`, `ABAANB`, `ABACST`, `ABAHCD` = id_rvi, …); tests override every column to the CSV fixture's friendly names.
+- **Duplicate `txn_num` handling**: WARNING log + first-wins (mirrors MappingService's REBIRTH §4.3 precedent). No exception is raised. Production data quality issues surface in logs, not in the pipeline's error path.
+- **Row coercion**: `creation_date` parses via `parse_cymmdd`; `last_view_date` of `'0'` or `''` becomes `None`; `total_pages` coerces to `int` with empty/`None` → `0`; every other field is `str()`-coerced defensively against pandas / pyodbc returning native ints.
+- **22 unit tests** in `tests/unit/services/test_indexing.py` across 7 groups (construction, single-trigger, duplicates, batched, coercion, error wrap, logging). Branch coverage on `services/indexing.py`: **96%** (target ≥ 95%).
+- **1 fixture CSV** under `tests/fixtures/services/rvabrep_index_sample.csv`: 15 synthetic rows covering vanilla multi-match, fully-deleted, mixed-deleted, duplicate txn_num, same-shortname-across-systems, `last_view_date='0'` / `''`, PDF and paged variants.
+
+### Changed
+
+- `src/cmcourier/services/__init__.py` re-exports `IndexingService` and `IndexingColumnsConfig` (alongside the prior 15 public symbols).
+- **`cmcourier.domain.exceptions.RVABREPDeletedError`** amended from `(txn_num, delete_code)` to `(shortname, system_id, deleted_count)`. The exception's first real consumer (IndexingService) describes the SET case "every matching row is deleted", not "this specific record is deleted". `tests/unit/domain/test_exceptions.py` updated to assert the new shape. No production code uses the old signature.
+
+### Verification
+
+- `pytest -v`: **270 / 270 pass** in ~24 s (248 from earlier changes + 22 new).
+- `pytest --cov=src/cmcourier`: total branch coverage **96.40%**; `services/indexing.py` at **96%**.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 27 source files.
+- `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
+
+### Rationale
+
+- **Closes the service triangle**. Mapping (S2, change 004), Metadata (S3, change 005), and now Indexing (S1) are the three services every CMCourier pipeline relies on. With this change, the next milestone is the first orchestrator that wires S0..S6 end-to-end.
+- **CIF is NOT a filter here**. REBIRTH §6.5 makes CIF self-healing a Stage S3 responsibility — adding CIF to the WHERE clause would either reject legitimate documents (when the trigger's CIF is missing) or duplicate CIF resolution logic across two stages. Single source of truth wins.
+- **Batched API yields empty on miss, not raises**. Single-trigger callers (single-doc pipeline, doctor command) want typed errors. Orchestrator callers want to keep processing the batch — a missing trigger becomes a tracking event, not an exception that aborts the iterator. The two APIs express the two semantics cleanly.
+- **One `get_by_fields_in` per chunk, Python-side grouping by `(shortname, system_id)`**: triggers in the same chunk may have different `system_id`s, so passing `system_id` as a fixed filter would over-restrict. The over-fetch is bounded (cardinality of shortnames across systems is small in practice).
+- **`RVABREPDeletedError` amendment is justified**: the exception's original `(txn_num, delete_code)` shape modeled a single-doc workflow that hadn't shipped. The set-semantic shape `(shortname, system_id, deleted_count)` matches the actual S1 use case where "every matching row is deleted" is the failure surface. The single-doc pipeline, when it lands, can introduce a separate exception (or extend this one additively) without churn.
+- **Logging discipline (Constitution VIII)**: the WARNING for duplicate txn_num carries `shortname` and `duplicate_count` in `extra`, never the values of `cif` / `index2..6`. The test in `TestLoggingDiscipline` asserts that the CIF value `'456789'` from the duplicate fixture row never appears in any log record.
 
 ---
 

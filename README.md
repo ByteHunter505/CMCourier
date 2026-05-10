@@ -202,6 +202,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Fifth change: MetadataService (fallback chain + CIF self-healing)
 - [x] Sixth change: S0 trigger strategies (CSV + direct_rvabrep + stubs)
 - [x] Seventh change: SQLite tracking store (idempotency + per-stage state)
+- [x] Eighth change: IndexingService (S1 — RVABREP lookup)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

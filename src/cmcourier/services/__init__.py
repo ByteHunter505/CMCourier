@@ -13,6 +13,8 @@ __all__ = [
     "CsvTriggerStrategy",
     "DirectRvabrepTriggerStrategy",
     "FieldSourceConfig",
+    "IndexingColumnsConfig",
+    "IndexingService",
     "LocalScanTriggerStrategy",
     "MappingColumnsConfig",
     "MappingService",
@@ -25,6 +27,7 @@ __all__ = [
     "ValidationConfig",
 ]
 
+from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
 from cmcourier.services.metadata import (
     FieldSourceConfig,

@@ -104,10 +104,11 @@ class TestStructuredContext:
         assert "JUANPEREZ01" in str(exc)
 
     def test_rvabrep_deleted(self) -> None:
-        exc = RVABREPDeletedError(txn_num="999", delete_code="D")
-        assert exc.txn_num == "999"
-        assert exc.delete_code == "D"
-        assert "999" in str(exc)
+        exc = RVABREPDeletedError(shortname="JUANPEREZ01", system_id="1", deleted_count=3)
+        assert exc.shortname == "JUANPEREZ01"
+        assert exc.system_id == "1"
+        assert exc.deleted_count == 3
+        assert "JUANPEREZ01" in str(exc)
 
     def test_source_failed(self) -> None:
         exc = SourceFailedError(field_name="BAC_CIF", source="rvabrep")
