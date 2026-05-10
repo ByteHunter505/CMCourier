@@ -12,7 +12,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- Sixth implementation change (`006-trigger-service`): `TriggerService` over the four trigger source modes (`csv`, `as400`, `direct_rvabrep`, `local_scan` — REBIRTH §5.1). Strategy pattern with one concrete strategy per mode. Foundation for stage S0 of every pipeline.
+- Seventh implementation change (`007-sqlite-tracking-store`): concrete `ITrackingStore` impl via stdlib `sqlite3`. Idempotency layer required before any orchestrator can run a real batch. WAL mode + per-stage state machine + cross-batch is_uploaded anchor.
+
+---
+
+## [0.8.0] — 2026-05-10
+
+### Added
+
+- **`cmcourier.services.triggers.csv.CsvTriggerStrategy`** — concrete `S0Strategy` over any tabular `IDataSource`. Validates required columns at first row; treats blank `CIF` as `None` (CIF self-healing in stage S3 covers it); skips rows with blank `shortname`/`system_id` with an INFO log of the count. Lazy iteration.
+- **`cmcourier.services.triggers.direct_rvabrep.DirectRvabrepTriggerStrategy`** — concrete `S0Strategy` that scans RVABREP itself, with optional `RvabrepFilters(systems, document_types)`. Picks the smaller filter for the IN-list query and rejects the other in Python during iteration. Deduplicates `(shortname, system_id)` pairs (first occurrence wins, matching REBIRTH §4.3 / MappingService precedent).
+- **`cmcourier.services.triggers.stubs.{As400TriggerStrategy, LocalScanTriggerStrategy}`** — concrete `S0Strategy` placeholders. Constructor succeeds; `acquire()` raises `NotImplementedError` with messages naming the missing dependency. Same late-fail pattern used for `as400:<alias>` in 005.
+- **3 frozen+slots config dataclasses**: `CsvTriggerColumnsConfig` (defaults match REBIRTH §12 trigger config — `ShortName`, `CIF`, `SystemID`), `RvabrepColumnsConfig` (defaults match RVABREP physical columns from §3.2 — `ABABCD`, `ABACCD`, `ABAACD`, `ABAHCD`), `RvabrepFilters`.
+- **21 unit tests** in `tests/unit/services/test_trigger_strategies.py` (3 test classes covering CSV, RVABREP, stubs). All using real `TabularDataSource` over CSV fixtures. Branch coverage on `services/triggers/*`: **100%**.
+- **4 fixture CSVs** under `tests/fixtures/services/triggers/`: `trigger_list.csv` (5 rows incl. blanks), `trigger_list_alt_columns.csv` (custom column names), `trigger_list_missing_col.csv` (validates required-column error), `rvabrep_export.csv` (8 rows, 4 unique pairs after dedup).
+
+### Changed
+
+- `src/cmcourier/services/__init__.py` re-exports the 7 new public symbols from `triggers/` (in addition to the 8 from `mapping`/`metadata`).
+
+### Verification
+
+- `pytest -v`: **222 / 222 pass** in ~3 s (201 from earlier changes + 21 new).
+- `pytest --cov`: total project branch coverage holds at ≥94%; `services/triggers/*` at **100%**.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.services.*`: clean across 25 source files.
+- `pre-commit run --all-files`: clean.
+
+### Rationale
+
+- Stage S0 (Trigger Acquisition) is the entry point of every pipeline. With S0 unimplemented, no orchestrator could run end-to-end. This change ships the two real strategies needed for the MVP pipelines (`rvabrep-pipeline`, `csv-trigger-pipeline`) and gates the other two with explicit stubs that document the missing dependency.
+- **No `TriggerService` wrapper class.** The `S0Strategy` port already represents the trigger-acquisition abstraction; orchestrators in future changes instantiate the appropriate strategy directly per pipeline. The strategies ARE the service.
+- The `source_descriptor` parameter on `S0Strategy.acquire()` is silently ignored by every strategy. It's a vestigial port parameter from 002; refining the port to remove it is out of scope (would require an amendment to 002's spec).
+- Stubs raise at `acquire()`, not at construction. That lets orchestrators dispatch to them with valid wiring and surface the "missing dependency" error to operators only when the strategy is actually used.
 
 ---
 
