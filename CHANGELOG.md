@@ -12,7 +12,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- First MVP orchestrator wiring S0..S6 together. The service triangle (S1 IndexingService, S2 MappingService, S3 MetadataService) plus S0 trigger strategies and S6 tracking store are all in place; the next change connects them into the first runnable pipeline command.
+- Stage S5 (CMIS upload) adapter, OR the first MVP orchestrator wiring S0..S6 together (with a stub uploader if S5 has not yet shipped). With S4 (assembly) now in place, only one adapter remains before the `rvabrep-pipeline` command can run end-to-end against staging.
+
+---
+
+## [0.11.0] — 2026-05-10
+
+### Added
+
+- **`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler`** — concrete `IAssembler` for Stage S4 (REBIRTH §7). Dispatches on `RVABREPDocument.is_pdf`: native PDFs pass through via `shutil.copy2` to `{temp_dir}/{txn_num}.pdf` with `page_count` read from `doc.total_pages` (we trust RVABREP, do not parse the PDF); paged documents are glob-discovered, sorted by `int(extension)` to handle variable padding (REBIRTH §3.4), and merged via `img2pdf.convert` (fast path) with a `PIL.Image` + `PyPDF2.PdfMerger` fallback for mixed-content edge cases.
+- **`cmcourier.adapters.assembly.pdf_assembler.AssemblerConfig`** — frozen+slots dataclass exposing `source_root`, `temp_dir`, and `image_type_map` (defaults from REBIRTH §7.5 — `B → image/tiff`, `O → application/pdf`, `C → image/jpeg`).
+- **OneDrive temp-dir trap** (REBIRTH §7.4): if `temp_dir` resolves to a `./tmp` variant (`tmp`, `./tmp`, `tmp/`, `.\\tmp`), the assembler diverts to `Path(tempfile.gettempdir()) / "cmcourier_tmp"` and creates the dir at construction time. Constants `_ONEDRIVE_TRAP_VARIANTS` and `_DIVERTED_DIR_NAME` live as module-level frozensets.
+- **Page discovery semantics**: glob `FILECODE.*` in the source directory, filter to entries whose extension is purely numeric (`str.isdigit`), sort by `int(extension)`. The native PDF extension `.PDF` is excluded by the digit filter. Missing source dir or zero numeric pages raises `SourceFileMissingError(file_path=...)`. A discovered/expected mismatch emits a `WARNING` log naming `txn_num` + counts but does NOT raise — the filesystem is the source of truth.
+- **Dual-path assembly**: img2pdf primary, Pillow + PyPDF2 fallback. The fallback opens each page via `PIL.Image`, converts to RGB if necessary (mode `1` TIFFs cannot save as PDF directly), writes each page as a single-page PDF into a `BytesIO`, and merges via `PdfMerger`. If both paths fail, the assembler raises `PDFAssemblyFailedError(txn_num=..., reason=...)` with the secondary exception as `__cause__`.
+- **18 integration tests** in `tests/integration/adapters/test_pdf_assembler.py` across 9 groups: construction, native passthrough, paged happy path (TIFF + JPEG + variable padding + unrelated-PDF exclusion), page-count mismatch WARNING, source-files missing, fallback path (monkey-patched img2pdf), both-paths-fail, output validation (PyPDF2 reader inspection), logging discipline. Branch coverage on `pdf_assembler.py`: **98%** (target ≥ 90%).
+- **`tests/integration/adapters/conftest.py`** — session-scoped autouse fixture generator using Pillow to materialize the binary fixtures (TIFF / JPEG / PDF) under `tests/fixtures/assembly/`. Idempotent (skips existing files). Generated binaries are gitignored.
+- **`.gitignore`** updated with patterns for the generated assembly fixtures (`tests/fixtures/assembly/**/*.{pdf,PDF,tif,tiff,jpg,jpeg}` plus numeric-extension page files like `.001`, `.10`, `.540`).
+
+### Changed
+
+- `src/cmcourier/adapters/assembly/__init__.py` re-exports `PdfAssembler` and `AssemblerConfig`.
+
+### Verification
+
+- `pytest -v`: **288 / 288 pass** in ~33 s (270 from earlier changes + 18 new).
+- `pytest --cov=src/cmcourier`: total branch coverage **96.55%**; `adapters/assembly/pdf_assembler.py` at **98%**.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 28 source files (the existing `img2pdf` / `PyPDF2` `ignore_missing_imports` blocks in `pyproject.toml` cover the new module's third-party imports).
+- `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
+
+### Rationale
+
+- **Stage S4 is self-contained** — filesystem only, no network, no AS400. With S4 shipping, the only remaining adapter for the MVP `rvabrep-pipeline` is S5 (CMIS upload). Tracking + service triangle + S0 strategies are all already in place.
+- **Both assembly paths included in MVP** (per user direction): the Pillow/PyPDF2 fallback adds ~30 LOC and ~2 tests but exercises real `PIL` + `PyPDF2` code under a monkey-patched img2pdf, so the adapter is "fit for purpose" from v1 without leaving a half-shipped fallback to wire up later.
+- **`page_count` comes from `doc.total_pages` for native PDFs, from the glob result for paged docs**. Parsing the native PDF would be extra IO with no business value — RVABREP is the authority for the document's intended page count, and the staged PDF is what we ship to CM regardless.
+- **Page-count mismatch is a WARNING, not an error**. The filesystem is the source of truth. If a paged document has 540 pages claimed in RVABREP but only 539 on disk, the migration still ships 539 — refusing would block real production data. Operators see the WARNING in tier-2 logs and investigate offline.
+- **OneDrive trap baked into the constructor** (not a callable utility) because misconfiguration here destroys throughput silently (locked files, retry storms). Catching it at construction surfaces the diversion immediately in startup logs; tier-3 ops can grep for `temp_dir` divergence.
+- **Synthetic-fixture pattern** mirrors change 005 (xlsx generation in `tests/conftest.py`) — binary blobs stay out of git history; regeneration is sub-second and deterministic. This keeps repo size flat and avoids merge conflicts on opaque binaries.
+- **PyPDF2 v3 deprecation warning** (`PyPDF2 is deprecated. Please move to the pypdf library instead.`) is acknowledged but accepted for now. A follow-up change can migrate to `pypdf` without touching the assembler's public API; the migration is a constitutional amendment of the `Constraints` section, not a domain change.
 
 ---
 

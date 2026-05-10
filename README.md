@@ -203,6 +203,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Sixth change: S0 trigger strategies (CSV + direct_rvabrep + stubs)
 - [x] Seventh change: SQLite tracking store (idempotency + per-stage state)
 - [x] Eighth change: IndexingService (S1 — RVABREP lookup)
+- [x] Ninth change: PdfAssembler (S4 — img2pdf + Pillow/PyPDF2 fallback)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
