@@ -198,7 +198,8 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] First change: Python skeleton bootstrap
 - [x] Second change: domain models, ports, exceptions
 - [x] Third change: first concrete adapter (Tabular CSV+XLSX data source)
-- [ ] Fourth change: AS400 data source adapter
+- [x] Fourth change: first service (MappingService over Modelo Documental)
+- [ ] Fifth change: MetadataService (fallback chain + CIF self-healing)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
