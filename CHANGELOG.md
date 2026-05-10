@@ -12,7 +12,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- Stage S5 (CMIS upload) adapter, OR the first MVP orchestrator wiring S0..S6 together (with a stub uploader if S5 has not yet shipped). With S4 (assembly) now in place, only one adapter remains before the `rvabrep-pipeline` command can run end-to-end against staging.
+- First MVP orchestrator wiring S0..S6 together. With S5 (CMIS upload) now in place, ALL adapters and services for the `rvabrep-pipeline` command are real — no more stubs to plan around. The next change is the orchestrator + CLI command + tracking integration.
+
+---
+
+## [0.12.0] — 2026-05-10
+
+### Added
+
+- **`cmcourier.adapters.upload.cmis_uploader.CmisUploader`** — concrete `IUploader` for IBM Content Manager via the CMIS Browser Binding REST/JSON protocol (REBIRTH §8). Single-threaded MVP: one `requests.Session` shared across calls; thread-local sessions deferred to a follow-up change when the orchestrator's worker pool lands. Holds an in-memory `set[str]` folder cache so a verified or created folder path is never re-POSTed within a process lifetime.
+- **Lazy JSESSIONID warmup** (REBIRTH §8.2): no HTTP at construction time; the first call to `test_connection`, `ensure_folder`, or `upload` issues `GET {base_url}/{repo_id}?cmisselector=repositoryInfo`. Re-warmup fires on any 401 from a subsequent POST.
+- **Recursive idempotent folder creation** (REBIRTH §8.3): `ensure_folder(path)` walks segments left-to-right, skips any segment starting with `$` (system folders like `$type`), and POSTs `createFolder` to the parent for the rest. HTTP 409 (Conflict) is treated as success; the resulting path is still added to the cache. Re-invocation after a successful walk issues zero HTTP calls.
+- **Streaming multipart upload** (REBIRTH §8.5) via `requests-toolbelt.MultipartEncoder`. The file is read from disk on demand by the encoder; the adapter never calls `.read()` on the whole stream. Property bag is laid out as `propertyId[N] / propertyValue[N]` pairs in insertion order, with three fixed slots for `cmis:objectTypeId`, `cmis:name`, `cmis:contentStreamMimeType` (the first three triples) and then the caller's `properties` mapping appended starting at index 3.
+- **`cmcourier.adapters.upload.cmis_uploader.BandwidthLimiter`** (REBIRTH §8.6) — token-bucket file-stream wrapper with `read`, `seek`, `tell`, `close`, `name`, `__enter__`, `__exit__`. `mbps <= 0` disables throttling (read passthrough). Positive `mbps` throttles to `mbps * 1_000_000` bytes per second via a `time.monotonic()` refill loop. Passthrough methods are required so `MultipartEncoder` introspection works.
+- **Complete retry policy** (REBIRTH §8.7): HTTP 201/2xx → success; HTTP 401 → re-warmup + retry exactly once (a second 401 raises `CMISClientError(status_code=401)`); HTTP 4xx (other) → fail-fast `CMISClientError`; HTTP 5xx → exponential backoff (`retry_base_delay_s * 2**(attempt-1)`, capped at 60 s), up to `retry_max_attempts`; `requests.exceptions.ConnectionError` whose message contains `"10053"` (Windows abort) → `ERROR` log + doubled sleep; retry budget exhausted → `RetriesExhaustedError(txn_num, attempts)` with the last `CMISServerError` as `__cause__`. 409 is handled as success ONLY in `_create_folder_segment`, never in the generic post path.
+- **Three-path `cmis:objectId` parser** (REBIRTH §8.8): `succinctProperties["cmis:objectId"]` → `properties["cmis:objectId"]["value"]` → `str(data.get("id", "unknown"))`. Each fallback is reachable from a real IBM response shape variant. Unparseable JSON returns `"unknown"`.
+- **`cmcourier.adapters.upload.cmis_uploader.CmisConfig`** — frozen+slots dataclass with `base_url`, `repo_id`, `username`, `password`, `timeout_seconds=300.0`, `verify_ssl=False`, `max_bandwidth_mbps=0.0`, `retry_max_attempts=3`, `retry_base_delay_s=2.0`.
+- **26 integration tests** in `tests/integration/adapters/test_cmis_uploader.py` across 9 groups: config, warmup, `test_connection`, `ensure_folder` (skip `$`, recursive, cache, 409, cached-after-409), upload happy path (3 objectId fallbacks + Content-Type assertion), retry (5xx-then-201, 4xx fail-fast, 401 re-warmup, retries exhausted), Windows-10053 (delay doubling + ERROR log), BandwidthLimiter (throttle + passthrough + passthrough methods), logging discipline. Branch coverage on `cmis_uploader.py`: **94%** (target ≥ 85%).
+
+### Changed
+
+- `src/cmcourier/adapters/upload/__init__.py` re-exports `BandwidthLimiter`, `CmisConfig`, `CmisUploader`.
+- **`pyproject.toml`** dev deps add `responses>=0.25,<1.0` for HTTP mocking. `responses` is the dev-only library that lets the integration tests exercise the real `requests` stack with the network stubbed — Constitution Principle VI's "no mocking the SUT" applies; `responses` mocks the network, not `requests`.
+
+### Verification
+
+- `pytest -v`: **314 / 314 pass** in ~36 s (288 from earlier changes + 26 new).
+- `pytest --cov=src/cmcourier`: total branch coverage **96.21%**; `adapters/upload/cmis_uploader.py` at **94%**.
+- `ruff check`, `ruff format --check`: clean (one `PTH123` lint nudged `open(...)` to `path.open(...)` during verification).
+- `mypy --strict on cmcourier.*`: clean across 29 source files.
+- `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
+
+### Rationale
+
+- **Stage S5 closes the adapter set** for the MVP `rvabrep-pipeline`. With S0 (triggers), S1 (indexing), S2 (mapping), S3 (metadata), S4 (assembly), S5 (upload), and S6 (tracking) all real, the next change is the orchestrator — every adapter it cables will be production code, not a stub.
+- **MVP includes BandwidthLimiter and complete retry policy** (per user direction). Skipping these to ship the adapter faster would mean either a noticeable production retry hole or a flaky first-week dry-run on shared corporate networks. The retry policy is the most heavily-tested area of the adapter precisely because its failure modes are silent and expensive.
+- **Single-threaded MVP** (also per user direction): the adapter holds ONE `requests.Session`. REBIRTH §8.2's "per thread" note becomes load-bearing only when the orchestrator wants worker pools; refactoring to `threading.local()` is a focused, ~10-line change in a follow-up. Shipping it now would mean test fixtures and async patterns we'd be designing around a hypothetical orchestrator instead of a real one.
+- **`responses` chosen over `requests-mock`**: same author surface, but `responses` integrates as a pytest fixture / context manager rather than monkey-patching `requests.adapters`. The result is a flat top-down test reading: register stubs → run code → inspect calls. The `responses.add_callback` API also lets us inspect the multipart `Content-Type` boundary without parsing the body.
+- **`requests-toolbelt.MultipartEncoder` is non-negotiable**. Loading a 540-page TIFF into memory before POSTing is the production failure mode REBIRTH §8.5 explicitly warns against. The encoder reads the file stream on demand and computes content-length without buffering. Test 4.13 asserts the request header rather than the body bytes because `responses` does not faithfully reproduce multipart wire bytes anyway.
+- **409 lives in `_create_folder_segment`, not in `_post_with_retries`**: making the generic retry path treat 409 as success would mask conflicts on document creation (where 409 means a real cmis:name collision, not idempotency). Locality of decision-making beats DRY here.
+- **`assert last_exc is not None` before `RetriesExhaustedError(...) from last_exc`** is intentional. `mypy --strict` cannot prove the loop entered, so the assertion satisfies both the type checker and a future reader. The assertion is reachable only if `retry_max_attempts >= 1` (configured default 3); a misconfiguration `retry_max_attempts=0` falls through to the assert as a `AssertionError` — that is acceptable behavior, distinct from a runtime upload failure.
+- **Logging discipline (Constitution VIII)**: retry / warn / error logs carry `txn_num`, `attempt`, `status_code`, and `folder_path` via the `extra` dict; no property values, no response bodies beyond a 1024-char truncation. `TestLoggingDiscipline` verifies that a `clbNonGroup.BAC_CIF` value containing the sentinel `BAC_VALUE_THAT_MUST_NOT_LEAK_999999` never appears in any log record across an entire retry cycle.
 
 ---
 

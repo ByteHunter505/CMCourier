@@ -204,6 +204,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Seventh change: SQLite tracking store (idempotency + per-stage state)
 - [x] Eighth change: IndexingService (S1 — RVABREP lookup)
 - [x] Ninth change: PdfAssembler (S4 — img2pdf + Pillow/PyPDF2 fallback)
+- [x] Tenth change: CmisUploader (S5 — CMIS Browser Binding + retry policy + bandwidth limiter)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
