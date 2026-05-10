@@ -12,7 +12,77 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- CLI Click command + Pydantic config + YAML loader for the csv-trigger-pipeline. With the orchestrator now in place, the next change exposes it as `cmcourier csv-trigger-pipeline run --triggers <path> --config <yaml>` so operators can invoke the migration loop without writing Python.
+- Additional pipelines (`rvabrep-pipeline`, `as400-trigger-pipeline`, `local-scan-pipeline`, `single-doc`) — each lands as its own change, differing only in the S0 strategy.
+- REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `doctor`, `inspect rvabrep/triggers`) — incremental.
+
+---
+
+## [0.14.0] — 2026-05-10 — **MVP CLI usable end-to-end**
+
+This release ships the operator-facing layer. With `cmcourier
+csv-trigger-pipeline run --config <yaml>`, the MVP pipeline is invokable
+without writing Python. Four new modules wrap change 011's orchestrator
+under a Pydantic v2 schema, a YAML loader, an adapter factory, and a
+Click command. Credentials live exclusively in environment variables.
+
+### Added
+
+- `cmcourier.config.schema` — Pydantic v2 model graph for the full
+  pipeline. Every model `ConfigDict(frozen=True, extra="forbid")`.
+  `FilePath` for required-exists inputs, `Path` for outputs.
+- `cmcourier.config.loader` — `load_config(path)` via `yaml.safe_load`
+  + `model_validate`; `load_secrets()` reads CMIS_USERNAME /
+  CMIS_PASSWORD (required) + AS400_* (optional). Both raise
+  `ConfigurationError` with structured context.
+- `cmcourier.config.wiring.build_pipeline(config, secrets)` — pure
+  factory that opens every TabularDataSource and wires the orchestrator.
+  Three private converters translate Pydantic models to the services'
+  existing dataclass-based configs.
+- `cmcourier.cli.app` — Click root group with one `csv-trigger-pipeline
+  run` command. Flags: --config (req), --batch-id, --from-stage,
+  --batch-size, --triggers, --log-level. Exit codes 0/1/2/3 per spec.
+- `cmcourier.cli.logging_setup.configure(level)` — single stderr
+  handler on the root logger; idempotent.
+- 43 new tests across schema/loader/wiring/CLI.
+- `pyproject.toml`: PyYAML>=6.0,<7.0 runtime; types-PyYAML>=6.0,<7.0 dev.
+- `.pre-commit-config.yaml`: types-PyYAML in mypy hook's additional_dependencies.
+
+### Changed
+
+- `SQLiteTrackingStore` now explicitly inherits `ITrackingStore`
+  (nominal typing for mypy strict at the wiring layer).
+- `cmcourier.config.__init__` re-exports PipelineConfig, Secrets,
+  load_config, load_secrets, build_pipeline.
+
+### Verification
+
+- pytest: 380/380 pass in ~62 s.
+- coverage: 96.63% total. config/schema.py, config/loader.py,
+  config/wiring.py, cli/logging_setup.py all 100%. cli/app.py 86%.
+- ruff / mypy / pre-commit: clean.
+- Smoke: `cmcourier --help` and `cmcourier csv-trigger-pipeline run
+  --help` list the expected commands and flags.
+
+### Rationale
+
+- Pydantic v2 without pydantic-settings (per user direction). Env
+  vars read manually — one less dep, zero magic.
+- Schema enforces `extra="forbid"` so mis-configuration fails at load
+  time, not 30 seconds into a real run.
+- Wiring layer owns the schema → service-config translation. Services
+  and adapters never import Pydantic — Constitution Principle I.
+- `as400:*` rejected at wiring, not at schema. The schema accepts the
+  prefix (documentation / future-proofing); the wiring layer enforces
+  "do we have an adapter for this?".
+- Single stderr logger (tier-based config is a future focused change).
+- `SQLiteTrackingStore` now inherits `ITrackingStore` — duck-typing
+  worked for tests but tripped mypy at the wiring boundary. The
+  remaining adapters (`PdfAssembler`, `CmisUploader`) have the same
+  gap and will be cleaned up in a follow-up.
+
+---
+
+## [0.13.0] — 2026-05-10 — **MVP pipeline end-to-end**
 
 ---
 

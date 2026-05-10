@@ -34,6 +34,7 @@ from typing import Any
 
 from cmcourier.domain.exceptions import TrackingError
 from cmcourier.domain.models import MigrationRecord, StageStatus
+from cmcourier.domain.ports import ITrackingStore
 
 _log = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ class _WriteTask:
 # ---------------------------------------------------------------------------
 
 
-class SQLiteTrackingStore:
+class SQLiteTrackingStore(ITrackingStore):
     """Concrete tracking store backed by SQLite (WAL + async writer queue)."""
 
     def __init__(self, db_path: Path) -> None:

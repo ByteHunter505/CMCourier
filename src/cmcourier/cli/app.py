@@ -1,19 +1,159 @@
-"""CMCourier CLI entry point - Click group root.
+"""CMCourier CLI entry point.
 
-Subcommands (``rvabrep-pipeline``, ``doctor``, ``inspect``, ``batch``, etc.) are
-attached in subsequent changes. This module reserves the binary name and the
-top-level group structure from day one.
+Root Click group ``cmcourier`` with one sub-group
+``csv-trigger-pipeline`` exposing the ``run`` command. Additional
+pipelines (rvabrep, as400, local-scan, single-doc) and meta-commands
+(batch, doctor, inspect) land as their own changes.
+
+Exit codes per spec REQ-020:
+    0 = success (every doc reached S5_DONE)
+    1 = pipeline ran but had stage failures (s5_failed > 0 OR any upstream)
+    2 = configuration error (bad YAML, missing env vars, etc.)
+    3 = unhandled exception from inside ``pipeline.run``
 """
+
+from __future__ import annotations
+
+__all__ = ["main"]
+
+import logging
+import sys
+from pathlib import Path
 
 import click
 
 from cmcourier import __version__
+from cmcourier.cli.logging_setup import configure as configure_logging
+from cmcourier.config.loader import load_config, load_secrets
+from cmcourier.config.schema import PipelineConfig, TriggerCsvConfig
+from cmcourier.config.wiring import build_pipeline
+from cmcourier.domain.exceptions import ConfigurationError
+from cmcourier.orchestrators.csv_trigger import RunReport
+
+_log = logging.getLogger(__name__)
+
+_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 @click.group()
 @click.version_option(__version__, prog_name="cmcourier")
 def main() -> None:
     """CMCourier - RVI -> IBM Content Manager migration tool."""
+
+
+@main.group(name="csv-trigger-pipeline")
+def csv_trigger_pipeline_group() -> None:
+    """csv-trigger-pipeline subcommands (REBIRTH §10.2)."""
+
+
+@csv_trigger_pipeline_group.command(name="run")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="Path to the pipeline YAML config file.",
+)
+@click.option(
+    "--batch-id",
+    type=str,
+    default=None,
+    help="Reuse an existing batch_id (required when --from-stage > 1).",
+)
+@click.option(
+    "--from-stage",
+    type=click.IntRange(1, 5),
+    default=1,
+    help="Resume from stage N (1-5). Default 1.",
+)
+@click.option(
+    "--batch-size",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Override the config's batch_size.",
+)
+@click.option(
+    "--triggers",
+    "triggers_override",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Override the config's trigger CSV path.",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(_LOG_LEVELS, case_sensitive=False),
+    default="INFO",
+    help="Logging level for stderr output.",
+)
+def run_command(
+    config_path: Path,
+    batch_id: str | None,
+    from_stage: int,
+    batch_size: int | None,
+    triggers_override: Path | None,
+    log_level: str,
+) -> None:
+    """Run the csv-trigger pipeline end-to-end."""
+    configure_logging(log_level)
+    try:
+        config = load_config(config_path)
+        secrets = load_secrets()
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+
+    config = _apply_overrides(config, triggers_override, batch_size)
+
+    try:
+        pipeline = build_pipeline(config, secrets)
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+
+    try:
+        report = pipeline.run(
+            source_descriptor=str(config.trigger.csv_path),
+            batch_size=config.batch_size,
+            batch_id=batch_id,
+            from_stage=from_stage,
+        )
+    except Exception:
+        _log.exception("pipeline run failed unexpectedly")
+        sys.exit(3)
+
+    _emit_summary(report)
+    sys.exit(0 if report.s5_failed == 0 else 1)
+
+
+def _apply_overrides(
+    config: PipelineConfig,
+    triggers_override: Path | None,
+    batch_size: int | None,
+) -> PipelineConfig:
+    updates: dict[str, object] = {}
+    if triggers_override is not None:
+        updates["trigger"] = TriggerCsvConfig(
+            csv_path=triggers_override,
+            shortname_column=config.trigger.shortname_column,
+            cif_column=config.trigger.cif_column,
+            system_id_column=config.trigger.system_id_column,
+        )
+    if batch_size is not None:
+        updates["batch_size"] = batch_size
+    if updates:
+        return config.model_copy(update=updates)
+    return config
+
+
+def _emit_summary(report: RunReport) -> None:
+    click.echo(
+        f"batch_id={report.batch_id} "
+        f"total_triggers={report.total_triggers} "
+        f"total_docs={report.total_docs} "
+        f"s5_done={report.s5_done} "
+        f"s5_failed={report.s5_failed} "
+        f"elapsed_seconds={report.elapsed_seconds:.2f}"
+    )
 
 
 if __name__ == "__main__":
