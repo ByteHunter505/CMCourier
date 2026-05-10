@@ -199,7 +199,8 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Second change: domain models, ports, exceptions
 - [x] Third change: first concrete adapter (Tabular CSV+XLSX data source)
 - [x] Fourth change: first service (MappingService over Modelo Documental)
-- [ ] Fifth change: MetadataService (fallback chain + CIF self-healing)
+- [x] Fifth change: MetadataService (fallback chain + CIF self-healing)
+- [ ] Sixth change: TriggerService (4 source modes via Strategy pattern)
 - [ ] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

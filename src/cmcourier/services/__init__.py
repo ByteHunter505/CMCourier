@@ -6,6 +6,23 @@ I/O. Hard limit: function <= 50 lines (Constitution Principle III).
 
 from __future__ import annotations
 
-__all__ = ["MappingColumnsConfig", "MappingService"]
+__all__ = [
+    "FieldSourceConfig",
+    "MappingColumnsConfig",
+    "MappingService",
+    "MetadataConfig",
+    "MetadataResolution",
+    "MetadataService",
+    "SourceConfig",
+    "ValidationConfig",
+]
 
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
+from cmcourier.services.metadata import (
+    FieldSourceConfig,
+    MetadataConfig,
+    MetadataResolution,
+    MetadataService,
+    SourceConfig,
+    ValidationConfig,
+)

@@ -15,6 +15,6 @@ def test_version_is_set() -> None:
     version = getattr(cmcourier, "__version__", None)
     assert isinstance(version, str), "cmcourier.__version__ must be a string"
     assert version, "cmcourier.__version__ must be non-empty"
-    assert re.match(
-        r"^\d+\.\d+\.\d+(?:[-+].*)?$", version
-    ), f"cmcourier.__version__ must be SemVer-compatible, got {version!r}"
+    assert re.match(r"^\d+\.\d+\.\d+(?:[-+].*)?$", version), (
+        f"cmcourier.__version__ must be SemVer-compatible, got {version!r}"
+    )
