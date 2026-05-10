@@ -11,7 +11,7 @@ import responses
 from cmcourier.config.loader import Secrets, load_config
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.exceptions import ConfigurationError
-from cmcourier.orchestrators.csv_trigger import CsvTriggerPipeline
+from cmcourier.orchestrators.staged import StagedPipeline
 
 pytestmark = pytest.mark.integration
 
@@ -125,7 +125,7 @@ class TestBuildPipeline:
         yaml_path = _write_yaml(tmp_path)
         config = load_config(yaml_path)
         pipeline = build_pipeline(config, _secrets())
-        assert isinstance(pipeline, CsvTriggerPipeline)
+        assert isinstance(pipeline, StagedPipeline)
         _register_cmis_for_doc("TXN_PIPE_001")
         triggers = config.trigger.csv_path
         report = pipeline.run(source_descriptor=str(triggers))
@@ -156,5 +156,5 @@ class TestBuildPipeline:
         p1 = build_pipeline(config, _secrets())
         p2 = build_pipeline(config, _secrets())
         assert p1 is not p2
-        assert isinstance(p1, CsvTriggerPipeline)
-        assert isinstance(p2, CsvTriggerPipeline)
+        assert isinstance(p1, StagedPipeline)
+        assert isinstance(p2, StagedPipeline)

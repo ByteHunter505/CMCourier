@@ -1,4 +1,4 @@
-"""Integration tests for :class:`CsvTriggerPipeline`.
+"""Integration tests for :class:`StagedPipeline`.
 
 End-to-end pipeline tests: every adapter and service is real
 (Constitution Principle VI). Only the CMIS HTTP layer is stubbed via the
@@ -157,7 +157,7 @@ class TestS1ErrorHandling:
     ) -> None:
         pipeline_harness.register_cmis_for_docs([])
         triggers = _write_trigger_csv(tmp_path, [("NO_SUCH_CLIENT", "123456", "1")])
-        with caplog.at_level(logging.WARNING, logger="cmcourier.orchestrators.csv_trigger"):
+        with caplog.at_level(logging.WARNING, logger="cmcourier.orchestrators.staged"):
             report = pipeline_harness.build_pipeline(triggers).run(source_descriptor=str(triggers))
         assert report.total_docs == 0
         assert report.s1_done == 0
@@ -217,7 +217,7 @@ class TestCrossBatchSkip:
         triggers = _write_trigger_csv(tmp_path, [("TESTCLIENT01", "123456", "1")])
         pipeline_harness.build_pipeline(triggers).run(source_descriptor=str(triggers))
         pipeline_harness.tracking_store.flush()
-        with caplog.at_level(logging.INFO, logger="cmcourier.orchestrators.csv_trigger"):
+        with caplog.at_level(logging.INFO, logger="cmcourier.orchestrators.staged"):
             pipeline_harness.build_pipeline(triggers).run(source_descriptor=str(triggers))
         assert any(r.__dict__.get("reason") == "cross_batch_uploaded" for r in caplog.records)
 
@@ -339,7 +339,7 @@ class TestResume:
         triggers_v2.write_text(
             "ShortName,CIF,SystemID\nTESTCLIENT01,123456,1\nTESTCLIENT02,234567,1\n"
         )
-        with caplog.at_level(logging.INFO, logger="cmcourier.orchestrators.csv_trigger"):
+        with caplog.at_level(logging.INFO, logger="cmcourier.orchestrators.staged"):
             second = pipeline_harness.build_pipeline(triggers_v2).run(
                 source_descriptor=str(triggers_v2),
                 batch_id=first.batch_id,

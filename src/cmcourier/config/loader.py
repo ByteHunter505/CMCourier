@@ -48,6 +48,7 @@ def load_config(path: Path) -> PipelineConfig:
             "config root must be a mapping",
             actual_type=type(data).__name__,
         )
+    _inject_default_trigger_kind(data)
     try:
         return PipelineConfig.model_validate(data)
     except ValidationError as exc:
@@ -55,6 +56,19 @@ def load_config(path: Path) -> PipelineConfig:
             "config validation failed",
             errors=exc.errors(),
         ) from exc
+
+
+def _inject_default_trigger_kind(data: dict[str, object]) -> None:
+    """Backwards-compat: trigger blocks without `kind` default to ``"csv"``.
+
+    Pydantic v2 discriminated unions require the discriminator field. Existing
+    configs from change 012 omit ``kind`` entirely — the original schema had
+    a single ``TriggerCsvConfig`` shape. Inject ``kind: "csv"`` before
+    validation so those YAMLs still load.
+    """
+    trigger = data.get("trigger")
+    if isinstance(trigger, dict) and "kind" not in trigger:
+        trigger["kind"] = "csv"
 
 
 def load_secrets() -> Secrets:

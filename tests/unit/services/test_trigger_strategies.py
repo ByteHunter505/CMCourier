@@ -15,7 +15,6 @@ from cmcourier.adapters.sources import TabularDataSource
 from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.domain.ports import S0Strategy
 from cmcourier.services.triggers import (
-    As400TriggerStrategy,
     CsvTriggerColumnsConfig,
     CsvTriggerStrategy,
     DirectRvabrepTriggerStrategy,
@@ -187,17 +186,6 @@ class TestDirectRvabrepTriggerStrategy:
 
 
 class TestStubStrategies:
-    def test_as400_construction_succeeds(self) -> None:
-        # Constructor must not raise so orchestrators can dispatch.
-        strategy = As400TriggerStrategy(query="SELECT * FROM RVILIB.TRIGGER_TABLE")
-        assert strategy is not None
-
-    def test_as400_acquire_raises(self) -> None:
-        strategy = As400TriggerStrategy(query="SELECT 1")
-        with pytest.raises(NotImplementedError) as exc:
-            list(strategy.acquire())
-        assert "AS400" in str(exc.value)
-
     def test_local_scan_construction_succeeds(self) -> None:
         strategy = LocalScanTriggerStrategy(scan_path=Path("/tmp/nope"))
         assert strategy is not None
@@ -208,8 +196,6 @@ class TestStubStrategies:
             list(strategy.acquire())
         assert "local-scan" in str(exc.value).lower()
 
-    def test_both_are_s0strategies(self) -> None:
-        a = As400TriggerStrategy(query="x")
+    def test_local_scan_is_s0strategy(self) -> None:
         b = LocalScanTriggerStrategy(scan_path=Path("/tmp/x"))
-        assert isinstance(a, S0Strategy)
         assert isinstance(b, S0Strategy)

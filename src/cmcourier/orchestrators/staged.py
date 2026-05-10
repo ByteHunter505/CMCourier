@@ -24,7 +24,7 @@ in log records.
 
 from __future__ import annotations
 
-__all__ = ["CsvTriggerPipeline", "RunReport"]
+__all__ = ["StagedPipeline", "RunReport"]
 
 import logging
 import time
@@ -70,7 +70,7 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class RunReport:
-    """Outcome summary returned by :meth:`CsvTriggerPipeline.run`."""
+    """Outcome summary returned by :meth:`StagedPipeline.run`."""
 
     batch_id: str
     total_triggers: int
@@ -110,7 +110,7 @@ class _StageItem:
 # ---------------------------------------------------------------------------
 
 
-class CsvTriggerPipeline:
+class StagedPipeline:
     """``csv-trigger-pipeline`` orchestrator (S0..S6)."""
 
     def __init__(

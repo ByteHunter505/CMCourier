@@ -12,9 +12,118 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- Additional pipelines (`rvabrep-pipeline`, `as400-trigger-pipeline`, `local-scan-pipeline`, `single-doc`) — each lands as its own change, differing only in the S0 strategy.
-- REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`) — incremental.
+- `MetadataService.as400:<alias>` source resolution — wire up the AS400 metadata fetch path now that the adapter ships.
+- `local-scan-pipeline` and `single-doc` — separate changes each.
+- REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
 - Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
+
+---
+
+## [0.16.0] — 2026-05-10 — **multi-pipeline + AS400 production-ready**
+
+Largest change of the project. Five thrusts in one PR.
+
+### Added
+
+- **`cmcourier.adapters.sources.as400.As400DataSource`** — concrete
+  `IDataSource` over pyodbc. Lazy `import pyodbc` inside `_connect()` so
+  importing this module never crashes in environments without unixODBC
+  headers (failure surfaces on first real call). All pyodbc.Error
+  exceptions are wrapped in `IndexingError` with SQLSTATE extracted from
+  `exc.args[0]` when the format matches. IN-list queries chunked at 1000
+  values. `query_stream` uses `fetchmany(500)`. Single connection per
+  instance (thread-local connections deferred per REBIRTH §3.1 + change
+  010's single-threaded decision).
+- **`cmcourier.services.triggers.as400.As400TriggerStrategy`** —
+  real implementation replacing the 006 stub. Runs a configured SQL
+  query and yields `TriggerRecord` per row. Blank rows dropped with an
+  INFO log of the count. Lives in its own module
+  (`services/triggers/as400.py`); the stub at `stubs.py` is removed.
+- **`cmcourier rvabrep-pipeline run --config <yaml>`** — new CLI
+  command. Verifies `trigger.kind == "rvabrep"` after load_config;
+  mismatch exits 2.
+- **`cmcourier as400-trigger-pipeline run --config <yaml>`** — new
+  CLI command. Same shape; verifies `trigger.kind == "as400"`.
+- **Doctor `as400_connectivity` check** — runs when `trigger.kind ==
+  "as400"`, opens the AS400 connection + `SELECT 1`. SKIPped when
+  kind is csv or rvabrep. Inserted between `cmis_connectivity` and
+  `tracking_openable` so connectivity failures cluster at the top.
+- **`As400ConnectionConfig`** new Pydantic schema block (host, port,
+  database, driver, table). Credentials still env-only.
+- **22 new tests**: ~14 AS400 adapter tests with mocked pyodbc, ~5
+  schema discriminated-union tests, ~3 wiring + CLI tests for the new
+  pipelines, ~1 new doctor test.
+
+### Changed
+
+- **`CsvTriggerPipeline` → `StagedPipeline`**. Module renamed via
+  `git mv` (`orchestrators/csv_trigger.py` → `orchestrators/staged.py`).
+  Class is now generic — the S0 strategy is injected, no longer csv-
+  specific. Constitution III rule of three: with the 2nd pipeline
+  landing, the abstraction is earned. Every test file referencing the
+  old name updated in-place.
+- **`TriggerConfig` discriminated union**. `trigger.kind` is the
+  discriminator (`csv` | `rvabrep` | `as400`). Three concrete schema
+  classes: `CsvTriggerConfig`, `RvabrepTriggerConfig`,
+  `As400TriggerConfig`. `TriggerCsvConfig` kept as a backwards-compat
+  alias. The loader injects `kind: "csv"` into trigger blocks that
+  omit it, so existing change 012 configs continue to load
+  unchanged.
+- **`build_pipeline` dispatches on `config.trigger.kind`**. Three
+  branches: csv (existing), rvabrep (DirectRvabrepTriggerStrategy
+  over the existing indexing source), as400 (new As400DataSource +
+  As400TriggerStrategy). The as400 branch requires
+  `secrets.as400_username` and `secrets.as400_password` to be set;
+  missing values raise `ConfigurationError`.
+- **CLI `app.py` refactored**. Extracted `_run_pipeline_command(...,
+  *, expected_kind=X)` helper used by all three pipeline commands.
+- **`As400TriggerStrategy` stub removed** from
+  `services/triggers/stubs.py`. The real strategy now lives at
+  `services/triggers/as400.py`. The stubs module retains only
+  `LocalScanTriggerStrategy`.
+
+### Verification
+
+- `pytest -v`: **421 / 421 pass** in ~51 s (395 from earlier + 26
+  net new across AS400, schema, wiring, CLI, doctor).
+- `pytest --cov=src/cmcourier`: total branch coverage stays above
+  95%. `adapters/sources/as400.py` ≥ 90%, `services/triggers/as400.py`
+  100%, `orchestrators/staged.py` ≥ 96% (renamed but untouched
+  logically).
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 37 source files.
+- `pre-commit run --all-files`: clean.
+- Smoke: `cmcourier --help` lists 4 commands; each pipeline's
+  `--help` lists its flags.
+
+### Rationale
+
+- **AS400 unblocks every `as400:*` consumer**. Even without
+  `MetadataService.as400:<alias>` support shipping today, the
+  adapter is the gate. Once 014 merges, the next change adds the
+  metadata fetch path in ~1 hour.
+- **Generic StagedPipeline beats subclassing**. The 5 per-stage
+  methods are identical across pipelines; only S0 differs. One
+  class + injected strategy is the simplest correct abstraction.
+  Subclasses or a mixin would be ~30 LOC of indirection for zero
+  added expressiveness.
+- **Discriminated union over a single fat `TriggerConfig`**: gives
+  operators a clear schema error ("unknown kind: ftp") instead of
+  silently accepting fields the wiring won't use. Backwards-compat
+  via loader default keeps 012's YAMLs valid.
+- **AS400 metadata source deferred to a follow-up**. The wiring
+  rejects `as400:*` source types at `build_pipeline` time; the YAML
+  schema permits the prefix (operators can document AS400 sources
+  before the consumer ships). Splitting MetadataService's
+  `_fetch_as400` into its own change keeps 014's blast radius
+  bounded.
+- **pyodbc lazy import** means the project's CI can install the
+  package without ODBC system libraries. Real connection attempts
+  fail at the call site with a clear error, not at import time.
+- **AS400 retry is the same as CMIS retry**: deferred. The IDataSource
+  port doesn't currently mandate a retry policy; AS400 query
+  failures bubble up as `IndexingError` and the orchestrator's S1
+  trigger-level error handling logs at WARNING and continues.
 
 ---
 

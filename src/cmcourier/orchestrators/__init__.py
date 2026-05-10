@@ -6,6 +6,6 @@ pipeline. No business logic, no direct I/O. Constitution Principle I.
 
 from __future__ import annotations
 
-from cmcourier.orchestrators.csv_trigger import CsvTriggerPipeline, RunReport
+from cmcourier.orchestrators.staged import RunReport, StagedPipeline
 
-__all__ = ["CsvTriggerPipeline", "RunReport"]
+__all__ = ["StagedPipeline", "RunReport"]

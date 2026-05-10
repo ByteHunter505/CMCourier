@@ -175,6 +175,7 @@ class TestRunDoctorHappyPath:
         names = [r.name for r in report.results]
         assert names == [
             "cmis_connectivity",
+            "as400_connectivity",
             "tracking_openable",
             "mapping_completeness",
             "metadata_sources",
@@ -290,6 +291,18 @@ class TestCmTypeMissing:
         # All but the first type are missing.
         for type_id in _DISTINCT_TYPES[1:]:
             assert type_id in align.details["missing_types"]
+
+
+class TestAs400Connectivity:
+    @responses.activate
+    def test_skips_when_kind_is_csv(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets())
+        check = next(r for r in report.results if r.name == "as400_connectivity")
+        assert check.status == CheckStatus.SKIP
+        assert check.details["reason"] == "trigger_kind_not_as400"
 
 
 class TestSampleDryRun:

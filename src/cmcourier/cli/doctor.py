@@ -40,11 +40,11 @@ from types import MappingProxyType
 from typing import TypeVar
 
 from cmcourier.adapters.assembly import PdfAssembler
-from cmcourier.adapters.sources import TabularDataSource
+from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.adapters.tracking import SQLiteTrackingStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
-from cmcourier.config.schema import PipelineConfig
+from cmcourier.config.schema import As400TriggerConfig, CsvTriggerConfig, PipelineConfig
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.ports import S0Strategy
 from cmcourier.services.indexing import IndexingService
@@ -117,6 +117,7 @@ def run_doctor(config: PipelineConfig, secrets: Secrets) -> DoctorReport:
     start = time.monotonic()
     results: list[CheckResult] = []
     results.append(_check_cmis_connectivity(config, secrets))
+    results.append(_check_as400_connectivity(config, secrets))
     results.append(_check_tracking_openable(config))
     results.append(_check_mapping_completeness(config))
     results.append(_check_metadata_sources(config))
@@ -212,6 +213,45 @@ def _check_cmis_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckR
         status=CheckStatus.PASS,
         message=f"CMIS reachable at {config.cmis.base_url}",
         details=_frozen({"repository_id": repo_id}),
+    )
+
+
+def _check_as400_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckResult:
+    trigger = config.trigger
+    if not isinstance(trigger, As400TriggerConfig):
+        return _skip("as400_connectivity", "trigger_kind_not_as400")
+    if not secrets.as400_username or not secrets.as400_password:
+        return CheckResult(
+            name="as400_connectivity",
+            status=CheckStatus.FAIL,
+            message="AS400 credentials missing in environment",
+            details=_frozen({"host": trigger.as400_connection.host}),
+        )
+    try:
+        src = As400DataSource(
+            host=trigger.as400_connection.host,
+            port=trigger.as400_connection.port,
+            database=trigger.as400_connection.database,
+            driver=trigger.as400_connection.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            table=trigger.as400_connection.table or "",
+        )
+        try:
+            src.query("SELECT 1", [])
+        finally:
+            src.close()
+    except Exception as exc:  # noqa: BLE001
+        return _fail(
+            "as400_connectivity",
+            exc,
+            {"host": trigger.as400_connection.host},
+        )
+    return CheckResult(
+        name="as400_connectivity",
+        status=CheckStatus.PASS,
+        message=f"AS400 reachable at {trigger.as400_connection.host}",
+        details=_frozen({"host": trigger.as400_connection.host}),
     )
 
 
@@ -344,7 +384,10 @@ def _check_sample_dry_run(config: PipelineConfig, secrets: Secrets) -> CheckResu
         metadata=pipeline._metadata_service,
         assembler=pipeline._assembler,
     )
-    return _dry_run_first_doc(services, source_descriptor=str(config.trigger.csv_path))
+    descriptor = (
+        str(config.trigger.csv_path) if isinstance(config.trigger, CsvTriggerConfig) else ""
+    )
+    return _dry_run_first_doc(services, source_descriptor=descriptor)
 
 
 # ---------------------------------------------------------------------------

@@ -11,21 +11,24 @@ from __future__ import annotations
 __all__ = ["build_pipeline"]
 
 from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
-from cmcourier.adapters.sources import TabularDataSource
+from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.adapters.tracking import SQLiteTrackingStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
 from cmcourier.config.schema import (
+    As400TriggerConfig,
+    CsvTriggerConfig,
     IndexingColumnsModel,
     MetadataConfigModel,
     PipelineConfig,
+    RvabrepTriggerConfig,
 )
 from cmcourier.config.schema import (
     MappingConfig as MappingConfigModel,
 )
 from cmcourier.domain.exceptions import ConfigurationError
-from cmcourier.domain.ports import IDataSource
-from cmcourier.orchestrators.csv_trigger import CsvTriggerPipeline
+from cmcourier.domain.ports import IDataSource, S0Strategy
+from cmcourier.orchestrators.staged import StagedPipeline
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
 from cmcourier.services.metadata import (
@@ -35,36 +38,34 @@ from cmcourier.services.metadata import (
     SourceConfig,
     ValidationConfig,
 )
+from cmcourier.services.triggers.as400 import As400TriggerStrategy
 from cmcourier.services.triggers.csv import (
     CsvTriggerColumnsConfig,
     CsvTriggerStrategy,
 )
+from cmcourier.services.triggers.direct_rvabrep import (
+    DirectRvabrepTriggerStrategy,
+    RvabrepColumnsConfig,
+    RvabrepFilters,
+)
 
 
-def build_pipeline(config: PipelineConfig, secrets: Secrets) -> CsvTriggerPipeline:
+def build_pipeline(config: PipelineConfig, secrets: Secrets) -> StagedPipeline:
     """Construct every adapter / service and return the wired pipeline."""
     _reject_unsupported_source_types(config.metadata)
 
-    trigger_src = TabularDataSource(config.trigger.csv_path)
     rvabrep_src = TabularDataSource(config.indexing.csv_path)
     mapping_src = TabularDataSource(config.mapping.csv_path)
     metadata_sources: dict[str, IDataSource] = {
         s.alias: TabularDataSource(s.csv_path) for s in config.metadata.sources
     }
 
-    trigger_strategy = CsvTriggerStrategy(
-        trigger_src,
-        CsvTriggerColumnsConfig(
-            col_shortname=config.trigger.shortname_column,
-            col_cif=config.trigger.cif_column,
-            col_system_id=config.trigger.system_id_column,
-        ),
-    )
     indexing_service = IndexingService(
         rvabrep_src,
         _indexing_columns_from_schema(config.indexing.columns),
         batch_size=config.indexing.batch_size,
     )
+    trigger_strategy = _build_trigger_strategy(config, secrets, rvabrep_src, indexing_service)
     mapping_service = MappingService(
         mapping_src,
         _mapping_columns_from_schema(config.mapping),
@@ -94,7 +95,7 @@ def build_pipeline(config: PipelineConfig, secrets: Secrets) -> CsvTriggerPipeli
         )
     )
     tracking_store = SQLiteTrackingStore(config.tracking.db_path)
-    return CsvTriggerPipeline(
+    return StagedPipeline(
         trigger_strategy=trigger_strategy,
         indexing_service=indexing_service,
         mapping_service=mapping_service,
@@ -102,6 +103,71 @@ def build_pipeline(config: PipelineConfig, secrets: Secrets) -> CsvTriggerPipeli
         assembler=assembler,
         uploader=uploader,
         tracking_store=tracking_store,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Trigger strategy dispatch
+# ---------------------------------------------------------------------------
+
+
+def _build_trigger_strategy(
+    config: PipelineConfig,
+    secrets: Secrets,
+    rvabrep_src: TabularDataSource,
+    indexing_service: IndexingService,
+) -> S0Strategy:
+    trigger_cfg = config.trigger
+    if isinstance(trigger_cfg, CsvTriggerConfig):
+        trigger_src = TabularDataSource(trigger_cfg.csv_path)
+        return CsvTriggerStrategy(
+            trigger_src,
+            CsvTriggerColumnsConfig(
+                col_shortname=trigger_cfg.shortname_column,
+                col_cif=trigger_cfg.cif_column,
+                col_system_id=trigger_cfg.system_id_column,
+            ),
+        )
+    if isinstance(trigger_cfg, RvabrepTriggerConfig):
+        return DirectRvabrepTriggerStrategy(
+            rvabrep_src,
+            filters=RvabrepFilters(
+                systems=tuple(trigger_cfg.filters.systems),
+                document_types=tuple(trigger_cfg.filters.document_types),
+            ),
+            columns=RvabrepColumnsConfig(
+                col_shortname=config.indexing.columns.shortname_column,
+                col_cif=config.indexing.columns.index2_column,
+                col_system_id=config.indexing.columns.system_id_column,
+                col_id_rvi=config.indexing.columns.index7_column,
+            ),
+        )
+    if isinstance(trigger_cfg, As400TriggerConfig):
+        if not secrets.as400_username or not secrets.as400_password:
+            raise ConfigurationError(
+                "as400 trigger requires AS400_USERNAME and AS400_PASSWORD env vars",
+                missing_vars=[
+                    name
+                    for name, value in (
+                        ("AS400_USERNAME", secrets.as400_username),
+                        ("AS400_PASSWORD", secrets.as400_password),
+                    )
+                    if not value
+                ],
+            )
+        as400_src = As400DataSource(
+            host=trigger_cfg.as400_connection.host,
+            port=trigger_cfg.as400_connection.port,
+            database=trigger_cfg.as400_connection.database,
+            driver=trigger_cfg.as400_connection.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            table=trigger_cfg.as400_connection.table or "",
+        )
+        return As400TriggerStrategy(as400_src, trigger_cfg.query)
+    raise ConfigurationError(
+        "unknown trigger.kind",
+        kind=getattr(trigger_cfg, "kind", "<unknown>"),
     )
 
 

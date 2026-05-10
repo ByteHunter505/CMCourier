@@ -1,7 +1,7 @@
 """Shared fixtures for csv-trigger-pipeline integration tests.
 
 Builds the long-lived adapter graph (Constitution Principle VI: no mocks)
-plus a factory for building a :class:`CsvTriggerPipeline` against a
+plus a factory for building a :class:`StagedPipeline` against a
 per-test trigger CSV. Each test composes its scenario by:
 
 1. Writing its trigger CSV under ``tmp_path``.
@@ -24,7 +24,7 @@ from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
 from cmcourier.adapters.sources import TabularDataSource
 from cmcourier.adapters.tracking import SQLiteTrackingStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
-from cmcourier.orchestrators.csv_trigger import CsvTriggerPipeline
+from cmcourier.orchestrators.staged import StagedPipeline
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
 from cmcourier.services.metadata import (
@@ -48,7 +48,7 @@ _CMIS_REPO_ID = "$x!testrepo"
 class PipelineHarness:
     """Bundle of long-lived adapters + a per-test pipeline factory."""
 
-    build_pipeline: Callable[[Path], CsvTriggerPipeline]
+    build_pipeline: Callable[[Path], StagedPipeline]
     tracking_store: SQLiteTrackingStore
     register_cmis_for_docs: Callable[..., None]
     db_path: Path
@@ -136,11 +136,11 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
     uploader = CmisUploader(uploader_config)
     tracking_store = SQLiteTrackingStore(tmp_path / "tracking.db")
 
-    def _build_pipeline(triggers_csv: Path) -> CsvTriggerPipeline:
+    def _build_pipeline(triggers_csv: Path) -> StagedPipeline:
         trigger_src = TabularDataSource(triggers_csv)
         opened.append(trigger_src)
         trigger_strategy = CsvTriggerStrategy(trigger_src, CsvTriggerColumnsConfig())
-        return CsvTriggerPipeline(
+        return StagedPipeline(
             trigger_strategy=trigger_strategy,
             indexing_service=indexing_service,
             mapping_service=mapping_service,

@@ -14,14 +14,18 @@ import pytest
 from pydantic import ValidationError
 
 from cmcourier.config.schema import (
+    As400ConnectionConfig,
+    As400TriggerConfig,
     AssemblyConfig,
     CmisConfigModel,
+    CsvTriggerConfig,
     FieldConfig,
     FieldSourceItem,
     IndexingSourceConfig,
     MappingConfig,
     MetadataConfigModel,
     PipelineConfig,
+    RvabrepTriggerConfig,
     TrackingConfig,
     TriggerCsvConfig,
 )
@@ -43,7 +47,7 @@ def _build_full_data(
     tmp_path: Path,
 ) -> dict[str, Any]:
     return {
-        "trigger": {"csv_path": str(trigger_csv)},
+        "trigger": {"kind": "csv", "csv_path": str(trigger_csv)},
         "indexing": {"csv_path": str(rvabrep_csv)},
         "mapping": {"csv_path": str(modelo_csv)},
         "metadata": {
@@ -251,3 +255,87 @@ class TestSubmodelDefaults:
     def test_tracking_db_path_is_required(self) -> None:
         with pytest.raises(ValidationError):
             TrackingConfig()  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Discriminated union: trigger.kind
+# ---------------------------------------------------------------------------
+
+
+class TestTriggerDiscriminatedUnion:
+    def test_csv_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        config = PipelineConfig.model_validate(data)
+        assert isinstance(config.trigger, CsvTriggerConfig)
+        assert config.trigger.kind == "csv"
+
+    def test_rvabrep_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["trigger"] = {
+            "kind": "rvabrep",
+            "filters": {"systems": ["1"], "document_types": ["FF17"]},
+        }
+        config = PipelineConfig.model_validate(data)
+        assert isinstance(config.trigger, RvabrepTriggerConfig)
+        assert config.trigger.filters.systems == ["1"]
+
+    def test_as400_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["trigger"] = {
+            "kind": "as400",
+            "query": "SELECT SHORTNAME, CIF, SYSTEMID FROM TRIGGERS",
+            "as400_connection": {
+                "host": "10.0.0.1",
+                "database": "RVILIB",
+                "driver": "iSeries Access ODBC Driver",
+            },
+        }
+        config = PipelineConfig.model_validate(data)
+        assert isinstance(config.trigger, As400TriggerConfig)
+        assert config.trigger.query.startswith("SELECT")
+        assert config.trigger.as400_connection.host == "10.0.0.1"
+
+    def test_unknown_kind_rejected(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["trigger"] = {"kind": "ftp", "csv_path": str(fixture_paths["trigger"])}
+        with pytest.raises(ValidationError):
+            PipelineConfig.model_validate(data)
+
+    def test_as400_connection_defaults(self) -> None:
+        cfg = As400ConnectionConfig(host="10.0.0.1")
+        assert cfg.port == 446
+        assert cfg.database == "RVILIB"
+        assert cfg.driver == "iSeries Access ODBC Driver"
+        assert cfg.table is None
+
+    def test_csv_alias_for_backwards_compat(self) -> None:
+        # TriggerCsvConfig is the old name — kept as an alias to CsvTriggerConfig.
+        assert TriggerCsvConfig is CsvTriggerConfig

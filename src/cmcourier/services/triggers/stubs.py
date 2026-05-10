@@ -3,36 +3,22 @@
 These classes are concrete ``S0Strategy`` subclasses whose constructors
 succeed (so an orchestrator can dispatch to them) but whose ``acquire()``
 calls raise ``NotImplementedError`` with messages naming their missing
-dependencies. Same late-fail pattern used for ``as400:<alias>`` in 005.
+dependencies.
+
+The ``As400TriggerStrategy`` from this module has been promoted to a
+real implementation in ``services/triggers/as400.py`` (change 014).
+This module retains only the remaining stubs.
 """
 
 from __future__ import annotations
 
-__all__ = ["As400TriggerStrategy", "LocalScanTriggerStrategy"]
+__all__ = ["LocalScanTriggerStrategy"]
 
 from collections.abc import Iterator
 from pathlib import Path
 
 from cmcourier.domain.models import TriggerRecord
 from cmcourier.domain.ports import IDataSource, S0Strategy
-
-
-class As400TriggerStrategy(S0Strategy):
-    """REBIRTH §5.1 mode ``as400:<alias>``.
-
-    Activates when the AS400 adapter ships in a later change.
-    """
-
-    def __init__(self, query: str) -> None:
-        self._query = query
-
-    def acquire(self, source_descriptor: str = "") -> Iterator[TriggerRecord]:
-        del source_descriptor
-        raise NotImplementedError(
-            "AS400 adapter not yet shipped; this strategy will activate "
-            "when that adapter change merges."
-        )
-        yield  # pragma: no cover - keeps the function a generator
 
 
 class LocalScanTriggerStrategy(S0Strategy):

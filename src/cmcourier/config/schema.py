@@ -20,8 +20,11 @@ adapters do NOT import this module — translation happens in
 from __future__ import annotations
 
 __all__ = [
+    "As400ConnectionConfig",
+    "As400TriggerConfig",
     "AssemblyConfig",
     "CmisConfigModel",
+    "CsvTriggerConfig",
     "FieldConfig",
     "FieldSourceItem",
     "IndexingColumnsModel",
@@ -30,12 +33,16 @@ __all__ = [
     "MetadataConfigModel",
     "MetadataSourceConfig",
     "PipelineConfig",
+    "RvabrepFiltersModel",
+    "RvabrepTriggerConfig",
     "TrackingConfig",
+    "TriggerConfigUnion",
     "TriggerCsvConfig",
     "ValidationModel",
 ]
 
 from pathlib import Path
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -49,12 +56,64 @@ from pydantic import (
 _STRICT = ConfigDict(frozen=True, extra="forbid")
 
 
-class TriggerCsvConfig(BaseModel):
+# ---------------------------------------------------------------------------
+# AS400 connection (used by rvabrep and as400 trigger kinds)
+# ---------------------------------------------------------------------------
+
+
+class As400ConnectionConfig(BaseModel):
+    """AS400 ODBC connection parameters. Credentials live in env vars."""
+
     model_config = _STRICT
+    host: str
+    port: int = Field(default=446, ge=1, le=65535)
+    database: str = "RVILIB"
+    driver: str = "iSeries Access ODBC Driver"
+    table: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Trigger kinds (discriminated union by `kind`)
+# ---------------------------------------------------------------------------
+
+
+class CsvTriggerConfig(BaseModel):
+    model_config = _STRICT
+    kind: Literal["csv"] = "csv"
     csv_path: FilePath
     shortname_column: str = "ShortName"
     cif_column: str = "CIF"
     system_id_column: str = "SystemID"
+
+
+class RvabrepFiltersModel(BaseModel):
+    model_config = _STRICT
+    systems: list[str] = Field(default_factory=list)
+    document_types: list[str] = Field(default_factory=list)
+
+
+class RvabrepTriggerConfig(BaseModel):
+    model_config = _STRICT
+    kind: Literal["rvabrep"]
+    filters: RvabrepFiltersModel = Field(default_factory=RvabrepFiltersModel)
+
+
+class As400TriggerConfig(BaseModel):
+    model_config = _STRICT
+    kind: Literal["as400"]
+    query: str
+    as400_connection: As400ConnectionConfig
+
+
+TriggerConfigUnion = Annotated[
+    CsvTriggerConfig | RvabrepTriggerConfig | As400TriggerConfig,
+    Field(discriminator="kind"),
+]
+
+
+# Backwards-compatible alias: existing code that imports TriggerCsvConfig
+# still works. The discriminated union is the new shape.
+TriggerCsvConfig = CsvTriggerConfig
 
 
 class IndexingColumnsModel(BaseModel):
@@ -175,7 +234,7 @@ class PipelineConfig(BaseModel):
     """Top-level config aggregating every per-stage configuration block."""
 
     model_config = _STRICT
-    trigger: TriggerCsvConfig
+    trigger: TriggerConfigUnion
     indexing: IndexingSourceConfig
     mapping: MappingConfig
     metadata: MetadataConfigModel

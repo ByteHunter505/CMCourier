@@ -208,7 +208,8 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Eleventh change: CsvTriggerPipeline orchestrator (S0..S6 end-to-end, library) — **MVP pipeline complete**
 - [x] Twelfth change: CLI + Pydantic config + YAML loader — **MVP CLI usable end-to-end**
 - [x] Thirteenth change: `cmcourier doctor` pre-flight (REBIRTH §10.5)
-- [ ] MVP: `rvabrep-pipeline` end-to-end
+- [x] Fourteenth change: AS400 adapter + rvabrep-pipeline + as400-trigger-pipeline — **multi-pipeline + AS400 production-ready**
+- [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
 
