@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Tooling
+
+- **031** — `cmcourier mock generate`: synthetic RVABREP file-tree
+  generator for dry runs and integration tests. Reads RVABREP rows from
+  CSV or AS400, materializes valid PDFs (`img2pdf` multi-page), TIFFs
+  (Pillow LZW), and JPEGs (Pillow) under a configurable root mirroring
+  `<source_root>/<ABAICD>/<ABAJCD>`. Suffix-parsed size bounds
+  (`--pdf-min 10kb`, `--pdf-max 2mb`, …), `--seed`, `--dry-run`,
+  `--force`, `--include-deleted`, `--limit`, `--system`,
+  `--document-type`. Pure-additive surface; see
+  `specs/031-mock-file-generator/spec.md`.
+
 ### Planned for next releases
 
 Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
