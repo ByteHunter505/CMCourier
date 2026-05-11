@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from cmcourier.services.lane_controller import LaneSnapshot
+from cmcourier.services.worker_pool_stats import WorkerPoolStatsSnapshot
 from cmcourier.tui.data_provider import TUISnapshot
 from cmcourier.tui.prep_tab import render_prep
 from cmcourier.tui.upload_tab import render_upload
@@ -136,3 +138,77 @@ class TestRenderUpload:
         out = render_upload(_baseline_snap(is_complete=True))
         assert "RUN COMPLETE" in out
         assert "[Q]" in out
+
+
+# ---------------------------------------------------------------------------
+# 036: dual heavy/light upload sub-panels
+# ---------------------------------------------------------------------------
+
+
+def _lane_snapshot(
+    heavy_pool: int = 2,
+    heavy_busy: int = 1,
+    heavy_queue: int = 3,
+    heavy_done: int = 17,
+    heavy_failed: int = 1,
+    light_pool: int = 8,
+    light_busy: int = 6,
+    light_queue: int = 42,
+    light_done: int = 134,
+    light_failed: int = 0,
+    total: int = 10,
+) -> LaneSnapshot:
+    return LaneSnapshot(
+        heavy=WorkerPoolStatsSnapshot(
+            pool_size=heavy_pool,
+            busy=heavy_busy,
+            idle=max(0, heavy_pool - heavy_busy),
+            queue_depth=heavy_queue,
+            completed=heavy_done,
+            failed=heavy_failed,
+        ),
+        light=WorkerPoolStatsSnapshot(
+            pool_size=light_pool,
+            busy=light_busy,
+            idle=max(0, light_pool - light_busy),
+            queue_depth=light_queue,
+            completed=light_done,
+            failed=light_failed,
+        ),
+        total_budget=total,
+    )
+
+
+class TestRenderUploadDualLanes:
+    def test_single_lane_panel_when_lane_snapshot_none(self) -> None:
+        # Default _baseline_snap() has lane_snapshot=None.
+        out = render_upload(_baseline_snap())
+        # Single-pool path: classic WORKERS panel labels.
+        assert "Pool capacity:" in out
+        assert "Queue depth:     28" in out
+        # Dual-lane labels MUST NOT appear.
+        assert "HEAVY" not in out
+        assert "LIGHT" not in out
+
+    def test_dual_lane_panels_when_snapshot_present(self) -> None:
+        out = render_upload(_baseline_snap(lane_snapshot=_lane_snapshot()))
+        # Dual-panel labels present.
+        assert "WORKERS (heavy/light" in out
+        assert "total budget 10" in out
+        assert "HEAVY" in out
+        assert "LIGHT" in out
+        # Per-lane counters surfaced.
+        assert "queue    3" in out  # heavy queue=3
+        assert "queue   42" in out  # light queue=42
+        assert "done    17" in out  # heavy completed
+        assert "done   134" in out  # light completed
+        # Single-pool labels SHOULD NOT appear in dual mode.
+        assert "Pool capacity:" not in out
+
+    def test_dual_lane_preserves_network_and_chart(self) -> None:
+        out = render_upload(_baseline_snap(lane_snapshot=_lane_snapshot()))
+        # The dual-panel only replaces the WORKERS block; network +
+        # bandwidth chart + slow-ops must still render.
+        assert "NETWORK (CMIS)" in out
+        assert "UPLOAD SPEED" in out
+        assert "SLOW OPS" in out

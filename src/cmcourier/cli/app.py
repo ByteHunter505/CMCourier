@@ -703,6 +703,8 @@ def _run_with_optional_tui(
         # 030: live-bind the active chunk's recorder + chunk-state list.
         recorder_provider=orchestrator.active_recorder,
         chunks_provider=orchestrator.chunks_snapshot,
+        # 036: surface heavy/light lane stats when dual mode is enabled.
+        lane_controller=pipeline.lane_controller,
     )
     outcome = run_orchestrator_with_tui(
         orchestrator=orchestrator,

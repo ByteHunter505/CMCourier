@@ -30,6 +30,7 @@ from cmcourier.adapters.upload.cmis_uploader import CmisUploader
 from cmcourier.config.schema import CmisConfigModel
 from cmcourier.observability.metrics import MetricsRecorder
 from cmcourier.services.auto_tune import AutoTuneController
+from cmcourier.services.lane_controller import LaneController, LaneSnapshot
 from cmcourier.services.worker_pool_stats import ResizableSemaphore, WorkerPoolStats
 
 # Stages displayed on the PREP tab. S5 lives on UPLOAD.
@@ -83,6 +84,9 @@ class TUISnapshot:
     # ---------- 030: chunks state (multi-batch view)
     chunks_state: tuple[dict[str, object], ...] = ()
 
+    # ---------- 036: heavy/light lane state (None when single-lane mode)
+    lane_snapshot: LaneSnapshot | None = None
+
 
 class TUIDataProvider:
     """Snapshot factory the TUI polls every refresh tick.
@@ -103,6 +107,7 @@ class TUIDataProvider:
         auto_tune: AutoTuneController | None = None,
         recorder_provider: Callable[[], MetricsRecorder | None] | None = None,
         chunks_provider: Callable[[], list[Any]] | None = None,
+        lane_controller: LaneController | None = None,
     ) -> None:
         self._pipeline_name = pipeline_name
         self._fallback_recorder = metrics_recorder
@@ -117,6 +122,7 @@ class TUIDataProvider:
         self._cmis_config = cmis_config
         self._uploader = uploader
         self._auto_tune = auto_tune
+        self._lane_controller = lane_controller
         self._batch_id: str = ""
         self._batch_started_monotonic: float | None = None
         self._is_complete = False
@@ -185,6 +191,9 @@ class TUIDataProvider:
             bandwidth_series=tuple(self._metrics.bandwidth.series(60)),
             slow_ops_all=tuple(self._metrics.aggregator_snapshot()),
             chunks_state=self._chunks_state_snapshot(),
+            lane_snapshot=(
+                self._lane_controller.snapshot() if self._lane_controller is not None else None
+            ),
         )
 
     def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:

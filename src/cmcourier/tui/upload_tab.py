@@ -22,11 +22,19 @@ def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
         f"  S5 UPLOAD     {bar}  {count:>4} / {target:<4}",
         f"                p50 {p50:>7.1f} ms  p95 {p95:>7.1f} ms  p99 {p99:>7.1f} ms",
         "",
-        " WORKERS",
-        f"  Pool capacity:   {snap.pool_capacity}   "
-        f"in-use {snap.pool_in_use}   idle {snap.pool_idle}",
-        f"  Queue depth:     {snap.queue_depth} pending",
     ]
+    if snap.lane_snapshot is not None:
+        # 036: dual heavy/light sub-panels replace the single-pool view.
+        lines.extend(_render_lane_panels(snap))
+    else:
+        lines.extend(
+            [
+                " WORKERS",
+                f"  Pool capacity:   {snap.pool_capacity}   "
+                f"in-use {snap.pool_in_use}   idle {snap.pool_idle}",
+                f"  Queue depth:     {snap.queue_depth} pending",
+            ]
+        )
     if snap.auto_tune_enabled:
         lines.append("  Auto-tune:       ON")
         lines.append(
@@ -107,3 +115,22 @@ def _bar(value: int, target: int, *, width: int) -> str:
     ratio = max(0.0, min(1.0, value / target))
     filled = int(round(ratio * width))
     return "█" * filled + "░" * (width - filled)
+
+
+def _render_lane_panels(snap: TUISnapshot) -> list[str]:
+    """036: render side-by-side HEAVY/LIGHT panels for dual-lane runs."""
+    assert snap.lane_snapshot is not None
+    ls = snap.lane_snapshot
+    return [
+        f" WORKERS (heavy/light · total budget {ls.total_budget})",
+        f"  HEAVY  capacity {ls.heavy.pool_size:>3}   "
+        f"in-use {ls.heavy.busy:>3}   "
+        f"idle {ls.heavy.idle:>3}   "
+        f"queue {ls.heavy.queue_depth:>4}",
+        f"         done {ls.heavy.completed:>5}   failed {ls.heavy.failed:>4}",
+        f"  LIGHT  capacity {ls.light.pool_size:>3}   "
+        f"in-use {ls.light.busy:>3}   "
+        f"idle {ls.light.idle:>3}   "
+        f"queue {ls.light.queue_depth:>4}",
+        f"         done {ls.light.completed:>5}   failed {ls.light.failed:>4}",
+    ]
