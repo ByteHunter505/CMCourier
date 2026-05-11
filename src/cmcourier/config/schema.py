@@ -30,6 +30,7 @@ __all__ = [
     "CsvTriggerConfig",
     "FieldConfig",
     "FieldSourceItem",
+    "HeavyLightLanesConfig",
     "IndexingColumnsModel",
     "IndexingSourceConfig",
     "LocalScanTriggerConfig",
@@ -402,17 +403,45 @@ class TrackingConfig(BaseModel):
     as400_sync: As400SyncConfig = Field(default_factory=As400SyncConfig)
 
 
+class HeavyLightLanesConfig(BaseModel):
+    """POST-MVP §1 — adaptive heavy/light upload lane configuration (036).
+
+    When ``enabled`` is ``True`` and a batch has at least
+    ``heavy_lane_min_batch`` items, S5 splits documents by
+    ``file_size_bytes >= heavy_threshold_bytes`` into two lanes that
+    share the total worker budget. The total budget is owned by AIMD
+    (when active); ``heavy_initial_ratio`` plus a drain-driven
+    rebalance daemon (``rebalance_interval_s`` /
+    ``idle_threshold_s``) own the lane split.
+
+    Default ``enabled = False`` preserves the pre-036 single-pool
+    behavior byte-for-byte.
+    """
+
+    model_config = _STRICT
+    enabled: bool = False
+    heavy_threshold_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    heavy_lane_min_batch: int = Field(default=50, ge=1)
+    heavy_initial_ratio: float = Field(default=0.2, ge=0.0, le=1.0)
+    rebalance_interval_s: float = Field(default=10.0, gt=0.0, le=600.0)
+    idle_threshold_s: float = Field(default=15.0, gt=0.0, le=3600.0)
+
+
 class ProcessingConfig(BaseModel):
-    """POST-MVP §7 — multi-batch orchestration knobs.
+    """POST-MVP §7 + §1 — multi-batch orchestration + dual-lane knobs.
 
     ``batches_in_flight`` controls the producer-consumer overlap:
     while batch N uploads (S5), batches N+1..N+(K-1) prepare
     (S0–S4) concurrently. Default ``2`` is the canonical
     "one preparing + one uploading" model.
+
+    ``heavy_light_lanes`` carries the dual-lane (POST-MVP §1) config —
+    default-off; see :class:`HeavyLightLanesConfig`.
     """
 
     model_config = _STRICT
     batches_in_flight: int = Field(default=2, ge=1, le=2)
+    heavy_light_lanes: HeavyLightLanesConfig = Field(default_factory=HeavyLightLanesConfig)
 
 
 class SystemMetricsConfig(BaseModel):

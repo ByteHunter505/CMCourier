@@ -23,10 +23,12 @@ from cmcourier.config.schema import (
     CsvTriggerConfig,
     FieldConfig,
     FieldSourceItem,
+    HeavyLightLanesConfig,
     IndexingSourceConfig,
     MappingConfig,
     MetadataConfigModel,
     PipelineConfig,
+    ProcessingConfig,
     RvabrepTriggerConfig,
     TrackingConfig,
     TriggerCsvConfig,
@@ -953,3 +955,91 @@ class TestMappingConfigModes:
         assert config.mapping.rvi_cm_csv_path == split_paths["rvi_cm"]
         assert config.mapping.metadatos_csv_path == split_paths["metadatos"]
         assert config.mapping.csv_path is None
+
+
+# ---------------------------------------------------------------------------
+# HeavyLightLanesConfig (036 — POST-MVP §1 dual-lane upload)
+# ---------------------------------------------------------------------------
+
+
+class TestHeavyLightLanesConfig:
+    def test_defaults_disabled(self) -> None:
+        cfg = HeavyLightLanesConfig()
+        assert cfg.enabled is False
+        assert cfg.heavy_threshold_bytes == 10 * 1024 * 1024
+        assert cfg.heavy_lane_min_batch == 50
+        assert cfg.heavy_initial_ratio == 0.2
+        assert cfg.rebalance_interval_s == 10.0
+        assert cfg.idle_threshold_s == 15.0
+
+    def test_enabled_with_overrides(self) -> None:
+        cfg = HeavyLightLanesConfig(
+            enabled=True,
+            heavy_threshold_bytes=5 * 1024 * 1024,
+            heavy_lane_min_batch=20,
+            heavy_initial_ratio=0.4,
+            rebalance_interval_s=5.0,
+            idle_threshold_s=8.0,
+        )
+        assert cfg.enabled is True
+        assert cfg.heavy_threshold_bytes == 5 * 1024 * 1024
+        assert cfg.heavy_initial_ratio == 0.4
+
+    def test_threshold_must_be_positive(self) -> None:
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(heavy_threshold_bytes=0)
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(heavy_threshold_bytes=-1)
+
+    def test_min_batch_must_be_ge_one(self) -> None:
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(heavy_lane_min_batch=0)
+
+    @pytest.mark.parametrize("ratio", [-0.1, 1.1, 2.0])
+    def test_ratio_must_be_in_unit_interval(self, ratio: float) -> None:
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(heavy_initial_ratio=ratio)
+
+    @pytest.mark.parametrize("ratio", [0.0, 0.5, 1.0])
+    def test_ratio_endpoints_accepted(self, ratio: float) -> None:
+        cfg = HeavyLightLanesConfig(heavy_initial_ratio=ratio)
+        assert cfg.heavy_initial_ratio == ratio
+
+    def test_intervals_must_be_positive(self) -> None:
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(rebalance_interval_s=0.0)
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(idle_threshold_s=0.0)
+
+    def test_extra_fields_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            HeavyLightLanesConfig(unknown_knob=42)  # type: ignore[call-arg]
+
+    def test_processing_config_includes_lanes(self) -> None:
+        pc = ProcessingConfig()
+        assert pc.heavy_light_lanes.enabled is False
+        assert isinstance(pc.heavy_light_lanes, HeavyLightLanesConfig)
+
+    def test_pipeline_loads_with_lanes_enabled(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["processing"] = {
+            "heavy_light_lanes": {
+                "enabled": True,
+                "heavy_threshold_bytes": 5_000_000,
+                "heavy_lane_min_batch": 30,
+                "heavy_initial_ratio": 0.3,
+            }
+        }
+        config = PipelineConfig.model_validate(data)
+        assert config.processing.heavy_light_lanes.enabled is True
+        assert config.processing.heavy_light_lanes.heavy_threshold_bytes == 5_000_000
+        assert config.processing.heavy_light_lanes.heavy_initial_ratio == 0.3
