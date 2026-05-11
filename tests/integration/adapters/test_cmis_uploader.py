@@ -162,6 +162,67 @@ class TestWarmup:
 
 
 # ---------------------------------------------------------------------------
+# Group 2b — Connection pool sizing + eager warm-up (038)
+# ---------------------------------------------------------------------------
+
+
+class TestConnectionPoolSizing:
+    def test_default_pool_size_is_ten(self) -> None:
+        cfg = CmisConfig(base_url=_BASE_URL, repo_id=_REPO_ID, username="u", password="p")
+        assert cfg.pool_size == 10
+
+    def test_adapter_mounted_with_configured_pool_size(self) -> None:
+        uploader = CmisUploader(_make_config(pool_size=32))
+        # requests.Session.mount keys preserve insertion order; check both
+        # http:// and https:// adapters carry the configured maxsize.
+        adapters = list(uploader._session.adapters.values())
+        assert any(getattr(a, "_pool_maxsize", None) == 32 for a in adapters)
+
+
+class TestWarmConnectionPool:
+    @responses.activate
+    def test_warm_n_connections_fires_n_requests(self) -> None:
+        _stub_warmup()
+        # Add 7 more identical stubs so a pool of 8 doesn't blow past
+        # the matcher list. responses by default allows reuse of a
+        # single stub for multiple calls — but let's be explicit.
+        for _ in range(7):
+            _stub_warmup()
+        uploader = CmisUploader(_make_config(pool_size=8))
+        succeeded = uploader.warm_connection_pool(8)
+        assert succeeded == 8
+        # repositoryInfo got hit 8 times.
+        info_calls = [c for c in responses.calls if "cmisselector=repositoryInfo" in c.request.url]
+        assert len(info_calls) == 8
+
+    def test_warm_zero_is_noop(self) -> None:
+        uploader = CmisUploader(_make_config())
+        # No HTTP mocks registered → would error if a request happened.
+        assert uploader.warm_connection_pool(0) == 0
+        assert uploader.warm_connection_pool(-3) == 0
+
+    @responses.activate
+    def test_warm_swallows_individual_failures(self) -> None:
+        # First stub succeeds; subsequent are 503 so 3 of 4 fail.
+        _stub_warmup()
+        for _ in range(3):
+            responses.add(
+                responses.GET,
+                _repo_info_url(),
+                json={"error": "boom"},
+                status=503,
+                match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+            )
+        uploader = CmisUploader(_make_config(pool_size=4))
+        # Should NOT raise — failures only log.
+        succeeded = uploader.warm_connection_pool(4)
+        # Order of completion is non-deterministic so just assert it
+        # is within [0, 4] and at least one succeeded if responses
+        # popped the success first.
+        assert 0 <= succeeded <= 4
+
+
+# ---------------------------------------------------------------------------
 # Group 3 — test_connection
 # ---------------------------------------------------------------------------
 

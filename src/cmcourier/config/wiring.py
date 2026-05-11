@@ -98,6 +98,14 @@ def build_pipeline(
             image_type_map=config.assembly.image_type_map,
         )
     )
+    # 038: size the connection pool to the highest worker count AIMD
+    # might reach so the urllib3 default (10) is never the bottleneck
+    # at peak concurrency.
+    cmis_pool_size = (
+        max(config.cmis.workers, config.cmis.auto_tune.max_threads)
+        if config.cmis.auto_tune.enabled
+        else config.cmis.workers
+    )
     uploader = CmisUploader(
         CmisConfig(
             base_url=config.cmis.base_url,
@@ -109,6 +117,7 @@ def build_pipeline(
             max_bandwidth_mbps=config.cmis.max_bandwidth_mbps,
             retry_max_attempts=config.cmis.retry_max_attempts,
             retry_base_delay_s=config.cmis.retry_base_delay_s,
+            pool_size=cmis_pool_size,
         )
     )
     tracking_store = SQLiteTrackingStore(config.tracking.db_path)

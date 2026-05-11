@@ -326,6 +326,10 @@ class StagedPipeline:
             try:
                 if controller is not None:
                     controller.start()
+                # 038: pre-open the S5 TCP+TLS+JSESSIONID connection
+                # pool so the first ``self._workers`` uploads do not
+                # each pay the handshake on their critical path.
+                self._uploader.warm_connection_pool(self._workers)
                 s5_done, s5_failed = self._stage_s5(items, resolved_batch_id)
             finally:
                 if controller is not None:

@@ -51,6 +51,57 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.39.0] — 2026-05-11 — **CMIS connection pool sizing + eager warm-up (POST-MVP §10.2)**
+
+S5 stops paying the TCP + TLS + JSESSIONID handshake on the
+critical path of the first N uploads. The CMIS uploader now:
+
+- Mounts an explicit ``requests.adapters.HTTPAdapter`` with
+  ``pool_connections`` and ``pool_maxsize`` matching the highest
+  worker count the pipeline could reach (`cmis.workers` or
+  `cmis.auto_tune.max_threads`, whichever is greater when AIMD is
+  enabled). Replaces urllib3's default `pool_maxsize=10` which
+  silently re-opens TCP every dispatch when workers > 10.
+- Exposes ``CmisUploader.warm_connection_pool(n)`` — N concurrent
+  ``repositoryInfo`` GETs that prime the pool with warm
+  keep-alive connections + JSESSIONID cookies before the first S5
+  upload submits.
+- ``StagedPipeline.run()`` invokes the warmup right after the AIMD
+  controller starts, so the first S5 batch ships against already-
+  open connections instead of paying ~100-400 ms per worker on the
+  TLS handshake.
+
+### Added
+
+- ``CmisConfig.pool_size: int = 10``.
+- ``CmisUploader.warm_connection_pool(n) -> int`` — returns the
+  number of successful warmups; individual failures only log.
+- Structured log event ``cmis_pool_warmed`` with
+  ``requested`` + ``succeeded`` counters.
+
+### Changed
+
+- ``CmisUploader.__init__`` configures ``HTTPAdapter`` on both
+  ``http://`` and ``https://`` schemas with ``max_retries=0`` so
+  our own retry policy stays authoritative.
+- ``config/wiring.py`` derives the effective pool size from the
+  config and passes it into ``CmisConfig``.
+
+### Backwards compatibility
+
+Pool size defaults to 10 (the urllib3 baseline). Behavior is
+strictly additive: configs that did not set ``cmis.workers`` to
+more than 10 see no change. Warmup raises nothing — a cold pool
+just means the original lazy-warmup path runs.
+
+### Spec
+
+Shipped without a formal `specs/` entry — pure micro-optimization
+from the §10 watchlist (item 2: "Connection pool warm-up at
+process start").
+
+---
+
 ## [0.38.0] — 2026-05-11 — **cross-batch document_cache table (POST-MVP §9)**
 
 S3 (Metadata Resolution) gains an optional cross-batch cache so

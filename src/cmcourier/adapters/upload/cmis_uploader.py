@@ -37,10 +37,12 @@ import logging
 import threading
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import IO, Any
 
 import requests
+from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests_toolbelt import MultipartEncoder
 
@@ -80,6 +82,11 @@ class CmisConfig:
     max_bandwidth_mbps: float = 0.0
     retry_max_attempts: int = 3
     retry_base_delay_s: float = 2.0
+    # 038: requests' default HTTPAdapter ships pool_maxsize=10. When the
+    # S5 worker count exceeds this, urllib3 warns "Connection pool is
+    # full, discarding connection" and re-opens TCP every dispatch.
+    # Size the pool to match expected concurrency.
+    pool_size: int = 10
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +176,18 @@ class CmisUploader(IUploader):
         self._session = requests.Session()
         self._session.auth = (config.username, config.password)
         self._session.verify = config.verify_ssl
+        # 038: size the connection pool to S5 worker concurrency so
+        # each worker keeps its own TCP+TLS+JSESSIONID connection warm
+        # across requests instead of fighting for the urllib3 default
+        # pool_maxsize=10.
+        pool_size = max(1, int(config.pool_size))
+        adapter = HTTPAdapter(
+            pool_connections=pool_size,
+            pool_maxsize=pool_size,
+            max_retries=0,  # our own retry policy handles this
+        )
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
         self._folder_cache: set[str] = set()
         self._warm = False
         # 025: S5 worker pool calls upload/ensure_folder concurrently.
@@ -197,6 +216,44 @@ class CmisUploader(IUploader):
             "product_version": str(data.get("productVersion", "")),
             "vendor_name": str(data.get("vendorName", "")),
         }
+
+    def warm_connection_pool(self, n: int) -> int:
+        """Pre-open ``n`` TCP+TLS+JSESSIONID connections (038).
+
+        Without this, the first ``n`` S5 uploads each pay the TCP +
+        TLS handshake + JSESSIONID bootstrap on the critical path —
+        easily 100-400 ms per worker on a corporate link. Calling this
+        once before stage S5 dispatches all that to a parallel
+        startup phase, leaving the uploads themselves on warm
+        keep-alive connections.
+
+        Returns the number of warmups that completed successfully.
+        Failures are logged but never raise — a cold pool just means
+        the first uploads pay the handshake.
+        """
+        if n <= 0:
+            return 0
+        successes = 0
+        with ThreadPoolExecutor(
+            max_workers=n,
+            thread_name_prefix="cmcourier-cmis-warmup",
+        ) as pool:
+            futures = [pool.submit(self._warmup_session) for _ in range(n)]
+            for fut in as_completed(futures):
+                try:
+                    fut.result()
+                    successes += 1
+                except (CMISServerError, CMISClientError, RequestsConnectionError):
+                    _log.warning("cmis: warmup attempt failed", exc_info=True)
+        _log.info(
+            "cmis: connection pool warmed",
+            extra={
+                "event": "cmis_pool_warmed",
+                "requested": n,
+                "succeeded": successes,
+            },
+        )
+        return successes
 
     def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
         """GET cmisselector=typeDefinition&typeId=<id>. Bypasses the retry loop."""
