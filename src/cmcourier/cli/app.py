@@ -31,12 +31,13 @@ from cmcourier.config.schema import CsvTriggerConfig, PipelineConfig
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.orchestrators.staged import RunReport
+from cmcourier.services.triggers import SingleDocTriggerStrategy
 
 _log = logging.getLogger(__name__)
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
-_TriggerKind = Literal["csv", "rvabrep", "as400", "local_scan"]
+_TriggerKind = Literal["csv", "rvabrep", "as400", "local_scan", "single_doc"]
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +218,86 @@ def local_scan_run_command(
         triggers_override=None,
         log_level=log_level,
     )
+
+
+# ---------------------------------------------------------------------------
+# single-doc (REBIRTH §10.2 diagnostic pipeline)
+# ---------------------------------------------------------------------------
+
+
+@main.group(name="single-doc")
+def single_doc_group() -> None:
+    """single-doc subcommands (REBIRTH §10.2 — debug / ad-hoc)."""
+
+
+@single_doc_group.command(name="run")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+    help="Path to the pipeline YAML config file (trigger.kind must be 'single_doc').",
+)
+@click.option("--shortname", type=str, required=True, help="Target document shortname.")
+@click.option("--system", type=str, required=True, help="Source system identifier.")
+@click.option("--cif", type=str, default=None, help="Optional CIF (resolved if blank).")
+@click.option("--batch-id", type=str, default=None)
+@click.option("--from-stage", type=click.IntRange(1, 5), default=1)
+@click.option("--batch-size", type=click.IntRange(min=1), default=None)
+@click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
+def single_doc_run_command(
+    config_path: Path,
+    shortname: str,
+    system: str,
+    cif: str | None,
+    batch_id: str | None,
+    from_stage: int,
+    batch_size: int | None,
+    log_level: str,
+) -> None:
+    """Run a one-shot pipeline for a single document."""
+    configure_logging(log_level)
+    try:
+        config = load_config(config_path)
+        secrets = load_secrets()
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+
+    actual_kind = getattr(config.trigger, "kind", "<unknown>")
+    if actual_kind != "single_doc":
+        click.echo(
+            f"ConfigurationError: single-doc run expects trigger.kind='single_doc'; "
+            f"config has kind={actual_kind!r}",
+            err=True,
+        )
+        sys.exit(2)
+
+    strategy = SingleDocTriggerStrategy(
+        shortname=shortname,
+        system_id=system,
+        cif=cif or None,
+    )
+    config = _apply_overrides(config, triggers_override=None, batch_size=batch_size)
+    try:
+        pipeline = build_pipeline(config, secrets, trigger_strategy_override=strategy)
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+
+    try:
+        report = pipeline.run(
+            source_descriptor="",
+            batch_size=config.batch_size,
+            batch_id=batch_id,
+            from_stage=from_stage,
+        )
+    except Exception:
+        _log.exception("single-doc run failed unexpectedly")
+        sys.exit(3)
+
+    _emit_summary(report)
+    sys.exit(0 if report.s5_failed == 0 else 1)
 
 
 # ---------------------------------------------------------------------------

@@ -328,6 +328,25 @@ class TestSampleDryRun:
         assert dry.status == CheckStatus.SKIP
         assert dry.details["reason"] == "no_triggers"
 
+    @responses.activate
+    def test_dry_run_skip_on_single_doc_kind(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        yaml_path = _write_yaml(tmp_path)
+        # Replace the trigger block with kind=single_doc.
+        text = yaml_path.read_text()
+        text = text.replace(
+            f"trigger:\n  csv_path: {tmp_path / 'triggers.csv'}\n",
+            "trigger:\n  kind: single_doc\n",
+            1,
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        report = run_doctor(config, _secrets())
+        dry = next(r for r in report.results if r.name == "sample_dry_run")
+        assert dry.status == CheckStatus.SKIP
+        assert dry.details["reason"] == "trigger_kind_single_doc_requires_cli_args"
+
 
 # ---------------------------------------------------------------------------
 # CLI integration

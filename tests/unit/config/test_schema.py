@@ -378,6 +378,37 @@ class TestTriggerDiscriminatedUnion:
         # TriggerCsvConfig is the old name — kept as an alias to CsvTriggerConfig.
         assert TriggerCsvConfig is CsvTriggerConfig
 
+    def test_single_doc_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        from cmcourier.config.schema import SingleDocTriggerConfig
+
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["trigger"] = {"kind": "single_doc"}
+        config = PipelineConfig.model_validate(data)
+        assert isinstance(config.trigger, SingleDocTriggerConfig)
+        assert config.trigger.kind == "single_doc"
+
+    def test_single_doc_rejects_extra_fields(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["trigger"] = {"kind": "single_doc", "shortname": "X"}
+        with pytest.raises(ValidationError):
+            PipelineConfig.model_validate(data)
+
 
 # ---------------------------------------------------------------------------
 # Metadata source discriminated union (015)

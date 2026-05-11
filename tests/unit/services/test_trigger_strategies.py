@@ -20,6 +20,7 @@ from cmcourier.services.triggers import (
     DirectRvabrepTriggerStrategy,
     LocalScanTriggerStrategy,
     RvabrepFilters,
+    SingleDocTriggerStrategy,
 )
 
 _FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "services" / "triggers"
@@ -355,3 +356,46 @@ class TestLocalScanStrategy:
             assert strategy._columns == RvabrepColumnsConfig()  # type: ignore[attr-defined]
         finally:
             src.close()
+
+
+# ---------------------------------------------------------------------------
+# SingleDocTriggerStrategy (017)
+# ---------------------------------------------------------------------------
+
+
+class TestSingleDocStrategy:
+    def test_yields_exactly_one_trigger(self) -> None:
+        strategy = SingleDocTriggerStrategy(shortname="JUANPEREZ01", system_id="1", cif="123456")
+        records = list(strategy.acquire())
+        assert len(records) == 1
+        assert records[0].shortname == "JUANPEREZ01"
+        assert records[0].system_id == "1"
+        assert records[0].cif == "123456"
+
+    def test_cif_none_propagates(self) -> None:
+        strategy = SingleDocTriggerStrategy(shortname="X", system_id="1", cif=None)
+        records = list(strategy.acquire())
+        assert records[0].cif is None
+
+    def test_empty_cif_treated_as_none(self) -> None:
+        strategy = SingleDocTriggerStrategy(shortname="X", system_id="1", cif="")
+        records = list(strategy.acquire())
+        assert records[0].cif is None
+
+    def test_is_s0strategy(self) -> None:
+        strategy = SingleDocTriggerStrategy(shortname="X", system_id="1")
+        assert isinstance(strategy, S0Strategy)
+
+    def test_empty_shortname_raises(self) -> None:
+        with pytest.raises(ValueError, match="shortname"):
+            SingleDocTriggerStrategy(shortname="", system_id="1")
+
+    def test_empty_system_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="system_id"):
+            SingleDocTriggerStrategy(shortname="X", system_id="")
+
+    def test_acquire_ignores_source_descriptor(self) -> None:
+        strategy = SingleDocTriggerStrategy(shortname="X", system_id="1")
+        records_a = list(strategy.acquire(""))
+        records_b = list(strategy.acquire("ignored"))
+        assert records_a[0].shortname == records_b[0].shortname == "X"

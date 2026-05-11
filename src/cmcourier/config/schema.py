@@ -33,6 +33,7 @@ __all__ = [
     "IndexingSourceConfig",
     "LocalScanTriggerConfig",
     "MappingConfig",
+    "SingleDocTriggerConfig",
     "MetadataConfigModel",
     "MetadataSourceConfig",
     "PipelineConfig",
@@ -116,8 +117,23 @@ class LocalScanTriggerConfig(BaseModel):
     scan_path: DirectoryPath
 
 
+class SingleDocTriggerConfig(BaseModel):
+    """REBIRTH §10.2 single-doc diagnostic pipeline.
+
+    No extra fields — the trigger (shortname / cif / system_id) comes
+    from CLI args at run time, not from the YAML.
+    """
+
+    model_config = _STRICT
+    kind: Literal["single_doc"]
+
+
 TriggerConfigUnion = Annotated[
-    CsvTriggerConfig | RvabrepTriggerConfig | As400TriggerConfig | LocalScanTriggerConfig,
+    CsvTriggerConfig
+    | RvabrepTriggerConfig
+    | As400TriggerConfig
+    | LocalScanTriggerConfig
+    | SingleDocTriggerConfig,
     Field(discriminator="kind"),
 ]
 

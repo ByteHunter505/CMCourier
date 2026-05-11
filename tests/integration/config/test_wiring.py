@@ -195,3 +195,40 @@ class TestBuildPipeline:
             build_pipeline(config, _secrets())
         assert ei.value.context["alias"] == "customers"
         assert "AS400_USERNAME" in ei.value.context["missing_vars"]
+
+    def test_single_doc_without_override_raises(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "trigger:\n"
+            "  csv_path: " + str(tmp_path / "triggers.csv") + "\n"
+            "  shortname_column: ShortName\n"
+            "  cif_column: CIF\n"
+            "  system_id_column: SystemID",
+            "trigger:\n  kind: single_doc",
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        with pytest.raises(ConfigurationError) as ei:
+            build_pipeline(config, _secrets())
+        assert ei.value.context["kind"] == "single_doc"
+
+    def test_single_doc_with_override_succeeds(self, tmp_path: Path) -> None:
+        from cmcourier.services.triggers import SingleDocTriggerStrategy
+
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "trigger:\n"
+            "  csv_path: " + str(tmp_path / "triggers.csv") + "\n"
+            "  shortname_column: ShortName\n"
+            "  cif_column: CIF\n"
+            "  system_id_column: SystemID",
+            "trigger:\n  kind: single_doc",
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        strategy = SingleDocTriggerStrategy(shortname="TESTCLIENT01", system_id="1", cif="123456")
+        pipeline = build_pipeline(config, _secrets(), trigger_strategy_override=strategy)
+        assert isinstance(pipeline, StagedPipeline)
+        assert pipeline._trigger_strategy is strategy  # type: ignore[attr-defined]

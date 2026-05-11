@@ -12,11 +12,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- `single-doc` — diagnostic pipeline (no S0, args via CLI).
 - REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
 - Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
 - Observability tiers (REBIRTH §17.4).
 - Per-field `as400_query` (follow-up to 015).
+
+---
+
+## [0.19.0] — 2026-05-10 — **single-doc-pipeline (REBIRTH §10.2 diagnostic surface)**
+
+Completes the pipeline surface: 4 production pipelines + 1 diagnostic
+pipeline. Operators can now push a specific shortname/system/cif
+through the full S1..S5 chain from the CLI without scanning a batch
+— useful for re-pushing a single failed doc or smoke-testing a new
+config against a known target.
+
+### Added
+
+- **`cmcourier.services.triggers.single_doc.SingleDocTriggerStrategy`**
+  — minimal S0 strategy that yields exactly one `TriggerRecord` built
+  from constructor args (`shortname`, `system_id`, optional `cif`).
+  Empty-string `cif` is normalized to `None`. No data source; the
+  trigger is carried in-process.
+- **`SingleDocTriggerConfig(kind: Literal["single_doc"])`** — new
+  schema member in `TriggerConfigUnion`. No extra fields — the
+  trigger comes from CLI args, not YAML.
+- **`cmcourier single-doc run`** — new Click sub-group + command:
+  `--config <yaml> --shortname X --system Y [--cif Z]`, plus the
+  standard `--batch-id`, `--from-stage`, `--batch-size`,
+  `--log-level` flags. Verifies `config.trigger.kind == "single_doc"`
+  and exits 2 on mismatch.
+- **`build_pipeline(config, secrets, *, trigger_strategy_override=None)`**
+  — keyword-only override that bypasses the schema-driven dispatch.
+  The CLI uses it to inject the pre-built strategy; the
+  `_build_trigger_strategy` branch for `SingleDocTriggerConfig`
+  raises `ConfigurationError` so non-CLI callers fail loudly.
+- **Doctor SKIP branch**: `_check_sample_dry_run` returns SKIP
+  (`reason="trigger_kind_single_doc_requires_cli_args"`) when
+  `trigger.kind == "single_doc"`. Without this, the dry-run would
+  fail at construction time and confuse operators.
+- **7 new unit tests** for `SingleDocTriggerStrategy` (single yield,
+  cif None / empty-string / present, `S0Strategy` protocol, empty
+  shortname raises, empty system_id raises, `source_descriptor`
+  ignored).
+- **2 new schema tests** (`kind=single_doc` loads to
+  `SingleDocTriggerConfig`; extra fields rejected).
+- **2 new wiring tests** (`build_pipeline` without override raises;
+  with override returns a `StagedPipeline` whose
+  `_trigger_strategy is` the override).
+- **3 new CLI tests** (`single-doc run --help`, happy path with
+  mocked CMIS, kind mismatch).
+- **1 new doctor test** (sample_dry_run returns SKIP for
+  `kind=single_doc`).
+
+### Changed
+
+- **`_TriggerKind` Literal in `cli/app.py`** extended to include
+  `"single_doc"`.
+- **`__all__` in `cmcourier.config.schema`** adds
+  `SingleDocTriggerConfig`.
+- **`__all__` and module docstring in
+  `cmcourier.services.triggers.__init__`** updated to re-export
+  `SingleDocTriggerStrategy` and acknowledge the 5th strategy
+  (4 production + 1 diagnostic).
+- **Root `--help`** now lists six command groups: 4 pipelines +
+  `single-doc` + `doctor`.
+
+### Verification
+
+- `pytest --cov`: **454 / 454 pass** in ~65 s (+15 net new: 7
+  strategy, 2 schema, 2 wiring, 3 CLI, 1 doctor).
+- Coverage: total **94.73 %**;
+  `services/triggers/single_doc.py` at **100 %**.
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (38 source files).
+- `pre-commit run --all-files`: ruff + ruff format + mypy all pass.
+- Smoke: `cmcourier --help` lists 6 commands;
+  `cmcourier single-doc run --help` lists all required flags.
+
+### Rationale
+
+Closes the REBIRTH §10.2 pipeline catalog: four production pipelines
+(csv-trigger, rvabrep, as400-trigger, local-scan) + one diagnostic
+pipeline (single-doc). The override pattern keeps the schema layer
+honest — `_build_trigger_strategy` still raises for any caller that
+tries to wire single-doc without injecting a strategy, so the only
+legitimate entry point remains the dedicated CLI command. This
+preserves Constitution V (config validated at startup) while opening
+a narrow, well-documented seam for CLI-driven dispatch.
 
 ---
 

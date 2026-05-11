@@ -51,6 +51,7 @@ from cmcourier.config.schema import (
     CsvTriggerConfig,
     MetadataSourceConfig,
     PipelineConfig,
+    SingleDocTriggerConfig,
 )
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.ports import S0Strategy
@@ -397,6 +398,8 @@ def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckR
 
 
 def _check_sample_dry_run(config: PipelineConfig, secrets: Secrets) -> CheckResult:
+    if isinstance(config.trigger, SingleDocTriggerConfig):
+        return _skip("sample_dry_run", "trigger_kind_single_doc_requires_cli_args")
     try:
         pipeline = build_pipeline(config, secrets)
     except Exception as exc:  # noqa: BLE001

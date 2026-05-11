@@ -25,6 +25,7 @@ from cmcourier.config.schema import (
     MetadataSourceConfig,
     PipelineConfig,
     RvabrepTriggerConfig,
+    SingleDocTriggerConfig,
 )
 from cmcourier.config.schema import (
     MappingConfig as MappingConfigModel,
@@ -54,8 +55,18 @@ from cmcourier.services.triggers.direct_rvabrep import (
 from cmcourier.services.triggers.local_scan import LocalScanTriggerStrategy
 
 
-def build_pipeline(config: PipelineConfig, secrets: Secrets) -> StagedPipeline:
-    """Construct every adapter / service and return the wired pipeline."""
+def build_pipeline(
+    config: PipelineConfig,
+    secrets: Secrets,
+    *,
+    trigger_strategy_override: S0Strategy | None = None,
+) -> StagedPipeline:
+    """Construct every adapter / service and return the wired pipeline.
+
+    Pass ``trigger_strategy_override`` to bypass the schema-driven
+    dispatch — used by the single-doc CLI to inject a strategy built
+    from CLI args (REBIRTH §10.2).
+    """
     rvabrep_src = TabularDataSource(config.indexing.csv_path)
     mapping_src = TabularDataSource(config.mapping.csv_path)
     metadata_sources = _build_metadata_sources(config.metadata.sources, secrets)
@@ -65,7 +76,9 @@ def build_pipeline(config: PipelineConfig, secrets: Secrets) -> StagedPipeline:
         _indexing_columns_from_schema(config.indexing.columns),
         batch_size=config.indexing.batch_size,
     )
-    trigger_strategy = _build_trigger_strategy(config, secrets, rvabrep_src, indexing_service)
+    trigger_strategy = trigger_strategy_override or _build_trigger_strategy(
+        config, secrets, rvabrep_src, indexing_service
+    )
     mapping_service = MappingService(
         mapping_src,
         _mapping_columns_from_schema(config.mapping),
@@ -153,6 +166,13 @@ def _build_trigger_strategy(
                 col_id_rvi=config.indexing.columns.index7_column,
                 file_name_column=config.indexing.columns.file_name_column,
             ),
+        )
+    if isinstance(trigger_cfg, SingleDocTriggerConfig):
+        raise ConfigurationError(
+            "single_doc trigger requires CLI-provided shortname/system_id; "
+            "use `cmcourier single-doc run` with --shortname/--system/--cif "
+            "and trigger_strategy_override",
+            kind="single_doc",
         )
     if isinstance(trigger_cfg, As400TriggerConfig):
         if not secrets.as400_username or not secrets.as400_password:

@@ -301,6 +301,7 @@ class TestRootHelp:
             "rvabrep-pipeline",
             "as400-trigger-pipeline",
             "local-scan-pipeline",
+            "single-doc",
             "doctor",
         ):
             assert cmd in result.stdout
@@ -359,3 +360,80 @@ class TestLocalScanPipeline:
         result = cli_runner.invoke(main, ["local-scan-pipeline", "run", "--config", str(yaml_path)])
         assert result.exit_code == 0, result.stderr
         assert "s5_done=" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# single-doc (REBIRTH §10.2 diagnostic)
+# ---------------------------------------------------------------------------
+
+
+def _write_single_doc_yaml(tmp_path: Path) -> Path:
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text('trigger:\n  kind: "single_doc"\n' + _common_blocks(tmp_path))
+    return yaml_path
+
+
+class TestSingleDocPipeline:
+    def test_help(self, cli_runner: CliRunner) -> None:
+        result = cli_runner.invoke(main, ["single-doc", "run", "--help"])
+        assert result.exit_code == 0
+        assert "--config" in result.stdout
+        assert "--shortname" in result.stdout
+        assert "--system" in result.stdout
+        assert "--cif" in result.stdout
+
+    def test_rejects_mismatched_kind(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        # YAML kind=csv (defaulted) but command expects single_doc.
+        triggers = tmp_path / "triggers.csv"
+        triggers.write_text("ShortName,CIF,SystemID\n")
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(f"trigger:\n  csv_path: {triggers}\n" + _common_blocks(tmp_path))
+        result = cli_runner.invoke(
+            main,
+            [
+                "single-doc",
+                "run",
+                "--config",
+                str(yaml_path),
+                "--shortname",
+                "TESTCLIENT01",
+                "--system",
+                "1",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "single_doc" in result.stderr
+
+    @responses.activate
+    def test_happy_path(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        _stub_cmis_for_docs(["TXN_PIPE_001"])
+        yaml_path = _write_single_doc_yaml(tmp_path)
+        result = cli_runner.invoke(
+            main,
+            [
+                "single-doc",
+                "run",
+                "--config",
+                str(yaml_path),
+                "--shortname",
+                "TESTCLIENT01",
+                "--system",
+                "1",
+                "--cif",
+                "123456",
+            ],
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "s5_done=1" in result.stdout
