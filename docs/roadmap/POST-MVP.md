@@ -1,7 +1,7 @@
 # CMCourier — Post-MVP Roadmap
 
 > **Status**: Living document. Updated as new features are deferred or completed.
-> **Last updated**: 2026-05-08
+> **Last updated**: 2026-05-11
 
 This document captures every feature, optimization, and design intent that is **deferred** beyond the MVP. **Nothing here is dropped** — everything is intentional, prioritized, and will be implemented in subsequent changes after the MVP is operational. Each entry is structured to be ready-to-consume as input for a future `/sdd-new` proposal.
 
@@ -9,11 +9,16 @@ This document captures every feature, optimization, and design intent that is **
 
 ## What "MVP" Means in This Project
 
-The **MVP** delivers end-to-end document migration from the RVABREP-driven trigger source to IBM Content Manager, with all eight atomic stages (`S0`–`S7`, see `docs/domain/CMCOURIER_REBIRTH.md §10.1`), single-lane upload worker pool, batch-based execution with stage-by-stage resumability, default Rich TUI, structured logging at the application + pipeline + network tiers, idempotent SQLite tracking, and the `doctor` pre-flight command.
+The **MVP** delivers end-to-end document migration to IBM Content Manager across **four production pipelines** (`csv-trigger`, `rvabrep`, `as400-trigger`, `local-scan`) plus the `single-doc` diagnostic, with all eight atomic stages (`S0`–`S7`, see `docs/domain/CMCOURIER_REBIRTH.md §10.1`), a single resizable S5 upload worker pool with **AIMD auto-tune**, batch-based execution with stage-by-stage resumability, default two-tab textual TUI, structured logging at the application + pipeline + network + slow-ops tiers, idempotent SQLite tracking, the `doctor` pre-flight command, and the cron-friendly `background` runner.
 
-The MVP explicitly **excludes**: any size-aware upload scheduling, system-resource sampling, offline log analysis tooling, AS400-backed tracking, adaptive worker auto-tuning, the CSV / AS400-query / local-scan pipelines (only `rvabrep-pipeline` and `single-doc` ship in MVP), multi-batch parallelism beyond the basic producer-consumer overlap of two batches, and per-batch bandwidth quotas.
+The MVP explicitly **excludes**: any size-aware upload scheduling (heavy/light lanes), system-resource sampling (`psutil` tier 5), offline log analysis tooling, AS400-backed tracking, multi-batch parallelism beyond the basic producer-consumer overlap of two batches, per-batch bandwidth quotas, and a cross-batch metadata cache.
 
 Everything excluded lives below, with enough detail to start a new change directly.
+
+### Status snapshot
+
+- **Done (promoted into MVP)**: §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016).
+- **Still deferred**: §1, §2, §3, §4, §7, §8, §9, plus the §10 watchlist.
 
 ---
 
@@ -209,7 +214,12 @@ The `ITrackingStore` port has two implementations: `SQLiteTrackingStore` (MVP) a
 
 ---
 
-## §5. AIMD Adaptive Worker Auto-Tuning
+## §5. AIMD Adaptive Worker Auto-Tuning — **SHIPPED in change 025 (2026-05-10)**
+
+> Promoted out of post-MVP and delivered as part of change 025. The
+> section is kept for historical context and to document the
+> design intent that the implementation honors. See
+> `specs/025-tui-workers-autotune/` and `CHANGELOG.md [0.27.0]`.
 
 ### Intent
 
@@ -262,7 +272,13 @@ The MVP runs S5 with a fixed worker count from config. Post-MVP, an **AIMD (Addi
 
 ---
 
-## §6. Additional Pipelines (CSV / AS400 trigger / Local Scan)
+## §6. Additional Pipelines (CSV / AS400 trigger / Local Scan) — **SHIPPED in changes 012, 014, 016**
+
+> Promoted out of post-MVP and delivered ahead of schedule.
+> `csv-trigger-pipeline` shipped in change 012,
+> `as400-trigger-pipeline` in change 014, `local-scan-pipeline` in
+> change 016. All four production pipelines plus `single-doc` are
+> in MVP. See `CHANGELOG.md` for the per-change detail.
 
 ### Intent
 

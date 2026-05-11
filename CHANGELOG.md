@@ -10,10 +10,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Planned for next release
+### Planned for next releases
 
-- POST-MVP §2 system metrics (psutil sampling) + §3 offline log
-  analyzer.
+Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
+
+- **§1** — Adaptive heavy / light upload lanes (REBIRTH §10.7).
+- **§2** — System metrics observability (`psutil` sampling, tier 5).
+- **§3** — Offline log analysis tooling (`cmcourier analyze`).
+- **§4** — `AS400TrackingStore` (centralize tracking in RVILIB).
+- **§7** — Multi-batch pipeline parallelism (`batches_in_flight > 2`).
+- **§8** — Per-batch bandwidth quota.
+- **§9** — Cross-batch `document_cache` table.
+- **§10** — Watchlist items (per-folder CMIS concurrency, pool
+  warm-up, retry budgets per pipeline, CLI auto-completion, …).
+
+Operational milestones outside the roadmap doc:
+
+- Real-data dry run against staging.
+- First production migration.
+
+### Removed (no longer pending)
+
+- ~~§5 AIMD adaptive worker auto-tuning~~ — shipped in 025.
+- ~~§6 Additional pipelines (csv / as400 / local-scan)~~ —
+  shipped in 012 / 014 / 016.
 
 ---
 
