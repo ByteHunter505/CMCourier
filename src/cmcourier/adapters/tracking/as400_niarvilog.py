@@ -245,6 +245,56 @@ class As400NiarvilogStore:
             eerrmsg=str(row["EERRMSG"]).strip(),
         )
 
+    def read_state_by_txn(self, *, trnnum: str) -> NiarvilogRow | None:
+        """TRNNUM-only lookup (034 phase 4).
+
+        For pre-flight sync + ``cmcourier sync resolve``, the caller
+        typically knows only the txn_num, not the full composite PK
+        (SISCOD/DOCFRM/IMGARC). The bank's operational convention is
+        one row per txn_num — this method assumes that and returns
+        the first matching row (or None).
+        """
+        sql = (
+            f"SELECT {_SELECT_COLUMNS} FROM {self._full_table()} "
+            f"WHERE TRNNUM = ? FETCH FIRST 1 ROWS ONLY"
+        )
+        rows = self._execute_read(sql, [trnnum], "niarvilog_read_state_by_txn")
+        if not rows:
+            return None
+        row = rows[0]
+        return NiarvilogRow(
+            siscod=str(row["SISCOD"]).strip(),
+            trnnum=str(row["TRNNUM"]).strip(),
+            docfrm=str(row["DOCFRM"]).strip(),
+            imgarc=str(row["IMGARC"]).strip(),
+            imgtip=str(row["IMGTIP"]).strip(),
+            ctecif=str(row["CTECIF"]).strip(),
+            ctenum=int(row["CTENUM"] or 0),
+            stscod=str(row["STSCOD"]).strip(),
+            idnbac=str(row["IDNBAC"]).strip(),
+            tipidn=str(row["TIPIDN"]).strip(),
+            objidn=str(row["OBJIDN"]).strip(),
+            numrei=int(row["NUMREI"] or 0),
+            pmrrei=row["PMRREI"],
+            finrei=row["FINREI"],
+            eerrmsg=str(row["EERRMSG"]).strip(),
+        )
+
+    def mark_uploaded_by_txn(self, *, trnnum: str, cm_object_id: str) -> int:
+        """Phase 4 helper for ``sync resolve --prefer-local``.
+
+        Updates the existing NIARVILOG row by TRNNUM, setting
+        ``STSCOD='O'`` + ``OBJIDN=cm_object_id``. Returns row count.
+        Operators use this when SQLite knows the doc is done but
+        AS400 didn't get the notification (e.g. AS400 was down).
+        """
+        sql = (
+            f"UPDATE {self._full_table()} "
+            f"SET STSCOD = 'O', OBJIDN = ?, EERRMSG = '' "
+            f"WHERE TRNNUM = ?"
+        )
+        return self._execute_write(sql, [cm_object_id, trnnum], "niarvilog_mark_uploaded_by_txn")
+
     def cleanup_stale_in_progress(self) -> int:
         """Reset STSCOD='I' rows whose FINREI is older than threshold.
 

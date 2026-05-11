@@ -425,6 +425,75 @@ class TestReadState:
 
 
 # ---------------------------------------------------------------------------
+# read_state_by_txn (Phase 4)
+# ---------------------------------------------------------------------------
+
+
+class TestReadStateByTxn:
+    """034 Phase 4: TRNNUM-only lookup for pre-flight + CLI sync resolve."""
+
+    def test_returns_row_when_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.fetch_queue = [
+            (
+                [
+                    (
+                        "1",
+                        "0000001",
+                        "CC03",
+                        "DAAAH9X4.001",
+                        "B",
+                        "TESTCLIENT01",
+                        123456,
+                        "O",
+                        "CN01",
+                        "MyType",
+                        "cmis-abc",
+                        0,
+                        datetime(2025, 11, 17, 10, 0, 0),
+                        datetime(2025, 11, 17, 10, 5, 0),
+                        "",
+                    )
+                ],
+                (
+                    "SISCOD",
+                    "TRNNUM",
+                    "DOCFRM",
+                    "IMGARC",
+                    "IMGTIP",
+                    "CTECIF",
+                    "CTENUM",
+                    "STSCOD",
+                    "IDNBAC",
+                    "TIPIDN",
+                    "OBJIDN",
+                    "NUMREI",
+                    "PMRREI",
+                    "FINREI",
+                    "EERRMSG",
+                ),
+            )
+        ]
+        store, _, _ = _make_store(monkeypatch, cursor=cur)
+
+        row = store.read_state_by_txn(trnnum="0000001")
+
+        assert row is not None
+        assert row.trnnum == "0000001"
+        assert row.stscod == "O"
+        assert row.objidn == "cmis-abc"
+        sql, params = cur.executions[0]
+        assert "WHERE TRNNUM" in sql.upper()
+        assert params == ["0000001"]
+
+    def test_returns_none_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.fetch_queue = [([], ("SISCOD",))]
+        store, _, _ = _make_store(monkeypatch, cursor=cur)
+        assert store.read_state_by_txn(trnnum="missing") is None
+
+
+# ---------------------------------------------------------------------------
 # cleanup_stale_in_progress
 # ---------------------------------------------------------------------------
 

@@ -248,23 +248,11 @@ class IdempotencyCoordinator:
     # ----- helpers ---------------------------------------------------
 
     def _safe_read(self, txn: str) -> NiarvilogRow | None:
-        """The pre-flight is best-effort — we read NIARVILOG with a
-        relaxed PK (TRNNUM-only). The store API requires the full PK
-        but for the sync pass we don't know DOCFRM / IMGARC. This
-        helper is a stub the next iteration may replace with a
-        TRNNUM-only SELECT helper on the store.
+        """TRNNUM-only lookup for pre-flight (034 phase 4).
 
-        For 034 phase 3, we use ``read_state`` with the conventional
-        DOCFRM='' / IMGARC='' which won't match — meaning preflight
-        only finds rows the caller already has metadata for. Callers
-        that want full pre-flight should pass batch_scope built from
-        records with known PKs (TODO: extend API in phase 4).
+        Uses the store's ``read_state_by_txn`` helper. Per the bank's
+        operational convention, each txn_num has at most one row in
+        NIARVILOG (the IMGARC of the first page).
         """
         assert self._as400 is not None
-        # Placeholder — see method docstring.
-        return self._as400.read_state(
-            siscod="",
-            trnnum=txn,
-            docfrm="",
-            imgarc="",
-        )
+        return self._as400.read_state_by_txn(trnnum=txn)

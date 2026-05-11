@@ -269,11 +269,10 @@ class TestPreflightSync:
         sqlite.is_uploaded.return_value = False  # SQLite has no record
         as400 = MagicMock()
         as400.cleanup_stale_in_progress.return_value = 0
-        as400.read_state.side_effect = lambda **kwargs: _niarvilog_row(
+        as400.read_state_by_txn.side_effect = lambda **kwargs: _niarvilog_row(
             txn=kwargs["trnnum"], stscod="O", objidn="cmis-xyz"
         )
         coord = IdempotencyCoordinator(sqlite_store=sqlite, as400_store=as400)
-        # Provide the batch scope = the txn_nums we plan to process.
         report = coord.preflight_sync(batch_scope={"0000001"})
         assert "0000001" in report.imported_from_as400
         assert report.conflicts == []
@@ -284,7 +283,7 @@ class TestPreflightSync:
         sqlite.is_stage_done.return_value = True  # SQLite says done
         as400 = MagicMock()
         as400.cleanup_stale_in_progress.return_value = 0
-        as400.read_state.return_value = _niarvilog_row(stscod="N")
+        as400.read_state_by_txn.return_value = _niarvilog_row(stscod="N")
         coord = IdempotencyCoordinator(sqlite_store=sqlite, as400_store=as400)
         report = coord.preflight_sync(batch_scope={"0000001"})
         assert "0000001" in report.conflicts
@@ -294,7 +293,7 @@ class TestPreflightSync:
         sqlite.is_stage_done.return_value = False
         as400 = MagicMock()
         as400.cleanup_stale_in_progress.return_value = 7
-        as400.read_state.return_value = None
+        as400.read_state_by_txn.return_value = None
         coord = IdempotencyCoordinator(sqlite_store=sqlite, as400_store=as400)
         report = coord.preflight_sync(batch_scope=set())
         assert report.stale_cleaned == 7
@@ -305,7 +304,7 @@ class TestPreflightSync:
         sqlite.is_stage_done.return_value = True
         as400 = MagicMock()
         as400.cleanup_stale_in_progress.return_value = 0
-        as400.read_state.return_value = _niarvilog_row(stscod="N")
+        as400.read_state_by_txn.return_value = _niarvilog_row(stscod="N")
         coord = IdempotencyCoordinator(sqlite_store=sqlite, as400_store=as400)
         with pytest.raises(IdempotencyConflictError) as ei:
             coord.preflight_sync(batch_scope={"0000001"}, raise_on_conflict=True)
