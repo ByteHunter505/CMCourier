@@ -16,6 +16,7 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 
+from cmcourier.tui.chunks_tab import render_chunks
 from cmcourier.tui.data_provider import TUIDataProvider
 from cmcourier.tui.prep_tab import render_prep
 from cmcourier.tui.upload_tab import render_upload
@@ -33,6 +34,7 @@ class CMCourierTUI(App[None]):
     BINDINGS = [
         Binding("p", "show_prep", "PREP"),
         Binding("u", "show_upload", "UPLOAD"),
+        Binding("c", "show_chunks", "CHUNKS"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -61,6 +63,8 @@ class CMCourierTUI(App[None]):
                 yield Container(Static(id="prep_body", classes="tab_body"))
             with TabPane("UPLOAD", id="upload"):
                 yield Container(Static(id="upload_body", classes="tab_body"))
+            with TabPane("CHUNKS", id="chunks"):
+                yield Container(Static(id="chunks_body", classes="tab_body"))
         yield Static(id="status_bar")
         yield Footer()
 
@@ -76,12 +80,18 @@ class CMCourierTUI(App[None]):
         tabbed = self.query_one(TabbedContent)
         tabbed.active = "upload"
 
+    def action_show_chunks(self) -> None:
+        tabbed = self.query_one(TabbedContent)
+        tabbed.active = "chunks"
+
     def _refresh_panels(self) -> None:
         snap = self._provider.snapshot()
         prep_body = self.query_one("#prep_body", Static)
         upload_body = self.query_one("#upload_body", Static)
+        chunks_body = self.query_one("#chunks_body", Static)
         prep_body.update(render_prep(snap))
         upload_body.update(render_upload(snap))
+        chunks_body.update(render_chunks(snap))
 
         status = self.query_one("#status_bar", Static)
         total = int(snap.elapsed_s)

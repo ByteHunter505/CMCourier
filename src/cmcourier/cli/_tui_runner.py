@@ -20,14 +20,17 @@ Operator semantics:
 
 from __future__ import annotations
 
-__all__ = ["TUIRunOutcome", "run_pipeline_with_tui"]
+__all__ = ["TUIRunOutcome", "run_orchestrator_with_tui"]
 
 import sys
 import threading
 from dataclasses import dataclass
 from typing import Any
 
-from cmcourier.orchestrators.staged import RunReport, StagedPipeline
+from cmcourier.orchestrators.multi_batch import (
+    MultiBatchOrchestrator,
+    MultiBatchRunReport,
+)
 from cmcourier.tui import CMCourierTUI, TUIDataProvider
 
 
@@ -35,7 +38,7 @@ from cmcourier.tui import CMCourierTUI, TUIDataProvider
 class TUIRunOutcome:
     """Worker-thread outcome handed back to the caller after the TUI exits."""
 
-    report: RunReport | None = None
+    report: MultiBatchRunReport | None = None
     exception: BaseException | None = None
 
 
@@ -49,24 +52,24 @@ def tty_available() -> bool:
     return bool(sys.stderr.isatty())
 
 
-def run_pipeline_with_tui(
+def run_orchestrator_with_tui(
     *,
-    pipeline: StagedPipeline,
+    orchestrator: MultiBatchOrchestrator,
     data_provider: TUIDataProvider,
-    pipeline_kwargs: dict[str, Any],
+    orchestrator_kwargs: dict[str, Any],
 ) -> TUIRunOutcome:
-    """Run the pipeline in a worker thread while the TUI owns main.
-
-    ``pipeline_kwargs`` is splatted into ``pipeline.run(**kwargs)``.
-    The TUI's lifecycle is managed entirely here — the caller does
-    not see textual.
+    """Run the multi-batch orchestrator in a worker thread while the TUI
+    owns main. ``orchestrator_kwargs`` is splatted into
+    ``orchestrator.run(**kwargs)`` (see :meth:`MultiBatchOrchestrator.run`).
     """
     outcome = TUIRunOutcome()
 
     def _worker() -> None:
         try:
-            data_provider.mark_batch_started(batch_id=pipeline_kwargs.get("batch_id") or "")
-            outcome.report = pipeline.run(**pipeline_kwargs)
+            data_provider.mark_batch_started(
+                batch_id=orchestrator_kwargs.get("resume_batch_id") or ""
+            )
+            outcome.report = orchestrator.run(**orchestrator_kwargs)
         except BaseException as exc:  # noqa: BLE001 — re-raised on main thread
             outcome.exception = exc
         finally:

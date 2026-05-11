@@ -234,3 +234,65 @@ class TestMultiBatchOrchestrator:
         # Resume = single batch path; one RunReport.
         assert len(report.chunks) == 1
         assert report.chunks[0].batch_id == "EXISTING"
+
+
+# ---------------------------------------------------------------------------
+# 030 — TUI live binding (chunk-state machine + active recorder)
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorChunkState:
+    """The orchestrator now tracks per-chunk state for live TUI binding."""
+
+    def test_chunks_snapshot_empty_before_run(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers_per_call=_make_triggers(1))
+        orch = _build_orchestrator(pipeline, tmp_path)
+        assert orch.chunks_snapshot() == []
+
+    def test_chunks_snapshot_after_n_two_run(self, tmp_path: Path) -> None:
+        triggers = _make_triggers(6)
+        pipeline = _FakePipeline(triggers_per_call=triggers)
+        orch = _build_orchestrator(pipeline, tmp_path)
+        orch.run(source_descriptor="", batch_size=2, batches_in_flight=2)
+        # 6 triggers / 2 = 3 chunks. All DONE after run completes.
+        states = orch.chunks_snapshot()
+        assert len(states) == 3
+        assert all(s.status == "DONE" for s in states)
+        assert [s.batch_id for s in states] == ["B1", "B2", "B3"]
+
+    def test_chunks_snapshot_marks_failed(self, tmp_path: Path) -> None:
+        triggers = _make_triggers(6)
+        pipeline = _FakePipeline(triggers_per_call=triggers, raise_on_prep=2)
+        orch = _build_orchestrator(pipeline, tmp_path)
+        orch.run(source_descriptor="", batch_size=2, batches_in_flight=2)
+        states = orch.chunks_snapshot()
+        # Chunk 2 failed in prep; the others are DONE.
+        statuses = {s.batch_id: s.status for s in states}
+        assert statuses.get("B2") == "FAILED"
+
+    def test_active_recorder_none_before_run(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers_per_call=_make_triggers(1))
+        orch = _build_orchestrator(pipeline, tmp_path)
+        assert orch.active_recorder() is None
+
+    def test_active_recorder_set_during_run(self, tmp_path: Path) -> None:
+        """During a real run there should be an active recorder while a
+        chunk is in flight. We sleep inside prep/upload to keep the
+        recorder alive long enough to observe."""
+        triggers = _make_triggers(2)
+        recorder_seen: list[object] = []
+        pipeline = _FakePipeline(triggers_per_call=triggers, prep_sleep_s=0.0, upload_sleep_s=0.0)
+        orch = _build_orchestrator(pipeline, tmp_path)
+
+        # Patch _build_chunk_recorder to capture the recorder it builds.
+        orig = orch._build_chunk_recorder  # noqa: SLF001
+
+        def _patched() -> object:
+            r = orig()
+            recorder_seen.append(r)
+            return r
+
+        orch._build_chunk_recorder = _patched  # type: ignore[assignment, method-assign]
+        orch.run(source_descriptor="", batch_size=1, batches_in_flight=2)
+        # 2 chunks × 1 recorder each = 2 recorders constructed.
+        assert len(recorder_seen) == 2

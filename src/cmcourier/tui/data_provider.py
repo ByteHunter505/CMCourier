@@ -22,7 +22,9 @@ from __future__ import annotations
 __all__ = ["TUIDataProvider", "TUISnapshot"]
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
 from cmcourier.config.schema import CmisConfigModel
@@ -78,6 +80,9 @@ class TUISnapshot:
     # ---------- slow ops + recent uploads
     slow_ops_all: tuple[dict[str, object], ...] = ()
 
+    # ---------- 030: chunks state (multi-batch view)
+    chunks_state: tuple[dict[str, object], ...] = ()
+
 
 class TUIDataProvider:
     """Snapshot factory the TUI polls every refresh tick.
@@ -96,9 +101,17 @@ class TUIDataProvider:
         cmis_config: CmisConfigModel,
         uploader: CmisUploader,
         auto_tune: AutoTuneController | None = None,
+        recorder_provider: Callable[[], MetricsRecorder | None] | None = None,
+        chunks_provider: Callable[[], list[Any]] | None = None,
     ) -> None:
         self._pipeline_name = pipeline_name
-        self._metrics = metrics_recorder
+        self._fallback_recorder = metrics_recorder
+        # 030: when the multi-batch orchestrator drives the run, the
+        # provider keeps pointing at the currently-active chunk's
+        # recorder. For single-batch runs the fallback (== the
+        # pipeline's own recorder) is used.
+        self._recorder_provider: Callable[[], MetricsRecorder | None] | None = recorder_provider
+        self._chunks_provider: Callable[[], list[Any]] | None = chunks_provider
         self._pool_stats = pool_stats
         self._concurrency_limit = concurrency_limit
         self._cmis_config = cmis_config
@@ -107,6 +120,15 @@ class TUIDataProvider:
         self._batch_id: str = ""
         self._batch_started_monotonic: float | None = None
         self._is_complete = False
+
+    @property
+    def _metrics(self) -> MetricsRecorder:
+        """Live-bound active recorder; falls back to the constructed one."""
+        if self._recorder_provider is not None:
+            live = self._recorder_provider()
+            if live is not None:
+                return live
+        return self._fallback_recorder
 
     # ------------------------------------------------------- lifecycle hooks
 
@@ -162,7 +184,26 @@ class TUIDataProvider:
             bandwidth_ceiling_mbps=self._cmis_config.max_bandwidth_mbps,
             bandwidth_series=tuple(self._metrics.bandwidth.series(60)),
             slow_ops_all=tuple(self._metrics.aggregator_snapshot()),
+            chunks_state=self._chunks_state_snapshot(),
         )
+
+    def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:
+        """Render the orchestrator's chunk-state machine for the TUI."""
+        if self._chunks_provider is None:
+            return ()
+        chunks = self._chunks_provider()
+        out: list[dict[str, object]] = []
+        for chunk in chunks:
+            out.append(
+                {
+                    "chunk_idx": getattr(chunk, "chunk_idx", -1),
+                    "batch_id": getattr(chunk, "batch_id", ""),
+                    "status": getattr(chunk, "status", "?"),
+                    "s5_done": getattr(chunk, "s5_done", 0),
+                    "s5_failed": getattr(chunk, "s5_failed", 0),
+                }
+            )
+        return tuple(out)
 
     # ------------------------------------------------------- helpers
 

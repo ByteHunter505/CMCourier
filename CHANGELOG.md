@@ -41,6 +41,68 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.31.0] — 2026-05-11 — **TUI multi-batch view (`CHUNKS` tab)**
+
+The producer-consumer overlap shipped in 028 had a UX caveat:
+when `--tui` was enabled, the orchestrator forced
+`batches_in_flight=1` because the TUI was tightly bound to a
+single `MetricsRecorder`. 030 lifts that restriction. The TUI
+now renders multi-batch runs faithfully and gains a third
+**`CHUNKS`** tab that lists every chunk's state in real time.
+
+### Added
+
+- **`ChunkState`** dataclass and orchestrator-level state
+  machine (`MultiBatchOrchestrator.chunks_snapshot()` +
+  `MultiBatchOrchestrator.active_recorder()`). Each chunk
+  transitions `QUEUED → PREP → UPLOAD → DONE` (or `FAILED`)
+  with thread-safe state updates from the prep / upload
+  worker threads.
+- **`TUIDataProvider`** accepts an optional
+  `recorder_provider` callable that returns the
+  currently-active chunk's recorder. The provider's
+  `_metrics` accessor live-binds to whatever the
+  orchestrator says is "current" — PREP and UPLOAD tabs
+  render coherent data as chunks transition.
+- **`TUIDataProvider`** accepts an optional
+  `chunks_provider` callable; `TUISnapshot.chunks_state`
+  is the rendered list.
+- **`CHUNKS` tab** (`cmcourier/tui/chunks_tab.py`,
+  shortcut `[C]`): counts header + per-chunk row with
+  index, batch_id, status glyph, s5_done, s5_failed.
+
+### Changed
+
+- `cli/app.py::_run_with_optional_tui` no longer forces
+  `batches_in_flight=1` when `--tui` is on. `--resume`
+  still forces N=1 (resume is inherently single-batch).
+- `cli/_tui_runner` renamed `run_pipeline_with_tui` →
+  `run_orchestrator_with_tui`. The worker thread now runs
+  `orchestrator.run(**kwargs)` (returns
+  `MultiBatchRunReport`).
+- `TUIDataProvider.__init__` keeps its old positional
+  surface — `metrics_recorder` is now the **fallback**
+  recorder used when no `recorder_provider` is supplied.
+  Pre-030 callers keep working without changes.
+
+### Tests
+
+- 4 new orchestrator state-machine tests (chunks_snapshot
+  empty, after run, marks failed, active_recorder lifecycle).
+- 5 new CHUNKS-tab render tests (empty placeholder,
+  single-DONE, mixed states, FAILED counted, long batch_id
+  truncated).
+- 737 total green (up from 728), mypy + ruff clean.
+
+### Notes
+
+- Operator runs that pass `--tui --batches-in-flight 2` now
+  get the multi-batch flow with live updates. Operators who
+  prefer the single-batch view can pass
+  `--batches-in-flight 1` explicitly.
+
+---
+
 ## [0.30.1] — 2026-05-11 — **fix: shared `BandwidthLimiter` (real cap enforced)**
 
 A latent bug surfaced by 025's concurrent S5 worker pool: the

@@ -580,16 +580,16 @@ def _run_with_optional_tui(
     pipeline_kwargs: dict[str, Any],
     tui: bool,
 ) -> MultiBatchRunReport:
-    """Route the run through the multi-batch orchestrator (028).
+    """Route the run through the multi-batch orchestrator (028 + 030).
 
     Exit codes (2/3) match the pre-028 headless contract. When
     ``tui=True`` and stderr is non-TTY, the TUI is auto-disabled
-    (REQ-034). The TUI itself only supports a single-batch view —
-    when enabled, ``batches_in_flight`` is forced to 1 so the
-    operator sees coherent live data.
+    (REQ-034). The TUI is live-bound to the orchestrator's active
+    chunk recorder, so N=2 runs render coherent per-chunk data
+    plus a CHUNKS tab listing every chunk's status.
     """
     from cmcourier.cli._tui_runner import (  # noqa: PLC0415
-        run_pipeline_with_tui,
+        run_orchestrator_with_tui,
         tty_available,
     )
     from cmcourier.tui import TUIDataProvider  # noqa: PLC0415
@@ -608,13 +608,12 @@ def _run_with_optional_tui(
             sys.exit(2)
         tui = False
 
-    # Extract orchestrator-specific kwargs and drop them from the dict we'd
-    # pass to the legacy ``pipeline.run``.
+    # Extract orchestrator-specific kwargs and drop them from the dict.
     batches_in_flight = int(pipeline_kwargs.pop("batches_in_flight", 1))
     resume_flag = bool(pipeline_kwargs.pop("resume", False))
-    if tui or resume_flag:
-        # TUI / resume → force single-batch path so the operator's view
-        # stays consistent.
+    if resume_flag:
+        # Resume is inherently single-batch — the operator named a specific
+        # batch_id; orchestrator chunking doesn't apply.
         batches_in_flight = 1
     resume_batch_id = pipeline_kwargs.get("batch_id") if resume_flag else None
 
@@ -623,16 +622,17 @@ def _run_with_optional_tui(
         config=config,
         log_dir=config.observability.log_dir,
     )
+    orchestrator_kwargs: dict[str, Any] = {
+        "source_descriptor": pipeline_kwargs["source_descriptor"],
+        "batch_size": int(pipeline_kwargs["batch_size"]),
+        "batches_in_flight": batches_in_flight,
+        "from_stage": int(pipeline_kwargs.get("from_stage", 1)),
+        "resume_batch_id": resume_batch_id,
+    }
 
     if not tui:
         try:
-            return orchestrator.run(
-                source_descriptor=pipeline_kwargs["source_descriptor"],
-                batch_size=int(pipeline_kwargs["batch_size"]),
-                batches_in_flight=batches_in_flight,
-                from_stage=int(pipeline_kwargs.get("from_stage", 1)),
-                resume_batch_id=resume_batch_id,
-            )
+            return orchestrator.run(**orchestrator_kwargs)
         except Exception:
             _log.exception("pipeline run failed unexpectedly")
             sys.exit(3)
@@ -645,11 +645,14 @@ def _run_with_optional_tui(
         cmis_config=config.cmis,
         uploader=pipeline.uploader,
         auto_tune=pipeline.auto_tune_controller,
+        # 030: live-bind the active chunk's recorder + chunk-state list.
+        recorder_provider=orchestrator.active_recorder,
+        chunks_provider=orchestrator.chunks_snapshot,
     )
-    outcome = run_pipeline_with_tui(
-        pipeline=pipeline,
+    outcome = run_orchestrator_with_tui(
+        orchestrator=orchestrator,
         data_provider=data_provider,
-        pipeline_kwargs=pipeline_kwargs,
+        orchestrator_kwargs=orchestrator_kwargs,
     )
     if outcome.exception is not None:
         _log.exception(
@@ -658,7 +661,7 @@ def _run_with_optional_tui(
         )
         sys.exit(3)
     assert outcome.report is not None
-    return MultiBatchRunReport(chunks=[outcome.report])
+    return outcome.report
 
 
 def _emit_outcome(

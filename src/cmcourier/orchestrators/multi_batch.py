@@ -27,7 +27,7 @@ failures or crashed outright.
 
 from __future__ import annotations
 
-__all__ = ["MultiBatchOrchestrator", "MultiBatchRunReport"]
+__all__ = ["ChunkState", "MultiBatchOrchestrator", "MultiBatchRunReport"]
 
 import logging
 import queue
@@ -43,6 +43,20 @@ from cmcourier.orchestrators.chunked import chunked
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline, _StageItem
 
 _log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkState:
+    """One row in the orchestrator's chunk-state machine (030, TUI binding).
+
+    Statuses: ``QUEUED``, ``PREP``, ``UPLOAD``, ``DONE``, ``FAILED``.
+    """
+
+    chunk_idx: int
+    batch_id: str
+    status: str
+    s5_done: int = 0
+    s5_failed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +128,46 @@ class MultiBatchOrchestrator:
         self._pipeline = pipeline
         self._config = config
         self._log_dir = log_dir
+        # 030: chunk-state machine for the TUI's CHUNKS tab. Indexed by
+        # chunk_idx so prep / upload threads can update without lookups.
+        # The active recorder feeds the live PREP/UPLOAD tab bindings.
+        self._chunks_state: dict[int, ChunkState] = {}
+        self._active_recorder: MetricsRecorder | None = None
+        self._state_lock = threading.Lock()
+
+    # ----- TUI binding hooks (030) -----------------------------------
+
+    def chunks_snapshot(self) -> list[ChunkState]:
+        """Read-only snapshot of every chunk's status for the TUI."""
+        with self._state_lock:
+            return [self._chunks_state[k] for k in sorted(self._chunks_state)]
+
+    def active_recorder(self) -> MetricsRecorder | None:
+        """The most recently started chunk's recorder, or ``None``."""
+        with self._state_lock:
+            return self._active_recorder
+
+    def _update_chunk_state(
+        self,
+        *,
+        chunk_idx: int,
+        batch_id: str,
+        status: str,
+        s5_done: int = 0,
+        s5_failed: int = 0,
+    ) -> None:
+        with self._state_lock:
+            self._chunks_state[chunk_idx] = ChunkState(
+                chunk_idx=chunk_idx,
+                batch_id=batch_id,
+                status=status,
+                s5_done=s5_done,
+                s5_failed=s5_failed,
+            )
+
+    def _set_active_recorder(self, recorder: MetricsRecorder | None) -> None:
+        with self._state_lock:
+            self._active_recorder = recorder
 
     # ----- public API -------------------------------------------------
 
@@ -184,6 +238,11 @@ class MultiBatchOrchestrator:
         failed: list[tuple[str, str]] = []
         results_lock = threading.Lock()
 
+        # 030: seed the chunk-state machine so the TUI's CHUNKS tab can
+        # render the full plan immediately (all chunks start as QUEUED).
+        for idx in range(len(chunk_list)):
+            self._update_chunk_state(chunk_idx=idx, batch_id="", status="QUEUED")
+
         def _prep_loop() -> None:
             for idx, chunk in enumerate(chunk_list):
                 try:
@@ -192,6 +251,8 @@ class MultiBatchOrchestrator:
                     )
                     recorder = self._build_chunk_recorder()
                     recorder.start_batch(pipeline=self._pipeline.pipeline_name, batch_id=batch_id)
+                    self._update_chunk_state(chunk_idx=idx, batch_id=batch_id, status="PREP")
+                    self._set_active_recorder(recorder)
                     started = time.monotonic()
                     items, skipped, s1d, s2f, s3f, s4f = self._pipeline.prep_chunk(
                         triggers=chunk,
@@ -218,6 +279,13 @@ class MultiBatchOrchestrator:
                         "multi-batch: prep failed",
                         extra={"chunk_idx": idx, "reason": type(exc).__name__},
                     )
+                    self._update_chunk_state(
+                        chunk_idx=idx,
+                        batch_id=self._chunks_state.get(
+                            idx, ChunkState(chunk_idx=idx, batch_id="", status="FAILED")
+                        ).batch_id,
+                        status="FAILED",
+                    )
                     with results_lock:
                         failed.append((f"chunk-{idx}", type(exc).__name__))
             upload_queue.put(_PREP_DONE)
@@ -232,6 +300,12 @@ class MultiBatchOrchestrator:
                     if item is _PREP_DONE:
                         return
                     assert isinstance(item, _PreparedChunk)
+                    self._update_chunk_state(
+                        chunk_idx=item.chunk_idx,
+                        batch_id=item.batch_id,
+                        status="UPLOAD",
+                    )
+                    self._set_active_recorder(item.recorder)
                     try:
                         s5_done, s5_failed = self._pipeline.upload_chunk(
                             items=item.items,
@@ -247,6 +321,13 @@ class MultiBatchOrchestrator:
                             batch_id=item.batch_id,
                             total_docs=total_docs,
                             elapsed_s=elapsed,
+                        )
+                        self._update_chunk_state(
+                            chunk_idx=item.chunk_idx,
+                            batch_id=item.batch_id,
+                            status="DONE",
+                            s5_done=s5_done,
+                            s5_failed=s5_failed,
                         )
                         with results_lock:
                             results.append(
@@ -275,6 +356,11 @@ class MultiBatchOrchestrator:
                                 "chunk_idx": item.chunk_idx,
                                 "reason": type(exc).__name__,
                             },
+                        )
+                        self._update_chunk_state(
+                            chunk_idx=item.chunk_idx,
+                            batch_id=item.batch_id,
+                            status="FAILED",
                         )
                         with results_lock:
                             failed.append((item.batch_id, type(exc).__name__))
