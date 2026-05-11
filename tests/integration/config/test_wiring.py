@@ -265,3 +265,55 @@ class TestBuildPipeline:
         pipeline = build_pipeline(config, _secrets(), trigger_strategy_override=strategy)
         assert isinstance(pipeline, StagedPipeline)
         assert pipeline._trigger_strategy is strategy  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# build_mapping_service helper (035): consolidated vs split mode
+# ---------------------------------------------------------------------------
+
+
+class TestBuildMappingService:
+    def test_consolidated_mode(self) -> None:
+        """Legacy single-CSV mode: uses the consolidated test fixture."""
+        from cmcourier.config.schema import MappingConfig
+        from cmcourier.config.wiring import build_mapping_service
+
+        cfg = MappingConfig(csv_path=_SERVICES_FIXTURES / "modelo_documental.csv")
+        svc = build_mapping_service(cfg)
+        assert svc.count() > 0
+        # The fixture has FF17 → Autorizacion SMS (verified in
+        # tests/unit/services/test_mapping.py).
+        m = svc.get_mapping("FF17")
+        assert m.id_corto == "PT57"
+        assert m.clase_name == "Autorizacion SMS"
+        assert m.cmis_type == ""  # consolidated fixture has no CMISType column
+
+    def test_split_mode(self, tmp_path: Path) -> None:
+        """Two-CSV mode: MapeoRVI_CM + MetadatosCM joined by IDCM↔IDCorto."""
+        from cmcourier.config.schema import MappingConfig
+        from cmcourier.config.wiring import build_mapping_service
+
+        rvi_cm = tmp_path / "MapeoRVI_CM.csv"
+        rvi_cm.write_text(
+            "IDSistema,IDRVI,IDCM,IDClaseDocumental,CMISType\n"
+            ",FB01,CN01,01.01.01.01.01,DocCN01\n"
+            ",FB23,CN02,01.01.01.01.02,DocCN02\n"
+        )
+        metadatos = tmp_path / "MetadatosCM.csv"
+        metadatos.write_text(
+            "IDCorto,Metadato,Requerido\nCN01,CIF,Yes\nCN01,Nombre_Cliente,Yes\nCN02,CIF,Yes\n"
+        )
+        cfg = MappingConfig(rvi_cm_csv_path=rvi_cm, metadatos_csv_path=metadatos)
+        svc = build_mapping_service(cfg)
+        assert svc.count() == 2
+
+        m1 = svc.get_mapping("FB01")
+        assert m1.clase_id == "01.01.01.01.01"
+        assert m1.id_corto == "CN01"
+        assert m1.cmis_type == "DocCN01"
+        assert m1.clase_name == m1.clase_id  # split mode uses clase_id as name
+        assert m1.required_metadata_fields == ("CIF", "Nombre_Cliente")
+
+        m2 = svc.get_mapping("FB23")
+        assert m2.cmis_type == "DocCN02"
+        assert m2.required_metadata_fields == ("CIF",)

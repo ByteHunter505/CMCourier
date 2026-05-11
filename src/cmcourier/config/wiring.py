@@ -75,7 +75,6 @@ def build_pipeline(
     from CLI args (REBIRTH §10.2).
     """
     rvabrep_src = TabularDataSource(config.indexing.csv_path)
-    mapping_src = TabularDataSource(config.mapping.csv_path)
     metadata_sources = _build_metadata_sources(config.metadata.sources, secrets)
 
     indexing_service = IndexingService(
@@ -86,10 +85,7 @@ def build_pipeline(
     trigger_strategy = trigger_strategy_override or _build_trigger_strategy(
         config, secrets, rvabrep_src, indexing_service
     )
-    mapping_service = MappingService(
-        mapping_src,
-        _mapping_columns_from_schema(config.mapping),
-    )
+    mapping_service = build_mapping_service(config.mapping)
     metadata_service = MetadataService(
         _metadata_config_from_schema(config.metadata),
         metadata_sources,
@@ -343,7 +339,42 @@ def _mapping_columns_from_schema(model: MappingConfigModel) -> MappingColumnsCon
         col_id_corto=model.id_corto_column,
         col_clase_name=model.clase_name_column,
         col_metadata_list=model.metadata_list_column,
+        col_cmis_type=model.cmis_type_column,
+        col_rvi_cm_id_rvi=model.rvi_cm_id_rvi_column,
+        col_rvi_cm_id_cm=model.rvi_cm_id_cm_column,
+        col_rvi_cm_clase_id=model.rvi_cm_clase_id_column,
+        col_rvi_cm_cmis_type=model.rvi_cm_cmis_type_column,
+        col_metadatos_id_corto=model.metadatos_id_corto_column,
+        col_metadatos_metadata=model.metadatos_metadata_column,
+        col_metadatos_required=model.metadatos_required_column,
+        required_marker=model.required_marker,
     )
+
+
+def build_mapping_service(model: MappingConfigModel) -> MappingService:
+    """Build a fully-loaded :class:`MappingService` from a ``MappingConfig``.
+
+    Picks consolidated or split mode based on which paths are set
+    (035). Opens the underlying ``TabularDataSource``(s), loads the
+    cache, then closes the source(s) — ``MappingService`` reads
+    everything at construction.
+    """
+    columns = _mapping_columns_from_schema(model)
+    if model.csv_path is not None:
+        source = TabularDataSource(model.csv_path)
+        try:
+            return MappingService(source, columns)
+        finally:
+            source.close()
+    assert model.rvi_cm_csv_path is not None  # noqa: S101 - validator guarantees this
+    assert model.metadatos_csv_path is not None  # noqa: S101 - validator guarantees this
+    rvi_src = TabularDataSource(model.rvi_cm_csv_path)
+    metadatos_src = TabularDataSource(model.metadatos_csv_path)
+    try:
+        return MappingService(rvi_src, columns, metadata_source=metadatos_src)
+    finally:
+        rvi_src.close()
+        metadatos_src.close()
 
 
 def _metadata_config_from_schema(model: MetadataConfigModel) -> MetadataConfig:

@@ -857,3 +857,99 @@ class TestAs400SyncConfig:
         )
         config = PipelineConfig.model_validate(data)
         assert config.tracking.as400_sync.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# MappingConfig two-mode (035): consolidated CSV vs split MapeoRVI+MetadatosCM
+# ---------------------------------------------------------------------------
+
+
+class TestMappingConfigModes:
+    @pytest.fixture
+    def split_paths(self, tmp_path: Path) -> dict[str, Path]:
+        rvi_cm = tmp_path / "MapeoRVI_CM.csv"
+        rvi_cm.write_text("IDSistema,IDRVI,IDCM,IDClaseDocumental,CMISType\n")
+        metadatos = tmp_path / "MetadatosCM.csv"
+        metadatos.write_text("IDCorto,Metadato,Requerido\n")
+        return {"rvi_cm": rvi_cm, "metadatos": metadatos}
+
+    def test_consolidated_mode_only(self, fixture_paths: dict[str, Path]) -> None:
+        cfg = MappingConfig(csv_path=fixture_paths["modelo"])
+        assert cfg.csv_path == fixture_paths["modelo"]
+        assert cfg.rvi_cm_csv_path is None
+        assert cfg.metadatos_csv_path is None
+        # New defaults exposed by 035 (consolidated mode keeps "CMISType").
+        assert cfg.cmis_type_column == "CMISType"
+
+    def test_split_mode_both_paths(self, split_paths: dict[str, Path]) -> None:
+        cfg = MappingConfig(
+            rvi_cm_csv_path=split_paths["rvi_cm"],
+            metadatos_csv_path=split_paths["metadatos"],
+        )
+        assert cfg.csv_path is None
+        assert cfg.rvi_cm_csv_path == split_paths["rvi_cm"]
+        assert cfg.metadatos_csv_path == split_paths["metadatos"]
+        # Split-mode column defaults match the real bank headers.
+        assert cfg.rvi_cm_id_rvi_column == "IDRVI"
+        assert cfg.rvi_cm_id_cm_column == "IDCM"
+        assert cfg.rvi_cm_clase_id_column == "IDClaseDocumental"
+        assert cfg.rvi_cm_cmis_type_column == "CMISType"
+        assert cfg.metadatos_id_corto_column == "IDCorto"
+        assert cfg.metadatos_metadata_column == "Metadato"
+        assert cfg.metadatos_required_column == "Requerido"
+        assert cfg.required_marker == "Yes"
+
+    def test_rejects_both_modes(
+        self, fixture_paths: dict[str, Path], split_paths: dict[str, Path]
+    ) -> None:
+        with pytest.raises(ValidationError) as ei:
+            MappingConfig(
+                csv_path=fixture_paths["modelo"],
+                rvi_cm_csv_path=split_paths["rvi_cm"],
+                metadatos_csv_path=split_paths["metadatos"],
+            )
+        assert (
+            "both consolidated and split" in str(ei.value).lower()
+            or "either" in str(ei.value).lower()
+        )
+
+    def test_rejects_neither_mode(self) -> None:
+        with pytest.raises(ValidationError) as ei:
+            MappingConfig()
+        msg = str(ei.value).lower()
+        assert "csv_path" in msg or "rvi_cm_csv_path" in msg or "mapping" in msg
+
+    def test_rejects_partial_split_only_rvi(self, split_paths: dict[str, Path]) -> None:
+        with pytest.raises(ValidationError) as ei:
+            MappingConfig(rvi_cm_csv_path=split_paths["rvi_cm"])
+        msg = str(ei.value).lower()
+        assert "metadatos_csv_path" in msg or "split" in msg
+
+    def test_rejects_partial_split_only_metadatos(self, split_paths: dict[str, Path]) -> None:
+        with pytest.raises(ValidationError) as ei:
+            MappingConfig(metadatos_csv_path=split_paths["metadatos"])
+        msg = str(ei.value).lower()
+        assert "rvi_cm_csv_path" in msg or "split" in msg
+
+    def test_pipeline_loads_with_split_mapping(
+        self,
+        fixture_paths: dict[str, Path],
+        split_paths: dict[str, Path],
+        tmp_path: Path,
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],  # placeholder, will be overridden
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["mapping"] = {
+            "rvi_cm_csv_path": str(split_paths["rvi_cm"]),
+            "metadatos_csv_path": str(split_paths["metadatos"]),
+        }
+        config = PipelineConfig.model_validate(data)
+        assert config.mapping.rvi_cm_csv_path == split_paths["rvi_cm"]
+        assert config.mapping.metadatos_csv_path == split_paths["metadatos"]
+        assert config.mapping.csv_path is None

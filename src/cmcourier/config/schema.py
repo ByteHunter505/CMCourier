@@ -176,13 +176,58 @@ class IndexingSourceConfig(BaseModel):
 
 
 class MappingConfig(BaseModel):
+    """Modelo Documental config in one of two mutually-exclusive modes.
+
+    Consolidated (legacy / test fixtures): a single CSV with all
+    columns inline and a comma-separated ``METADATOS`` cell. Set
+    ``csv_path`` and leave the split fields ``None``.
+
+    Split (production / bank format, 035): two CSVs joined by
+    ``IDCM ↔ IDCorto`` — ``MapeoRVI_CM.csv`` (one row per IDRVI) plus
+    ``MetadatosCM.csv`` (multiple rows per IDCorto). Set both
+    ``rvi_cm_csv_path`` and ``metadatos_csv_path`` and leave
+    ``csv_path`` ``None``.
+    """
+
     model_config = _STRICT
-    csv_path: FilePath
+    csv_path: FilePath | None = None
+    rvi_cm_csv_path: FilePath | None = None
+    metadatos_csv_path: FilePath | None = None
     id_rvi_column: str = "ID RVI"
     clase_id_column: str = "ID CLASE DOCUMENTAL"
     id_corto_column: str = "ID Corto"
     clase_name_column: str = "CLASE DOCUMENTAL"
     metadata_list_column: str = "METADATOS"
+    cmis_type_column: str = "CMISType"
+    rvi_cm_id_rvi_column: str = "IDRVI"
+    rvi_cm_id_cm_column: str = "IDCM"
+    rvi_cm_clase_id_column: str = "IDClaseDocumental"
+    rvi_cm_cmis_type_column: str = "CMISType"
+    metadatos_id_corto_column: str = "IDCorto"
+    metadatos_metadata_column: str = "Metadato"
+    metadatos_required_column: str = "Requerido"
+    required_marker: str = "Yes"
+
+    @model_validator(mode="after")
+    def _exactly_one_mode(self) -> MappingConfig:
+        has_consolidated = self.csv_path is not None
+        has_rvi = self.rvi_cm_csv_path is not None
+        has_meta = self.metadatos_csv_path is not None
+        if has_consolidated and (has_rvi or has_meta):
+            raise ValueError(
+                "MappingConfig: pick either consolidated `csv_path` "
+                "OR split (`rvi_cm_csv_path` + `metadatos_csv_path`), not both"
+            )
+        if not has_consolidated and not (has_rvi or has_meta):
+            raise ValueError(
+                "MappingConfig: must provide consolidated `csv_path` "
+                "OR split (`rvi_cm_csv_path` + `metadatos_csv_path`)"
+            )
+        if (has_rvi and not has_meta) or (has_meta and not has_rvi):
+            raise ValueError(
+                "MappingConfig: split mode requires BOTH `rvi_cm_csv_path` and `metadatos_csv_path`"
+            )
+        return self
 
 
 class CsvMetadataSourceConfig(BaseModel):

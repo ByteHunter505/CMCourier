@@ -29,9 +29,12 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class MappingColumnsConfig:
-    """Column-name overrides for a Modelo Documental source.
+    """Column-name overrides for both consolidated and split-mode sources.
 
-    Defaults match REBIRTH §4.1 (the canonical CSV layout).
+    Consolidated mode (``col_*`` family without ``rvi_cm`` / ``metadatos``
+    prefix) matches the legacy test fixture layout. Split mode (035,
+    ``col_rvi_cm_*`` and ``col_metadatos_*`` families) matches the
+    bank's production CSV pair.
     """
 
     col_clase_id: str = "ID CLASE DOCUMENTAL"
@@ -39,15 +42,22 @@ class MappingColumnsConfig:
     col_id_corto: str = "ID Corto"
     col_clase_name: str = "CLASE DOCUMENTAL"
     col_metadata_list: str = "METADATOS"
-    # 034: optional column. When the CSV has it, populate ``CMMapping.cmis_type``;
-    # otherwise default to "". 035 will make it required when the CSV split lands.
     col_cmis_type: str = "CMISType"
+    col_rvi_cm_id_rvi: str = "IDRVI"
+    col_rvi_cm_id_cm: str = "IDCM"
+    col_rvi_cm_clase_id: str = "IDClaseDocumental"
+    col_rvi_cm_cmis_type: str = "CMISType"
+    col_metadatos_id_corto: str = "IDCorto"
+    col_metadatos_metadata: str = "Metadato"
+    col_metadatos_required: str = "Requerido"
+    required_marker: str = "Yes"
 
     def required_columns(self) -> tuple[str, ...]:
-        """Return the names of every column the service must find in the source.
+        """Columns the consolidated-mode loader must find in the source.
 
-        ``col_cmis_type`` is intentionally NOT required — it's read when
-        present and defaults to "" when absent. See 035 follow-up.
+        ``col_cmis_type`` is intentionally NOT required — it's read
+        when present and defaults to "" when absent (the legacy
+        fixture has no CMISType column).
         """
         return (
             self.col_clase_id,
@@ -55,6 +65,22 @@ class MappingColumnsConfig:
             self.col_id_corto,
             self.col_clase_name,
             self.col_metadata_list,
+        )
+
+    def required_columns_rvi_cm(self) -> tuple[str, ...]:
+        """Columns the split-mode loader must find in MapeoRVI_CM."""
+        return (
+            self.col_rvi_cm_id_rvi,
+            self.col_rvi_cm_id_cm,
+            self.col_rvi_cm_clase_id,
+        )
+
+    def required_columns_metadatos(self) -> tuple[str, ...]:
+        """Columns the split-mode loader must find in MetadatosCM."""
+        return (
+            self.col_metadatos_id_corto,
+            self.col_metadatos_metadata,
+            self.col_metadatos_required,
         )
 
 
@@ -69,6 +95,27 @@ def _parse_metadata_list(raw: object) -> tuple[str, ...]:
         return ()
     parts = (p.strip() for p in raw.split(","))
     return tuple(p for p in parts if p)
+
+
+_TRUTHY_REQUIRED_SYNONYMS = frozenset({"yes", "sí", "si", "true", "1", "y", "s"})
+
+
+def _is_required(value: object, custom_marker: str) -> bool:
+    """Decide whether a ``MetadatosCM.Requerido`` cell counts as required.
+
+    Anything matching ``custom_marker`` (case-insensitive, whitespace-
+    stripped, accent-tolerant on the default "Yes" path) or one of the
+    common truthy synonyms — "yes", "sí", "true", "1" — counts. Empty
+    cells and "no" / "false" / "0" drop the field.
+    """
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    if text == custom_marker.strip().lower():
+        return True
+    return text in _TRUTHY_REQUIRED_SYNONYMS
 
 
 class MappingService:
@@ -87,10 +134,108 @@ class MappingService:
         self,
         source: IDataSource,
         columns: MappingColumnsConfig | None = None,
+        metadata_source: IDataSource | None = None,
     ) -> None:
         self._columns = columns or MappingColumnsConfig()
         self._cache: dict[str, CMMapping] = {}
-        self._load(source)
+        if metadata_source is None:
+            self._load(source)
+        else:
+            self._load_split(source, metadata_source)
+
+    def _load_split(self, rvi_cm: IDataSource, metadatos: IDataSource) -> None:
+        """Split-mode loader (035): join MapeoRVI_CM with MetadatosCM by IDCM↔IDCorto."""
+        required_index = self._build_required_index(metadatos)
+        skipped = 0
+        validated = False
+        for row in rvi_cm.get_all():
+            if not validated:
+                self._validate_rvi_cm_columns(row)
+                validated = True
+
+            id_rvi_raw = row.get(self._columns.col_rvi_cm_id_rvi)
+            if _is_blank(id_rvi_raw):
+                skipped += 1
+                continue
+            id_rvi = str(id_rvi_raw).strip()
+
+            if id_rvi in self._cache:
+                _logger.warning(
+                    "duplicate ID RVI %r dropped from mapping (first occurrence wins)",
+                    id_rvi,
+                )
+                continue
+
+            self._cache[id_rvi] = self._row_to_mapping_split(row, id_rvi, required_index)
+
+        if skipped:
+            _logger.info(
+                "skipped %d row(s) from MapeoRVI_CM with empty IDRVI",
+                skipped,
+            )
+
+    def _build_required_index(self, metadatos: IDataSource) -> dict[str, tuple[str, ...]]:
+        """Return ``id_corto -> tuple[required_field, ...]`` from MetadatosCM rows.
+
+        Rows whose ``Requerido`` does not parse as truthy are dropped.
+        Field names are whitespace-stripped. Order is preserved.
+        """
+        index: dict[str, list[str]] = {}
+        validated = False
+        for row in metadatos.get_all():
+            if not validated:
+                self._validate_metadatos_columns(row)
+                validated = True
+            id_corto_raw = row.get(self._columns.col_metadatos_id_corto)
+            if _is_blank(id_corto_raw):
+                continue
+            id_corto = str(id_corto_raw).strip()
+            if not _is_required(
+                row.get(self._columns.col_metadatos_required),
+                self._columns.required_marker,
+            ):
+                continue
+            field_raw = row.get(self._columns.col_metadatos_metadata)
+            if _is_blank(field_raw):
+                continue
+            field = str(field_raw).strip()
+            index.setdefault(id_corto, []).append(field)
+        return {k: tuple(v) for k, v in index.items()}
+
+    def _validate_rvi_cm_columns(self, row: dict[str, object]) -> None:
+        for col in self._columns.required_columns_rvi_cm():
+            if col not in row:
+                raise ConfigurationError(
+                    "MapeoRVI_CM missing required column",
+                    missing_column=col,
+                )
+
+    def _validate_metadatos_columns(self, row: dict[str, object]) -> None:
+        for col in self._columns.required_columns_metadatos():
+            if col not in row:
+                raise ConfigurationError(
+                    "MetadatosCM missing required column",
+                    missing_column=col,
+                )
+
+    def _row_to_mapping_split(
+        self,
+        row: dict[str, object],
+        id_rvi: str,
+        required_index: dict[str, tuple[str, ...]],
+    ) -> CMMapping:
+        clase_id = str(row[self._columns.col_rvi_cm_clase_id]).strip()
+        id_corto = str(row[self._columns.col_rvi_cm_id_cm]).strip()
+        cmis_type_raw = row.get(self._columns.col_rvi_cm_cmis_type)
+        cmis_type = "" if cmis_type_raw is None else str(cmis_type_raw).strip()
+        return CMMapping(
+            clase_id=clase_id,
+            id_rvi=id_rvi,
+            id_corto=id_corto,
+            clase_name=clase_id,
+            required_metadata_fields=required_index.get(id_corto, ()),
+            cmis_type=cmis_type,
+        )
 
     def _load(self, source: IDataSource) -> None:
         skipped = 0

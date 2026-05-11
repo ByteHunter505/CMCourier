@@ -32,7 +32,7 @@ from cmcourier.config.schema import PipelineConfig
 from cmcourier.config.wiring import (
     _build_trigger_strategy,
     _indexing_columns_from_schema,
-    _mapping_columns_from_schema,
+    build_mapping_service,
 )
 from cmcourier.domain.exceptions import (
     ConfigurationError,
@@ -44,7 +44,6 @@ from cmcourier.domain.models import TriggerRecord
 from cmcourier.domain.ports import S0Strategy
 from cmcourier.observability.setup import configure as configure_observability
 from cmcourier.services.indexing import IndexingService
-from cmcourier.services.mapping import MappingService
 from cmcourier.services.triggers import (
     CsvTriggerStrategy,
     SingleDocTriggerStrategy,
@@ -113,16 +112,12 @@ def inspect_mapping_command(config_path: Path, id_rvi: str) -> None:
     """Print the CM mapping (folder, type, fields) for one ID RVI."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
-    mapping_src = TabularDataSource(config.mapping.csv_path)
+    mapping_service = build_mapping_service(config.mapping)
     try:
-        mapping_service = MappingService(mapping_src, _mapping_columns_from_schema(config.mapping))
-        try:
-            mapping = mapping_service.get_mapping(id_rvi)
-        except IDRViNotMappedError:
-            click.echo(f"No mapping found for ID RVI: {id_rvi}", err=True)
-            return
-    finally:
-        mapping_src.close()
+        mapping = mapping_service.get_mapping(id_rvi)
+    except IDRViNotMappedError:
+        click.echo(f"No mapping found for ID RVI: {id_rvi}", err=True)
+        return
     click.echo(f"ID RVI: {mapping.id_rvi}")
     click.echo(f"Document class: {mapping.clase_name}")
     click.echo(f"CM folder: {mapping.cm_folder}")
@@ -156,22 +151,18 @@ def inspect_mapping_stats_command(config_path: Path) -> None:
     """Print a structured summary of the Modelo Documental."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
-    mapping_src = TabularDataSource(config.mapping.csv_path)
-    try:
-        mapping_service = MappingService(mapping_src, _mapping_columns_from_schema(config.mapping))
-        total = mapping_service.count()
-        classes: dict[str, int] = {}
-        folders: set[str] = set()
-        types: set[str] = set()
-        id_corto_count = 0
-        for mapping in mapping_service.get_all():
-            classes[mapping.clase_name] = classes.get(mapping.clase_name, 0) + 1
-            folders.add(mapping.cm_folder)
-            types.add(mapping.cm_object_type)
-            if mapping.id_corto:
-                id_corto_count += 1
-    finally:
-        mapping_src.close()
+    mapping_service = build_mapping_service(config.mapping)
+    total = mapping_service.count()
+    classes: dict[str, int] = {}
+    folders: set[str] = set()
+    types: set[str] = set()
+    id_corto_count = 0
+    for mapping in mapping_service.get_all():
+        classes[mapping.clase_name] = classes.get(mapping.clase_name, 0) + 1
+        folders.add(mapping.cm_folder)
+        types.add(mapping.cm_object_type)
+        if mapping.id_corto:
+            id_corto_count += 1
     click.echo(f"Total mappings: {total}")
     click.echo(f"Distinct document classes: {len(classes)}")
     click.echo(f"Mappings with ID Corto: {id_corto_count} / {total}")

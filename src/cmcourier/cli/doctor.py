@@ -53,7 +53,7 @@ from cmcourier.config.schema import (
     PipelineConfig,
     SingleDocTriggerConfig,
 )
-from cmcourier.config.wiring import build_pipeline
+from cmcourier.config.wiring import build_mapping_service, build_pipeline
 from cmcourier.domain.ports import S0Strategy
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.mapping import MappingService
@@ -200,6 +200,14 @@ def _fail(name: str, exc: Exception, base: Mapping[str, str] | None = None) -> C
         message=f"{type(exc).__name__}: {exc}",
         details=_frozen(details),
     )
+
+
+def _mapping_path_repr(config: PipelineConfig) -> str:
+    """Display the Modelo Documental path(s) regardless of mode (035)."""
+    mc = config.mapping
+    if mc.csv_path is not None:
+        return str(mc.csv_path)
+    return f"{mc.rvi_cm_csv_path} + {mc.metadatos_csv_path}"
 
 
 def _skip(name: str, reason: str) -> CheckResult:
@@ -416,17 +424,13 @@ def _check_as400_sync(config: PipelineConfig, secrets: Secrets) -> CheckResult:
 
 def _check_mapping_completeness(config: PipelineConfig) -> CheckResult:
     try:
-        source = TabularDataSource(config.mapping.csv_path)
-        try:
-            mapping = MappingService(source)
-            count = mapping.count()
-        finally:
-            source.close()
+        mapping = build_mapping_service(config.mapping)
+        count = mapping.count()
     except Exception as exc:  # noqa: BLE001
         return _fail(
             "mapping_completeness",
             exc,
-            {"csv_path": str(config.mapping.csv_path)},
+            {"csv_path": _mapping_path_repr(config)},
         )
     if count == 0:
         return CheckResult(
@@ -479,12 +483,8 @@ def _check_metadata_sources(config: PipelineConfig, secrets: Secrets) -> CheckRe
 
 def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckResult:
     try:
-        mapping_src = TabularDataSource(config.mapping.csv_path)
-        try:
-            mapping = MappingService(mapping_src)
-            unique_types = sorted({m.cm_object_type for m in mapping.get_all()})
-        finally:
-            mapping_src.close()
+        mapping = build_mapping_service(config.mapping)
+        unique_types = sorted({m.cm_object_type for m in mapping.get_all()})
         uploader = _build_uploader(config, secrets)
     except Exception as exc:  # noqa: BLE001
         return _fail("cm_type_alignment", exc)
