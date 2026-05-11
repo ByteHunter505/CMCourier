@@ -44,7 +44,14 @@ from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.adapters.tracking import SQLiteTrackingStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
-from cmcourier.config.schema import As400TriggerConfig, CsvTriggerConfig, PipelineConfig
+from cmcourier.config.schema import (
+    As400MetadataSourceConfig,
+    As400TriggerConfig,
+    CsvMetadataSourceConfig,
+    CsvTriggerConfig,
+    MetadataSourceConfig,
+    PipelineConfig,
+)
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.ports import S0Strategy
 from cmcourier.services.indexing import IndexingService
@@ -120,7 +127,7 @@ def run_doctor(config: PipelineConfig, secrets: Secrets) -> DoctorReport:
     results.append(_check_as400_connectivity(config, secrets))
     results.append(_check_tracking_openable(config))
     results.append(_check_mapping_completeness(config))
-    results.append(_check_metadata_sources(config))
+    results.append(_check_metadata_sources(config, secrets))
     if results[0].status == CheckStatus.PASS:
         results.append(_check_cm_type_alignment(config, secrets))
     else:
@@ -160,6 +167,25 @@ def _skip(name: str, reason: str) -> CheckResult:
         message=reason,
         details=_frozen({"reason": reason}),
     )
+
+
+def _open_metadata_source(
+    source_cfg: MetadataSourceConfig,
+    secrets: Secrets,
+) -> TabularDataSource | As400DataSource:
+    if isinstance(source_cfg, CsvMetadataSourceConfig):
+        return TabularDataSource(source_cfg.csv_path)
+    if isinstance(source_cfg, As400MetadataSourceConfig):
+        return As400DataSource(
+            host=source_cfg.as400_connection.host,
+            port=source_cfg.as400_connection.port,
+            database=source_cfg.as400_connection.database,
+            driver=source_cfg.as400_connection.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            table=source_cfg.table,
+        )
+    raise RuntimeError(f"unknown metadata source kind: {source_cfg!r}")
 
 
 def _build_uploader(config: PipelineConfig, secrets: Secrets) -> CmisUploader:
@@ -299,12 +325,12 @@ def _check_mapping_completeness(config: PipelineConfig) -> CheckResult:
     )
 
 
-def _check_metadata_sources(config: PipelineConfig) -> CheckResult:
+def _check_metadata_sources(config: PipelineConfig, secrets: Secrets) -> CheckResult:
     empty_aliases: list[str] = []
     counts: dict[str, str] = {}
     for source_cfg in config.metadata.sources:
         try:
-            src = TabularDataSource(source_cfg.csv_path)
+            src = _open_metadata_source(source_cfg, secrets)
             try:
                 count = src.count()
             finally:
@@ -313,7 +339,7 @@ def _check_metadata_sources(config: PipelineConfig) -> CheckResult:
             return _fail(
                 "metadata_sources",
                 exc,
-                {"alias": source_cfg.alias, "csv_path": str(source_cfg.csv_path)},
+                {"alias": source_cfg.alias, "kind": source_cfg.kind},
             )
         counts[source_cfg.alias] = str(count)
         if count == 0:

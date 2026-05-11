@@ -15,9 +15,11 @@ from pydantic import ValidationError
 
 from cmcourier.config.schema import (
     As400ConnectionConfig,
+    As400MetadataSourceConfig,
     As400TriggerConfig,
     AssemblyConfig,
     CmisConfigModel,
+    CsvMetadataSourceConfig,
     CsvTriggerConfig,
     FieldConfig,
     FieldSourceItem,
@@ -59,7 +61,7 @@ def _build_full_data(
                     ],
                 },
             },
-            "sources": [{"alias": "clients", "csv_path": str(clients_csv)}],
+            "sources": [{"kind": "csv", "alias": "clients", "csv_path": str(clients_csv)}],
         },
         "assembly": {
             "source_root": str(assembly_root),
@@ -339,3 +341,94 @@ class TestTriggerDiscriminatedUnion:
     def test_csv_alias_for_backwards_compat(self) -> None:
         # TriggerCsvConfig is the old name — kept as an alias to CsvTriggerConfig.
         assert TriggerCsvConfig is CsvTriggerConfig
+
+
+# ---------------------------------------------------------------------------
+# Metadata source discriminated union (015)
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataSourceDiscriminatedUnion:
+    def test_csv_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        # Already kind=csv by helper. Verify the discriminated union picks it.
+        config = PipelineConfig.model_validate(data)
+        source = config.metadata.sources[0]
+        assert isinstance(source, CsvMetadataSourceConfig)
+        assert source.kind == "csv"
+
+    def test_as400_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["metadata"]["sources"] = [
+            {
+                "kind": "as400",
+                "alias": "customers",
+                "as400_connection": {"host": "10.0.0.1"},
+                "table": "CUSTOMERS",
+            }
+        ]
+        config = PipelineConfig.model_validate(data)
+        source = config.metadata.sources[0]
+        assert isinstance(source, As400MetadataSourceConfig)
+        assert source.alias == "customers"
+        assert source.table == "CUSTOMERS"
+        assert source.as400_connection.host == "10.0.0.1"
+
+    def test_as400_table_required_non_empty(self) -> None:
+        with pytest.raises(ValidationError):
+            As400MetadataSourceConfig(
+                kind="as400",
+                alias="x",
+                as400_connection=As400ConnectionConfig(host="h"),
+                table="",
+            )
+
+    def test_unknown_kind_rejected(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["metadata"]["sources"] = [{"kind": "ldap", "alias": "directory", "url": "ldap://..."}]
+        with pytest.raises(ValidationError):
+            PipelineConfig.model_validate(data)
+
+    def test_mixed_kinds_load(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["metadata"]["sources"] = [
+            {"kind": "csv", "alias": "clients", "csv_path": str(fixture_paths["clients"])},
+            {
+                "kind": "as400",
+                "alias": "customers",
+                "as400_connection": {"host": "10.0.0.1"},
+                "table": "CUSTOMERS",
+            },
+        ]
+        config = PipelineConfig.model_validate(data)
+        assert len(config.metadata.sources) == 2
+        assert isinstance(config.metadata.sources[0], CsvMetadataSourceConfig)
+        assert isinstance(config.metadata.sources[1], As400MetadataSourceConfig)

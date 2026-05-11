@@ -132,24 +132,6 @@ class TestBuildPipeline:
         assert report.s5_done == 1
         assert report.s5_failed == 0
 
-    def test_rejects_as400_source_type(self, tmp_path: Path) -> None:
-        # Replace the trigger source's source_type with as400:default
-        # directly via string substitution to avoid YAML indentation hazards.
-        yaml_path = _write_yaml(tmp_path)
-        text = yaml_path.read_text()
-        text = text.replace(
-            "        - source_type: trigger\n          lookup_value_column: cif\n",
-            '        - source_type: "as400:default"\n'
-            "          lookup_value_column: CIF\n"
-            "          lookup_key_column: CIF\n",
-            1,
-        )
-        yaml_path.write_text(text)
-        config = load_config(yaml_path)
-        with pytest.raises(ConfigurationError) as ei:
-            build_pipeline(config, _secrets())
-        assert ei.value.context["source_type"] == "as400:default"
-
     def test_repeated_calls_produce_independent_pipelines(self, tmp_path: Path) -> None:
         yaml_path = _write_yaml(tmp_path)
         config = load_config(yaml_path)
@@ -158,3 +140,58 @@ class TestBuildPipeline:
         assert p1 is not p2
         assert isinstance(p1, StagedPipeline)
         assert isinstance(p2, StagedPipeline)
+
+    def test_as400_metadata_source_builds(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Build a YAML with an additional as400 metadata source. pyodbc is
+        # mocked so the As400DataSource constructor doesn't try to connect
+        # (it doesn't — connection is lazy in _connect()).
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "  sources:\n    - alias: clients",
+            "  sources:\n"
+            "    - kind: as400\n"
+            "      alias: customers\n"
+            "      as400_connection:\n"
+            '        host: "10.0.0.1"\n'
+            "      table: CUSTOMERS\n"
+            "    - alias: clients",
+            1,
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        secrets = Secrets(
+            cmis_username="tester",
+            cmis_password="secret-not-real",
+            as400_username="as400tester",
+            as400_password="as400secret",
+        )
+        pipeline = build_pipeline(config, secrets)
+        # Inspect MetadataService's registered sources.
+        registry = pipeline._metadata_service._sources_registry  # type: ignore[attr-defined]
+        assert "customers" in registry
+        assert "clients" in registry
+
+    def test_as400_metadata_source_missing_secret_raises(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "  sources:\n    - alias: clients",
+            "  sources:\n"
+            "    - kind: as400\n"
+            "      alias: customers\n"
+            "      as400_connection:\n"
+            '        host: "10.0.0.1"\n'
+            "      table: CUSTOMERS\n"
+            "    - alias: clients",
+            1,
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        # _secrets() returns AS400 creds empty.
+        with pytest.raises(ConfigurationError) as ei:
+            build_pipeline(config, _secrets())
+        assert ei.value.context["alias"] == "customers"
+        assert "AS400_USERNAME" in ei.value.context["missing_vars"]

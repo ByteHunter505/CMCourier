@@ -21,9 +21,11 @@ from __future__ import annotations
 
 __all__ = [
     "As400ConnectionConfig",
+    "As400MetadataSourceConfig",
     "As400TriggerConfig",
     "AssemblyConfig",
     "CmisConfigModel",
+    "CsvMetadataSourceConfig",
     "CsvTriggerConfig",
     "FieldConfig",
     "FieldSourceItem",
@@ -155,12 +157,35 @@ class MappingConfig(BaseModel):
     metadata_list_column: str = "METADATOS"
 
 
-class MetadataSourceConfig(BaseModel):
-    """One named CSV source available to metadata resolution."""
+class CsvMetadataSourceConfig(BaseModel):
+    """A named CSV source available to metadata resolution."""
 
     model_config = _STRICT
+    kind: Literal["csv"] = "csv"
     alias: str
     csv_path: FilePath
+
+
+class As400MetadataSourceConfig(BaseModel):
+    """A named AS400 source available to metadata resolution.
+
+    Prefetch runs ``SELECT * FROM <table>`` over the configured
+    connection. The operator is responsible for choosing tables
+    small enough to fit comfortably in memory.
+    """
+
+    model_config = _STRICT
+    kind: Literal["as400"]
+    alias: str
+    as400_connection: As400ConnectionConfig
+    table: str = Field(min_length=1)
+
+
+# Backwards-compatible name for the legacy CSV-only shape.
+MetadataSourceConfig = Annotated[
+    CsvMetadataSourceConfig | As400MetadataSourceConfig,
+    Field(discriminator="kind"),
+]
 
 
 class ValidationModel(BaseModel):

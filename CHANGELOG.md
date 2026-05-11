@@ -12,10 +12,125 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- `MetadataService.as400:<alias>` source resolution — wire up the AS400 metadata fetch path now that the adapter ships.
 - `local-scan-pipeline` and `single-doc` — separate changes each.
 - REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
 - Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
+- Observability tiers (REBIRTH §17.4).
+
+---
+
+## [0.17.0] — 2026-05-10 — **AS400 metadata sources**
+
+Closes the gap left by 014. Pipelines with `as400:<alias>` source
+types in `metadata.field_sources` now work end-to-end. The MVP is
+fully production-ready: every adapter, every pipeline, every
+metadata source kind.
+
+### Added
+
+- **`CsvMetadataSourceConfig`** + **`As400MetadataSourceConfig`** —
+  two concrete schema classes that tag the `MetadataSourceConfig`
+  discriminated union by `kind`. The CSV shape is unchanged in
+  semantics (just gains a `kind: Literal["csv"] = "csv"` default).
+  The AS400 shape carries `alias`, `as400_connection`, and `table`
+  (the prefetch target — `SELECT * FROM <table>` runs at
+  `MetadataService` construction).
+- **`_build_metadata_sources(sources, secrets) -> dict[str, IDataSource]`**
+  helper in `cmcourier.config.wiring`. Dispatches by `kind` and
+  builds the right concrete data source (`TabularDataSource` for
+  csv, `As400DataSource` for as400). Required AS400 credentials are
+  validated at this point — missing values raise
+  `ConfigurationError("AS400 credentials required for as400
+  metadata source", missing_vars=[...])`.
+- **Doctor `_open_metadata_source(source_cfg, secrets)`** helper.
+  The existing `_check_metadata_sources` check now opens both csv
+  and as400 sources via this dispatcher; the connectivity probe is
+  the same `count()` call regardless of kind.
+- **9 new tests** across schema, wiring, and doctor (5 schema for
+  the discriminated union, 2 wiring for the kind-dispatch + missing-
+  secret branch, 2 doctor for mixed-source happy paths).
+
+### Changed
+
+- **`_inject_default_trigger_kind` renamed to `_inject_default_kinds`**
+  and extended to inject `kind: "csv"` into each `metadata.sources[i]`
+  that omits it. Existing 012/013 configs continue to load
+  unchanged.
+- **`config.wiring._reject_unsupported_source_types` REMOVED**.
+  `as400:*` source types in `field_sources` are now legitimate —
+  the metadata source registry provides the backing data source,
+  and `MetadataService`'s alias-validation catches dangling
+  references (unchanged behavior). No prior consumer relied on the
+  guard; the removal is safe.
+- **`_check_metadata_sources(config, secrets)`** signature gained
+  `secrets` so the AS400 branch can supply credentials when opening
+  the connection. The csv branch ignores the new argument.
+- **`MetadataSourceConfig`** is now a `Annotated[Csv... | As400...,
+  Field(discriminator="kind")]` type alias. Existing imports
+  (including `MetadataSourceConfig` directly) keep working — the
+  alias preserves the name. The legacy single-class shape is now
+  `CsvMetadataSourceConfig` and is re-exported under
+  `__all__`.
+
+### Verification
+
+- `pytest -v`: **427 / 427 pass** in ~52 s (421 from earlier + 9
+  net new tests across schema/wiring/doctor; 3 obsolete tests
+  removed: the `_reject_unsupported_source_types`-era test in
+  `test_wiring.py`).
+- `pytest --cov=src/cmcourier`: total branch coverage stays above
+  95%.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 37 source files.
+- `pre-commit run --all-files`: clean.
+- Smoke: `cmcourier --help` lists 4 commands (unchanged from 014);
+  the new metadata-source schema is opt-in (operators add `kind:
+  as400` entries when they want).
+
+### Rationale
+
+- **MetadataService unchanged**. The prefetch loop already iterates
+  `sources_registry.values()` and calls `IDataSource.get_all()`.
+  Both `TabularDataSource` and `As400DataSource` implement
+  `IDataSource.get_all()`; the cache key shape
+  `(alias, key_column, key_value, value_column)` is naturally
+  source-agnostic. No code change, no test change to the service.
+  Constitution Principle I (hexagonal architecture) pays off
+  exactly here: a new adapter slots in without rippling.
+- **Prefetch AS400 sources by default** (per user direction).
+  REBIRTH §12's `metadata_prefetch_exclude: ["RVABREP"]` excludes
+  AS400 by default; 015 deviates because the operator-controlled
+  table is usually `CLIENTS` or `ACCOUNTS` (~10s of thousands of
+  rows, ~5-50 MB in RAM). A future change can add a per-source
+  `prefetch: bool` flag if memory becomes a constraint.
+- **Per-field `as400_query` deferred**. REBIRTH §12 supports custom
+  SQL per field (`as400_query: "SELECT NOMBRE FROM RVILIB.CLIENT_TABLE
+  WHERE CIF = ?"`). 015 simplifies: each AS400 metadata source maps
+  to ONE table. Operators who need joins / filters can pre-export
+  to a CSV and use a `csv:<alias>` source instead. Custom-SQL
+  support is a follow-up change.
+- **`_reject_unsupported_source_types` removal is safe**. The
+  guard was a placeholder added in 011 because no consumer existed
+  for `as400:*` yet. 015 ships the consumer. The MetadataService's
+  existing alias-validation catches misconfiguration: a `field_sources[X].sources[i].source_type == "as400:typo"` referencing an
+  alias not in `metadata.sources` raises
+  `ConfigurationError("unknown CSV alias")` at prefetch time. (The
+  error message's "CSV" text is now slightly stale; a cleanup
+  rename is queued for a follow-up.)
+- **Operator-facing change is small**. A config with a single
+  csv-only metadata source needs zero edits (loader injects
+  `kind: "csv"`). A config with an AS400 metadata source needs only:
+  ```yaml
+  metadata:
+    sources:
+      - kind: as400
+        alias: customers
+        as400_connection:
+          host: 10.x.x.x
+        table: CLIENTS
+  ```
+  plus the existing `AS400_USERNAME`/`AS400_PASSWORD` env vars
+  (from 014).
 
 ---
 

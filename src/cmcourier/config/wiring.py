@@ -17,9 +17,11 @@ from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
 from cmcourier.config.schema import (
     As400TriggerConfig,
+    CsvMetadataSourceConfig,
     CsvTriggerConfig,
     IndexingColumnsModel,
     MetadataConfigModel,
+    MetadataSourceConfig,
     PipelineConfig,
     RvabrepTriggerConfig,
 )
@@ -52,13 +54,9 @@ from cmcourier.services.triggers.direct_rvabrep import (
 
 def build_pipeline(config: PipelineConfig, secrets: Secrets) -> StagedPipeline:
     """Construct every adapter / service and return the wired pipeline."""
-    _reject_unsupported_source_types(config.metadata)
-
     rvabrep_src = TabularDataSource(config.indexing.csv_path)
     mapping_src = TabularDataSource(config.mapping.csv_path)
-    metadata_sources: dict[str, IDataSource] = {
-        s.alias: TabularDataSource(s.csv_path) for s in config.metadata.sources
-    }
+    metadata_sources = _build_metadata_sources(config.metadata.sources, secrets)
 
     indexing_service = IndexingService(
         rvabrep_src,
@@ -172,19 +170,50 @@ def _build_trigger_strategy(
 
 
 # ---------------------------------------------------------------------------
-# Schema → service-config converters
+# Metadata source dispatch (015)
 # ---------------------------------------------------------------------------
 
 
-def _reject_unsupported_source_types(metadata: MetadataConfigModel) -> None:
-    for field_name, fc in metadata.field_sources.items():
-        for src in fc.sources:
-            if src.source_type.startswith("as400:"):
-                raise ConfigurationError(
-                    "as400 source not yet supported",
-                    field=field_name,
-                    source_type=src.source_type,
+def _build_metadata_sources(
+    sources: list[MetadataSourceConfig],
+    secrets: Secrets,
+) -> dict[str, IDataSource]:
+    """Open every metadata source and return the alias→adapter registry."""
+    registry: dict[str, IDataSource] = {}
+    for src_cfg in sources:
+        if isinstance(src_cfg, CsvMetadataSourceConfig):
+            registry[src_cfg.alias] = TabularDataSource(src_cfg.csv_path)
+            continue
+        # as400 — credentials required.
+        if not secrets.as400_username or not secrets.as400_password:
+            missing = [
+                name
+                for name, value in (
+                    ("AS400_USERNAME", secrets.as400_username),
+                    ("AS400_PASSWORD", secrets.as400_password),
                 )
+                if not value
+            ]
+            raise ConfigurationError(
+                "AS400 credentials required for as400 metadata source",
+                alias=src_cfg.alias,
+                missing_vars=missing,
+            )
+        registry[src_cfg.alias] = As400DataSource(
+            host=src_cfg.as400_connection.host,
+            port=src_cfg.as400_connection.port,
+            database=src_cfg.as400_connection.database,
+            driver=src_cfg.as400_connection.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            table=src_cfg.table,
+        )
+    return registry
+
+
+# ---------------------------------------------------------------------------
+# Schema → service-config converters
+# ---------------------------------------------------------------------------
 
 
 def _indexing_columns_from_schema(model: IndexingColumnsModel) -> IndexingColumnsConfig:
