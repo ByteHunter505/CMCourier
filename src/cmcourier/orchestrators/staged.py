@@ -67,6 +67,7 @@ from cmcourier.domain.ports import ITrackingStore, S0Strategy
 from cmcourier.observability.metrics import MetricsRecorder, StageTimer
 from cmcourier.observability.system_metrics import SystemMetricsSampler
 from cmcourier.services.auto_tune import AutoTuneController
+from cmcourier.services.document_cache import DocumentCacheService
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.lane_controller import LaneController
 from cmcourier.services.lane_splitter import Lane
@@ -151,6 +152,7 @@ class StagedPipeline:
         sampler: SystemMetricsSampler | None = None,
         coordinator: IdempotencyCoordinator | None = None,
         heavy_light_lanes: HeavyLightLanesConfig | None = None,
+        document_cache: DocumentCacheService | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -187,6 +189,9 @@ class StagedPipeline:
         # tracking_store (pre-034 behavior). When set, the coordinator
         # adds the AS400 NIARVILOG path on top.
         self._coordinator = coordinator
+        # 037: cross-batch metadata cache. None when disabled (default)
+        # — S3 always invokes MetadataService.resolve (pre-037 behavior).
+        self._document_cache = document_cache
         # 036: heavy/light lane coordinator. None when dual mode is off
         # (the default) — S5 keeps the legacy single-pool path.
         self._lanes_config = heavy_light_lanes
@@ -565,6 +570,7 @@ class StagedPipeline:
         for item in items:
             assert item.mapping is not None
             txn = item.document.txn_num
+            fields = item.mapping.required_metadata_fields
             with StageTimer(
                 rec,
                 pipeline=self._pipeline_name,
@@ -572,26 +578,53 @@ class StagedPipeline:
                 batch_id=batch_id,
                 txn_num=txn,
             ) as timer:
-                try:
-                    resolution = self._metadata_service.resolve(
-                        item.trigger, item.document, item.mapping
+                cached = (
+                    self._document_cache.try_get(txn_num=txn, fields=fields)
+                    if self._document_cache is not None
+                    else None
+                )
+                if cached is not None:
+                    # 037: cache hit — short-circuit MetadataService. Restore
+                    # the healed CIF on the trigger so downstream stages see
+                    # the same TriggerRecord shape as a fresh resolve.
+                    metadata = ResolvedMetadata.from_dict(dict(cached.properties))
+                    healed_trigger = TriggerRecord(
+                        shortname=item.trigger.shortname,
+                        cif=cached.trigger_cif,
+                        system_id=item.trigger.system_id,
                     )
-                except (SourceFailedError, DefaultValidationFailedError) as exc:
-                    timer.mark_failed()
-                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
-                        record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
-                        self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
-                        self._tracking_store.mark_stage_failed(
-                            txn, batch_id, StageStatus.S3_FAILED, str(exc)
+                else:
+                    try:
+                        resolution = self._metadata_service.resolve(
+                            item.trigger, item.document, item.mapping
                         )
-                        failed += 1
-                    continue
+                    except (SourceFailedError, DefaultValidationFailedError) as exc:
+                        timer.mark_failed()
+                        if not self._tracking_store.is_stage_done(
+                            txn, batch_id, StageStatus.S3_DONE
+                        ):
+                            record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
+                            self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
+                            self._tracking_store.mark_stage_failed(
+                                txn, batch_id, StageStatus.S3_FAILED, str(exc)
+                            )
+                            failed += 1
+                        continue
+                    metadata = resolution.metadata
+                    healed_trigger = resolution.healed_trigger
+                    if self._document_cache is not None:
+                        self._document_cache.put(
+                            txn_num=txn,
+                            fields=fields,
+                            metadata=metadata,
+                            trigger_cif=healed_trigger.cif,
+                        )
             if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
                 record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
                 self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
                 self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S3_DONE)
-            item.metadata = resolution.metadata
-            item.trigger = resolution.healed_trigger
+            item.metadata = metadata
+            item.trigger = healed_trigger
             survivors.append(item)
         return survivors, failed
 

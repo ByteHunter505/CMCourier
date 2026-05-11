@@ -12,7 +12,7 @@ __all__ = ["build_pipeline"]
 
 from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
 from cmcourier.adapters.sources import As400DataSource, TabularDataSource
-from cmcourier.adapters.tracking import SQLiteTrackingStore
+from cmcourier.adapters.tracking import SqliteDocumentCache, SQLiteTrackingStore
 from cmcourier.adapters.tracking.as400_niarvilog import As400NiarvilogStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
@@ -38,6 +38,7 @@ from cmcourier.observability.system_metrics import (
     build_sampler as build_system_metrics_sampler,
 )
 from cmcourier.orchestrators.staged import StagedPipeline
+from cmcourier.services.document_cache import DocumentCacheService
 from cmcourier.services.idempotency import IdempotencyCoordinator
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
@@ -127,6 +128,7 @@ def build_pipeline(
     coordinator = _build_idempotency_coordinator(
         config=config, secrets=secrets, sqlite_store=tracking_store
     )
+    document_cache = _build_document_cache_service(config=config)
     return StagedPipeline(
         trigger_strategy=trigger_strategy,
         indexing_service=indexing_service,
@@ -142,6 +144,18 @@ def build_pipeline(
         sampler=sampler,
         coordinator=coordinator,
         heavy_light_lanes=config.processing.heavy_light_lanes,
+        document_cache=document_cache,
+    )
+
+
+def _build_document_cache_service(*, config: PipelineConfig) -> DocumentCacheService | None:
+    """037: return a service iff ``metadata.cache.enabled``, else None."""
+    if not config.metadata.cache.enabled:
+        return None
+    sqlite_cache = SqliteDocumentCache(config.tracking.db_path)
+    return DocumentCacheService(
+        cache=sqlite_cache,
+        ttl_minutes=config.metadata.cache.ttl_minutes,
     )
 
 
