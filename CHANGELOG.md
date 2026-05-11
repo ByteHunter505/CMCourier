@@ -15,7 +15,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 
 - **§1** — Adaptive heavy / light upload lanes (REBIRTH §10.7).
-- **§3** — Offline log analysis tooling (`cmcourier analyze`).
 - **§4** — `AS400TrackingStore` (centralize tracking in RVILIB).
 - **§7** — Multi-batch pipeline parallelism (`batches_in_flight > 2`).
 - **§8** — Per-batch bandwidth quota.
@@ -31,9 +30,84 @@ Operational milestones outside the roadmap doc:
 ### Removed (no longer pending)
 
 - ~~§2 System metrics tier 5 (`psutil` sampling)~~ — shipped in 026.
+- ~~§3 Offline log analysis (`cmcourier analyze`)~~ — shipped in 027.
 - ~~§5 AIMD adaptive worker auto-tuning~~ — shipped in 025.
 - ~~§6 Additional pipelines (csv / as400 / local-scan)~~ —
   shipped in 012 / 014 / 016.
+
+---
+
+## [0.29.0] — 2026-05-11 — **offline log analyzer (POST-MVP §3)**
+
+Closes the second-half of the §17.4 story: now that tier 5 is
+on disk (026), operators have a first-class way to *read* it.
+The `cmcourier analyze` subcommand suite consumes the five
+log tiers and produces per-batch reports, pairwise deltas, and
+trend series — all deterministic, all read-only.
+
+### Added
+
+- **`cmcourier analyze batch <batch_id>`** — full per-batch
+  report: header, per-stage table (count/p50/p95/p99),
+  network table (per kind), system table (when tier 5 is
+  available), top-5 slow ops, and a bottleneck verdict line
+  with confidence + reasoning.
+- **`cmcourier analyze compare <a> <b>`** — side-by-side
+  delta: throughput delta, elapsed delta, per-stage p95
+  delta, and a one-line bottleneck-class comparison.
+- **`cmcourier analyze trends [--last N] [--pipeline <name>]`**
+  — throughput + S5 p95 over the last N `batch_summary`
+  events, optionally filtered by pipeline. Default `--last 10`.
+- **`--format text|json`** on every subcommand. JSON is
+  deterministic (sorted keys, 2-space indent, no embedded
+  timestamps).
+- **`--config <path>`** or **`--log-dir <path>`**: read
+  from a YAML (to derive `log_dir` + `cmis.max_bandwidth_mbps`
+  + worker count for the classifier) or skip the YAML and
+  read raw.
+- **`cmcourier.services.analyze`** module exposing
+  `LogReader`, `BatchReport`, `BottleneckClassification`,
+  `NetworkSummary`, `SystemSummary`, `CompareReport`,
+  `TrendRow`, `build_batch_report`, `classify_bottleneck`,
+  `compare_batches`, `compute_trends`, and the six
+  formatter functions. All pure, all importable as a library.
+- **Bottleneck classifier** with five classes
+  (`cpu-bound`, `memory-bound`, `disk-bound`,
+  `network-bound`, `worker-saturated`) + an `under-utilized`
+  fallback. Rules + thresholds documented in
+  `docs/how-to/log-analysis.md`.
+- **Resilient JSONL reader** — malformed lines are logged
+  WARNING and skipped; missing files yield empty record
+  lists; cross-midnight rotated files are merged
+  transparently by glob.
+
+### Tests
+
+- 16 new unit tests for `LogReader`, `classify_bottleneck`,
+  and `build_batch_report` (tier reads + each bottleneck
+  class + tie-break + no-samples fallback + aggregation).
+- 7 new CLI integration tests covering every subcommand
+  (text + JSON, deterministic output, trends filter, compare
+  delta).
+- 695 total passing (up from 672 in 026).
+
+### Documentation
+
+- New `docs/how-to/log-analysis.md` — when to use each
+  subcommand, full bottleneck-rule table with thresholds,
+  sample terminal output, and an operator playbook
+  ("did doubling workers actually help?", "are we drifting
+  over time?").
+
+### Notes
+
+- HTML report rendering listed in the POST-MVP §3
+  acceptance criteria was explicitly **deferred** to a
+  future follow-up. The current text + JSON pair is enough
+  for terminal + CI + jq workflows.
+- The analyzer is read-only — it never touches the
+  pipeline's running state, the tracking SQLite, or any
+  remote service. Safe to run mid-batch.
 
 ---
 

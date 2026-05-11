@@ -17,8 +17,8 @@ Everything excluded lives below, with enough detail to start a new change direct
 
 ### Status snapshot
 
-- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016).
-- **Still deferred**: §1, §3, §4, §7, §8, §9, plus the §10 watchlist.
+- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016).
+- **Still deferred**: §1, §4, §7, §8, §9, plus the §10 watchlist.
 
 ---
 
@@ -130,7 +130,12 @@ Add a fifth logging tier that samples system-resource utilization (CPU, RAM, dis
 
 ---
 
-## §3. Offline Log Analysis Tooling
+## §3. Offline Log Analysis Tooling — **SHIPPED in change 027 (2026-05-11)**
+
+> Promoted out of post-MVP and delivered as part of change 027.
+> See `specs/027-log-analyzer/`, `docs/how-to/log-analysis.md`,
+> and `CHANGELOG.md [0.29.0]`. HTML rendering deferred to a
+> future follow-up.
 
 ### Intent
 
