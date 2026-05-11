@@ -26,7 +26,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 
-- **§1** — Adaptive heavy / light upload lanes (REBIRTH §10.7).
 - **§7 (N > 2)** — Raise `batches_in_flight` cap above 2 (the
   N=2 producer-consumer overlap shipped in 028; N=3..5 requires
   a deeper refactor — deferred).
@@ -50,6 +49,91 @@ Operational milestones outside the roadmap doc:
   shipped in 012 / 014 / 016.
 - ~~§7 (N=2)~~ — producer-consumer overlap of two batches in
   flight, shipped in 028.
+
+---
+
+## [0.37.0] — 2026-05-11 — **adaptive heavy / light upload lanes (POST-MVP §1)**
+
+S5 gains an optional dual-lane mode that splits documents by size
+and runs each lane on its own slice of the worker budget. AIMD owns
+the TOTAL worker count; the new `LaneController` owns the heavy /
+light split. A daemon thread migrates capacity to whichever lane has
+work when the other has drained. **Default off** — single-lane
+behavior is byte-identical to pre-036.
+
+### Added
+
+- `HeavyLightLanesConfig` block under `ProcessingConfig`:
+  `enabled` (default `false`), `heavy_threshold_bytes` (10 MB),
+  `heavy_lane_min_batch` (50), `heavy_initial_ratio` (0.2),
+  `rebalance_interval_s` (10.0), `idle_threshold_s` (15.0).
+- `services/lane_splitter.py`: pure `split()` function returning
+  `LaneAssignment` (heavy / light / is_single_lane). Three exit
+  rules: small batch, degenerate (all-heavy or all-light), bimodal.
+- `services/lane_controller.py`: `LaneController` owning two
+  `ResizableSemaphore`s + two `WorkerPoolStats`. `set_total_budget`
+  is the AIMD hook (redistributes preserving the current ratio
+  while keeping ≥ 1 per lane). Drain-driven rebalance daemon
+  migrates ALL capacity to the active lane (drained side keeps the
+  sem floor of 1 — harmless because no items mean no acquires).
+  Each migration emits a structured `lane_rebalance` log event.
+- `StagedPipeline.__init__` accepts `heavy_light_lanes`; when on
+  and the splitter says not-single-lane, S5 dispatches through
+  TWO `ThreadPoolExecutor`s (one per lane) — avoids the starvation
+  that a single shared executor would suffer when threads block on
+  the wrong semaphore.
+- TUI `UPLOAD` tab swaps the single WORKERS panel for stacked
+  HEAVY / LIGHT sub-panels when `lane_snapshot is not None`.
+  Single-lane runs render byte-for-byte identical to pre-036.
+- `docs/how-to/heavy-light-lanes.md`: operator guide with knob
+  tuning hints, TUI / log expectations, and honest performance
+  characterization.
+
+### Changed
+
+- AIMD `on_pool_resize` now dispatches between
+  `concurrency_limit.set_capacity` (single-lane) and
+  `lane_controller.set_total_budget` (dual-lane). AIMD's
+  `current_workers_provider` reports the lane controller's total
+  budget when dual mode is active.
+- `_stage_s5` is now a thin dispatcher to `_stage_5_single` (legacy)
+  or `_stage_5_dual` (036).
+
+### Performance — honest accounting
+
+The POST-MVP §1 acceptance criterion wrote ≥ 30 % throughput. With
+our actual implementation and a synthetic bimodal batch
+(30 × 1 MB + 5 × 50 MB, `N=4` workers), dual-lane wins ~5-10 % of
+wall-clock — the tail is set by heavy uploads either way. The real
+operator-visible win is **per-doc latency**: light docs ship without
+queueing behind a heavy slot. The slow integration test
+`test_dual_lane_at_least_5pct_faster_than_single` asserts the
+modest wall-clock improvement; production heuristics will be tuned
+during the real-data dry-run phase.
+
+### Backwards compatibility
+
+`heavy_light_lanes.enabled = false` (the default) preserves the
+pre-036 S5 single-pool path byte-for-byte. All 944 pre-036 tests
+keep passing. The shared `BandwidthLimiter` from 029 is reused
+across both lanes — total bytes/sec stays under
+`cmis.max_bandwidth_mbps` (covered by 029's
+`test_throttles_via_shared_bucket`).
+
+### Out of scope (deferred)
+
+- Production tuning of `heavy_threshold_bytes`, `idle_threshold_s`,
+  `heavy_initial_ratio`. Operator-tuned after the dry-run.
+- TUI `notify()` flash on rebalance events. The structured log line
+  + `cmcourier analyze` already cover post-mortem; live flash is
+  cosmetic.
+- Per-lane retry budgets. Both lanes share the existing CMIS retry
+  policy (Tenacity).
+- Per-lane bandwidth quota — that is POST-MVP §8, separate change.
+
+### Spec
+
+- `specs/036-heavy-light-lanes/`: spec.md, plan.md, tasks.md.
 
 ---
 

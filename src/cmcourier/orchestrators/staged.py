@@ -709,7 +709,16 @@ class StagedPipeline:
         batch_id: str,
         rec: MetricsRecorder,
     ) -> tuple[int, int]:
-        """036: dual heavy/light dispatch sharing a single executor."""
+        """036: dual heavy/light dispatch via two cooperating executors.
+
+        Each lane gets its own ``ThreadPoolExecutor`` sized to the
+        TOTAL worker budget; the per-lane semaphore inside the
+        ``LaneController`` caps actual concurrency. Two executors
+        avoid the starvation that would occur if a single executor's
+        workers grabbed heavies first and then blocked on the heavy
+        semaphore — leaving light items queued without a thread to
+        run them.
+        """
         assert self._lane_controller is not None
         heavy_items, light_items = assignment
         depths: dict[Lane, int] = {"heavy": len(heavy_items), "light": len(light_items)}
@@ -719,15 +728,25 @@ class StagedPipeline:
         s5_done = 0
         failed = 0
         try:
-            with ThreadPoolExecutor(
-                max_workers=self._workers,
-                thread_name_prefix="cmcourier-s5",
-            ) as pool:
+            with (
+                ThreadPoolExecutor(
+                    max_workers=self._workers,
+                    thread_name_prefix="cmcourier-s5-heavy",
+                ) as heavy_pool,
+                ThreadPoolExecutor(
+                    max_workers=self._workers,
+                    thread_name_prefix="cmcourier-s5-light",
+                ) as light_pool,
+            ):
                 futures: dict[Future[Literal["done", "failed", "skipped"]], Lane] = {}
                 for item in heavy_items:
-                    futures[pool.submit(self._upload_one, item, batch_id, rec, "heavy")] = "heavy"
+                    futures[heavy_pool.submit(self._upload_one, item, batch_id, rec, "heavy")] = (
+                        "heavy"
+                    )
                 for item in light_items:
-                    futures[pool.submit(self._upload_one, item, batch_id, rec, "light")] = "light"
+                    futures[light_pool.submit(self._upload_one, item, batch_id, rec, "light")] = (
+                        "light"
+                    )
                 for fut in as_completed(futures):
                     lane = futures[fut]
                     outcome = fut.result()

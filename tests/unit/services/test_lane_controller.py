@@ -162,16 +162,28 @@ class TestAcquireReleaseDispatch:
 
 
 class TestQueueDepthTracking:
-    def test_set_queue_depth_resets_last_active_when_positive(self) -> None:
+    def test_zero_depth_stamps_first_empty_and_triggers_drain(self) -> None:
         clock = [100.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
-        ctl.set_queue_depth("heavy", 0)
-        clock[0] = 110.0  # advance > idle threshold
-        # heavy is idle for 10s → drain should fire on the next tick.
+        ctl.set_queue_depth("heavy", 0)  # stamps first_empty at t=100
+        clock[0] = 110.0  # 10s past empty stamp > 5s threshold
         ctl.rebalance_tick()
-        # Heavy migrated all but 1 to light.
         assert ctl.heavy_capacity == 1
-        assert ctl.light_capacity == 9
+        # Drained heavy → light gets ALL workers (heavy keeps floor of 1,
+        # but no heavy items remain so the slot is unused).
+        assert ctl.light_capacity == 10
+
+    def test_positive_depth_after_empty_resets_first_empty(self) -> None:
+        clock = [0.0]
+        ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
+        ctl.set_queue_depth("heavy", 0)  # stamp at t=0
+        clock[0] = 3.0
+        ctl.set_queue_depth("heavy", 7)  # new work arrives → clear stamp
+        clock[0] = 6.0  # 6s past resume, but stamp was cleared
+        ctl.rebalance_tick()
+        # No migration: queue is non-empty (stamp was cleared at t=3).
+        assert ctl.heavy_capacity == 5
+        assert ctl.light_capacity == 5
 
 
 class TestDrainRebalance:
@@ -179,52 +191,57 @@ class TestDrainRebalance:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
         # Initial: heavy=5, light=5.
-        # Heavy drains immediately, light stays active.
-        ctl.set_queue_depth("light", 100)  # marks light active at t=0
-        clock[0] = 6.0  # heavy idle for 6s, light just touched
-        ctl.set_queue_depth("light", 99)  # touch again at t=6
+        # Heavy is empty from the start; light stays busy.
+        ctl.set_queue_depth("heavy", 0)  # stamp empty at t=0
+        ctl.set_queue_depth("light", 100)
+        clock[0] = 6.0  # 6s past heavy's empty stamp
+        ctl.set_queue_depth("light", 99)  # light still busy
         ctl.rebalance_tick()
         assert ctl.heavy_capacity == 1
-        assert ctl.light_capacity == 9
+        # Drained heavy → light gets ALL workers (heavy keeps floor of 1,
+        # but no heavy items remain so the slot is unused).
+        assert ctl.light_capacity == 10
 
     def test_light_drain_migrates_to_heavy(self) -> None:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
         ctl.set_queue_depth("heavy", 100)
+        ctl.set_queue_depth("light", 0)  # stamp empty
         clock[0] = 6.0
         ctl.set_queue_depth("heavy", 99)
         ctl.rebalance_tick()
         assert ctl.light_capacity == 1
-        assert ctl.heavy_capacity == 9
+        # Drained light → heavy gets ALL workers (light keeps floor of 1).
+        assert ctl.heavy_capacity == 10
 
     def test_both_active_no_migration(self) -> None:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
         ctl.set_queue_depth("heavy", 5)
         ctl.set_queue_depth("light", 5)
-        clock[0] = 4.0  # below threshold for both
+        clock[0] = 4.0
         ctl.set_queue_depth("heavy", 5)
         ctl.set_queue_depth("light", 5)
         ctl.rebalance_tick()
-        # No migration: both within idle threshold.
+        # No migration: neither lane has reported empty.
         assert ctl.heavy_capacity == 5
         assert ctl.light_capacity == 5
 
     def test_drain_already_minimal_does_not_migrate(self) -> None:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
-        # Migrate heavy down to 1 (manual setup).
-        ctl.set_queue_depth("light", 100)
+        ctl.set_queue_depth("heavy", 100)
+        ctl.set_queue_depth("light", 0)
         clock[0] = 6.0
-        ctl.set_queue_depth("light", 99)
         ctl.rebalance_tick()
-        assert ctl.heavy_capacity == 1
-        # Run another tick — nothing should change.
+        assert ctl.light_capacity == 1
+        # Another tick later: nothing changes because light is already
+        # at the floor.
         clock[0] = 12.0
-        ctl.set_queue_depth("light", 50)
         ctl.rebalance_tick()
-        assert ctl.heavy_capacity == 1
-        assert ctl.light_capacity == 9
+        assert ctl.light_capacity == 1
+        # Drained light → heavy gets ALL workers (light keeps floor of 1).
+        assert ctl.heavy_capacity == 10
 
 
 class TestRebalanceLogging:
@@ -238,6 +255,7 @@ class TestRebalanceLogging:
             clock_value=clock,
             logger=logger,
         )
+        ctl.set_queue_depth("heavy", 0)
         ctl.set_queue_depth("light", 100)
         clock[0] = 6.0
         ctl.set_queue_depth("light", 99)
@@ -251,7 +269,7 @@ class TestRebalanceLogging:
         assert evt.previous_heavy == 5
         assert evt.previous_light == 5
         assert evt.new_heavy == 1
-        assert evt.new_light == 9
+        assert evt.new_light == 10  # full migration: drained side keeps floor
 
 
 class TestDaemonLifecycle:

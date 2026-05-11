@@ -85,9 +85,13 @@ class LaneController:
         self._idle_threshold_s = float(idle_threshold_s)
         self._clock = clock
         self._log = logger or _logger
-        now = clock()
-        self._heavy_last_active = now
-        self._light_last_active = now
+        # Drain tracking: when a lane's queue first reaches zero we
+        # stamp `_*_first_empty_at`. The rebalance heuristic migrates
+        # only after the lane has stayed empty for `idle_threshold_s`.
+        # ``None`` means the lane is currently non-empty (or has not
+        # yet been observed).
+        self._heavy_first_empty_at: float | None = None
+        self._light_first_empty_at: float | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -145,17 +149,25 @@ class LaneController:
     def set_queue_depth(self, lane: Lane, depth: int) -> None:
         """Record a queue-depth update for the given lane.
 
-        Side effect: when ``depth > 0``, the lane is marked active for
-        drain tracking. The rebalance heuristic uses the time elapsed
-        since the last positive depth to decide whether to migrate.
+        Side effect: tracks the moment the queue first reached zero
+        for the drain heuristic. The lane stays "currently empty"
+        until the next positive-depth update, at which point the
+        stamp is cleared. ``rebalance_tick`` migrates capacity when
+        ``now - first_empty_at >= idle_threshold_s``.
         """
         self._stats_for(lane).set_queue_depth(depth)
-        if depth > 0:
-            with self._lock:
+        with self._lock:
+            if depth > 0:
                 if lane == "heavy":
-                    self._heavy_last_active = self._clock()
+                    self._heavy_first_empty_at = None
                 else:
-                    self._light_last_active = self._clock()
+                    self._light_first_empty_at = None
+            else:
+                now = self._clock()
+                if lane == "heavy" and self._heavy_first_empty_at is None:
+                    self._heavy_first_empty_at = now
+                elif lane == "light" and self._light_first_empty_at is None:
+                    self._light_first_empty_at = now
 
     # ----- AIMD coupling -----
 
@@ -202,21 +214,30 @@ class LaneController:
         """One iteration of the drain heuristic. Public for testing."""
         with self._lock:
             now = self._clock()
-            heavy_idle_s = now - self._heavy_last_active
-            light_idle_s = now - self._light_last_active
+            heavy_idle_s = (
+                now - self._heavy_first_empty_at if self._heavy_first_empty_at is not None else 0.0
+            )
+            light_idle_s = (
+                now - self._light_first_empty_at if self._light_first_empty_at is not None else 0.0
+            )
             heavy_cap = self._heavy_sem.capacity
             light_cap = self._light_sem.capacity
             total = heavy_cap + light_cap
             new_heavy = heavy_cap
             new_light = light_cap
             migrated_from: Lane | None = None
+            # When one lane has been empty long enough, migrate ALL
+            # capacity to the other. The drained lane keeps the
+            # ResizableSemaphore floor of 1 — but since its queue is
+            # empty no future acquire will happen on it, so that slot
+            # is effectively free.
             if heavy_idle_s >= self._idle_threshold_s and heavy_cap > 1:
                 new_heavy = 1
-                new_light = total - 1
+                new_light = total
                 migrated_from = "heavy"
             elif light_idle_s >= self._idle_threshold_s and light_cap > 1:
                 new_light = 1
-                new_heavy = total - 1
+                new_heavy = total
                 migrated_from = "light"
             if migrated_from is None:
                 return

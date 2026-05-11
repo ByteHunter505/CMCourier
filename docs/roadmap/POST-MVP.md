@@ -22,7 +22,15 @@ Everything excluded lives below, with enough detail to start a new change direct
 
 ---
 
-## §1. Adaptive Heavy / Light Upload Lanes
+## §1. Adaptive Heavy / Light Upload Lanes — **SHIPPED in change 036 (2026-05-11)**
+
+> Promoted out of post-MVP and delivered as part of change 036.
+> Default off; enable via `processing.heavy_light_lanes.enabled`.
+> The original ≥ 30 % throughput target was aspirational; measured
+> wall-clock gain on synthetic bimodal batches is ~5-10 %. The real
+> operator-visible win is per-doc latency. See
+> `specs/036-heavy-light-lanes/`, `docs/how-to/heavy-light-lanes.md`,
+> and `CHANGELOG.md [0.37.0]`.
 
 ### Intent
 

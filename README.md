@@ -229,6 +229,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Thirty-third change: Tier 1 polish — `--total <N>` flag + CI integration docs for `analyze`
 - [x] Thirty-fourth change: AS400 NIARVILOG distributed idempotency (POST-MVP §4 — toggleable, retry/backoff, `cmcourier sync resolve` CLI)
 - [x] Thirty-fifth change: mapping CSV split (`MapeoRVI_CM.csv` + `MetadatosCM.csv` + `CMISType` column — production format; consolidated mode stays for tests)
+- [x] Thirty-sixth change: adaptive heavy/light upload lanes (POST-MVP §1 — default off, `LaneSplitter` + `LaneController` + drain-driven rebalance + dual TUI sub-panels)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
