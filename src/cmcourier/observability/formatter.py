@@ -39,6 +39,14 @@ ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
         "rank",
         "reason",
         "fields",
+        "worker",
+        "p95_observed_ms",
+        "p95_target_ms",
+        "workers_before",
+        "workers_after",
+        "timeout_before_s",
+        "timeout_after_s",
+        "action",
     }
 )
 

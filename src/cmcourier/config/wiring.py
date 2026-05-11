@@ -127,6 +127,7 @@ def build_pipeline(
         pipeline_name=pipeline_name,
         uploader=uploader,
         tracking_store=tracking_store,
+        workers=config.cmis.workers,
     )
 
 

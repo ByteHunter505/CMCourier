@@ -21,6 +21,7 @@ __all__ = [
 import datetime as _dt
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,13 +62,26 @@ class NetworkEvent:
 
 @dataclass(slots=True)
 class _StageBucket:
+    """Thread-safe per-stage timing accumulator (025).
+
+    The 020 single-threaded version had no lock — append-from-one-
+    thread, snapshot-from-the-same-thread. 025 adds S5 worker
+    concurrency: ``record`` is called from N worker threads while
+    ``summary`` is called from the orchestrator + TUI threads.
+    Lock keeps the underlying list consistent.
+    """
+
     durations_ms: list[float] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def record(self, duration_ms: float) -> None:
-        self.durations_ms.append(duration_ms)
+        with self._lock:
+            self.durations_ms.append(duration_ms)
 
     def summary(self) -> dict[str, float | int]:
-        if not self.durations_ms:
+        with self._lock:
+            snapshot = list(self.durations_ms)
+        if not snapshot:
             return {
                 "count": 0,
                 "p50_ms": 0.0,
@@ -75,7 +89,7 @@ class _StageBucket:
                 "p99_ms": 0.0,
                 "sum_ms": 0.0,
             }
-        sorted_ms = sorted(self.durations_ms)
+        sorted_ms = sorted(snapshot)
         return {
             "count": len(sorted_ms),
             "p50_ms": _percentile(sorted_ms, 0.50),
@@ -104,12 +118,17 @@ def _percentile(sorted_values: list[float], q: float) -> float:
 
 
 class SlowOpAggregator:
-    """Collect candidate slow operations; emit top-N at batch close."""
+    """Collect candidate slow operations; emit top-N at batch close.
+
+    Thread-safe (025): ``consider`` is called from S5 worker threads
+    via the network logger handler.
+    """
 
     def __init__(self, *, threshold_ms: float, top_n: int) -> None:
         self._threshold_ms = float(threshold_ms)
         self._top_n = int(top_n)
         self._candidates: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
 
     def consider(
         self,
@@ -120,6 +139,7 @@ class SlowOpAggregator:
         stage: str = "",
         size_bytes: int | None = None,
         url_prefix: str = "",
+        worker: str = "",
     ) -> None:
         if duration_ms < self._threshold_ms:
             return
@@ -135,12 +155,15 @@ class SlowOpAggregator:
             entry["size_bytes"] = int(size_bytes)
         if url_prefix:
             entry["url_prefix"] = url_prefix
-        self._candidates.append(entry)
+        if worker:
+            entry["worker"] = worker
+        with self._lock:
+            self._candidates.append(entry)
 
     def top(self) -> list[dict[str, Any]]:
-        ranked = sorted(self._candidates, key=lambda d: d["duration_ms"], reverse=True)[
-            : self._top_n
-        ]
+        with self._lock:
+            snapshot = list(self._candidates)
+        ranked = sorted(snapshot, key=lambda d: d["duration_ms"], reverse=True)[: self._top_n]
         return [{"rank": i + 1, **entry} for i, entry in enumerate(ranked)]
 
 
@@ -168,6 +191,7 @@ class _SlowOpHandler(logging.Handler):
             stage=getattr(record, "stage", "") or "",
             size_bytes=getattr(record, "size_bytes", None),
             url_prefix=getattr(record, "url_prefix", "") or "",
+            worker=getattr(record, "worker", "") or "",
         )
 
 

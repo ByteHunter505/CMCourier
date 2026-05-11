@@ -24,6 +24,7 @@ __all__ = [
     "As400MetadataSourceConfig",
     "As400TriggerConfig",
     "AssemblyConfig",
+    "AutoTuneConfig",
     "CmisConfigModel",
     "CsvMetadataSourceConfig",
     "CsvTriggerConfig",
@@ -272,6 +273,40 @@ class AssemblyConfig(BaseModel):
     )
 
 
+class AutoTuneConfig(BaseModel):
+    """AIMD auto-tune for the S5 worker pool (REBIRTH §12).
+
+    When ``enabled=True``, a background controller adjusts the
+    thread count and (optionally) the CMIS request timeout based
+    on observed S5 p95 latency vs ``target_p95_ms``.
+    """
+
+    model_config = _STRICT
+    enabled: bool = False
+    min_threads: int = Field(default=2, ge=1)
+    max_threads: int = Field(default=50, ge=1)
+    target_p95_ms: float = Field(default=5000.0, gt=0)
+    adjustment_interval_s: int = Field(default=30, ge=1)
+    warmup_seconds: int = Field(default=60, ge=0)
+    timeout_auto_adjust: bool = True
+    min_timeout_s: int = Field(default=30, ge=1)
+    max_timeout_s: int = Field(default=600, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_ranges(self) -> AutoTuneConfig:
+        if self.min_threads > self.max_threads:
+            raise ValueError(
+                "auto_tune.min_threads must be <= max_threads "
+                f"(got {self.min_threads} > {self.max_threads})"
+            )
+        if self.min_timeout_s > self.max_timeout_s:
+            raise ValueError(
+                "auto_tune.min_timeout_s must be <= max_timeout_s "
+                f"(got {self.min_timeout_s} > {self.max_timeout_s})"
+            )
+        return self
+
+
 class CmisConfigModel(BaseModel):
     """CMIS connection knobs. Credentials live in env vars, not here."""
 
@@ -283,6 +318,8 @@ class CmisConfigModel(BaseModel):
     max_bandwidth_mbps: float = Field(default=0.0, ge=0)
     retry_max_attempts: int = Field(default=3, ge=1)
     retry_base_delay_s: float = Field(default=2.0, ge=0)
+    workers: int = Field(default=4, ge=1)
+    auto_tune: AutoTuneConfig = Field(default_factory=AutoTuneConfig)
 
 
 class TrackingConfig(BaseModel):

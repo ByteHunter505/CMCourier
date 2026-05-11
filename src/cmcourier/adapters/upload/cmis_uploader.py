@@ -34,6 +34,7 @@ from __future__ import annotations
 __all__ = ["BandwidthLimiter", "CmisConfig", "CmisUploader"]
 
 import logging
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -149,6 +150,10 @@ class CmisUploader(IUploader):
         self._session.verify = config.verify_ssl
         self._folder_cache: set[str] = set()
         self._warm = False
+        # 025: S5 worker pool calls upload/ensure_folder concurrently.
+        # The per-instance state above is shared across worker threads.
+        self._folder_lock = threading.Lock()
+        self._warm_lock = threading.Lock()
 
     # ----------------------------------------------------------- public API
 
@@ -164,7 +169,9 @@ class CmisUploader(IUploader):
 
     def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
         """GET cmisselector=typeDefinition&typeId=<id>. Bypasses the retry loop."""
-        if not self._warm:
+        with self._warm_lock:
+            need_warmup = not self._warm
+        if need_warmup:
             self._warmup_session()
         url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
         t0 = time.monotonic()
@@ -180,6 +187,7 @@ class CmisUploader(IUploader):
                 "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
                 "status": resp.status_code,
                 "url_prefix": url[:80],
+                "worker": threading.current_thread().name,
             },
         )
         body = _truncate(resp.text)
@@ -194,18 +202,26 @@ class CmisUploader(IUploader):
         return data if isinstance(data, dict) else {}
 
     def ensure_folder(self, folder_path: str) -> None:
-        """Create ``folder_path`` recursively. Idempotent + cached."""
+        """Create ``folder_path`` recursively. Idempotent + cached.
+
+        Thread-safe (025): two workers racing on the same folder hit
+        the cache check inside the lock; only one issues the POST.
+        Repeat POSTs across workers for different paths are fine —
+        the CMIS endpoint returns 409 which we treat as success.
+        """
         segments = [
             s for s in folder_path.split("/") if s and not s.startswith(_SYSTEM_FOLDER_PREFIX)
         ]
         parent = ""
         for seg in segments:
             abs_path = f"{parent}/{seg}".lstrip("/") if parent else seg
-            if abs_path in self._folder_cache:
-                parent = abs_path
-                continue
+            with self._folder_lock:
+                if abs_path in self._folder_cache:
+                    parent = abs_path
+                    continue
             self._create_folder_segment(parent, seg)
-            self._folder_cache.add(abs_path)
+            with self._folder_lock:
+                self._folder_cache.add(abs_path)
             parent = abs_path
 
     def upload(
@@ -256,6 +272,7 @@ class CmisUploader(IUploader):
                 "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
                 "status": resp.status_code,
                 "url_prefix": url[:80],
+                "worker": threading.current_thread().name,
             },
         )
         body = _truncate(resp.text)
@@ -263,7 +280,8 @@ class CmisUploader(IUploader):
             raise CMISServerError(status_code=resp.status_code, response_body=body)
         if resp.status_code >= 400:
             raise CMISClientError(status_code=resp.status_code, response_body=body)
-        self._warm = True
+        with self._warm_lock:
+            self._warm = True
         data = resp.json()
         return data if isinstance(data, dict) else {}
 
@@ -304,7 +322,9 @@ class CmisUploader(IUploader):
         size_bytes = int(getattr(data, "len", 0)) or None
         t0 = time.monotonic()
         while real_attempts < self._cfg.retry_max_attempts:
-            if not self._warm:
+            with self._warm_lock:
+                need_warmup = not self._warm
+            if need_warmup:
                 self._warmup_session()
             try:
                 resp = self._session.post(
@@ -324,7 +344,8 @@ class CmisUploader(IUploader):
                 continue
             if resp.status_code == 401 and not auth_retried:
                 auth_retried = True
-                self._warm = False
+                with self._warm_lock:
+                    self._warm = False
                 continue
             if 200 <= resp.status_code < 400:
                 self._emit_network(kind, t0, resp.status_code, size_bytes, url)
@@ -367,6 +388,7 @@ class CmisUploader(IUploader):
             "kind": kind,
             "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
             "url_prefix": url[:80],
+            "worker": threading.current_thread().name,
         }
         if status is not None:
             extra["status"] = status

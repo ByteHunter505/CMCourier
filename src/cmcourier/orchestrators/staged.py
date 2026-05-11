@@ -27,10 +27,13 @@ from __future__ import annotations
 __all__ = ["StagedPipeline", "RunReport"]
 
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from cmcourier.adapters.assembly import PdfAssembler
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
@@ -61,6 +64,7 @@ from cmcourier.observability.metrics import MetricsRecorder, StageTimer
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.mapping import MappingService
 from cmcourier.services.metadata import MetadataService
+from cmcourier.services.worker_pool_stats import WorkerPoolStats
 
 _log = logging.getLogger(__name__)
 
@@ -127,6 +131,8 @@ class StagedPipeline:
         tracking_store: ITrackingStore,
         metrics_recorder: MetricsRecorder | None = None,
         pipeline_name: str = "csv-trigger",
+        workers: int = 1,
+        pool_stats: WorkerPoolStats | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -143,6 +149,8 @@ class StagedPipeline:
             pipeline_metrics_enabled=False,
         )
         self._pipeline_name = pipeline_name
+        self._workers = max(1, int(workers))
+        self._pool_stats = pool_stats or WorkerPoolStats()
 
     # ----------------------------------------------------------- public API
 
@@ -438,16 +446,48 @@ class StagedPipeline:
         items: list[_StageItem],
         batch_id: str,
     ) -> tuple[int, int]:
+        """S5 uploads, parallelized over ``self._workers`` threads (025).
+
+        Tracking-store calls remain serialized by the writer queue;
+        `CmisUploader` is thread-safe per 025 R011/R012; per-stage
+        metrics use a lock under the hood. Outcomes are tallied in
+        the main thread from ``as_completed`` results.
+        """
+        self._pool_stats.set_pool_size(self._workers)
+        self._pool_stats.set_queue_depth(len(items))
         s5_done = 0
         failed = 0
-        for item in items:
-            assert item.mapping is not None
-            assert item.metadata is not None
-            assert item.staged_file is not None
-            txn = item.document.txn_num
+        with ThreadPoolExecutor(
+            max_workers=self._workers,
+            thread_name_prefix="cmcourier-s5",
+        ) as pool:
+            futures = {pool.submit(self._upload_one, item, batch_id): item for item in items}
+            for fut in as_completed(futures):
+                outcome = fut.result()
+                if outcome == "done":
+                    s5_done += 1
+                elif outcome == "failed":
+                    failed += 1
+                self._pool_stats.set_queue_depth(self._pool_stats.snapshot().queue_depth - 1)
+        return s5_done, failed
+
+    def _upload_one(
+        self,
+        item: _StageItem,
+        batch_id: str,
+    ) -> Literal["done", "failed", "skipped"]:
+        """Per-doc S5 work executed inside a worker thread (025)."""
+        assert item.mapping is not None
+        assert item.metadata is not None
+        assert item.staged_file is not None
+        txn = item.document.txn_num
+        worker_name = threading.current_thread().name
+
+        self._pool_stats.mark_busy(worker_name)
+        try:
             if self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S5_DONE):
-                s5_done += 1
-                continue
+                self._pool_stats.mark_completed()
+                return "done"
             record = self._build_record(item, batch_id, StageStatus.S5_PENDING)
             self._tracking_store.mark_stage_pending(record, StageStatus.S5_PENDING)
             with StageTimer(
@@ -471,9 +511,11 @@ class StagedPipeline:
                     self._tracking_store.mark_stage_failed(
                         txn, batch_id, StageStatus.S5_FAILED, str(exc)
                     )
-                    failed += 1
-                    continue
+                    self._pool_stats.mark_failed()
+                    return "failed"
             self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)
             item.cm_object_id = cm_object_id
-            s5_done += 1
-        return s5_done, failed
+            self._pool_stats.mark_completed()
+            return "done"
+        finally:
+            self._pool_stats.mark_idle(worker_name)

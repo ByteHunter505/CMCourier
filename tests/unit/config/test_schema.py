@@ -566,6 +566,106 @@ class TestObservabilityConfig:
         assert isinstance(config.observability, ObservabilityConfig)
         assert config.observability.enabled is True
 
+
+# ---------------------------------------------------------------------------
+# 025 — AutoTuneConfig + cmis.workers/auto_tune
+# ---------------------------------------------------------------------------
+
+
+class TestAutoTuneConfig:
+    def test_defaults(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        cfg = AutoTuneConfig()
+        assert cfg.enabled is False
+        assert cfg.min_threads == 2
+        assert cfg.max_threads == 50
+        assert cfg.target_p95_ms == 5000.0
+        assert cfg.adjustment_interval_s == 30
+        assert cfg.warmup_seconds == 60
+        assert cfg.timeout_auto_adjust is True
+        assert cfg.min_timeout_s == 30
+        assert cfg.max_timeout_s == 600
+
+    def test_min_greater_than_max_threads_rejected(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError) as ei:
+            AutoTuneConfig(min_threads=50, max_threads=10)
+        assert "min_threads" in str(ei.value)
+
+    def test_min_greater_than_max_timeout_rejected(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError) as ei:
+            AutoTuneConfig(min_timeout_s=600, max_timeout_s=30)
+        assert "min_timeout_s" in str(ei.value)
+
+    def test_target_p95_must_be_positive(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(target_p95_ms=0)
+
+    def test_warmup_zero_allowed(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        cfg = AutoTuneConfig(warmup_seconds=0)
+        assert cfg.warmup_seconds == 0
+
+
+class TestCmisWorkersAndAutoTune:
+    def test_cmis_defaults_include_workers(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig, CmisConfigModel
+
+        cfg = CmisConfigModel(base_url="http://x:9080/cmis", repo_id="$x!t")
+        assert cfg.workers == 4
+        assert isinstance(cfg.auto_tune, AutoTuneConfig)
+        assert cfg.auto_tune.enabled is False
+
+    def test_cmis_workers_must_be_ge_one(self) -> None:
+        from cmcourier.config.schema import CmisConfigModel
+
+        with pytest.raises(ValidationError):
+            CmisConfigModel(base_url="x", repo_id="y", workers=0)
+
+    def test_pipeline_config_loads_workers_and_auto_tune(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["cmis"]["workers"] = 8
+        data["cmis"]["auto_tune"] = {
+            "enabled": True,
+            "target_p95_ms": 2000.0,
+        }
+        config = PipelineConfig.model_validate(data)
+        assert config.cmis.workers == 8
+        assert config.cmis.auto_tune.enabled is True
+        assert config.cmis.auto_tune.target_p95_ms == 2000.0
+
+    def test_cmis_block_without_workers_uses_defaults(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        # Regression: existing YAMLs without cmis.workers / auto_tune still validate.
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        config = PipelineConfig.model_validate(data)
+        assert config.cmis.workers == 4
+        assert config.cmis.auto_tune.enabled is False
+
     def test_unknown_kind_rejected(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
         data = _build_full_data(
             fixture_paths["trigger"],
