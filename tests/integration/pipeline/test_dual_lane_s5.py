@@ -199,3 +199,36 @@ class TestDualLaneFailureRouting:
         snap = pipeline.lane_controller.snapshot()  # type: ignore[union-attr]
         assert snap.heavy.failed == 5
         assert snap.light.failed == 15
+
+
+# ---------------------------------------------------------------------------
+# 039: cmis_type override (Alfresco / non-IBM-CM staging support)
+# ---------------------------------------------------------------------------
+
+
+class TestCmisTypeOverride:
+    def test_override_used_when_cmis_type_set(self) -> None:
+        pipeline = _build_pipeline(workers=2, lanes=None)
+        item = _make_item("TXN_0001", 100 * _KB)
+        item.mapping = CMMapping(
+            clase_id="01.02.04.01.01",
+            id_rvi="FF17",
+            id_corto="CN01",
+            clase_name="Test",
+            required_metadata_fields=(),
+            cmis_type="cmis:document",  # 039: explicit override
+        )
+        pipeline._stage_s5([item], "batch_x")
+        # Uploader called with cmis_type as object_type_id, not the
+        # derived $t!… value.
+        kwargs = pipeline._uploader.upload.call_args.kwargs  # type: ignore[union-attr]
+        assert kwargs["object_type_id"] == "cmis:document"
+
+    def test_derived_type_when_cmis_type_empty(self) -> None:
+        pipeline = _build_pipeline(workers=2, lanes=None)
+        item = _make_item("TXN_0001", 100 * _KB)
+        # _make_item sets cmis_type="" by default.
+        pipeline._stage_s5([item], "batch_x")
+        kwargs = pipeline._uploader.upload.call_args.kwargs  # type: ignore[union-attr]
+        # Falls back to the derived IBM CM pattern.
+        assert kwargs["object_type_id"].startswith("$t!")

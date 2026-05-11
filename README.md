@@ -232,6 +232,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Thirty-sixth change: adaptive heavy/light upload lanes (POST-MVP §1 — default off, `LaneSplitter` + `LaneController` + drain-driven rebalance + dual TUI sub-panels)
 - [x] Thirty-seventh change: cross-batch `document_cache` table (POST-MVP §9 — default off, SQLite-backed, TTL-aware, `cmcourier cache stats|clear` CLI)
 - [x] Thirty-eighth change: CMIS connection pool sizing + eager warm-up (POST-MVP §10.2 — `HTTPAdapter pool_maxsize`, `warm_connection_pool(n)` pre-S5)
+- [x] Thirty-ninth change: CMIS `object_type_id` override (via `mapping.cmis_type`) + staging dry-run scaffolding (Alfresco-in-Docker + runbooks)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

@@ -51,6 +51,54 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.40.0] — 2026-05-11 — **CMIS object_type_id override + staging dry-run scaffolding**
+
+S5 now uses ``mapping.cmis_type`` as the upload's
+``object_type_id`` when that field is set (carried in from
+``MapeoRVI_CM.CMISType`` since 035). When empty, falls back to the
+existing derived ``cm_object_type`` pattern (``$t!-N_BAC_…v-1``).
+Lets CMCourier upload against non-IBM-CM repositories — Alfresco
+staging today, or a future bank type that doesn't match the
+hardcoded pattern.
+
+### Added
+
+- ``scripts/staging/`` scaffolding for a self-contained
+  Alfresco-in-Docker dry-run environment:
+  - ``alfresco-compose.yml`` — Alfresco Community 23.x + Postgres
+    + Solr + ActiveMQ.
+  - ``cmcourier-model.xml`` — Alfresco Content Model declaring
+    ``cmcourier:bacDoc`` + the metadata properties we emit (so
+    Alfresco accepts the upload).
+  - ``config-staging.yaml.template`` — full staging config with
+    every knob commented.
+  - ``README.md`` — quick reference.
+- ``docs/how-to/staging-dry-run.md`` — generic 7-step runbook
+  applicable to any CMIS staging (bank-provided or our simulation).
+- ``docs/how-to/local-staging-simulation.md`` — runbook for the
+  Alfresco-on-Compu-B setup specifically.
+
+### Changed
+
+- ``orchestrators/staged.py``: ``_stage_s5`` computes
+  ``object_type_id = mapping.cmis_type or mapping.cm_object_type``
+  before each upload.
+
+### Backwards compatibility
+
+Empty ``cmis_type`` (the historical default) preserves the
+pre-039 derived-type behavior byte-for-byte. Test fixtures that
+omit ``CMISType`` from MapeoRVI_CM keep landing on the IBM CM
+pattern. All 1000 pre-039 tests pass.
+
+### Why no formal spec/
+
+Pure micro-op + documentation. The override is one line of
+production code; the rest is operator runbook + container files.
+See ``scripts/staging/README.md`` for the surface area.
+
+---
+
 ## [0.39.0] — 2026-05-11 — **CMIS connection pool sizing + eager warm-up (POST-MVP §10.2)**
 
 S5 stops paying the TCP + TLS + JSESSIONID handshake on the

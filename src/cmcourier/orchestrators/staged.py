@@ -859,10 +859,16 @@ class StagedPipeline:
                 txn_num=txn,
             ) as timer:
                 try:
+                    # 039: ``cmis_type`` (from MapeoRVI_CM.CMISType, 035)
+                    # overrides the derived ``cm_object_type`` when set.
+                    # Lets non-IBM-CM repositories (Alfresco staging, or
+                    # future bank types that don't follow the
+                    # ``$t!-N_BAC_…v-1`` pattern) work without code change.
+                    object_type_id = item.mapping.cmis_type or item.mapping.cm_object_type
                     cm_object_id = self._uploader.upload(
                         file=item.staged_file,
                         folder_path=item.mapping.cm_folder,
-                        object_type_id=item.mapping.cm_object_type,
+                        object_type_id=object_type_id,
                         document_name=f"{txn}.pdf",
                         mime_type="application/pdf",
                         properties=dict(item.metadata.properties),
