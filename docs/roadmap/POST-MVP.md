@@ -17,8 +17,8 @@ Everything excluded lives below, with enough detail to start a new change direct
 
 ### Status snapshot
 
-- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016); §7 (N=2) — two-batch producer-consumer overlap (shipped in change 028; N=3..5 deferred to a future change).
-- **Still deferred**: §1, §4, §7 (N>2), §8, §9, plus the §10 watchlist.
+- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §4 — AS400 NIARVILOG distributed idempotency (shipped in change 034); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016); §7 (N=2) — two-batch producer-consumer overlap (shipped in change 028; N=3..5 deferred to a future change).
+- **Still deferred**: §1, §7 (N>2), §8, §9, plus the §10 watchlist.
 
 ---
 
@@ -186,7 +186,15 @@ None. The log files exist but reading them is manual.
 
 ---
 
-## §4. AS400-Backed Tracking Store
+## §4. AS400-Backed Tracking Store — **SHIPPED in change 034 (2026-05-11)**
+
+> Refined and delivered as a **hybrid** model rather than a
+> drop-in replacement. The bank's existing `RVILIB.NIARVILOG`
+> table coordinates cross-batch idempotency + parallel-Java
+> evaluation; SQLite stays as the per-batch state machine.
+> Toggleable via `tracking.as400_sync.enabled`. See
+> `specs/034-as400-niarvilog-sync/`,
+> `docs/how-to/as400-sync.md`, and CHANGELOG [0.35.0].
 
 ### Intent
 

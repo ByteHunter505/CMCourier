@@ -227,6 +227,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Thirtieth change: TUI multi-batch view — new `CHUNKS` tab + live recorder binding
 - [x] Thirty-second change: shell auto-completion (`cmcourier completion bash|zsh|fish`)
 - [x] Thirty-third change: Tier 1 polish — `--total <N>` flag + CI integration docs for `analyze`
+- [x] Thirty-fourth change: AS400 NIARVILOG distributed idempotency (POST-MVP §4 — toggleable, retry/backoff, `cmcourier sync resolve` CLI)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

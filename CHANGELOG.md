@@ -27,7 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 
 - **§1** — Adaptive heavy / light upload lanes (REBIRTH §10.7).
-- **§4** — `AS400TrackingStore` (centralize tracking in RVILIB).
 - **§7 (N > 2)** — Raise `batches_in_flight` cap above 2 (the
   N=2 producer-consumer overlap shipped in 028; N=3..5 requires
   a deeper refactor — deferred).
@@ -35,6 +34,14 @@ Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 - **§9** — Cross-batch `document_cache` table.
 - **§10** — Watchlist items (per-folder CMIS concurrency, pool
   warm-up, retry budgets per pipeline, CLI auto-completion, …).
+
+Immediate follow-up to 034:
+
+- **035** — split mapping CSV into `MapeoRVI_CM.csv` +
+  `MetadatosCM.csv` with the new `CMISType` column. Today
+  CMCourier reads a single consolidated CSV; the bank's
+  production format is two separate files. 034 leaves
+  `cmis_type = ""` (default) until 035 populates the column.
 
 Operational milestones outside the roadmap doc:
 
@@ -45,11 +52,142 @@ Operational milestones outside the roadmap doc:
 
 - ~~§2 System metrics tier 5 (`psutil` sampling)~~ — shipped in 026.
 - ~~§3 Offline log analysis (`cmcourier analyze`)~~ — shipped in 027.
+- ~~§4 AS400 NIARVILOG distributed idempotency~~ — shipped in 034.
 - ~~§5 AIMD adaptive worker auto-tuning~~ — shipped in 025.
 - ~~§6 Additional pipelines (csv / as400 / local-scan)~~ —
   shipped in 012 / 014 / 016.
 - ~~§7 (N=2)~~ — producer-consumer overlap of two batches in
   flight, shipped in 028.
+
+---
+
+## [0.35.0] — 2026-05-11 — **AS400 NIARVILOG distributed idempotency (POST-MVP §4)**
+
+Adds a toggleable distributed-idempotency layer on top of the
+existing `SQLiteTrackingStore`. When
+`tracking.as400_sync.enabled=true`, the pipeline coordinates
+cross-batch idempotency with the bank's centralized
+`RVILIB.NIARVILOG` table — enabling parallel-Java evaluation
+and multi-workstation operation without double-upload risk.
+When disabled (the default), behavior is byte-identical to
+pre-034.
+
+### Added
+
+- **`tracking.as400_sync`** Pydantic block with the toggle +
+  connection + retry policy. Cross-field validator: enabling
+  the toggle without a connection raises `ValidationError`.
+- **`As400NiarvilogStore`** (`adapters/tracking/as400_niarvilog.py`):
+  atomic `try_claim` (UPDATE STSCOD='I' WHERE STSCOD='N' with
+  INSERT fallback for first-time rows), `mark_uploaded`,
+  `mark_failed`, `read_state` (full PK lookup),
+  `read_state_by_txn` (TRNNUM-only for pre-flight + CLI),
+  `mark_uploaded_by_txn` (for `--prefer-local` workflow),
+  `cleanup_stale_in_progress`.
+- **`IdempotencyCoordinator`** (`services/idempotency.py`):
+  composes `SQLiteTrackingStore` (always) with
+  `As400NiarvilogStore` (optional). Dispatches read/write
+  per the documented rules:
+  - `is_uploaded`: AS400 when active (`STSCOD='O'`), else
+    SQLite.
+  - `try_claim`: always `True` when AS400 disabled; atomic
+    claim when active.
+  - `mark_uploaded` / `mark_failed`: SQLite first (in-process
+    resume anchor), then AS400 (operator-visible state).
+  - `preflight_sync`: cleanup stale + reconcile each
+    txn_num. Returns `SyncReport` with
+    `imported_from_as400`, `conflicts`, `stale_cleaned`.
+    Optionally raises `IdempotencyConflictError`.
+- **`cmcourier sync` CLI** with two subcommands:
+  - `cmcourier sync status` — read-only stale cleanup +
+    connectivity check.
+  - `cmcourier sync resolve <txn>
+    --prefer-as400 | --prefer-local --cm-object-id <id>` —
+    operator-driven resolution.
+- **Doctor check** `as400_sync`: SKIPs when disabled,
+  validates connection + table existence when enabled.
+- **Retry / backoff** (`As400UnreachableError`): transient
+  `pyodbc.OperationalError` triggers exponential backoff
+  (`base, base*2, base*4, …` capped at 300s) for
+  `retry_attempts` total. `IntegrityError` is never retried
+  (race detection signal for `try_claim`).
+- **Field mapping** (locked, documented in
+  `docs/how-to/as400-sync.md`):
+  - `SISCOD ← trigger.system_id`,
+    `TRNNUM ← document.txn_num`,
+    `DOCFRM ← document.index7` (= RVABREP ABAHCD),
+    `IMGARC ← document.file_name` (first-page),
+    `IMGTIP ← document.image_type`,
+    `CTECIF ← trigger.shortname`,
+    `CTENUM ← int(trigger.cif or 0)`,
+    `STSCOD ← N/I/O/F` (state-machine derived),
+    `IDNBAC ← mapping.id_corto` (= IDCM),
+    `TIPIDN ← mapping.cmis_type` (empty until **035**),
+    `OBJIDN ← record.cm_object_id`,
+    `NUMREI ← record.retry_count`,
+    `EERRMSG ← record.error_message`.
+
+### Changed
+
+- **`CMMapping`** gains `cmis_type: str = ""` field. The
+  mapping service reads `CMISType` column when present,
+  defaults to empty string when not. Backwards-compatible
+  with the consolidated test fixture.
+- **`StagedPipeline.__init__`** accepts an optional
+  `coordinator: IdempotencyCoordinator | None = None`
+  parameter. When `None`, the pipeline runs the legacy
+  SQLite-only path — byte-identical to pre-034. When set,
+  `_upload_one` routes through the coordinator's
+  `try_claim` / `mark_uploaded` / `mark_failed`.
+- **`build_pipeline`** constructs the coordinator from the
+  YAML's `tracking.as400_sync.enabled`.
+
+### Tests
+
+- 6 new schema tests covering defaults, ranges,
+  cross-field validator, integration with `TrackingConfig`.
+- 18 store tests including:
+  - try_claim N-row update / INSERT fallback / race losing.
+  - mark_uploaded ok + zero-rows warning.
+  - mark_failed numrei increment + 1024 truncation.
+  - read_state + read_state_by_txn present / absent.
+  - cleanup_stale rowcount semantics.
+  - Error wrapping (Coordination vs Unreachable).
+  - 4 retry tests: transient retry succeeds, exhausted →
+    Unreachable, IntegrityError not retried, backoff
+    sequence respects base.
+- 15 coordinator tests (disabled path, enabled path,
+  preflight_sync three branches).
+- 7 CLI sync tests (help, status, prefer-as400 happy +
+  not-found, prefer-local happy + missing cm-object-id
+  guard, mutually-exclusive flags).
+- 1 doctor SKIP test for `as400_sync`.
+- 1 CMMapping test for `cmis_type` default.
+- **857 total green** (up from 829), mypy + ruff + format
+  clean across the six phases.
+
+### Documentation
+
+- New `docs/how-to/as400-sync.md` with the full picture:
+  when to enable, YAML snippet, field mapping table, status
+  transition diagram, concurrency model, pre-flight
+  reconciliation, conflict resolution playbook, retry
+  semantics, known limitations.
+
+### Notes
+
+- **One row per txn**: per the bank's operational convention,
+  NIARVILOG has at most one row per `TRNNUM` (the first
+  page's `IMGARC`). Multi-page docs share a single row.
+  Confirmed with the operator during spec.
+- **`sync resolve --prefer-as400` doesn't write SQLite
+  directly**. It prints the AS400 state; operator re-runs
+  the pipeline with `--resume` so the in-process resume
+  logic picks up `STSCOD='O'` and skips. Avoids extending
+  `ITrackingStore` with a write-by-txn surface.
+- **`sync resolve --prefer-local` requires
+  `--cm-object-id`** explicit. Operator gets it from
+  `cmcourier batch show`.
 
 ---
 
