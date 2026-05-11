@@ -120,22 +120,59 @@ class DoctorReport:
 # ---------------------------------------------------------------------------
 
 
-def run_doctor(config: PipelineConfig, secrets: Secrets) -> DoctorReport:
-    """Run all checks in order. Never raises."""
+# REBIRTH §11 group → check names. ``all`` is the sentinel.
+_CHECK_GROUPS: dict[str, frozenset[str]] = {
+    "connections": frozenset(
+        {
+            "log_dir_writable",
+            "cmis_connectivity",
+            "as400_connectivity",
+            "tracking_openable",
+        }
+    ),
+    "mapping": frozenset({"mapping_completeness"}),
+    "metadata": frozenset({"metadata_sources", "sample_dry_run"}),
+    "cm-types": frozenset({"cm_type_alignment"}),
+    "all": frozenset(),
+}
+
+
+def _selected(name: str, selected: str) -> bool:
+    """True when ``name`` belongs to the active filter group."""
+    if selected == "all":
+        return True
+    return name in _CHECK_GROUPS.get(selected, frozenset())
+
+
+def run_doctor(
+    config: PipelineConfig,
+    secrets: Secrets,
+    *,
+    selected: str = "all",
+) -> DoctorReport:
+    """Run pre-flight checks. ``selected`` filters by REBIRTH §11 group."""
     start = time.monotonic()
     results: list[CheckResult] = []
-    results.append(_check_log_dir_writable(config))
-    results.append(_check_cmis_connectivity(config, secrets))
-    results.append(_check_as400_connectivity(config, secrets))
-    results.append(_check_tracking_openable(config))
-    results.append(_check_mapping_completeness(config))
-    results.append(_check_metadata_sources(config, secrets))
-    cmis_check = next(r for r in results if r.name == "cmis_connectivity")
-    if cmis_check.status == CheckStatus.PASS:
-        results.append(_check_cm_type_alignment(config, secrets))
-    else:
-        results.append(_skip("cm_type_alignment", "cmis_connectivity FAILed; skipping"))
-    results.append(_check_sample_dry_run(config, secrets))
+    if _selected("log_dir_writable", selected):
+        results.append(_check_log_dir_writable(config))
+    if _selected("cmis_connectivity", selected):
+        results.append(_check_cmis_connectivity(config, secrets))
+    if _selected("as400_connectivity", selected):
+        results.append(_check_as400_connectivity(config, secrets))
+    if _selected("tracking_openable", selected):
+        results.append(_check_tracking_openable(config))
+    if _selected("mapping_completeness", selected):
+        results.append(_check_mapping_completeness(config))
+    if _selected("metadata_sources", selected):
+        results.append(_check_metadata_sources(config, secrets))
+    if _selected("cm_type_alignment", selected):
+        cmis_check = next((r for r in results if r.name == "cmis_connectivity"), None)
+        if cmis_check is not None and cmis_check.status != CheckStatus.PASS:
+            results.append(_skip("cm_type_alignment", "cmis_connectivity FAILed; skipping"))
+        else:
+            results.append(_check_cm_type_alignment(config, secrets))
+    if _selected("sample_dry_run", selected):
+        results.append(_check_sample_dry_run(config, secrets))
     return DoctorReport(
         results=tuple(results),
         elapsed_seconds=time.monotonic() - start,

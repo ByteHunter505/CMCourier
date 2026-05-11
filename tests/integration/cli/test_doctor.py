@@ -425,3 +425,82 @@ class TestCli:
         result = cli_runner.invoke(main, ["doctor", "--config", str(yaml_path)])
         assert result.exit_code == 1
         assert "[FAIL]" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# doctor --check (022)
+# ---------------------------------------------------------------------------
+
+
+class TestDoctorCheckFilter:
+    @responses.activate
+    def test_connections_runs_only_connection_checks(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets(), selected="connections")
+        names = sorted(r.name for r in report.results)
+        assert names == sorted(
+            [
+                "log_dir_writable",
+                "cmis_connectivity",
+                "as400_connectivity",
+                "tracking_openable",
+            ]
+        )
+
+    @responses.activate
+    def test_mapping_runs_only_mapping_check(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets(), selected="mapping")
+        names = [r.name for r in report.results]
+        assert names == ["mapping_completeness"]
+
+    @responses.activate
+    def test_metadata_runs_metadata_sources_and_dry_run(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets(), selected="metadata")
+        names = sorted(r.name for r in report.results)
+        assert names == sorted(["metadata_sources", "sample_dry_run"])
+
+    @responses.activate
+    def test_cm_types_runs_only_cm_type_alignment(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets(), selected="cm-types")
+        names = [r.name for r in report.results]
+        assert names == ["cm_type_alignment"]
+
+    @responses.activate
+    def test_all_runs_every_check(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets(), selected="all")
+        names = sorted(r.name for r in report.results)
+        assert names == sorted(
+            [
+                "log_dir_writable",
+                "cmis_connectivity",
+                "as400_connectivity",
+                "tracking_openable",
+                "mapping_completeness",
+                "metadata_sources",
+                "cm_type_alignment",
+                "sample_dry_run",
+            ]
+        )
+
+    def test_cli_help_shows_check_flag(self, cli_runner: CliRunner) -> None:
+        result = cli_runner.invoke(main, ["doctor", "--help"])
+        assert result.exit_code == 0
+        assert "--check" in result.stdout
+        assert "connections" in result.stdout
+
+    def test_cli_check_unknown_value_rejected(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = cli_runner.invoke(main, ["doctor", "--config", str(yaml_path), "--check", "bogus"])
+        assert result.exit_code == 2  # Click validation

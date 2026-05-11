@@ -164,7 +164,7 @@ class TestRunHappyPath:
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--config", str(yaml_path)],
+            ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)],
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
@@ -181,7 +181,13 @@ class TestRunErrors:
         _set_cmis_env(monkeypatch)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--config", str(tmp_path / "nope.yaml")],
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--skip-doctor",
+                "--config",
+                str(tmp_path / "nope.yaml"),
+            ],
         )
         # Click's click.Path(exists=True) rejects before our code runs,
         # so exit code is Click's default 2.
@@ -199,7 +205,7 @@ class TestRunErrors:
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--config", str(yaml_path)],
+            ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)],
         )
         assert result.exit_code == 2
         assert "ConfigurationError" in result.stderr
@@ -219,7 +225,7 @@ class TestRunErrors:
         yaml_path = _write_config_yaml(tmp_path, triggers_csv=triggers)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--config", str(yaml_path)],
+            ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)],
         )
         # s5_done == 0 means stage failures upstream → exit 1.
         # But report.s5_failed is 0 (never reached S5), so technically REQ-020
@@ -251,6 +257,7 @@ class TestRunOverrides:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--skip-doctor",
                 "--config",
                 str(yaml_path),
                 "--triggers",
@@ -275,6 +282,7 @@ class TestRunOverrides:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--skip-doctor",
                 "--config",
                 str(yaml_path),
                 "--log-level",
@@ -285,3 +293,110 @@ class TestRunOverrides:
         # DEBUG-level captures more records than INFO — at minimum some
         # adapter / service module emits DEBUG.
         assert "DEBUG" in result.stderr or len(result.stderr) > 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-doctor (022)
+# ---------------------------------------------------------------------------
+
+
+# Distinct cm_object_types emitted by the Modelo Documental fixture.
+_DOCTOR_TYPES = (
+    "$t!-2_BAC_01_02_04_01_01v-1",
+    "$t!-2_BAC_02_01_03_01_01v-1",
+    "$t!-2_BAC_03_01_01_01_01v-1",
+    "$t!-2_BAC_04_01_01_01_01v-1",
+    "$t!-2_BAC_05_01_01_01_01v-1",
+    "$t!-2_BAC_06_01_01_01_01v-1",
+)
+
+
+def _stub_doctor_type_definitions() -> None:
+    """Register typeDefinition responses for every cm_object_type the
+    Modelo Documental fixture references."""
+    for type_id in _DOCTOR_TYPES:
+        responses.add(
+            responses.GET,
+            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
+            json={"id": type_id},
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "typeDefinition", "typeId": type_id}
+                )
+            ],
+        )
+
+
+class TestAutoDoctor:
+    @responses.activate
+    def test_auto_doctor_pass_runs_pipeline(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        _register_cmis_for_docs(["TXN_PIPE_001"])
+        _stub_doctor_type_definitions()
+        yaml_path = _write_config_yaml(tmp_path)
+        result = cli_runner.invoke(
+            main, ["csv-trigger-pipeline", "run", "--config", str(yaml_path)]
+        )
+        assert result.exit_code == 0, result.stderr
+        # Doctor report rendered.
+        assert "[PASS] cmis_connectivity" in result.stdout
+        assert "[PASS] log_dir_writable" in result.stdout
+        # Pipeline ran after doctor.
+        assert "s5_done=1" in result.stdout
+
+    @responses.activate
+    def test_auto_doctor_fail_blocks_pipeline(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        # CMIS endpoint returns 503 → cmis_connectivity FAILs.
+        responses.add(
+            responses.GET,
+            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
+            json={"error": "boom"},
+            status=503,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        )
+        yaml_path = _write_config_yaml(tmp_path)
+        result = cli_runner.invoke(
+            main, ["csv-trigger-pipeline", "run", "--config", str(yaml_path)]
+        )
+        # Doctor FAIL → exit 2 before the pipeline starts.
+        assert result.exit_code == 2
+        assert "[FAIL] cmis_connectivity" in result.stdout
+        # The success summary should NOT appear.
+        assert "s5_done=" not in result.stdout
+
+    def test_skip_doctor_bypasses_preflight(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        # No CMIS stubs at all: doctor would FAIL but --skip-doctor avoids it.
+        # The pipeline itself will fail at S5 (CMIS unreachable), exit 1
+        # or 3 depending on error class, but NOT exit 2 from doctor.
+        yaml_path = _write_config_yaml(tmp_path)
+        result = cli_runner.invoke(
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
+        )
+        # Doctor report did NOT appear.
+        assert "[FAIL] cmis_connectivity" not in result.stdout
+        assert "[PASS] cmis_connectivity" not in result.stdout

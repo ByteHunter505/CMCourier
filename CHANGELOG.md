@@ -12,11 +12,147 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- REBIRTH §11 CLI follow-up: `inspect trigger`, `inspect mapping-stats`,
-  `batch export-report --format csv|json`, `doctor --check <name>`,
-  pipeline `--skip-doctor / --from Sn / --resume / --no-tui` flags,
-  `background` runner, TUI (REBIRTH §10.6).
-- POST-MVP §2 system metrics (psutil sampling) + §3 offline log analyzer.
+- REBIRTH §11 CLI follow-up (remaining): `inspect trigger`,
+  `inspect mapping-stats`, `batch export-report --format csv|json`,
+  pipeline `--no-tui` flag, `background` runner,
+  TUI (REBIRTH §10.6).
+- POST-MVP §2 system metrics (psutil sampling) + §3 offline log
+  analyzer.
+
+---
+
+## [0.24.0] — 2026-05-10 — **pipeline safety flags (REBIRTH §11)**
+
+Closes the pre-dry-run safety polish: pipelines auto-run doctor
+before doing work, `--resume` infers the right `--from-stage`
+from tracking state, and `doctor --check <group>` lets the
+operator run a single check during triage.
+
+### Added
+
+- **Auto-doctor before every pipeline run.** Every
+  `*-pipeline run` command (csv-trigger, rvabrep,
+  as400-trigger, local-scan) plus `single-doc run` now calls
+  `run_doctor(config, secrets)` after config + observability
+  setup and before constructing the pipeline. FAIL → exit 2
+  with the doctor report printed. PASS/WARN → proceeds.
+- **`--skip-doctor` flag on every pipeline run command.**
+  Bypasses the auto-doctor for dev iteration or trusted configs.
+  When passed, no doctor output appears.
+- **`--resume` flag on every pipeline run command.** Requires
+  `--batch-id`. Queries the tracking store via
+  `get_batch_details(batch_id)` (shipped in 021), inspects
+  `stage_counts`, finds the lowest stage with
+  `FAILED + PENDING > 0`, and uses that as `--from-stage`.
+  Behaviors:
+  - `--resume` without `--batch-id` → exit 2.
+  - `--resume <unknown id>` → exit 1 with "Batch not found".
+  - `--resume <clean batch>` → exit 0 with "Nothing to resume".
+  - `--resume <mid-flight>` → resolves and runs; emits a
+    `resume_resolved` event with the inferred stage.
+  - `--resume` AND `--from-stage <non-default>` → `--from-stage`
+    wins; WARNING log surfaces the override.
+- **`doctor --check <name>` selective filter** with values
+  `connections | mapping | metadata | cm-types | all`
+  (default `all`). Group mapping:
+  - `connections` → `log_dir_writable`, `cmis_connectivity`,
+    `as400_connectivity`, `tracking_openable`
+  - `mapping` → `mapping_completeness`
+  - `metadata` → `metadata_sources`, `sample_dry_run`
+  - `cm-types` → `cm_type_alignment`
+  - `all` → every check (current behavior — regression)
+  Auto-doctor (called from pipeline commands) always uses
+  `selected="all"`; the filter only applies to standalone
+  `cmcourier doctor` invocations.
+- **`_run_auto_doctor` and `_apply_resume` helpers** in
+  `cli/app.py` keep the per-command bodies thin (the heavy
+  lifting lives in named helpers, the commands just dispatch).
+- **`_CHECK_GROUPS` + `_selected` helper** in `cli/doctor.py`
+  gate each `results.append(...)` line on group membership.
+  `cm_type_alignment` SKIP fallback preserved when
+  `cmis_connectivity` was run and FAILed within the same
+  invocation.
+- **14 new integration tests**:
+  - 3 in `test_cli.py::TestAutoDoctor` — auto-doctor PASS,
+    FAIL blocks pipeline, `--skip-doctor` bypasses.
+  - 4 in `test_pipeline_kinds.py::TestResumeFlag` — missing
+    batch id, unknown batch, clean batch, mid-flight resume.
+  - 7 in `test_doctor.py::TestDoctorCheckFilter` — each
+    group filter + `all` regression + CLI help + invalid
+    value rejection.
+
+### Changed
+
+- **Every pipeline run command signature** gains `--skip-doctor`
+  and `--resume` flags. `_run_pipeline_command` central helper
+  picks them up. `single_doc_run_command` (the only outlier)
+  applies the same logic inline.
+- **`run_doctor`** signature extends with a keyword-only
+  `selected: str = "all"`. Backwards-compatible: every existing
+  call uses the default.
+- **Existing CLI tests** were updated to pass `--skip-doctor`
+  on every `*-pipeline run` invocation that doesn't specifically
+  test the auto-doctor path. This preserves their original
+  intent (exercise pipeline behavior, not doctor scaffolding).
+  Scope: ~14 invocations across `test_cli.py`,
+  `test_pipeline_kinds.py`, `test_pipeline_emits.py`.
+
+### Verification
+
+- `pytest --cov`: **548 / 548 pass** in ~101 s (+14 net new).
+- Coverage: total **94 %**; `cli/app.py` at **89 %**,
+  `cli/doctor.py` at **88 %**.
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (47 source files).
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+
+### Rationale
+
+Before 022 the operator could forget to run `doctor` before a
+pipeline and only discover a broken CMIS auth 30 s into a run —
+exactly when feedback hurts most. After 022 it's the other way
+around: every pipeline run starts with a 5–10 s pre-flight and
+either proceeds confidently or fails loud and early. The
+`--skip-doctor` flag preserves the dev-iteration ergonomics:
+when you trust your config and want fast feedback, opt out.
+
+`--resume` solves the operator-math problem. Today's resume
+flow requires `cmcourier batch show <id>` to find the lowest
+stage with pending/failed work, then mental-math the
+`--from-stage <n>` to pass back to the pipeline command. With
+`--resume`, the tooling does the math: query → infer → run.
+Edge cases (no batch_id, unknown batch, clean batch) all exit
+cleanly with operator-readable messages. Explicit `--from-stage`
+still wins — `--resume` is sugar, never a constraint.
+
+`doctor --check <group>` is the triage shortcut. When the
+operator already knows CMIS is fine but suspects Modelo
+Documental, running the full 7-check suite (~10 s) just to
+confirm wastes seconds. The group names come straight from
+REBIRTH §11; the internal check names map cleanly onto them.
+
+**Key architectural decisions:**
+
+1. *Auto-doctor uses the FULL check set.* Even though the
+   doctor command now supports group selection, the
+   pre-pipeline auto-doctor always runs everything. Selective
+   checks are an *operator triage tool*, not a way to bypass
+   safety during a real run.
+2. *Explicit beats implicit.* Whenever the user gave both
+   `--resume` and `--from-stage`, the explicit number wins.
+   A WARNING log line surfaces the override so the operator
+   knows their `--from-stage` overrode the inferred value.
+3. *No port additions, no schema changes.* Everything lives
+   in `cli/app.py` and `cli/doctor.py`. The port method that
+   `--resume` consumes (`get_batch_details`) shipped in 021;
+   this change just wires it through a new CLI surface.
+4. *Test-suite hygiene.* Adding `--skip-doctor` to ~14
+   existing tests instead of stubbing every doctor check is
+   the right tradeoff: those tests are about pipeline
+   behavior, not pre-flight validation. The new
+   `TestAutoDoctor` class explicitly exercises the
+   pre-flight path.
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from textwrap import dedent
 
@@ -155,7 +156,9 @@ class TestRvabrepPipeline:
         # DirectRvabrepStrategy yields one trigger per unique (shortname, system_id).
         _stub_cmis_for_docs(["TXN_PIPE_001", "TXN_PIPE_002"])
         yaml_path = _write_rvabrep_yaml(tmp_path)
-        result = cli_runner.invoke(main, ["rvabrep-pipeline", "run", "--config", str(yaml_path)])
+        result = cli_runner.invoke(
+            main, ["rvabrep-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+        )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=" in result.stdout
 
@@ -171,7 +174,9 @@ class TestRvabrepPipeline:
         triggers.write_text("ShortName,CIF,SystemID\n")
         yaml_path = tmp_path / "config.yaml"
         yaml_path.write_text(f"trigger:\n  csv_path: {triggers}\n" + _common_blocks(tmp_path))
-        result = cli_runner.invoke(main, ["rvabrep-pipeline", "run", "--config", str(yaml_path)])
+        result = cli_runner.invoke(
+            main, ["rvabrep-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+        )
         assert result.exit_code == 2
         assert "trigger.kind" in result.stderr
 
@@ -251,7 +256,7 @@ class TestAs400TriggerPipeline:
         monkeypatch.delenv("AS400_PASSWORD", raising=False)
         yaml_path = _write_as400_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["as400-trigger-pipeline", "run", "--config", str(yaml_path)]
+            main, ["as400-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
         )
         assert result.exit_code == 2
         assert "AS400" in result.stderr
@@ -281,7 +286,7 @@ class TestAs400TriggerPipeline:
         _stub_cmis_for_docs(["TXN_PIPE_001"])
         yaml_path = _write_as400_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["as400-trigger-pipeline", "run", "--config", str(yaml_path)]
+            main, ["as400-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
@@ -338,7 +343,9 @@ class TestLocalScanPipeline:
         triggers.write_text("ShortName,CIF,SystemID\n")
         yaml_path = tmp_path / "config.yaml"
         yaml_path.write_text(f"trigger:\n  csv_path: {triggers}\n" + _common_blocks(tmp_path))
-        result = cli_runner.invoke(main, ["local-scan-pipeline", "run", "--config", str(yaml_path)])
+        result = cli_runner.invoke(
+            main, ["local-scan-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+        )
         assert result.exit_code == 2
         assert "trigger.kind" in result.stderr
 
@@ -357,7 +364,9 @@ class TestLocalScanPipeline:
         (scan_dir / "DAAAH9X4.001").touch()
         _stub_cmis_for_docs(["TXN_PIPE_001"])
         yaml_path = _write_local_scan_yaml(tmp_path, scan_dir)
-        result = cli_runner.invoke(main, ["local-scan-pipeline", "run", "--config", str(yaml_path)])
+        result = cli_runner.invoke(
+            main, ["local-scan-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+        )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=" in result.stdout
 
@@ -399,6 +408,7 @@ class TestSingleDocPipeline:
             [
                 "single-doc",
                 "run",
+                "--skip-doctor",
                 "--config",
                 str(yaml_path),
                 "--shortname",
@@ -425,6 +435,7 @@ class TestSingleDocPipeline:
             [
                 "single-doc",
                 "run",
+                "--skip-doctor",
                 "--config",
                 str(yaml_path),
                 "--shortname",
@@ -437,3 +448,160 @@ class TestSingleDocPipeline:
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# --resume (022)
+# ---------------------------------------------------------------------------
+
+
+def _seed_resume_batch(db_path: Path, *, failed_at_stage: int | None = None) -> str:
+    """Create a synthetic batch in the tracking store with optional FAILED row."""
+    from datetime import datetime
+
+    from cmcourier.adapters.tracking import SQLiteTrackingStore
+    from cmcourier.domain.models import MigrationRecord, StageStatus
+
+    store = SQLiteTrackingStore(db_path)
+    try:
+        batch_id = store.start_batch(total_records=1)
+        record = MigrationRecord(
+            trigger_shortname="TESTCLIENT01",
+            trigger_cif="123456",
+            trigger_system_id="1",
+            rvabrep_txn_num="TXN_PIPE_001",
+            rvabrep_file_name="DAAAH9X4.001",
+            batch_id=batch_id,
+            status=StageStatus.S1_PENDING,
+            created_at=datetime(2026, 1, 1, 0, 0),
+        )
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        store.mark_stage_done("TXN_PIPE_001", batch_id, StageStatus.S1_DONE)
+        if failed_at_stage is not None:
+            failed_status = StageStatus(f"S{failed_at_stage}_FAILED")
+            store.mark_stage_failed("TXN_PIPE_001", batch_id, failed_status, "synthetic")
+        store.flush()
+    finally:
+        store.close()
+    return batch_id
+
+
+def _write_csv_yaml_with_db(tmp_path: Path) -> Path:
+    """Reuse the rvabrep YAML shape but flip the trigger to csv for simplicity."""
+    triggers = tmp_path / "triggers.csv"
+    triggers.write_text("ShortName,CIF,SystemID\nTESTCLIENT01,123456,1\n")
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(f"trigger:\n  csv_path: {triggers}\n" + _common_blocks(tmp_path))
+    return yaml_path
+
+
+class TestResumeFlag:
+    def test_resume_without_batch_id_exits_2(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        yaml_path = _write_csv_yaml_with_db(tmp_path)
+        result = cli_runner.invoke(
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+                "--resume",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "--resume requires --batch-id" in result.stderr
+
+    def test_resume_unknown_batch_exits_1(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        yaml_path = _write_csv_yaml_with_db(tmp_path)
+        result = cli_runner.invoke(
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+                "--batch-id",
+                "ghost-123",
+                "--resume",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Batch not found" in result.stderr
+
+    def test_resume_clean_batch_exits_0(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        yaml_path = _write_csv_yaml_with_db(tmp_path)
+        # Seed a batch with only S1_DONE (no failed/pending after that).
+        batch_id = _seed_resume_batch(tmp_path / "tracking.db")
+        result = cli_runner.invoke(
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+                "--batch-id",
+                batch_id,
+                "--resume",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Nothing to resume" in result.stdout
+
+    @responses.activate
+    def test_resume_picks_lowest_failed_stage(
+        self,
+        cli_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _set_cmis_env(monkeypatch)
+        _stub_cmis_for_docs(["TXN_PIPE_001"])
+        yaml_path = _write_csv_yaml_with_db(tmp_path)
+        batch_id = _seed_resume_batch(tmp_path / "tracking.db", failed_at_stage=5)
+        with caplog.at_level(logging.INFO, logger="cmcourier"):
+            result = cli_runner.invoke(
+                main,
+                [
+                    "csv-trigger-pipeline",
+                    "run",
+                    "--skip-doctor",
+                    "--config",
+                    str(yaml_path),
+                    "--batch-id",
+                    batch_id,
+                    "--resume",
+                ],
+            )
+        assert result.exit_code == 0, result.stderr
+        # The resume helper logged its inference.
+        resolved = next(
+            (
+                getattr(r, "resume_inferred", None)
+                for r in caplog.records
+                if r.message == "resume_resolved"
+            ),
+            None,
+        )
+        assert resolved == 5

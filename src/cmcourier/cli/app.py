@@ -88,6 +88,18 @@ def csv_trigger_pipeline_group() -> None:
     default=None,
     help="Override the config's trigger CSV path (csv kind only).",
 )
+@click.option(
+    "--skip-doctor",
+    is_flag=True,
+    default=False,
+    help="Bypass the automatic doctor pre-flight (dev iteration).",
+)
+@click.option(
+    "--resume",
+    is_flag=True,
+    default=False,
+    help="Auto-detect from-stage by reading batch state. Requires --batch-id.",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def csv_run_command(
     config_path: Path,
@@ -95,6 +107,8 @@ def csv_run_command(
     from_stage: int,
     batch_size: int | None,
     triggers_override: Path | None,
+    skip_doctor: bool,
+    resume: bool,
     log_level: str,
 ) -> None:
     """Run the csv-trigger pipeline end-to-end."""
@@ -105,6 +119,8 @@ def csv_run_command(
         from_stage=from_stage,
         batch_size=batch_size,
         triggers_override=triggers_override,
+        skip_doctor=skip_doctor,
+        resume=resume,
         log_level=log_level,
     )
 
@@ -129,12 +145,16 @@ def rvabrep_pipeline_group() -> None:
 @click.option("--batch-id", type=str, default=None)
 @click.option("--from-stage", type=click.IntRange(1, 5), default=1)
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
+@click.option("--skip-doctor", is_flag=True, default=False)
+@click.option("--resume", is_flag=True, default=False)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def rvabrep_run_command(
     config_path: Path,
     batch_id: str | None,
     from_stage: int,
     batch_size: int | None,
+    skip_doctor: bool,
+    resume: bool,
     log_level: str,
 ) -> None:
     """Run the rvabrep-pipeline end-to-end."""
@@ -145,6 +165,8 @@ def rvabrep_run_command(
         from_stage=from_stage,
         batch_size=batch_size,
         triggers_override=None,
+        skip_doctor=skip_doctor,
+        resume=resume,
         log_level=log_level,
     )
 
@@ -169,12 +191,16 @@ def as400_trigger_pipeline_group() -> None:
 @click.option("--batch-id", type=str, default=None)
 @click.option("--from-stage", type=click.IntRange(1, 5), default=1)
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
+@click.option("--skip-doctor", is_flag=True, default=False)
+@click.option("--resume", is_flag=True, default=False)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def as400_run_command(
     config_path: Path,
     batch_id: str | None,
     from_stage: int,
     batch_size: int | None,
+    skip_doctor: bool,
+    resume: bool,
     log_level: str,
 ) -> None:
     """Run the as400-trigger-pipeline end-to-end."""
@@ -185,6 +211,8 @@ def as400_run_command(
         from_stage=from_stage,
         batch_size=batch_size,
         triggers_override=None,
+        skip_doctor=skip_doctor,
+        resume=resume,
         log_level=log_level,
     )
 
@@ -209,12 +237,16 @@ def local_scan_pipeline_group() -> None:
 @click.option("--batch-id", type=str, default=None)
 @click.option("--from-stage", type=click.IntRange(1, 5), default=1)
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
+@click.option("--skip-doctor", is_flag=True, default=False)
+@click.option("--resume", is_flag=True, default=False)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def local_scan_run_command(
     config_path: Path,
     batch_id: str | None,
     from_stage: int,
     batch_size: int | None,
+    skip_doctor: bool,
+    resume: bool,
     log_level: str,
 ) -> None:
     """Run the local-scan-pipeline end-to-end."""
@@ -225,6 +257,8 @@ def local_scan_run_command(
         from_stage=from_stage,
         batch_size=batch_size,
         triggers_override=None,
+        skip_doctor=skip_doctor,
+        resume=resume,
         log_level=log_level,
     )
 
@@ -253,6 +287,8 @@ def single_doc_group() -> None:
 @click.option("--batch-id", type=str, default=None)
 @click.option("--from-stage", type=click.IntRange(1, 5), default=1)
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
+@click.option("--skip-doctor", is_flag=True, default=False)
+@click.option("--resume", is_flag=True, default=False)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def single_doc_run_command(
     config_path: Path,
@@ -262,6 +298,8 @@ def single_doc_run_command(
     batch_id: str | None,
     from_stage: int,
     batch_size: int | None,
+    skip_doctor: bool,
+    resume: bool,
     log_level: str,
 ) -> None:
     """Run a one-shot pipeline for a single document."""
@@ -282,13 +320,19 @@ def single_doc_run_command(
         )
         sys.exit(2)
 
+    config = _apply_overrides(config, triggers_override=None, batch_size=batch_size)
+    configure_observability(config.observability, log_level)
+
+    if not skip_doctor:
+        _run_auto_doctor(config, secrets)
+    if resume:
+        from_stage = _apply_resume(config, batch_id, from_stage)
+
     strategy = SingleDocTriggerStrategy(
         shortname=shortname,
         system_id=system,
         cif=cif or None,
     )
-    config = _apply_overrides(config, triggers_override=None, batch_size=batch_size)
-    configure_observability(config.observability, log_level)
     try:
         pipeline = build_pipeline(
             config,
@@ -328,8 +372,15 @@ def single_doc_run_command(
     required=True,
     help="Path to the pipeline YAML config file.",
 )
+@click.option(
+    "--check",
+    "selected_check",
+    type=click.Choice(["connections", "mapping", "metadata", "cm-types", "all"]),
+    default="all",
+    help="Run only the named REBIRTH §11 check group (default: all).",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
-def doctor_command(config_path: Path, log_level: str) -> None:
+def doctor_command(config_path: Path, selected_check: str, log_level: str) -> None:
     """Run pre-flight validation (REBIRTH §10.5)."""
     configure_logging(log_level)
     try:
@@ -340,11 +391,17 @@ def doctor_command(config_path: Path, log_level: str) -> None:
         sys.exit(2)
     configure_observability(config.observability, log_level)
     try:
-        report = run_doctor(config, secrets)
+        report = run_doctor(config, secrets, selected=selected_check)
     except Exception:
         _log.exception("doctor crashed unexpectedly")
         sys.exit(3)
+    if selected_check != "all":
+        click.echo(f"Selected checks: {selected_check}")
     _emit_doctor_report(report)
+    _log.info(
+        "doctor_invoked",
+        extra={"reason": selected_check},
+    )
     sys.exit(1 if report.has_failures else 0)
 
 
@@ -361,6 +418,8 @@ def _run_pipeline_command(
     from_stage: int,
     batch_size: int | None,
     triggers_override: Path | None,
+    skip_doctor: bool,
+    resume: bool,
     log_level: str,
 ) -> None:
     configure_logging(log_level)
@@ -382,6 +441,11 @@ def _run_pipeline_command(
 
     config = _apply_overrides(config, triggers_override, batch_size)
     configure_observability(config.observability, log_level)
+
+    if not skip_doctor:
+        _run_auto_doctor(config, secrets)
+    if resume:
+        from_stage = _apply_resume(config, batch_id, from_stage)
 
     try:
         pipeline = build_pipeline(config, secrets, pipeline_name=f"{expected_kind}-trigger")
@@ -428,6 +492,82 @@ def _apply_overrides(
     if updates:
         return config.model_copy(update=updates)
     return config
+
+
+def _run_auto_doctor(config: PipelineConfig, secrets) -> None:  # type: ignore[no-untyped-def]
+    """Run pre-flight checks; abort the caller (sys.exit) on FAIL."""
+    try:
+        report = run_doctor(config, secrets)
+    except Exception:
+        _log.exception("auto-doctor crashed unexpectedly")
+        sys.exit(3)
+    _emit_doctor_report(report)
+    if report.has_failures:
+        _log.error(
+            "doctor_fail",
+            extra={"failed_count": report.failed_count},
+        )
+        sys.exit(2)
+    _log.info(
+        "doctor_pass",
+        extra={
+            "passed_count": report.passed_count,
+            "warn_count": report.warn_count,
+            "skip_count": report.skip_count,
+        },
+    )
+
+
+def _apply_resume(
+    config: PipelineConfig,
+    batch_id: str | None,
+    explicit_from_stage: int,
+) -> int:
+    """Resolve ``--resume`` into a concrete ``from_stage`` int.
+
+    Calls ``sys.exit`` on misuse (no batch_id, unknown batch, clean batch).
+    When ``explicit_from_stage`` is non-default, it WINS and emits a
+    WARNING — explicit beats inferred.
+    """
+    from cmcourier.adapters.tracking import SQLiteTrackingStore  # noqa: PLC0415
+
+    if batch_id is None:
+        click.echo(
+            "ConfigurationError: --resume requires --batch-id",
+            err=True,
+        )
+        sys.exit(2)
+    store = SQLiteTrackingStore(config.tracking.db_path)
+    try:
+        details = store.get_batch_details(batch_id)
+    finally:
+        store.close()
+    if details is None:
+        click.echo(f"Batch not found: {batch_id}", err=True)
+        sys.exit(1)
+    resolved: int | None = None
+    for n in (1, 2, 3, 4, 5):
+        counts = details.stage_counts.get(f"S{n}", {})
+        if counts.get("FAILED", 0) + counts.get("PENDING", 0) > 0:
+            resolved = n
+            break
+    if resolved is None:
+        click.echo(f"Nothing to resume — batch {batch_id} is clean")
+        sys.exit(0)
+    if explicit_from_stage != 1:
+        _log.warning(
+            "--from-stage explicit value overrides --resume",
+            extra={
+                "explicit_from_stage": explicit_from_stage,
+                "resume_inferred": resolved,
+            },
+        )
+        return explicit_from_stage
+    _log.info(
+        "resume_resolved",
+        extra={"batch_id": batch_id, "resume_inferred": resolved},
+    )
+    return resolved
 
 
 def _emit_summary(report: RunReport) -> None:
