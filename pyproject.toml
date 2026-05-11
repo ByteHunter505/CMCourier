@@ -33,6 +33,7 @@ dependencies = [
   "PyPDF2>=3.0,<4.0",
   "PyYAML>=6.0,<7.0",
   "textual>=0.80,<6.0",
+  "psutil>=5.9,<7.0",
 ]
 
 [project.optional-dependencies]

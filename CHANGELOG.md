@@ -15,7 +15,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 
 - **§1** — Adaptive heavy / light upload lanes (REBIRTH §10.7).
-- **§2** — System metrics observability (`psutil` sampling, tier 5).
 - **§3** — Offline log analysis tooling (`cmcourier analyze`).
 - **§4** — `AS400TrackingStore` (centralize tracking in RVILIB).
 - **§7** — Multi-batch pipeline parallelism (`batches_in_flight > 2`).
@@ -31,9 +30,94 @@ Operational milestones outside the roadmap doc:
 
 ### Removed (no longer pending)
 
+- ~~§2 System metrics tier 5 (`psutil` sampling)~~ — shipped in 026.
 - ~~§5 AIMD adaptive worker auto-tuning~~ — shipped in 025.
 - ~~§6 Additional pipelines (csv / as400 / local-scan)~~ —
   shipped in 012 / 014 / 016.
+
+---
+
+## [0.28.0] — 2026-05-11 — **tier-5 system metrics (POST-MVP §2)**
+
+Closes the last `psutil`-shaped gap on the §17.4 observability
+surface. When a pipeline runs, a daemon thread snapshots
+host- and process-level metrics every 5 seconds (configurable)
+and appends one JSON line per sample to
+`./logs/system-{date}.jsonl`. This is the data input that
+unblocks the offline log analyzer (POST-MVP §3) and lets us
+validate the AIMD target the 025 auto-tune controller assumes.
+
+### Added
+
+- **`SystemMetricsSampler`** in
+  `cmcourier/observability/system_metrics.py`. Daemon
+  `cmcourier-syssampler` thread. Idempotent `start()` /
+  `stop()`. First-sample delta fields are `0.0` (no baseline
+  yet); subsequent samples compute MB/s from byte counters.
+  Errors from `psutil` are caught, logged WARNING, and
+  skipped — the thread never dies.
+- **`SystemSample` dataclass** with the full tier-5 field
+  set: `ts_iso`, `cpu_pct`, `ram_used_mb`, `ram_total_mb`,
+  `disk_read_mbps`, `disk_write_mbps`, `net_in_mbps`,
+  `net_out_mbps`, `process_pid`, `process_threads`,
+  `process_cpu_pct`, `process_rss_mb`, and `active_workers`
+  (live from `WorkerPoolStats.snapshot().busy`).
+- **`SystemMetricsConfig`** Pydantic model under
+  `observability.system_metrics`: `enabled: bool = True`,
+  `sample_interval_s: float = 5.0` (range 1.0–60.0). The
+  `_STRICT` model enforces extra-forbid like every other
+  config block.
+- **Legacy-bool coercion**: pre-026 YAMLs that wrote
+  `observability.system_metrics: false` keep loading
+  (`field_validator(mode="before")` lifts the bool into
+  `{"enabled": <bool>}`).
+- **Pipeline lifecycle hook**: `StagedPipeline` accepts a
+  `sampler` kwarg, late-binds it to the worker pool stats,
+  starts it in `run(...)`, and stops it in a `finally:`
+  block so pipeline exceptions never leak the thread.
+- **`build_sampler(observability_cfg, log_dir)`** factory in
+  `observability.system_metrics`. Returns `None` when
+  disabled; constructed (not started) sampler otherwise.
+
+### Changed
+
+- `ObservabilityConfig.system_metrics` switches from
+  `bool = False` to a nested `SystemMetricsConfig` model.
+  The pre-026 rejection validator (`_reject_system_metrics`)
+  is removed.
+- `config/wiring.py::build_pipeline` builds the sampler from
+  the observability config and threads it into
+  `StagedPipeline(sampler=...)`.
+
+### Tests
+
+- 6 new schema tests (REQ-004): structured-true,
+  structured-false, structured-custom-interval, legacy
+  bool-false coerced, legacy bool-true coerced, interval
+  out-of-range rejected, unknown-field rejected.
+- 10 new sampler unit tests (REQ-017): disabled→no-op,
+  start/stop idempotent, first sample has zero deltas,
+  second sample computes deltas correctly with patched
+  psutil counters, `active_workers` propagation
+  (None + WorkerPoolStats), late-binding via
+  `attach_pool_stats`, JSONL write to today's file.
+- 2 new integration tests (REQ-018): full
+  `csv-trigger-pipeline` produces `system-<today>.jsonl`
+  with valid JSON lines; `enabled: false` skips the
+  sampler entirely.
+- 672 tests total green (up from 655 in 025).
+
+### Performance
+
+- **Measured cost**: +0.10% CPU at the default 5 s interval
+  over a 60 s window on the dev workstation (12 samples
+  written, ≈1 sample/5 s). Spec target was <1%.
+
+### Dependencies
+
+- New runtime dep: `psutil>=5.9,<7.0`.
+- New mypy stub dep: `types-psutil>=5.9,<7.0` in
+  `.pre-commit-config.yaml`.
 
 ---
 

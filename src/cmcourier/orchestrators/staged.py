@@ -62,6 +62,7 @@ from cmcourier.domain.models import (
 )
 from cmcourier.domain.ports import ITrackingStore, S0Strategy
 from cmcourier.observability.metrics import MetricsRecorder, StageTimer
+from cmcourier.observability.system_metrics import SystemMetricsSampler
 from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.mapping import MappingService
@@ -136,6 +137,7 @@ class StagedPipeline:
         workers: int = 1,
         pool_stats: WorkerPoolStats | None = None,
         auto_tune: AutoTuneConfig | None = None,
+        sampler: SystemMetricsSampler | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -161,6 +163,12 @@ class StagedPipeline:
         # it before run() starts. The controller stays idle (no thread) until
         # ``start()`` is called inside _stage_s5.
         self._auto_tune_controller: AutoTuneController | None = self._build_auto_tune_controller()
+        # 026: tier-5 system metrics sampler. The factory returns None when
+        # disabled in config; we late-bind the pool stats so a sampler
+        # constructed by the wiring layer can report active_workers.
+        self._sampler = sampler
+        if self._sampler is not None:
+            self._sampler.attach_pool_stats(self._pool_stats)
 
     # ------------------------------------------------- TUI accessors
 
@@ -187,6 +195,10 @@ class StagedPipeline:
     @property
     def auto_tune_controller(self) -> AutoTuneController | None:
         return self._auto_tune_controller
+
+    @property
+    def sampler(self) -> SystemMetricsSampler | None:
+        return self._sampler
 
     # --------------------------------------------------- auto-tune wiring
 
@@ -223,34 +235,42 @@ class StagedPipeline:
         resolved_batch_id = self._resolve_batch_id(batch_id, from_stage, batch_size)
         self._metrics.start_batch(pipeline=self._pipeline_name, batch_id=resolved_batch_id)
 
-        s0_start = time.monotonic()
-        triggers = list(self._trigger_strategy.acquire(source_descriptor))
-        self._metrics.record_stage(stage="S0", duration_ms=(time.monotonic() - s0_start) * 1000.0)
-        resume_scope = (
-            self._tracking_store.list_txn_nums_for_batch(resolved_batch_id)
-            if from_stage > 1
-            else None
-        )
-
-        items, skipped = self._stage_s0_s1(triggers, resolved_batch_id, resume_scope)
-        s1_done = len(items)
-        items, s2_failed = self._stage_s2(items, resolved_batch_id)
-        s2_done = len(items)
-        items, s3_failed = self._stage_s3(items, resolved_batch_id)
-        s3_done = len(items)
-        items, s4_failed = self._stage_s4(items, resolved_batch_id)
-        s4_done = len(items)
-        controller = self._auto_tune_controller
+        if self._sampler is not None:
+            self._sampler.start()
         try:
-            if controller is not None:
-                controller.start()
-            s5_done, s5_failed = self._stage_s5(items, resolved_batch_id)
-        finally:
-            if controller is not None:
-                controller.stop(timeout=2.0)
+            s0_start = time.monotonic()
+            triggers = list(self._trigger_strategy.acquire(source_descriptor))
+            self._metrics.record_stage(
+                stage="S0", duration_ms=(time.monotonic() - s0_start) * 1000.0
+            )
+            resume_scope = (
+                self._tracking_store.list_txn_nums_for_batch(resolved_batch_id)
+                if from_stage > 1
+                else None
+            )
 
-        self._tracking_store.flush()
-        self._tracking_store.complete_batch(resolved_batch_id)
+            items, skipped = self._stage_s0_s1(triggers, resolved_batch_id, resume_scope)
+            s1_done = len(items)
+            items, s2_failed = self._stage_s2(items, resolved_batch_id)
+            s2_done = len(items)
+            items, s3_failed = self._stage_s3(items, resolved_batch_id)
+            s3_done = len(items)
+            items, s4_failed = self._stage_s4(items, resolved_batch_id)
+            s4_done = len(items)
+            controller = self._auto_tune_controller
+            try:
+                if controller is not None:
+                    controller.start()
+                s5_done, s5_failed = self._stage_s5(items, resolved_batch_id)
+            finally:
+                if controller is not None:
+                    controller.stop(timeout=2.0)
+
+            self._tracking_store.flush()
+            self._tracking_store.complete_batch(resolved_batch_id)
+        finally:
+            if self._sampler is not None:
+                self._sampler.stop()
 
         elapsed = time.monotonic() - start
         total_docs = s1_done + skipped

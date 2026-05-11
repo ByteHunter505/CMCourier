@@ -33,6 +33,9 @@ from cmcourier.config.schema import (
 from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.domain.ports import IDataSource, S0Strategy
 from cmcourier.observability.metrics import MetricsRecorder
+from cmcourier.observability.system_metrics import (
+    build_sampler as build_system_metrics_sampler,
+)
 from cmcourier.orchestrators.staged import StagedPipeline
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
@@ -117,6 +120,9 @@ def build_pipeline(
         enabled=config.observability.enabled,
         pipeline_metrics_enabled=config.observability.pipeline_metrics,
     )
+    sampler = build_system_metrics_sampler(
+        config.observability, log_dir=config.observability.log_dir
+    )
     return StagedPipeline(
         trigger_strategy=trigger_strategy,
         indexing_service=indexing_service,
@@ -129,6 +135,7 @@ def build_pipeline(
         tracking_store=tracking_store,
         workers=config.cmis.workers,
         auto_tune=config.cmis.auto_tune,
+        sampler=sampler,
     )
 
 

@@ -17,8 +17,8 @@ Everything excluded lives below, with enough detail to start a new change direct
 
 ### Status snapshot
 
-- **Done (promoted into MVP)**: §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016).
-- **Still deferred**: §1, §2, §3, §4, §7, §8, §9, plus the §10 watchlist.
+- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016).
+- **Still deferred**: §1, §3, §4, §7, §8, §9, plus the §10 watchlist.
 
 ---
 
@@ -83,7 +83,12 @@ Single S5 worker pool with `processing.thread_count` workers, no size awareness,
 
 ---
 
-## §2. System Metrics Observability (psutil Sampling)
+## §2. System Metrics Observability (psutil Sampling) — **SHIPPED in change 026 (2026-05-11)**
+
+> Promoted out of post-MVP and delivered as part of change 026.
+> Measured sampler cost: ~0.10% CPU at 5 s interval. See
+> `specs/026-system-metrics-tier5/` and
+> `CHANGELOG.md [0.28.0]`.
 
 ### Intent
 

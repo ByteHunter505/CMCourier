@@ -521,7 +521,9 @@ class TestObservabilityConfig:
         assert cfg.enabled is True
         assert cfg.pipeline_metrics is True
         assert cfg.network_metrics is True
-        assert cfg.system_metrics is False
+        # 026: system_metrics is now a nested model, default ON.
+        assert cfg.system_metrics.enabled is True
+        assert cfg.system_metrics.sample_interval_s == 5.0
         assert cfg.log_dir == Path("./logs")
         assert cfg.log_format == "json"
         assert cfg.rotation_mb == 100
@@ -529,12 +531,46 @@ class TestObservabilityConfig:
         assert cfg.slow_op_threshold_ms == 5000
         assert cfg.slow_op_top_n == 20
 
-    def test_system_metrics_true_rejected(self) -> None:
+    def test_system_metrics_structured_disable(self) -> None:
         from cmcourier.config.schema import ObservabilityConfig
 
-        with pytest.raises(ValidationError) as ei:
-            ObservabilityConfig(system_metrics=True)
-        assert "post-MVP" in str(ei.value)
+        cfg = ObservabilityConfig(system_metrics={"enabled": False})
+        assert cfg.system_metrics.enabled is False
+
+    def test_system_metrics_structured_custom_interval(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        cfg = ObservabilityConfig(system_metrics={"enabled": True, "sample_interval_s": 10.0})
+        assert cfg.system_metrics.sample_interval_s == 10.0
+
+    def test_system_metrics_legacy_bool_false_coerced(self) -> None:
+        """REQ-002: pre-026 YAMLs with `system_metrics: false` still load."""
+        from cmcourier.config.schema import ObservabilityConfig
+
+        cfg = ObservabilityConfig(system_metrics=False)
+        assert cfg.system_metrics.enabled is False
+        assert cfg.system_metrics.sample_interval_s == 5.0
+
+    def test_system_metrics_legacy_bool_true_coerced(self) -> None:
+        """REQ-002: bool=True coerces to enabled=True (no rejection now)."""
+        from cmcourier.config.schema import ObservabilityConfig
+
+        cfg = ObservabilityConfig(system_metrics=True)
+        assert cfg.system_metrics.enabled is True
+
+    def test_system_metrics_interval_out_of_range_rejected(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(system_metrics={"sample_interval_s": 0.5})
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(system_metrics={"sample_interval_s": 120.0})
+
+    def test_system_metrics_strict_unknown_field_rejected(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(system_metrics={"enabled": True, "bogus_field": 42})
 
     def test_log_format_invalid_rejected(self) -> None:
         from cmcourier.config.schema import ObservabilityConfig

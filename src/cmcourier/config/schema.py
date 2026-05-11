@@ -327,19 +327,35 @@ class TrackingConfig(BaseModel):
     db_path: Path
 
 
+class SystemMetricsConfig(BaseModel):
+    """POST-MVP §2 — tier 5 system resource sampling via ``psutil``.
+
+    ``enabled`` defaults ON: when a pipeline runs, a daemon thread
+    samples host- and process-level metrics every
+    ``sample_interval_s`` seconds and writes JSONL to
+    ``observability.log_dir/system-{date}.jsonl``. Set
+    ``enabled: false`` (or the legacy ``system_metrics: false``
+    bool form) to opt out for low-overhead environments.
+    """
+
+    model_config = _STRICT
+    enabled: bool = True
+    sample_interval_s: float = Field(default=5.0, ge=1.0, le=60.0)
+
+
 class ObservabilityConfig(BaseModel):
     """REBIRTH §17.4 observability — per-tier toggles + log dir + thresholds.
 
-    MVP ships tiers 1-4 (app log, pipeline metrics, network metrics,
-    slow-ops report). Tier 5 (system metrics via psutil) is deferred
-    to POST-MVP §2 — setting ``system_metrics: true`` raises here.
+    Tiers 1-4 (app log, pipeline metrics, network metrics,
+    slow-ops report) ship since 020. Tier 5 (system metrics via
+    psutil) shipped in 026 — see ``SystemMetricsConfig``.
     """
 
     model_config = _STRICT
     enabled: bool = True
     pipeline_metrics: bool = True
     network_metrics: bool = True
-    system_metrics: bool = False
+    system_metrics: SystemMetricsConfig = Field(default_factory=SystemMetricsConfig)
     log_dir: Path = Path("./logs")
     log_format: Literal["json", "text"] = "json"
     rotation_mb: int = Field(default=100, ge=1)
@@ -347,13 +363,13 @@ class ObservabilityConfig(BaseModel):
     slow_op_threshold_ms: int = Field(default=5000, ge=0)
     slow_op_top_n: int = Field(default=20, ge=1)
 
-    @field_validator("system_metrics")
+    @field_validator("system_metrics", mode="before")
     @classmethod
-    def _reject_system_metrics(cls, value: bool) -> bool:
-        if value:
-            raise ValueError(
-                "observability.system_metrics is post-MVP (see docs/roadmap/POST-MVP.md §2)"
-            )
+    def _coerce_system_metrics(cls, value: object) -> object:
+        # REQ-002: accept legacy bool form (`system_metrics: false`)
+        # from pre-026 YAMLs and lift it to the structured model.
+        if isinstance(value, bool):
+            return {"enabled": value}
         return value
 
 
