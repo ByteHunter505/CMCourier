@@ -13,6 +13,7 @@ __all__ = ["build_pipeline"]
 from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
 from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.adapters.tracking import SQLiteTrackingStore
+from cmcourier.adapters.tracking.as400_niarvilog import As400NiarvilogStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
 from cmcourier.config.schema import (
@@ -37,6 +38,7 @@ from cmcourier.observability.system_metrics import (
     build_sampler as build_system_metrics_sampler,
 )
 from cmcourier.orchestrators.staged import StagedPipeline
+from cmcourier.services.idempotency import IdempotencyCoordinator
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
 from cmcourier.services.metadata import (
@@ -123,6 +125,12 @@ def build_pipeline(
     sampler = build_system_metrics_sampler(
         config.observability, log_dir=config.observability.log_dir
     )
+    # 034 phase 3: optional AS400 NIARVILOG coordination layer. When
+    # tracking.as400_sync.enabled is false (default), this is None and
+    # the pipeline runs in legacy SQLite-only mode.
+    coordinator = _build_idempotency_coordinator(
+        config=config, secrets=secrets, sqlite_store=tracking_store
+    )
     return StagedPipeline(
         trigger_strategy=trigger_strategy,
         indexing_service=indexing_service,
@@ -136,7 +144,41 @@ def build_pipeline(
         workers=config.cmis.workers,
         auto_tune=config.cmis.auto_tune,
         sampler=sampler,
+        coordinator=coordinator,
     )
+
+
+def _build_idempotency_coordinator(
+    *,
+    config: PipelineConfig,
+    secrets: Secrets,
+    sqlite_store: SQLiteTrackingStore,
+) -> IdempotencyCoordinator | None:
+    """Wire the SQLite + (optional) AS400 NIARVILOG coordinator (034).
+
+    Returns ``None`` when ``tracking.as400_sync.enabled=false`` so the
+    StagedPipeline stays in legacy pre-034 mode.
+    """
+    sync_cfg = config.tracking.as400_sync
+    if not sync_cfg.enabled:
+        return None
+    if sync_cfg.connection is None:  # pragma: no cover — schema enforces this
+        raise ConfigurationError(
+            "tracking.as400_sync.enabled=true requires connection settings",
+        )
+    if not secrets.as400_username or not secrets.as400_password:
+        raise ConfigurationError(
+            "AS400 credentials missing in environment (set AS400_USERNAME / AS400_PASSWORD)",
+        )
+    as400_store = As400NiarvilogStore(
+        connection=sync_cfg.connection,
+        username=secrets.as400_username,
+        password=secrets.as400_password,
+        library=sync_cfg.library,
+        table=sync_cfg.table,
+        stale_in_progress_minutes=sync_cfg.stale_in_progress_minutes,
+    )
+    return IdempotencyCoordinator(sqlite_store=sqlite_store, as400_store=as400_store)
 
 
 # ---------------------------------------------------------------------------

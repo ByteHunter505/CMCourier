@@ -33,7 +33,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from cmcourier.services.idempotency import IdempotencyCoordinator
 
 from cmcourier.adapters.assembly import PdfAssembler
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
@@ -138,6 +141,7 @@ class StagedPipeline:
         pool_stats: WorkerPoolStats | None = None,
         auto_tune: AutoTuneConfig | None = None,
         sampler: SystemMetricsSampler | None = None,
+        coordinator: IdempotencyCoordinator | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -169,6 +173,11 @@ class StagedPipeline:
         self._sampler = sampler
         if self._sampler is not None:
             self._sampler.attach_pool_stats(self._pool_stats)
+        # 034 phase 3: distributed-idempotency coordinator. When None,
+        # is_uploaded / mark_uploaded / mark_failed go straight to the
+        # tracking_store (pre-034 behavior). When set, the coordinator
+        # adds the AS400 NIARVILOG path on top.
+        self._coordinator = coordinator
 
     # ------------------------------------------------- TUI accessors
 
@@ -641,6 +650,27 @@ class StagedPipeline:
                 return "done"
             record = self._build_record(item, batch_id, StageStatus.S5_PENDING)
             self._tracking_store.mark_stage_pending(record, StageStatus.S5_PENDING)
+            # 034 phase 3: distributed claim. When the coordinator is
+            # None (legacy path), try_claim is always True. When
+            # active, the coordinator goes to AS400 NIARVILOG; if
+            # someone else already owns the row (Java competitor or
+            # another CMCourier instance), we skip.
+            if self._coordinator is not None and not self._coordinator.try_claim(
+                record=record,
+                document=item.document,
+                mapping=item.mapping,
+                trigger=item.trigger,
+            ):
+                _log.info(
+                    "pipeline: doc claimed by another process",
+                    extra={
+                        "batch_id": batch_id,
+                        "txn_num": txn,
+                        "reason": "as400_claim_lost",
+                    },
+                )
+                self._pool_stats.mark_completed()
+                return "skipped"
             with StageTimer(
                 recorder or self._metrics,
                 pipeline=self._pipeline_name,
@@ -659,12 +689,31 @@ class StagedPipeline:
                     )
                 except (CMISClientError, CMISServerError, RetriesExhaustedError) as exc:
                     timer.mark_failed()
-                    self._tracking_store.mark_stage_failed(
-                        txn, batch_id, StageStatus.S5_FAILED, str(exc)
-                    )
+                    if self._coordinator is not None:
+                        self._coordinator.mark_failed(
+                            record=record,
+                            document=item.document,
+                            mapping=item.mapping,
+                            trigger=item.trigger,
+                            stage=StageStatus.S5_FAILED,
+                            error=str(exc),
+                        )
+                    else:
+                        self._tracking_store.mark_stage_failed(
+                            txn, batch_id, StageStatus.S5_FAILED, str(exc)
+                        )
                     self._pool_stats.mark_failed()
                     return "failed"
-            self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)
+            if self._coordinator is not None:
+                self._coordinator.mark_uploaded(
+                    record=record,
+                    document=item.document,
+                    mapping=item.mapping,
+                    trigger=item.trigger,
+                    cm_object_id=cm_object_id,
+                )
+            else:
+                self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)
             item.cm_object_id = cm_object_id
             self._pool_stats.mark_completed()
             return "done"
