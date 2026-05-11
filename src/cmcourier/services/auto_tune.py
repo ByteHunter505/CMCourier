@@ -114,17 +114,47 @@ class AutoTuneController:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._start_monotonic = 0.0
+        # 025 phase 3: TUI reads ``last_decision`` and ``seconds_to_next_tick``
+        # to render the "last move" line + the "next: in Ns" countdown.
+        self._last_decision: Decision | None = None
+        self._last_decision_monotonic: float | None = None
+        self._last_tick_monotonic: float | None = None
+        self._state_lock = threading.Lock()
 
     def start(self) -> None:
         if not self._config.enabled:
             return
         self._start_monotonic = time.monotonic()
+        with self._state_lock:
+            self._last_tick_monotonic = self._start_monotonic
         self._thread = threading.Thread(
             target=self._loop,
             name="cmcourier-auto-tune",
             daemon=True,
         )
         self._thread.start()
+
+    # ------------------------------------------------------ TUI accessors
+
+    @property
+    def last_decision(self) -> Decision | None:
+        with self._state_lock:
+            return self._last_decision
+
+    @property
+    def seconds_since_last_decision(self) -> float | None:
+        with self._state_lock:
+            if self._last_decision_monotonic is None:
+                return None
+            return time.monotonic() - self._last_decision_monotonic
+
+    @property
+    def seconds_to_next_tick(self) -> float:
+        with self._state_lock:
+            if self._last_tick_monotonic is None:
+                return float(self._config.adjustment_interval_s)
+            elapsed = time.monotonic() - self._last_tick_monotonic
+            return max(0.0, self._config.adjustment_interval_s - elapsed)
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
@@ -143,6 +173,7 @@ class AutoTuneController:
         current_workers = self._current_workers_provider()
         current_timeout = self._current_timeout_provider()
         observed_p95 = self._p95_provider()
+        now = time.monotonic()
         d = decide(
             self._config,
             observed_p95_ms=observed_p95,
@@ -150,6 +181,11 @@ class AutoTuneController:
             current_workers=current_workers,
             current_timeout_s=current_timeout,
         )
+        with self._state_lock:
+            self._last_tick_monotonic = now
+            if d.action != "warmup":
+                self._last_decision = d
+                self._last_decision_monotonic = now
         _log.info(
             _AUTO_TUNE_LOG,
             extra={

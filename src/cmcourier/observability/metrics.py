@@ -167,6 +167,75 @@ class SlowOpAggregator:
         return [{"rank": i + 1, **entry} for i, entry in enumerate(ranked)]
 
 
+class _BandwidthSampler:
+    """1-Hz rolling sampler for CMIS upload bandwidth (025 phase 3).
+
+    Drives the TUI's bandwidth chart and the WORKERS/NETWORK panels.
+    Buckets ``cmis_upload`` sizes by wall-clock second; keeps a 60-bucket
+    rolling window so the chart shows the last minute. Thread-safe —
+    fed from worker threads via the ``_BandwidthHandler``.
+    """
+
+    _WINDOW_SECONDS = 60
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        # bucket_ts (int seconds since epoch) → bytes total this second
+        self._buckets: dict[int, int] = {}
+
+    def record_upload(self, size_bytes: int, completed_at: float) -> None:
+        ts = int(completed_at)
+        cutoff = ts - self._WINDOW_SECONDS
+        with self._lock:
+            self._buckets[ts] = self._buckets.get(ts, 0) + int(size_bytes)
+            stale = [k for k in self._buckets if k < cutoff]
+            for k in stale:
+                del self._buckets[k]
+
+    def current_mbps(self) -> float:
+        """MB/s in the most recent completed 1-second bucket."""
+        now = int(time.time())
+        with self._lock:
+            # Look at the previous full bucket — the current one may still
+            # be filling.
+            return self._buckets.get(now - 1, 0) / 1_000_000.0
+
+    def peak_mbps(self) -> float:
+        with self._lock:
+            if not self._buckets:
+                return 0.0
+            return max(self._buckets.values()) / 1_000_000.0
+
+    def series(self, seconds: int = _WINDOW_SECONDS) -> list[tuple[int, float]]:
+        """Return ``[(offset_s_negative, mbps)...]`` newest-last."""
+        now = int(time.time())
+        seconds = max(1, min(seconds, self._WINDOW_SECONDS))
+        with self._lock:
+            return [
+                (
+                    -(seconds - i - 1),
+                    self._buckets.get(now - (seconds - i - 1), 0) / 1_000_000.0,
+                )
+                for i in range(seconds)
+            ]
+
+
+class _BandwidthHandler(logging.Handler):
+    """Logging handler that feeds the bandwidth sampler from network events."""
+
+    def __init__(self, sampler: _BandwidthSampler) -> None:
+        super().__init__(level=logging.INFO)
+        self._sampler = sampler
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "kind", "") != "cmis_upload":
+            return
+        size = getattr(record, "size_bytes", None)
+        if size is None:
+            return
+        self._sampler.record_upload(int(size), record.created)
+
+
 class _SlowOpHandler(logging.Handler):
     """Logging handler that feeds the per-batch slow-op aggregator.
 
@@ -255,6 +324,11 @@ class MetricsRecorder:
         self._aggregator: SlowOpAggregator | None = None
         self._slow_op_handler: _SlowOpHandler | None = None
         self._monitored_loggers: list[logging.Logger] = []
+        # 025 phase 3: bandwidth sampler is the data source for the TUI's
+        # UPLOAD-tab chart. Active for the whole batch lifetime; handler
+        # attaches/detaches alongside the slow-op handler.
+        self._bandwidth = _BandwidthSampler()
+        self._bandwidth_handler: _BandwidthHandler | None = None
 
     def start_batch(self, *, pipeline: str, batch_id: str) -> None:
         self._stage_buckets = {}
@@ -265,12 +339,14 @@ class MetricsRecorder:
             top_n=self._slow_op_top_n,
         )
         self._slow_op_handler = _SlowOpHandler(self._aggregator)
+        self._bandwidth_handler = _BandwidthHandler(self._bandwidth)
         self._monitored_loggers = [
             logging.getLogger("cmcourier"),
             logging.getLogger("cmcourier.metrics.network"),
         ]
         for lg in self._monitored_loggers:
             lg.addHandler(self._slow_op_handler)
+        logging.getLogger("cmcourier.metrics.network").addHandler(self._bandwidth_handler)
         _ = pipeline, batch_id  # reserved for future use
 
     def record_stage(
@@ -364,9 +440,29 @@ class MetricsRecorder:
             return
         for lg in self._monitored_loggers:
             lg.removeHandler(self._slow_op_handler)
+        if self._bandwidth_handler is not None:
+            logging.getLogger("cmcourier.metrics.network").removeHandler(self._bandwidth_handler)
         self._slow_op_handler = None
+        self._bandwidth_handler = None
         self._monitored_loggers = []
         self._aggregator = None
+
+    # ---------------------------------------------------- TUI provider hooks
+
+    @property
+    def bandwidth(self) -> _BandwidthSampler:
+        """Read-only handle for the TUI to fetch the bandwidth chart series."""
+        return self._bandwidth
+
+    def aggregator_snapshot(self) -> list[dict[str, Any]]:
+        """Top-N slow ops snapshot for the TUI; empty when batch not active."""
+        if self._aggregator is None:
+            return []
+        return self._aggregator.top()
+
+    def stages_snapshot(self) -> dict[str, dict[str, float | int]]:
+        """Per-stage percentile/count snapshot for the TUI."""
+        return {stage: bucket.summary() for stage, bucket in self._stage_buckets.items()}
 
 
 # ---------------------------------------------------------------------------

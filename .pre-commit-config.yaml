@@ -21,6 +21,7 @@ repos:
           - "click>=8.1,<9.0"
           - "types-requests>=2.31,<3.0"
           - "types-PyYAML>=6.0,<7.0"
+          - "textual>=0.80,<6.0"
         files: ^src/cmcourier/
         # Run only on staged Python files within src/cmcourier/.
         # `click` ships its own type hints (PEP 561) but the hook's isolated
