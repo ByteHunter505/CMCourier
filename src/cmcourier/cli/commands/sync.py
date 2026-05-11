@@ -90,6 +90,8 @@ def _load_stores(
         library=sync_cfg.library,
         table=sync_cfg.table,
         stale_in_progress_minutes=sync_cfg.stale_in_progress_minutes,
+        retry_attempts=sync_cfg.retry_attempts,
+        retry_base_delay_s=sync_cfg.retry_base_delay_s,
     )
     return config, sqlite, as400
 

@@ -17,6 +17,7 @@ from cmcourier.adapters.tracking import as400_niarvilog as niarvilog_module
 from cmcourier.adapters.tracking.as400_niarvilog import (
     As400CoordinationError,
     As400NiarvilogStore,
+    As400UnreachableError,
     NiarvilogRow,
 )
 from cmcourier.config.schema import As400ConnectionConfig
@@ -46,6 +47,9 @@ class _FakeCursor:
         # Queue of rowcounts (matched to executions).
         self.rowcount_queue: list[int] = []
         self.raise_on_execute: BaseException | None = None
+        # Queue of exceptions, one per execute(). Use None to indicate "no
+        # exception on this attempt". Items are consumed even on success.
+        self.raise_queue: list[BaseException | None] = []
         self._current_rows: list[list[Any]] = []
         self._current_columns: list[str] = []
         self.rowcount = -1
@@ -56,6 +60,10 @@ class _FakeCursor:
 
     def execute(self, sql: str, params: list[Any] | None = None) -> _FakeCursor:
         self.executions.append((sql, list(params or [])))
+        if self.raise_queue:
+            exc = self.raise_queue.pop(0)
+            if exc is not None:
+                raise exc
         if self.raise_on_execute is not None:
             raise self.raise_on_execute
         # Advance the fetch + rowcount queues.
@@ -102,6 +110,9 @@ class _FakePyodbcModule:
         pass
 
     class IntegrityError(Error):
+        pass
+
+    class OperationalError(Error):
         pass
 
     def __init__(self, conn: _FakeConn) -> None:
@@ -556,3 +567,110 @@ class TestResourceLifecycle:
         assert conn.closed is False
         store.close()
         assert conn.closed is True
+
+
+# ---------------------------------------------------------------------------
+# Retry / backoff (Phase 5)
+# ---------------------------------------------------------------------------
+
+
+def _make_store_with_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    cursor: _FakeCursor,
+    retry_attempts: int = 3,
+    retry_base_delay_s: float = 0.001,
+) -> tuple[As400NiarvilogStore, _FakeCursor, _FakeConn]:
+    cur, conn = _patch_pyodbc(monkeypatch, cursor)
+    store = As400NiarvilogStore(
+        connection=_conn_cfg(),
+        username="tester",
+        password="secret",
+        library="RVILIB",
+        table="NIARVILOG",
+        stale_in_progress_minutes=30,
+        retry_attempts=retry_attempts,
+        retry_base_delay_s=retry_base_delay_s,
+    )
+    return store, cur, conn
+
+
+class TestRetryBackoff:
+    """034 Phase 5: NIARVILOG writes retry transient OperationalErrors."""
+
+    def test_transient_error_retried_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        # Patch pyodbc FIRST so the fake module (with OperationalError)
+        # is available before we build the raise_queue.
+        store, _, _ = _make_store_with_retry(monkeypatch, cursor=cur)
+        # First execute fails; second succeeds with rowcount=1.
+        cur.raise_queue = [niarvilog_module.pyodbc.OperationalError("transient")]
+        cur.rowcount_queue = [1]
+        monkeypatch.setattr(
+            "cmcourier.adapters.tracking.as400_niarvilog.time.sleep",
+            lambda _seconds: None,
+        )
+
+        count = store.cleanup_stale_in_progress()
+
+        assert count == 1
+        assert len(cur.executions) == 2
+
+    def test_all_attempts_fail_raises_unreachable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        store, _, _ = _make_store_with_retry(monkeypatch, cursor=cur, retry_attempts=3)
+        cur.raise_queue = [
+            niarvilog_module.pyodbc.OperationalError("attempt 1"),
+            niarvilog_module.pyodbc.OperationalError("attempt 2"),
+            niarvilog_module.pyodbc.OperationalError("attempt 3"),
+        ]
+        monkeypatch.setattr(
+            "cmcourier.adapters.tracking.as400_niarvilog.time.sleep",
+            lambda _seconds: None,
+        )
+
+        with pytest.raises(As400UnreachableError):
+            store.cleanup_stale_in_progress()
+        assert len(cur.executions) == 3
+
+    def test_integrity_error_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """IntegrityError is deterministic (PK race) — must not retry."""
+        cur = _FakeCursor()
+        store, _, _ = _make_store_with_retry(monkeypatch, cursor=cur)
+        # First execute (UPDATE in try_claim) returns rowcount=0 (no row
+        # matched STSCOD='N'), forcing the INSERT fallback.
+        cur.rowcount_queue = [0]
+        cur.raise_queue = [
+            None,  # UPDATE: no raise
+            niarvilog_module.pyodbc.IntegrityError("duplicate PK"),
+        ]
+        record, document, mapping, trigger = _make_record()
+
+        result = store.try_claim(record=record, document=document, mapping=mapping, trigger=trigger)
+
+        # Lost the race → False. Exactly 2 executions: UPDATE + 1 INSERT
+        # (no retry of the INSERT).
+        assert result is False
+        assert len(cur.executions) == 2
+
+    def test_backoff_delays_use_base(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Backoff sequence is base, base*2, base*4 capped at 300s."""
+        cur = _FakeCursor()
+        store, _, _ = _make_store_with_retry(
+            monkeypatch, cursor=cur, retry_attempts=3, retry_base_delay_s=2.0
+        )
+        cur.raise_queue = [
+            niarvilog_module.pyodbc.OperationalError("1"),
+            niarvilog_module.pyodbc.OperationalError("2"),
+        ]
+        cur.rowcount_queue = [0]  # third (successful) execute
+        slept: list[float] = []
+        monkeypatch.setattr(
+            "cmcourier.adapters.tracking.as400_niarvilog.time.sleep",
+            lambda s: slept.append(s),
+        )
+
+        store.cleanup_stale_in_progress()
+
+        # Two sleeps between attempts: 2s and 4s (base * 2^0, base * 2^1).
+        assert slept == [2.0, 4.0]

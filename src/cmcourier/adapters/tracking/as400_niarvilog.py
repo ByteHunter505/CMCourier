@@ -33,14 +33,16 @@ from __future__ import annotations
 __all__ = [
     "As400CoordinationError",
     "As400NiarvilogStore",
+    "As400UnreachableError",
     "NiarvilogRow",
 ]
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from cmcourier.config.schema import As400ConnectionConfig
 from cmcourier.domain.models import (
@@ -50,6 +52,8 @@ from cmcourier.domain.models import (
     TriggerRecord,
 )
 
+_R = TypeVar("_R")
+
 _network_log = logging.getLogger("cmcourier.metrics.network")
 _log = logging.getLogger(__name__)
 
@@ -58,11 +62,19 @@ pyodbc: Any = None
 
 
 class As400CoordinationError(Exception):
-    """Raised when an NIARVILOG operation fails irrecoverably.
-
-    Wraps the underlying pyodbc.Error. Phase 5 will introduce retry /
-    backoff so transient errors don't propagate as this exception.
+    """Raised when an NIARVILOG operation fails for a non-transient reason
+    (schema mismatch, syntax error, integrity violation surfaced as
+    Error, etc.). Not retried.
     """
+
+
+class As400UnreachableError(As400CoordinationError):
+    """Raised when retry attempts are exhausted on a transient
+    ``pyodbc.OperationalError``. The pipeline aborts with exit 2.
+    """
+
+
+_MAX_BACKOFF_S = 300.0  # 5 minutes
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +136,8 @@ class As400NiarvilogStore:
         library: str = "RVILIB",
         table: str = "NIARVILOG",
         stale_in_progress_minutes: int = 30,
+        retry_attempts: int = 3,
+        retry_base_delay_s: float = 5.0,
     ) -> None:
         self._cfg = connection
         self._username = username
@@ -131,6 +145,8 @@ class As400NiarvilogStore:
         self._library = library
         self._table = table
         self._stale_minutes = stale_in_progress_minutes
+        self._retry_attempts = max(1, int(retry_attempts))
+        self._retry_base_delay_s = max(0.001, float(retry_base_delay_s))
         self._conn: Any = None
         self._closed = False
 
@@ -352,6 +368,9 @@ class As400NiarvilogStore:
         self._execute_write(sql, params, "niarvilog_insert_claim")
 
     def _execute_write(self, sql: str, params: list[Any], kind: str) -> int:
+        return self._with_retry(kind, lambda: self._do_execute_write(sql, params, kind))
+
+    def _do_execute_write(self, sql: str, params: list[Any], kind: str) -> int:
         conn = self._connect()
         cursor = conn.cursor()
         t0 = time.monotonic()
@@ -370,14 +389,23 @@ class As400NiarvilogStore:
             )
             return rowcount
         except _pyodbc_integrity_error_type():
-            # Caller (try_claim) handles this. Re-raise unwrapped.
+            # Caller (try_claim) handles this. Re-raise unwrapped — and
+            # crucially, NEVER retry: an IntegrityError means the row
+            # already exists or the constraint failed deterministically.
+            raise
+        except _pyodbc_operational_error_type():
+            # Transient — let _with_retry handle it.
             raise
         except _pyodbc_error_type() as exc:
+            # Non-transient pyodbc error — wrap and surface immediately.
             raise As400CoordinationError(f"NIARVILOG {kind} failed: {exc}") from exc
         finally:
             cursor.close()
 
     def _execute_read(self, sql: str, params: list[Any], kind: str) -> list[dict[str, Any]]:
+        return self._with_retry(kind, lambda: self._do_execute_read(sql, params, kind))
+
+    def _do_execute_read(self, sql: str, params: list[Any], kind: str) -> list[dict[str, Any]]:
         conn = self._connect()
         cursor = conn.cursor()
         t0 = time.monotonic()
@@ -395,10 +423,64 @@ class As400NiarvilogStore:
                 },
             )
             return rows
+        except _pyodbc_operational_error_type():
+            raise
         except _pyodbc_error_type() as exc:
             raise As400CoordinationError(f"NIARVILOG {kind} failed: {exc}") from exc
         finally:
             cursor.close()
+
+    def _with_retry(self, kind: str, op: Callable[[], _R]) -> _R:
+        """Retry a NIARVILOG operation on transient ``OperationalError``.
+
+        Sequence: ``base, base*2, base*4, ...`` capped at 5 minutes.
+        Uses configured ``retry_attempts`` (total tries) and
+        ``retry_base_delay_s`` from the YAML.
+
+        IntegrityError and other pyodbc.Error subclasses are NOT
+        retried — they're either deterministic (PK race in
+        try_claim) or schema mismatches that won't fix themselves.
+        """
+        last_exc: BaseException | None = None
+        for attempt in range(1, self._retry_attempts + 1):
+            try:
+                return op()
+            except _pyodbc_integrity_error_type():
+                # Deterministic — do NOT retry. Propagate so try_claim
+                # can detect the race.
+                raise
+            except _pyodbc_operational_error_type() as exc:
+                last_exc = exc
+                if attempt >= self._retry_attempts:
+                    break
+                delay = min(
+                    self._retry_base_delay_s * (2 ** (attempt - 1)),
+                    _MAX_BACKOFF_S,
+                )
+                _log.warning(
+                    "NIARVILOG %s attempt %d/%d failed (%s); retrying in %.1fs",
+                    kind,
+                    attempt,
+                    self._retry_attempts,
+                    exc,
+                    delay,
+                )
+                # Reset the cached connection — operational errors often
+                # leave it in a bad state. The next op will reconnect.
+                self._reset_connection()
+                time.sleep(delay)
+        raise As400UnreachableError(
+            f"NIARVILOG {kind} unreachable after {self._retry_attempts} attempts: {last_exc}"
+        ) from last_exc
+
+    def _reset_connection(self) -> None:
+        if self._conn is None:
+            return
+        try:
+            self._conn.close()
+        except Exception:  # noqa: BLE001
+            _log.debug("AS400 connection close failed during retry reset", exc_info=True)
+        self._conn = None
 
     def _connect(self) -> Any:
         if self._conn is not None:
@@ -456,3 +538,13 @@ def _pyodbc_integrity_error_type() -> type[BaseException]:
         return RuntimeError
     # pyodbc exposes IntegrityError as a subclass of Error.
     return getattr(pyodbc, "IntegrityError", pyodbc.Error)  # type: ignore[no-any-return]
+
+
+def _pyodbc_operational_error_type() -> type[BaseException]:
+    """Transient errors that warrant a retry. ``OperationalError`` covers
+    network drops, deadlocks, and most "server temporarily unavailable"
+    states. When pyodbc isn't installed (test env), return a sentinel
+    that won't match real exceptions."""
+    if pyodbc is None:
+        return RuntimeError
+    return getattr(pyodbc, "OperationalError", pyodbc.Error)  # type: ignore[no-any-return]
