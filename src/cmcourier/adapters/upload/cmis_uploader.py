@@ -154,6 +154,11 @@ class CmisUploader(IUploader):
         # The per-instance state above is shared across worker threads.
         self._folder_lock = threading.Lock()
         self._warm_lock = threading.Lock()
+        # 025 phase 2: the AIMD auto-tune controller may adjust the
+        # request timeout mid-batch. CmisConfig itself is frozen, so we
+        # keep the live value here. Request paths consult this property
+        # via ``self._timeout_s``; defaults to the configured value.
+        self._timeout_s: float = float(config.timeout_seconds)
 
     # ----------------------------------------------------------- public API
 
@@ -178,7 +183,7 @@ class CmisUploader(IUploader):
         resp = self._session.get(
             url,
             params={"cmisselector": "typeDefinition", "typeId": object_type_id},
-            timeout=self._cfg.timeout_seconds,
+            timeout=self._timeout_s,
         )
         _network_log.info(
             "cmis_get",
@@ -263,7 +268,7 @@ class CmisUploader(IUploader):
         resp = self._session.get(
             url,
             params={"cmisselector": "repositoryInfo"},
-            timeout=self._cfg.timeout_seconds,
+            timeout=self._timeout_s,
         )
         _network_log.info(
             "cmis_get",
@@ -327,9 +332,7 @@ class CmisUploader(IUploader):
             if need_warmup:
                 self._warmup_session()
             try:
-                resp = self._session.post(
-                    url, data=data, headers=headers, timeout=self._cfg.timeout_seconds
-                )
+                resp = self._session.post(url, data=data, headers=headers, timeout=self._timeout_s)
             except RequestsConnectionError as exc:
                 real_attempts += 1
                 last_exc = exc

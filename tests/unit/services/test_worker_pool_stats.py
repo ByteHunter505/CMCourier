@@ -95,3 +95,102 @@ class TestWorkerPoolStats:
         assert isinstance(snap, WorkerPoolStatsSnapshot)
         with pytest.raises(AttributeError):
             snap.pool_size = 99  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# ResizableSemaphore (025 phase 2)
+# ---------------------------------------------------------------------------
+
+
+class TestResizableSemaphore:
+    def test_acquire_release_roundtrip(self) -> None:
+        from cmcourier.services.worker_pool_stats import ResizableSemaphore
+
+        sem = ResizableSemaphore(2)
+        sem.acquire()
+        assert sem.in_use == 1
+        sem.acquire()
+        assert sem.in_use == 2
+        sem.release()
+        assert sem.in_use == 1
+        sem.release()
+        assert sem.in_use == 0
+
+    def test_acquire_blocks_at_capacity(self) -> None:
+        import threading as _t
+        import time as _time
+
+        from cmcourier.services.worker_pool_stats import ResizableSemaphore
+
+        sem = ResizableSemaphore(1)
+        sem.acquire()
+        acquired = _t.Event()
+
+        def second() -> None:
+            sem.acquire()
+            acquired.set()
+
+        t = _t.Thread(target=second, daemon=True)
+        t.start()
+        # Give the thread time to try and block.
+        _time.sleep(0.05)
+        assert not acquired.is_set()
+        sem.release()
+        t.join(timeout=1.0)
+        assert acquired.is_set()
+        sem.release()
+
+    def test_set_capacity_grow_wakes_waiters(self) -> None:
+        import threading as _t
+        import time as _time
+
+        from cmcourier.services.worker_pool_stats import ResizableSemaphore
+
+        sem = ResizableSemaphore(1)
+        sem.acquire()
+        results: list[str] = []
+
+        def waiter(name: str) -> None:
+            sem.acquire()
+            results.append(name)
+
+        t1 = _t.Thread(target=waiter, args=("a",), daemon=True)
+        t2 = _t.Thread(target=waiter, args=("b",), daemon=True)
+        t1.start()
+        t2.start()
+        _time.sleep(0.05)
+        assert results == []
+        # Grow capacity to 3 — both waiters should proceed.
+        sem.set_capacity(3)
+        t1.join(timeout=1.0)
+        t2.join(timeout=1.0)
+        assert sorted(results) == ["a", "b"]
+        # Clean up.
+        sem.release()
+        sem.release()
+        sem.release()
+
+    def test_set_capacity_shrink_does_not_revoke(self) -> None:
+        """Shrinking the cap with workers already in-flight doesn't yank them."""
+        from cmcourier.services.worker_pool_stats import ResizableSemaphore
+
+        sem = ResizableSemaphore(4)
+        for _ in range(3):
+            sem.acquire()
+        sem.set_capacity(2)
+        # 3 workers still in-flight; capacity reports 2 but in_use is 3.
+        assert sem.capacity == 2
+        assert sem.in_use == 3
+        # Subsequent releases bring in_use back down.
+        sem.release()
+        sem.release()
+        sem.release()
+        assert sem.in_use == 0
+
+    def test_context_manager(self) -> None:
+        from cmcourier.services.worker_pool_stats import ResizableSemaphore
+
+        sem = ResizableSemaphore(2)
+        with sem:
+            assert sem.in_use == 1
+        assert sem.in_use == 0

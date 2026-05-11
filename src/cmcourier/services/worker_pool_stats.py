@@ -12,10 +12,11 @@ log / render them safely from any thread.
 
 from __future__ import annotations
 
-__all__ = ["WorkerPoolStats", "WorkerPoolStatsSnapshot"]
+__all__ = ["ResizableSemaphore", "WorkerPoolStats", "WorkerPoolStatsSnapshot"]
 
 import threading
 from dataclasses import dataclass
+from types import TracebackType
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,3 +92,74 @@ class WorkerPoolStats:
                 completed=self._completed,
                 failed=self._failed,
             )
+
+
+# ---------------------------------------------------------------------------
+# ResizableSemaphore (025 phase 2)
+# ---------------------------------------------------------------------------
+
+
+class ResizableSemaphore:
+    """Soft-cap concurrency limiter that supports runtime resize.
+
+    Python's :class:`threading.Semaphore` has a fixed initial value and
+    no public resize API. Our auto-tune controller wants to dial the
+    effective parallelism up and down without tearing down the
+    underlying ``ThreadPoolExecutor``. This class wraps a
+    :class:`threading.Condition` + counter pair so:
+
+    * :meth:`acquire` blocks while ``in_use >= capacity``.
+    * :meth:`release` decrements and wakes one waiter.
+    * :meth:`set_capacity` adjusts the cap and wakes any waiters that
+      now fit.
+
+    Use as a context manager (``with sem: ...``) to acquire/release
+    inside one block.
+    """
+
+    def __init__(self, capacity: int) -> None:
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+        self._capacity = max(1, int(capacity))
+        self._in_use = 0
+
+    def acquire(self) -> None:
+        with self._cond:
+            while self._in_use >= self._capacity:
+                self._cond.wait()
+            self._in_use += 1
+
+    def release(self) -> None:
+        with self._cond:
+            self._in_use = max(0, self._in_use - 1)
+            self._cond.notify()
+
+    def set_capacity(self, n: int) -> None:
+        with self._cond:
+            new_cap = max(1, int(n))
+            grew = new_cap > self._capacity
+            self._capacity = new_cap
+            if grew:
+                self._cond.notify_all()
+
+    @property
+    def capacity(self) -> int:
+        with self._lock:
+            return self._capacity
+
+    @property
+    def in_use(self) -> int:
+        with self._lock:
+            return self._in_use
+
+    def __enter__(self) -> ResizableSemaphore:
+        self.acquire()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        self.release()

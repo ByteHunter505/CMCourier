@@ -128,6 +128,7 @@ def build_pipeline(
         uploader=uploader,
         tracking_store=tracking_store,
         workers=config.cmis.workers,
+        auto_tune=config.cmis.auto_tune,
     )
 
 

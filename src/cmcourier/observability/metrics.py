@@ -282,6 +282,13 @@ class MetricsRecorder:
         bucket = self._stage_buckets.setdefault(stage, _StageBucket())
         bucket.record(duration_ms)
 
+    def current_stage_p95(self, stage: str) -> float:
+        """Live p95 latency for a stage (025 — drives auto-tune)."""
+        bucket = self._stage_buckets.get(stage)
+        if bucket is None:
+            return 0.0
+        return float(bucket.summary()["p95_ms"])
+
     def close_batch(
         self,
         *,

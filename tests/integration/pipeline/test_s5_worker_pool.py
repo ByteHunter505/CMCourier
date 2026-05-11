@@ -246,6 +246,128 @@ tracking:
         )
 
 
+class TestAutoTuneIntegration:
+    @responses.activate
+    def test_auto_tune_logs_decision_when_enabled(self, tmp_path: Path, cli_env: None) -> None:
+        """End-to-end: enable auto-tune with tight cadence + zero warmup;
+        a real run emits at least one ``auto_tune_decision`` log line."""
+        import datetime as _dt
+        import json
+        import time as _time
+
+        _stub_cmis(["TXN_PIPE_001"])
+        # Build a YAML with auto-tune enabled + very tight cadence so it
+        # fires during the (very short) test run. target_p95_ms is set
+        # absurdly high so the AI/noop path triggers immediately.
+        triggers = tmp_path / "triggers.csv"
+        triggers.write_text("ShortName,CIF,SystemID\nTESTCLIENT01,123456,1\n")
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            f"""\
+trigger:
+  csv_path: {triggers}
+indexing:
+  csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+  columns:
+    shortname_column: shortname
+    system_id_column: system_id
+    delete_code_column: delete_code
+    txn_num_column: txn_num
+    index2_column: index2
+    index3_column: index3
+    index4_column: index4
+    index5_column: index5
+    index6_column: index6
+    index7_column: index7
+    image_type_column: image_type
+    image_path_column: image_path
+    file_name_column: file_name
+    creation_date_column: creation_date
+    last_view_date_column: last_view_date
+    total_pages_column: total_pages
+mapping:
+  csv_path: {_SERVICES_FIXTURES / "modelo_documental.csv"}
+metadata:
+  field_aliases:
+    CIF: BAC_CIF
+    Nombre_Cliente: BAC_Nombre_Cliente
+  field_sources:
+    BAC_CIF:
+      sources:
+        - source_type: trigger
+          lookup_value_column: cif
+        - source_type: rvabrep
+          lookup_value_column: index2
+    BAC_Nombre_Cliente:
+      sources:
+        - source_type: "csv:clients"
+          lookup_value_column: Nombre_Cliente
+          lookup_key_column: CIF
+  sources:
+    - alias: clients
+      csv_path: {_SERVICES_FIXTURES / "metadata" / "clients.csv"}
+assembly:
+  source_root: {_ASSEMBLY_FIXTURES}
+  temp_dir: {tmp_path / "stg"}
+cmis:
+  base_url: {_CMIS_BASE_URL}
+  repo_id: "{_CMIS_REPO_ID}"
+  retry_base_delay_s: 0.0
+  retry_max_attempts: 2
+  workers: 4
+  auto_tune:
+    enabled: true
+    min_threads: 1
+    max_threads: 16
+    target_p95_ms: 10000.0
+    adjustment_interval_s: 1
+    warmup_seconds: 0
+    timeout_auto_adjust: true
+    min_timeout_s: 30
+    max_timeout_s: 600
+tracking:
+  db_path: {tmp_path / "tracking.db"}
+observability:
+  log_dir: {tmp_path / "logs"}
+"""
+        )
+        # The S5 stage on a 1-doc batch finishes too fast to give the
+        # auto-tune thread a chance to tick (cadence=1s). Patch the
+        # uploader's upload() to sleep briefly so S5 is long enough.
+        from cmcourier.adapters.upload import cmis_uploader as _cmis_mod
+
+        original_upload = _cmis_mod.CmisUploader.upload
+
+        def slow_upload(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            _time.sleep(1.2)
+            return original_upload(self, *args, **kwargs)
+
+        _cmis_mod.CmisUploader.upload = slow_upload  # type: ignore[method-assign]
+        try:
+            result = CliRunner().invoke(
+                main,
+                [
+                    "csv-trigger-pipeline",
+                    "run",
+                    "--skip-doctor",
+                    "--config",
+                    str(yaml_path),
+                ],
+            )
+        finally:
+            _cmis_mod.CmisUploader.upload = original_upload  # type: ignore[method-assign]
+        assert result.exit_code == 0, result.stderr
+        # The app log should record at least one ``auto_tune_decision``.
+        app_log = tmp_path / "logs" / f"app-{_dt.date.today().isoformat()}.log"
+        assert app_log.exists()
+        lines = [json.loads(ln) for ln in app_log.read_text().splitlines()]
+        decisions = [ln for ln in lines if ln.get("msg") == "auto_tune_decision"]
+        assert decisions, "expected at least one auto_tune_decision event"
+        # Action must be one of the documented values.
+        actions = {d.get("action") for d in decisions}
+        assert actions & {"+1", "halve", "noop", "warmup"}
+
+
 def test_worker_pool_thread_safety_under_writes(tmp_path: Path) -> None:
     """SQLite store stays consistent under 4 concurrent worker writes."""
     import threading

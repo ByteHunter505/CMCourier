@@ -37,6 +37,7 @@ from typing import Literal
 
 from cmcourier.adapters.assembly import PdfAssembler
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
+from cmcourier.config.schema import AutoTuneConfig
 from cmcourier.domain.exceptions import (
     CMISClientError,
     CMISServerError,
@@ -61,10 +62,11 @@ from cmcourier.domain.models import (
 )
 from cmcourier.domain.ports import ITrackingStore, S0Strategy
 from cmcourier.observability.metrics import MetricsRecorder, StageTimer
+from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.mapping import MappingService
 from cmcourier.services.metadata import MetadataService
-from cmcourier.services.worker_pool_stats import WorkerPoolStats
+from cmcourier.services.worker_pool_stats import ResizableSemaphore, WorkerPoolStats
 
 _log = logging.getLogger(__name__)
 
@@ -133,6 +135,7 @@ class StagedPipeline:
         pipeline_name: str = "csv-trigger",
         workers: int = 1,
         pool_stats: WorkerPoolStats | None = None,
+        auto_tune: AutoTuneConfig | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -151,6 +154,28 @@ class StagedPipeline:
         self._pipeline_name = pipeline_name
         self._workers = max(1, int(workers))
         self._pool_stats = pool_stats or WorkerPoolStats()
+        # 025 phase 2: soft-cap concurrency limit. Auto-tune adjusts it.
+        self._auto_tune_cfg = auto_tune
+        self._concurrency_limit = ResizableSemaphore(self._workers)
+
+    # --------------------------------------------------- auto-tune wiring
+
+    def _build_auto_tune_controller(self) -> AutoTuneController | None:
+        """Return a controller iff ``cmis.auto_tune.enabled``; else None."""
+        if self._auto_tune_cfg is None or not self._auto_tune_cfg.enabled:
+            return None
+        return AutoTuneController(
+            config=self._auto_tune_cfg,
+            p95_provider=lambda: self._metrics.current_stage_p95("S5"),
+            current_workers_provider=lambda: self._concurrency_limit.capacity,
+            current_timeout_provider=lambda: self._uploader._timeout_s,
+            on_pool_resize=self._concurrency_limit.set_capacity,
+            on_timeout_change=self._set_upload_timeout,
+        )
+
+    def _set_upload_timeout(self, new_timeout_s: float) -> None:
+        """AIMD pushes a new timeout; uploader picks it up on the next call."""
+        self._uploader._timeout_s = float(new_timeout_s)
 
     # ----------------------------------------------------------- public API
 
@@ -185,7 +210,14 @@ class StagedPipeline:
         s3_done = len(items)
         items, s4_failed = self._stage_s4(items, resolved_batch_id)
         s4_done = len(items)
-        s5_done, s5_failed = self._stage_s5(items, resolved_batch_id)
+        controller = self._build_auto_tune_controller()
+        try:
+            if controller is not None:
+                controller.start()
+            s5_done, s5_failed = self._stage_s5(items, resolved_batch_id)
+        finally:
+            if controller is not None:
+                controller.stop(timeout=2.0)
 
         self._tracking_store.flush()
         self._tracking_store.complete_batch(resolved_batch_id)
@@ -483,6 +515,9 @@ class StagedPipeline:
         txn = item.document.txn_num
         worker_name = threading.current_thread().name
 
+        # 025 phase 2: respect the auto-tune semaphore cap before
+        # actually consuming a worker slot.
+        self._concurrency_limit.acquire()
         self._pool_stats.mark_busy(worker_name)
         try:
             if self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S5_DONE):
@@ -519,3 +554,4 @@ class StagedPipeline:
             return "done"
         finally:
             self._pool_stats.mark_idle(worker_name)
+            self._concurrency_limit.release()
