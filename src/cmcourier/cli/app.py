@@ -36,7 +36,7 @@ _log = logging.getLogger(__name__)
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
-_TriggerKind = Literal["csv", "rvabrep", "as400"]
+_TriggerKind = Literal["csv", "rvabrep", "as400", "local_scan"]
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +171,46 @@ def as400_run_command(
     _run_pipeline_command(
         config_path,
         expected_kind="as400",
+        batch_id=batch_id,
+        from_stage=from_stage,
+        batch_size=batch_size,
+        triggers_override=None,
+        log_level=log_level,
+    )
+
+
+# ---------------------------------------------------------------------------
+# local-scan-pipeline
+# ---------------------------------------------------------------------------
+
+
+@main.group(name="local-scan-pipeline")
+def local_scan_pipeline_group() -> None:
+    """local-scan-pipeline subcommands (REBIRTH §10.2)."""
+
+
+@local_scan_pipeline_group.command(name="run")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+)
+@click.option("--batch-id", type=str, default=None)
+@click.option("--from-stage", type=click.IntRange(1, 5), default=1)
+@click.option("--batch-size", type=click.IntRange(min=1), default=None)
+@click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
+def local_scan_run_command(
+    config_path: Path,
+    batch_id: str | None,
+    from_stage: int,
+    batch_size: int | None,
+    log_level: str,
+) -> None:
+    """Run the local-scan-pipeline end-to-end."""
+    _run_pipeline_command(
+        config_path,
+        expected_kind="local_scan",
         batch_id=batch_id,
         from_stage=from_stage,
         batch_size=batch_size,

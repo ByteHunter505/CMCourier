@@ -20,6 +20,7 @@ from cmcourier.config.schema import (
     CsvMetadataSourceConfig,
     CsvTriggerConfig,
     IndexingColumnsModel,
+    LocalScanTriggerConfig,
     MetadataConfigModel,
     MetadataSourceConfig,
     PipelineConfig,
@@ -50,6 +51,7 @@ from cmcourier.services.triggers.direct_rvabrep import (
     RvabrepColumnsConfig,
     RvabrepFilters,
 )
+from cmcourier.services.triggers.local_scan import LocalScanTriggerStrategy
 
 
 def build_pipeline(config: PipelineConfig, secrets: Secrets) -> StagedPipeline:
@@ -138,6 +140,18 @@ def _build_trigger_strategy(
                 col_cif=config.indexing.columns.index2_column,
                 col_system_id=config.indexing.columns.system_id_column,
                 col_id_rvi=config.indexing.columns.index7_column,
+            ),
+        )
+    if isinstance(trigger_cfg, LocalScanTriggerConfig):
+        return LocalScanTriggerStrategy(
+            scan_path=trigger_cfg.scan_path,
+            rvabrep_source=rvabrep_src,
+            columns=RvabrepColumnsConfig(
+                col_shortname=config.indexing.columns.shortname_column,
+                col_cif=config.indexing.columns.index2_column,
+                col_system_id=config.indexing.columns.system_id_column,
+                col_id_rvi=config.indexing.columns.index7_column,
+                file_name_column=config.indexing.columns.file_name_column,
             ),
         )
     if isinstance(trigger_cfg, As400TriggerConfig):

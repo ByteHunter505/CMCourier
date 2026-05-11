@@ -26,6 +26,7 @@ class RvabrepColumnsConfig:
     col_cif: str = "ABACCD"  # index2
     col_system_id: str = "ABAACD"  # system_code
     col_id_rvi: str = "ABAHCD"  # index7 (document type)
+    file_name_column: str = "ABAJCD"  # ABAJCD (file_name)
 
 
 @dataclass(frozen=True, slots=True)

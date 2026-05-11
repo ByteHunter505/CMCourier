@@ -31,6 +31,7 @@ __all__ = [
     "FieldSourceItem",
     "IndexingColumnsModel",
     "IndexingSourceConfig",
+    "LocalScanTriggerConfig",
     "MappingConfig",
     "MetadataConfigModel",
     "MetadataSourceConfig",
@@ -107,8 +108,16 @@ class As400TriggerConfig(BaseModel):
     as400_connection: As400ConnectionConfig
 
 
+class LocalScanTriggerConfig(BaseModel):
+    """REBIRTH §5.1 mode ``local_scan``."""
+
+    model_config = _STRICT
+    kind: Literal["local_scan"]
+    scan_path: DirectoryPath
+
+
 TriggerConfigUnion = Annotated[
-    CsvTriggerConfig | RvabrepTriggerConfig | As400TriggerConfig,
+    CsvTriggerConfig | RvabrepTriggerConfig | As400TriggerConfig | LocalScanTriggerConfig,
     Field(discriminator="kind"),
 ]
 

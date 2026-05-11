@@ -295,6 +295,42 @@ class TestTriggerDiscriminatedUnion:
         assert isinstance(config.trigger, RvabrepTriggerConfig)
         assert config.trigger.filters.systems == ["1"]
 
+    def test_local_scan_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        from cmcourier.config.schema import LocalScanTriggerConfig
+
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        scan_dir = tmp_path / "scan"
+        scan_dir.mkdir()
+        data["trigger"] = {"kind": "local_scan", "scan_path": str(scan_dir)}
+        config = PipelineConfig.model_validate(data)
+        assert isinstance(config.trigger, LocalScanTriggerConfig)
+        assert config.trigger.scan_path == scan_dir
+
+    def test_local_scan_requires_existing_path(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["trigger"] = {
+            "kind": "local_scan",
+            "scan_path": str(tmp_path / "does_not_exist"),
+        }
+        with pytest.raises(ValidationError):
+            PipelineConfig.model_validate(data)
+
     def test_as400_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
         data = _build_full_data(
             fixture_paths["trigger"],

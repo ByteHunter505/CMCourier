@@ -12,10 +12,108 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- `local-scan-pipeline` and `single-doc` — separate changes each.
+- `single-doc` — diagnostic pipeline (no S0, args via CLI).
 - REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
 - Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
 - Observability tiers (REBIRTH §17.4).
+- Per-field `as400_query` (follow-up to 015).
+
+---
+
+## [0.18.0] — 2026-05-10 — **local-scan-pipeline (4th production pipeline)**
+
+Closes the production-pipeline set. With 016, the project covers
+every trigger source mode REBIRTH §5.1 commits to: csv, direct
+rvabrep, as400, local_scan.
+
+### Added
+
+- **`cmcourier.services.triggers.local_scan.LocalScanTriggerStrategy`**
+  — real implementation. Lists `scan_path` non-recursively, filters
+  to `*.PDF` (case-insensitive) and `*.001` (paged-doc first page
+  per REBIRTH §3.4), and for each file queries the RVABREP source
+  via `get_by_fields({file_name_column: name})`. Yields one
+  `TriggerRecord` per matched row. Files with no RVABREP match are
+  logged at WARNING (`file_name`, `scan_path` in `extra`) and
+  dropped.
+- **`LocalScanTriggerConfig(kind: Literal["local_scan"], scan_path: DirectoryPath)`**
+  — new schema member in the `TriggerConfigUnion` discriminated
+  union. Pydantic's `DirectoryPath` validates that the path exists
+  at load time.
+- **`cmcourier local-scan-pipeline run --config <yaml>`** — new
+  Click command. Identical surface to the other pipeline commands
+  minus `--triggers` (no CSV override for local_scan). Verifies
+  `config.trigger.kind == "local_scan"` and exits 2 on mismatch.
+- **`RvabrepColumnsConfig.file_name_column: str = "ABAJCD"`** — new
+  field on the existing dataclass. Drives the local_scan strategy's
+  per-file query into RVABREP. Default matches REBIRTH §3.2
+  physical name; production configs override to the friendly name.
+- **10 new unit tests** for `LocalScanTriggerStrategy` covering:
+  happy path, non-trigger filename filtering (`.002` / `.txt` /
+  `.tmp` ignored), WARNING on unmatched file, missing `scan_path`
+  raises, blank shortname dropped, case-insensitive `.PDF` match,
+  empty CIF → None, empty directory yields zero triggers, S0Strategy
+  protocol check, default columns config.
+- **2 new schema tests** for `kind=local_scan` (loads to
+  `LocalScanTriggerConfig`; rejects missing `scan_path`).
+- **3 new CLI tests** (`--help`, happy path with mocked CMIS, kind
+  mismatch).
+- **1 new wiring test** verifying `LocalScanTriggerStrategy`
+  dispatch.
+
+### Changed
+
+- **`cmcourier.services.triggers.stubs` module DELETED**. With
+  `LocalScanTriggerStrategy` promoted, no stubs remain. The
+  `__init__.py` re-export is updated.
+- **`tests/unit/services/test_trigger_strategies.py::TestStubStrategies`
+  removed**. The class was testing the stub's `NotImplementedError`
+  behavior; the new `TestLocalScanStrategy` covers the real
+  implementation.
+- **`_TriggerKind` Literal in `cli/app.py`** extended to include
+  `"local_scan"`.
+- **`__all__` in `cmcourier.config.schema`** adds
+  `LocalScanTriggerConfig`.
+
+### Verification
+
+- `pytest -v`: **439 / 439 pass** in ~64 s (+12 net new: 10 strategy
+  + 2 schema + 3 CLI + 1 wiring − 3 obsolete stub tests).
+- `pytest --cov=src/cmcourier`: total branch coverage **94.94%**.
+  `services/triggers/local_scan.py` at **100%**.
+- `ruff check`, `ruff format --check`: clean.
+- `mypy --strict on cmcourier.*`: clean across 37 source files.
+- `pre-commit run --all-files`: clean.
+- Smoke: `cmcourier --help` lists **5 commands**
+  (csv-trigger-pipeline, rvabrep-pipeline, as400-trigger-pipeline,
+  **local-scan-pipeline**, doctor).
+
+### Rationale
+
+- **Closes the production-pipeline set**. REBIRTH §5.1 listed four
+  trigger source modes; 016 ships the fourth. No more stubs in the
+  trigger strategies module — `services/triggers/stubs.py` is
+  retired entirely.
+- **One trigger record per matched ROW, not per FILE**. A single
+  filesystem entry might map to multiple RVABREP rows in pathological
+  cases (e.g., the same filename re-archived for a different
+  shortname). The downstream `IndexingService` dedupes by
+  `(shortname, system_id)` already; emitting per row preserves
+  information.
+- **`*.PDF` + `*.001` filter is hard-coded** per REBIRTH §3.4: paged
+  documents always have a `.001` first page, native PDFs end in
+  `.PDF`. Custom filename patterns (e.g., `.JPG` directly archived)
+  are out of scope; operators curate the folder.
+- **No `cif_lookup_source` parameter**. The original stub had it as
+  a hint at REBIRTH §5.1's "cif must be resolved" requirement.
+  Today's metadata service handles CIF self-healing centrally
+  (REBIRTH §6.5) — the strategy doesn't need its own CIF lookup.
+- **Non-recursive scanning**. Recursive support is a one-line
+  `Path.rglob` future change; the MVP keeps the iteration surface
+  small.
+- **CLI omits `--triggers` flag** because local_scan has no
+  CSV-trigger override concept. Operators point at a different
+  folder by editing the YAML.
 
 ---
 

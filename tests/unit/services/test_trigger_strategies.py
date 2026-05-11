@@ -181,21 +181,177 @@ class TestDirectRvabrepTriggerStrategy:
 
 
 # ---------------------------------------------------------------------------
-# Stubs
+# LocalScanTriggerStrategy (REBIRTH §5.1 mode local_scan)
 # ---------------------------------------------------------------------------
 
 
-class TestStubStrategies:
-    def test_local_scan_construction_succeeds(self) -> None:
-        strategy = LocalScanTriggerStrategy(scan_path=Path("/tmp/nope"))
-        assert strategy is not None
+_RVABREP_FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "pipeline" / "rvabrep.csv"
 
-    def test_local_scan_acquire_raises(self) -> None:
-        strategy = LocalScanTriggerStrategy(scan_path=Path("/tmp/nope"))
-        with pytest.raises(NotImplementedError) as exc:
-            list(strategy.acquire())
-        assert "local-scan" in str(exc.value).lower()
 
-    def test_local_scan_is_s0strategy(self) -> None:
-        b = LocalScanTriggerStrategy(scan_path=Path("/tmp/x"))
-        assert isinstance(b, S0Strategy)
+def _friendly_columns() -> RvabrepColumnsConfig:  # noqa: F821 — forward ref
+    from cmcourier.services.triggers.direct_rvabrep import RvabrepColumnsConfig
+
+    return RvabrepColumnsConfig(
+        col_shortname="shortname",
+        col_cif="index2",
+        col_system_id="system_id",
+        col_id_rvi="index7",
+        file_name_column="file_name",
+    )
+
+
+class TestLocalScanStrategy:
+    def test_yields_trigger_per_matched_file(self, tmp_path: Path) -> None:
+        # rvabrep.csv has TESTCLIENT01 with file_name=DAAAH9X4.001.
+        (tmp_path / "DAAAH9X4.001").touch()
+        src = TabularDataSource(_RVABREP_FIXTURE)
+        try:
+            strategy = LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns())
+            triggers = list(strategy.acquire())
+        finally:
+            src.close()
+        shortnames = {t.shortname for t in triggers}
+        assert "TESTCLIENT01" in shortnames
+
+    def test_filters_non_trigger_files(self, tmp_path: Path) -> None:
+        # Build a focused rvabrep with exactly one .001 match so the count
+        # is unambiguous.
+        rvabrep = tmp_path / "rvabrep_focused.csv"
+        rvabrep.write_text(
+            "shortname,system_id,index2,index7,file_name\nFOCUSED,1,123456,FF17,DZZZZ.001\n"
+        )
+        # .002, .tmp, .txt should be ignored; only .001 reaches RVABREP.
+        for name in ("DZZZZ.001", "DZZZZ.002", "stray.txt", "DZZZZ.PDF.tmp"):
+            (tmp_path / name).touch()
+        src = TabularDataSource(rvabrep)
+        try:
+            triggers = list(
+                LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns()).acquire()
+            )
+        finally:
+            src.close()
+        # Exactly one trigger from the one matching row.
+        assert [t.shortname for t in triggers] == ["FOCUSED"]
+
+    def test_unmatched_file_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        (tmp_path / "STRAY.PDF").touch()
+        src = TabularDataSource(_RVABREP_FIXTURE)
+        try:
+            import logging as _logging
+
+            with caplog.at_level(_logging.WARNING, logger="cmcourier.services.triggers.local_scan"):
+                triggers = list(
+                    LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns()).acquire()
+                )
+        finally:
+            src.close()
+        assert triggers == []
+        assert any(r.__dict__.get("file_name") == "STRAY.PDF" for r in caplog.records)
+
+    def test_missing_scan_path_raises(self) -> None:
+        src = TabularDataSource(_RVABREP_FIXTURE)
+        try:
+            strategy = LocalScanTriggerStrategy(
+                Path("/this/path/does/not/exist"),
+                src,
+                columns=_friendly_columns(),
+            )
+            with pytest.raises(ConfigurationError) as ei:
+                list(strategy.acquire())
+        finally:
+            src.close()
+        assert ei.value.context["scan_path"].endswith("/exist")
+
+    def test_blank_shortname_dropped(self, tmp_path: Path) -> None:
+        # Build a tiny rvabrep CSV in tmp_path with a blank shortname row.
+        rvabrep = tmp_path / "rvabrep_blank.csv"
+        rvabrep.write_text(
+            "shortname,system_id,index2,index7,file_name\n"
+            ",1,123456,FF17,DXXX1.001\n"
+            "TESTOK,1,123456,FF17,DXXX2.001\n"
+        )
+        (tmp_path / "DXXX1.001").touch()
+        (tmp_path / "DXXX2.001").touch()
+        src = TabularDataSource(rvabrep)
+        try:
+            triggers = list(
+                LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns()).acquire()
+            )
+        finally:
+            src.close()
+        shortnames = {t.shortname for t in triggers}
+        assert shortnames == {"TESTOK"}
+
+    def test_native_pdf_case_insensitive(self, tmp_path: Path) -> None:
+        # Build a rvabrep with two PDF entries, lower- and upper-case file_name.
+        rvabrep = tmp_path / "rvabrep_pdf.csv"
+        rvabrep.write_text(
+            "shortname,system_id,index2,index7,file_name\n"
+            "PDFCLIENT1,1,123456,FF18,0AAAUI0K.PDF\n"
+            "PDFCLIENT2,1,123456,FF18,0AAAUI0K.pdf\n"
+        )
+        # Filesystem entries.
+        (tmp_path / "0AAAUI0K.PDF").touch()
+        (tmp_path / "0AAAUI0K.pdf").touch()
+        src = TabularDataSource(rvabrep)
+        try:
+            triggers = list(
+                LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns()).acquire()
+            )
+        finally:
+            src.close()
+        # Both files match (case-insensitive on .PDF extension).
+        # Each filesystem entry is queried; the CSV match is exact so each
+        # filesystem name finds its own row.
+        shortnames = {t.shortname for t in triggers}
+        assert shortnames == {"PDFCLIENT1", "PDFCLIENT2"}
+
+    def test_empty_directory(self, tmp_path: Path) -> None:
+        src = TabularDataSource(_RVABREP_FIXTURE)
+        try:
+            triggers = list(
+                LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns()).acquire()
+            )
+        finally:
+            src.close()
+        assert triggers == []
+
+    def test_empty_cif_becomes_none(self, tmp_path: Path) -> None:
+        # Build a tiny rvabrep where one row has empty index2.
+        rvabrep = tmp_path / "rvabrep_cif_blank.csv"
+        rvabrep.write_text(
+            "shortname,system_id,index2,index7,file_name\nNOCIFCLIENT,1,,FF17,DBLANK.001\n"
+        )
+        (tmp_path / "DBLANK.001").touch()
+        src = TabularDataSource(rvabrep)
+        try:
+            triggers = list(
+                LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns()).acquire()
+            )
+        finally:
+            src.close()
+        assert len(triggers) == 1
+        assert triggers[0].cif is None
+
+    def test_is_s0strategy(self, tmp_path: Path) -> None:
+        src = TabularDataSource(_RVABREP_FIXTURE)
+        try:
+            strategy = LocalScanTriggerStrategy(tmp_path, src, columns=_friendly_columns())
+            assert isinstance(strategy, S0Strategy)
+        finally:
+            src.close()
+
+    def test_default_columns_use_physical_names(self, tmp_path: Path) -> None:
+        # When columns is None, defaults are AS400 physical names (ABABCD etc.).
+        # We can't query CSV friendly columns with those defaults — just assert
+        # construction succeeds and returns the default columns config.
+        from cmcourier.services.triggers.direct_rvabrep import RvabrepColumnsConfig
+
+        src = TabularDataSource(_RVABREP_FIXTURE)
+        try:
+            strategy = LocalScanTriggerStrategy(tmp_path, src)
+            assert strategy._columns == RvabrepColumnsConfig()  # type: ignore[attr-defined]
+        finally:
+            src.close()

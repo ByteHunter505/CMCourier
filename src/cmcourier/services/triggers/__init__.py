@@ -1,8 +1,7 @@
 """Concrete S0Strategy implementations for stage S0 (Trigger Acquisition).
 
-Three real strategies (CSV, direct RVABREP, AS400) plus one stub
-(local scan) that raises ``NotImplementedError`` until its infrastructure
-ships.
+Four real strategies (CSV, direct RVABREP, AS400, local scan) — the
+full set from REBIRTH §5.1. No stubs remain.
 """
 
 from __future__ import annotations
@@ -27,4 +26,4 @@ from cmcourier.services.triggers.direct_rvabrep import (
     RvabrepColumnsConfig,
     RvabrepFilters,
 )
-from cmcourier.services.triggers.stubs import LocalScanTriggerStrategy
+from cmcourier.services.triggers.local_scan import LocalScanTriggerStrategy

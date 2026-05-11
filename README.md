@@ -210,6 +210,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Thirteenth change: `cmcourier doctor` pre-flight (REBIRTH §10.5)
 - [x] Fourteenth change: AS400 adapter + rvabrep-pipeline + as400-trigger-pipeline — **multi-pipeline + AS400 production-ready**
 - [x] Fifteenth change: AS400 metadata sources (closes the 014 gap)
+- [x] Sixteenth change: local-scan-pipeline (4th production pipeline; REBIRTH §5.1 set complete)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
