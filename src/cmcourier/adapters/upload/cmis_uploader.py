@@ -51,6 +51,8 @@ from cmcourier.domain.exceptions import (
 from cmcourier.domain.models import StagedFile
 from cmcourier.domain.ports import IUploader
 
+_network_log = logging.getLogger("cmcourier.metrics.network")
+
 _log = logging.getLogger(__name__)
 
 _SYSTEM_FOLDER_PREFIX = "$"
@@ -164,10 +166,21 @@ class CmisUploader(IUploader):
         """GET cmisselector=typeDefinition&typeId=<id>. Bypasses the retry loop."""
         if not self._warm:
             self._warmup_session()
+        url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
+        t0 = time.monotonic()
         resp = self._session.get(
-            f"{self._cfg.base_url}/{self._cfg.repo_id}",
+            url,
             params={"cmisselector": "typeDefinition", "typeId": object_type_id},
             timeout=self._cfg.timeout_seconds,
+        )
+        _network_log.info(
+            "cmis_get",
+            extra={
+                "kind": "cmis_get",
+                "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+                "status": resp.status_code,
+                "url_prefix": url[:80],
+            },
         )
         body = _truncate(resp.text)
         if resp.status_code >= 500:
@@ -222,6 +235,7 @@ class CmisUploader(IUploader):
                 encoder,
                 {"Content-Type": encoder.content_type},
                 txn_num=document_name,
+                kind="cmis_upload",
             )
         return self._parse_object_id(resp)
 
@@ -229,10 +243,20 @@ class CmisUploader(IUploader):
 
     def _warmup_session(self) -> dict[str, Any]:
         url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
+        t0 = time.monotonic()
         resp = self._session.get(
             url,
             params={"cmisselector": "repositoryInfo"},
             timeout=self._cfg.timeout_seconds,
+        )
+        _network_log.info(
+            "cmis_get",
+            extra={
+                "kind": "cmis_get",
+                "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+                "status": resp.status_code,
+                "url_prefix": url[:80],
+            },
         )
         body = _truncate(resp.text)
         if resp.status_code >= 500:
@@ -272,10 +296,13 @@ class CmisUploader(IUploader):
         data: MultipartEncoder,
         headers: dict[str, str],
         txn_num: str,
+        kind: str = "cmis_post",
     ) -> requests.Response:
         auth_retried = False
         last_exc: Exception | None = None
         real_attempts = 0
+        size_bytes = int(getattr(data, "len", 0)) or None
+        t0 = time.monotonic()
         while real_attempts < self._cfg.retry_max_attempts:
             if not self._warm:
                 self._warmup_session()
@@ -300,8 +327,10 @@ class CmisUploader(IUploader):
                 self._warm = False
                 continue
             if 200 <= resp.status_code < 400:
+                self._emit_network(kind, t0, resp.status_code, size_bytes, url)
                 return resp
             if 400 <= resp.status_code < 500:
+                self._emit_network(kind, t0, resp.status_code, size_bytes, url)
                 raise CMISClientError(
                     status_code=resp.status_code, response_body=_truncate(resp.text)
                 )
@@ -320,9 +349,30 @@ class CmisUploader(IUploader):
             if real_attempts < self._cfg.retry_max_attempts:
                 self._backoff_sleep(real_attempts, doubled=False)
         assert last_exc is not None
+        last_status = getattr(last_exc, "status_code", None)
+        self._emit_network(kind, t0, last_status, size_bytes, url)
         raise RetriesExhaustedError(
             txn_num=txn_num, attempts=self._cfg.retry_max_attempts
         ) from last_exc
+
+    @staticmethod
+    def _emit_network(
+        kind: str,
+        t0: float,
+        status: int | None,
+        size_bytes: int | None,
+        url: str,
+    ) -> None:
+        extra: dict[str, object] = {
+            "kind": kind,
+            "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+            "url_prefix": url[:80],
+        }
+        if status is not None:
+            extra["status"] = status
+        if size_bytes is not None:
+            extra["size_bytes"] = size_bytes
+        _network_log.info(kind, extra=extra)
 
     def _backoff_sleep(self, attempt: int, doubled: bool) -> None:
         delay = self._cfg.retry_base_delay_s * (2 ** (attempt - 1))

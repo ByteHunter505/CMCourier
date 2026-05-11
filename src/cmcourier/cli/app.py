@@ -30,6 +30,7 @@ from cmcourier.config.loader import load_config, load_secrets
 from cmcourier.config.schema import CsvTriggerConfig, PipelineConfig
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.exceptions import ConfigurationError
+from cmcourier.observability.setup import configure as configure_observability
 from cmcourier.orchestrators.staged import RunReport
 from cmcourier.services.triggers import SingleDocTriggerStrategy
 
@@ -279,8 +280,14 @@ def single_doc_run_command(
         cif=cif or None,
     )
     config = _apply_overrides(config, triggers_override=None, batch_size=batch_size)
+    configure_observability(config.observability, log_level)
     try:
-        pipeline = build_pipeline(config, secrets, trigger_strategy_override=strategy)
+        pipeline = build_pipeline(
+            config,
+            secrets,
+            trigger_strategy_override=strategy,
+            pipeline_name="single-doc",
+        )
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
@@ -323,6 +330,7 @@ def doctor_command(config_path: Path, log_level: str) -> None:
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
+    configure_observability(config.observability, log_level)
     try:
         report = run_doctor(config, secrets)
     except Exception:
@@ -365,9 +373,10 @@ def _run_pipeline_command(
         sys.exit(2)
 
     config = _apply_overrides(config, triggers_override, batch_size)
+    configure_observability(config.observability, log_level)
 
     try:
-        pipeline = build_pipeline(config, secrets)
+        pipeline = build_pipeline(config, secrets, pipeline_name=f"{expected_kind}-trigger")
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)

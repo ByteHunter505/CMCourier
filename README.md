@@ -214,6 +214,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Seventeenth change: single-doc-pipeline (REBIRTH §10.2 diagnostic — CLI-driven one-shot)
 - [x] Eighteenth change: per-source AS400 query override (closes the 015 scale gap)
 - [x] Nineteenth change: adapter port-hygiene cleanup (every adapter now declares its port)
+- [x] Twentieth change: observability tiers 1-4 (REBIRTH §17.4) — JSON app log + pipeline + network + slow-ops
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

@@ -124,12 +124,14 @@ def run_doctor(config: PipelineConfig, secrets: Secrets) -> DoctorReport:
     """Run all checks in order. Never raises."""
     start = time.monotonic()
     results: list[CheckResult] = []
+    results.append(_check_log_dir_writable(config))
     results.append(_check_cmis_connectivity(config, secrets))
     results.append(_check_as400_connectivity(config, secrets))
     results.append(_check_tracking_openable(config))
     results.append(_check_mapping_completeness(config))
     results.append(_check_metadata_sources(config, secrets))
-    if results[0].status == CheckStatus.PASS:
+    cmis_check = next(r for r in results if r.name == "cmis_connectivity")
+    if cmis_check.status == CheckStatus.PASS:
         results.append(_check_cm_type_alignment(config, secrets))
     else:
         results.append(_skip("cm_type_alignment", "cmis_connectivity FAILed; skipping"))
@@ -216,6 +218,27 @@ def _try(stage: str, fn: Callable[[], T]) -> T | CheckResult:
 # ---------------------------------------------------------------------------
 # Individual checks
 # ---------------------------------------------------------------------------
+
+
+def _check_log_dir_writable(config: PipelineConfig) -> CheckResult:
+    log_dir = config.observability.log_dir
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        probe = log_dir / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+    except OSError as exc:
+        return _fail(
+            "log_dir_writable",
+            exc,
+            {"log_dir": str(log_dir)},
+        )
+    return CheckResult(
+        name="log_dir_writable",
+        status=CheckStatus.PASS,
+        message=f"log_dir is writable at {log_dir}",
+        details=_frozen({"log_dir": str(log_dir)}),
+    )
 
 
 def _check_cmis_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckResult:

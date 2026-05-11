@@ -32,6 +32,7 @@ from cmcourier.config.schema import (
 )
 from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.domain.ports import IDataSource, S0Strategy
+from cmcourier.observability.metrics import MetricsRecorder
 from cmcourier.orchestrators.staged import StagedPipeline
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 from cmcourier.services.mapping import MappingColumnsConfig, MappingService
@@ -60,6 +61,7 @@ def build_pipeline(
     secrets: Secrets,
     *,
     trigger_strategy_override: S0Strategy | None = None,
+    pipeline_name: str = "csv-trigger",
 ) -> StagedPipeline:
     """Construct every adapter / service and return the wired pipeline.
 
@@ -108,12 +110,21 @@ def build_pipeline(
         )
     )
     tracking_store = SQLiteTrackingStore(config.tracking.db_path)
+    metrics_recorder = MetricsRecorder(
+        log_dir=config.observability.log_dir,
+        slow_op_threshold_ms=float(config.observability.slow_op_threshold_ms),
+        slow_op_top_n=config.observability.slow_op_top_n,
+        enabled=config.observability.enabled,
+        pipeline_metrics_enabled=config.observability.pipeline_metrics,
+    )
     return StagedPipeline(
         trigger_strategy=trigger_strategy,
         indexing_service=indexing_service,
         mapping_service=mapping_service,
         metadata_service=metadata_service,
         assembler=assembler,
+        metrics_recorder=metrics_recorder,
+        pipeline_name=pipeline_name,
         uploader=uploader,
         tracking_store=tracking_store,
     )

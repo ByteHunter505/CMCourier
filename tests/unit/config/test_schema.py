@@ -507,6 +507,65 @@ class TestMetadataSourceDiscriminatedUnion:
             )
         assert "exactly one" in str(ei.value)
 
+
+# ---------------------------------------------------------------------------
+# 020 — Observability config
+# ---------------------------------------------------------------------------
+
+
+class TestObservabilityConfig:
+    def test_defaults(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        cfg = ObservabilityConfig()
+        assert cfg.enabled is True
+        assert cfg.pipeline_metrics is True
+        assert cfg.network_metrics is True
+        assert cfg.system_metrics is False
+        assert cfg.log_dir == Path("./logs")
+        assert cfg.log_format == "json"
+        assert cfg.rotation_mb == 100
+        assert cfg.retention_days == 30
+        assert cfg.slow_op_threshold_ms == 5000
+        assert cfg.slow_op_top_n == 20
+
+    def test_system_metrics_true_rejected(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        with pytest.raises(ValidationError) as ei:
+            ObservabilityConfig(system_metrics=True)
+        assert "post-MVP" in str(ei.value)
+
+    def test_log_format_invalid_rejected(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(log_format="xml")  # type: ignore[arg-type]
+
+    def test_rotation_mb_must_be_ge_one(self) -> None:
+        from cmcourier.config.schema import ObservabilityConfig
+
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(rotation_mb=0)
+
+    def test_pipeline_config_observability_defaults_when_absent(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        # Regression: existing YAMLs without observability block still validate.
+        from cmcourier.config.schema import ObservabilityConfig
+
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        config = PipelineConfig.model_validate(data)
+        assert isinstance(config.observability, ObservabilityConfig)
+        assert config.observability.enabled is True
+
     def test_unknown_kind_rejected(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
         data = _build_full_data(
             fixture_paths["trigger"],

@@ -174,6 +174,7 @@ class TestRunDoctorHappyPath:
         report = run_doctor(config, _secrets())
         names = [r.name for r in report.results]
         assert names == [
+            "log_dir_writable",
             "cmis_connectivity",
             "as400_connectivity",
             "tracking_openable",
@@ -291,6 +292,28 @@ class TestCmTypeMissing:
         # All but the first type are missing.
         for type_id in _DISTINCT_TYPES[1:]:
             assert type_id in align.details["missing_types"]
+
+
+class TestLogDirWritable:
+    @responses.activate
+    def test_writable_dir_passes(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets())
+        check = next(r for r in report.results if r.name == "log_dir_writable")
+        assert check.status == CheckStatus.PASS
+
+    def test_unwritable_dir_fails(self, tmp_path: Path) -> None:
+        # /proc/1/forbidden is non-writable for non-root processes.
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text += "\nobservability:\n  log_dir: /proc/1/cmcourier_forbidden\n"
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        report = run_doctor(config, _secrets())
+        check = next(r for r in report.results if r.name == "log_dir_writable")
+        assert check.status == CheckStatus.FAIL
 
 
 class TestAs400Connectivity:

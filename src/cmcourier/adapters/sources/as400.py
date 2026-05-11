@@ -23,11 +23,14 @@ __all__ = ["As400DataSource"]
 
 import logging
 import re
+import time
 from collections.abc import Iterator, Mapping
 from typing import Any
 
 from cmcourier.domain.exceptions import ConfigurationError, IndexingError
 from cmcourier.domain.ports import IDataSource
+
+_network_log = logging.getLogger("cmcourier.metrics.network")
 
 # Lazy import: the `pyodbc` name is resolved inside `_connect()` so test
 # environments without unixODBC headers can `import` this module.
@@ -83,10 +86,21 @@ class As400DataSource(IDataSource):
 
     def query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         cursor = self._connect().cursor()
+        t0 = time.monotonic()
         try:
             cursor.execute(sql, params or [])
             columns = [col[0] for col in cursor.description or []]
-            return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
+            rows = [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
+            _network_log.info(
+                "as400_query",
+                extra={
+                    "kind": "as400_query",
+                    "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+                    "sql_prefix": sql[:80],
+                    "row_count": len(rows),
+                },
+            )
+            return rows
         except _pyodbc_error_type() as exc:
             raise IndexingError(
                 "AS400 query failed",
@@ -98,14 +112,26 @@ class As400DataSource(IDataSource):
 
     def query_stream(self, sql: str, params: list[Any] | None = None) -> Iterator[dict[str, Any]]:
         cursor = self._connect().cursor()
+        t0 = time.monotonic()
+        yielded = 0
         try:
             cursor.execute(sql, params or [])
             columns = [col[0] for col in cursor.description or []]
             while True:
                 rows = cursor.fetchmany(_STREAM_BATCH_SIZE)
                 if not rows:
+                    _network_log.info(
+                        "as400_query",
+                        extra={
+                            "kind": "as400_query",
+                            "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+                            "sql_prefix": sql[:80],
+                            "row_count": yielded,
+                        },
+                    )
                     return
                 for row in rows:
+                    yielded += 1
                     yield dict(zip(columns, row, strict=False))
         except _pyodbc_error_type() as exc:
             raise IndexingError(

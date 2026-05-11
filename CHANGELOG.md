@@ -13,7 +13,170 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Planned for next release
 
 - REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
-- Observability tiers (REBIRTH §17.4).
+- POST-MVP §2 system metrics (psutil sampling) + §3 offline log analyzer.
+
+---
+
+## [0.22.0] — 2026-05-10 — **observability tiers 1-4 (REBIRTH §17.4)**
+
+Full-MVP observability surface. Operators now get structured JSON
+logs, per-batch pipeline timing percentiles (p50/p95/p99), per-request
+network latency for AS400 + CMIS, and a top-N slow-ops report — all
+toggleable from YAML, all PII-masked by a central filter, all
+parseable by `jq` or any log shipper. The dry run is no longer blind.
+
+### Added
+
+- **New package `src/cmcourier/observability/`** — peer to
+  adapters/services. Modules: `formatter.py` (JsonFormatter),
+  `pii.py` (PiiMaskingFilter + denylist), `metrics.py`
+  (StageTimer, BatchSummary, MetricsRecorder, SlowOpAggregator,
+  NetworkEvent), `setup.py` (`configure(config, log_level)`).
+- **`ObservabilityConfig`** in `config/schema.py` with REBIRTH
+  §17.4 fields: `enabled`, `pipeline_metrics`, `network_metrics`,
+  `system_metrics`, `log_dir`, `log_format`, `rotation_mb`,
+  `retention_days`, `slow_op_threshold_ms`, `slow_op_top_n`.
+  `system_metrics=true` raises ValidationError — deferred to
+  POST-MVP §2. `PipelineConfig.observability` defaults to a
+  sane block so existing YAMLs keep validating.
+- **Tier 1 — application log** (`logs/app-{date}.log`): JSON
+  Lines, every record from the `cmcourier` logger hierarchy.
+  `RotatingFileHandler` with configurable `rotation_mb` cap +
+  5 backups. Always on when `enabled=True`.
+- **Tier 2 — pipeline metrics** (`logs/metrics-{date}.jsonl`):
+  one batch-summary line per pipeline run with
+  `{pipeline, batch_id, total_docs, elapsed_s,
+  throughput_docs_per_s, stages.{S0..S5}.{count, p50_ms, p95_ms,
+  p99_ms, sum_ms}}`. Toggle via `pipeline_metrics`.
+- **Tier 3 — network metrics** (`logs/network-{date}.jsonl`):
+  per AS400 query + per CMIS HTTP request, with `kind`
+  (`as400_query` / `cmis_upload` / `cmis_post` / `cmis_get`),
+  `duration_ms`, plus shape-specific fields (`sql_prefix`,
+  `row_count`, `size_bytes`, `status`, `url_prefix`). Toggle via
+  `network_metrics`.
+- **Tier 4 — slow-ops report** (`logs/slow-ops-{batch_id}.jsonl`):
+  top-N slowest operations per batch, ranked descending,
+  thresholded by `slow_op_threshold_ms`. Collected in-memory by
+  a custom `_SlowOpHandler` attached to `cmcourier` +
+  `cmcourier.metrics.network` at `start_batch`; flushed to disk
+  at `close_batch`.
+- **PII masking** via `PiiMaskingFilter` installed on every
+  handler. Denylist: `cif`, `customer_name`, `account_number`,
+  `nombre`, `phone`, `email`, `address`, `dni`; plus prefix
+  `pii_*`. Values replaced with `***`. Constitution Principle
+  VIII enforced at the formatter layer — callers pass PII via
+  `extra={...}` and the filter catches it before any handler
+  formats the record.
+- **`StagedPipeline` instrumentation**: per-doc `stage_complete`
+  events (S0..S5) emitted to the `cmcourier` logger at INFO
+  with `extra={pipeline, stage, batch_id, txn_num, outcome,
+  duration_ms}`. Aggregation flows into the per-batch summary.
+- **Adapter instrumentation**: `As400DataSource.query` /
+  `query_stream` emit AS400 network events. `CmisUploader`
+  emits network events for warmup (GET), type-definition (GET),
+  folder create (POST), and document upload (POST). 1-2 lines
+  per request path; if `network_metrics=false`, the dedicated
+  logger is silenced (level above CRITICAL) — emission cost is
+  one level check.
+- **Doctor check `log_dir_writable`**: probes
+  `observability.log_dir` for create + write before the rest of
+  the pre-flight runs. FAIL surfaces unwritable paths with a
+  clear `OSError` detail. Runs first because if logging is
+  broken, every other check's output is invisible.
+- **`observability.setup.configure(config, log_level)`** — the
+  primary entry point. Idempotent: removes existing handlers,
+  resets propagation and levels, installs fresh. CLI entry
+  points call this after `load_config()`. The legacy
+  `cli/logging_setup.configure(level)` shim stays for pre-config
+  paths (e.g., doctor's early failure path).
+- **15 net new tests** across 4 files (`test_formatter.py`,
+  `test_metrics.py`, `test_pipeline_emits.py`, doctor + schema
+  additions). E2E asserts the four files materialize on disk
+  with the expected JSON shape; PII regression confirms no CIF
+  value reaches any handler output.
+
+### Changed
+
+- **`cmcourier/cli/logging_setup.py`** is now a 4-line shim that
+  delegates to `observability.setup.configure(stderr_only=True)`.
+  Backwards-compatible signature.
+- **`cmcourier/cli/app.py`** calls
+  `observability.setup.configure(config.observability, log_level)`
+  after parsing in every entry point (run + doctor + single-doc).
+- **`cmcourier/orchestrators/staged.py`** accepts optional
+  `metrics_recorder` and `pipeline_name`. Per-stage work
+  wrapped in `with StageTimer(...): ...`. `mark_failed()` on
+  caught exception paths so the recorded outcome reflects
+  reality. Batch lifecycle wraps `recorder.start_batch(...)` →
+  stages → `recorder.close_batch(...)`.
+- **`cmcourier/config/wiring.py`** builds a `MetricsRecorder`
+  from `config.observability` and threads it into
+  `StagedPipeline`. New `pipeline_name` kwarg defaults to
+  `csv-trigger`.
+- **`cmcourier/adapters/sources/as400.py`** times each
+  `query`/`query_stream` call (including stream completion) and
+  emits a network event.
+- **`cmcourier/adapters/upload/cmis_uploader.py`** times the
+  warmup, type-definition, and retry-loop POST paths. A new
+  `_emit_network` helper centralizes the structured logging
+  call.
+
+### Verification
+
+- `pytest --cov`: **502 / 502 pass** in ~65 s (+35 net new across
+  the change cycle; the headline target was ≥15 new tests for
+  observability itself).
+- Coverage: total **94.92 %**; `observability/__init__.py` at
+  **100 %**, `formatter.py` at **100 %**, `pii.py` at **100 %**,
+  `setup.py` at **98 %**, `metrics.py` at **96 %**.
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (43 source files).
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+
+### Rationale
+
+The MVP was running on a single stderr text handler — fine for
+unit-test feedback, blind for a real dry run. REBIRTH §17.4
+specified the multi-tier surface; 020 ships the four cheap tiers
+and explicitly defers the expensive one (`psutil` sampling).
+With these tiers an operator can answer the questions that
+matter during a real migration:
+
+* "Why was this batch slow?" → `metrics-{date}.jsonl` shows
+  which stage dominated. p95 vs p50 reveals tail latency.
+* "Which document took the longest?" →
+  `slow-ops-{batch_id}.jsonl` ranks top-N.
+* "Is the upload network bound?" →
+  `network-{date}.jsonl` per-request timings make this trivial
+  to chart.
+* "Did the pipeline really finish stage S2 for all docs?" →
+  `app-{date}.log` has per-doc `stage_complete` events.
+
+**Key architectural decisions** worth remembering:
+
+1. *Logger-name routing*. Each tier has a named logger
+   (`cmcourier.metrics.pipeline`, `.network`, `.slow_ops`). The
+   handler/formatter/filter wiring lives in `setup.py`. Caller
+   code uses normal `logger.info(...)` with `extra={...}` —
+   blissfully unaware of where the bytes go.
+2. *Slow-ops via handler interception*. A custom
+   `_SlowOpHandler` is attached at `start_batch` to `cmcourier`
+   + `cmcourier.metrics.network`. Any record with `duration_ms`
+   above threshold becomes a candidate. No constructor changes
+   to adapters — they just emit, the handler catches.
+3. *PII at the formatter boundary*. The denylist filter mutates
+   `record.__dict__` BEFORE the formatter runs. Even if a
+   caller accidentally passes a CIF as `extra={"cif": "..."}`,
+   the disk only sees `***`. The `name` key is intentionally
+   absent from the denylist (it collides with
+   `LogRecord.name` — masking it triggers an infinite
+   audit-log recursion).
+4. *State leak resistance*. `_reset_all_handlers` resets level
+   to NOTSET and propagation to True for every monitored logger
+   before installing fresh handlers. Tests share the process
+   logging state; without the reset, propagate=False from one
+   test would silently break caplog in the next.
 
 ---
 

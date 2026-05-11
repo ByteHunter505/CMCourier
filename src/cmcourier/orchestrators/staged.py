@@ -30,6 +30,7 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from cmcourier.adapters.assembly import PdfAssembler
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
@@ -56,6 +57,7 @@ from cmcourier.domain.models import (
     TriggerRecord,
 )
 from cmcourier.domain.ports import ITrackingStore, S0Strategy
+from cmcourier.observability.metrics import MetricsRecorder, StageTimer
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.mapping import MappingService
 from cmcourier.services.metadata import MetadataService
@@ -123,6 +125,8 @@ class StagedPipeline:
         assembler: PdfAssembler,
         uploader: CmisUploader,
         tracking_store: ITrackingStore,
+        metrics_recorder: MetricsRecorder | None = None,
+        pipeline_name: str = "csv-trigger",
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -131,6 +135,14 @@ class StagedPipeline:
         self._assembler = assembler
         self._uploader = uploader
         self._tracking_store = tracking_store
+        self._metrics = metrics_recorder or MetricsRecorder(
+            log_dir=Path("./logs"),
+            slow_op_threshold_ms=5000.0,
+            slow_op_top_n=20,
+            enabled=False,
+            pipeline_metrics_enabled=False,
+        )
+        self._pipeline_name = pipeline_name
 
     # ----------------------------------------------------------- public API
 
@@ -146,8 +158,11 @@ class StagedPipeline:
         start = time.monotonic()
         self._validate_parameters(batch_size, from_stage, batch_id)
         resolved_batch_id = self._resolve_batch_id(batch_id, from_stage, batch_size)
+        self._metrics.start_batch(pipeline=self._pipeline_name, batch_id=resolved_batch_id)
 
+        s0_start = time.monotonic()
         triggers = list(self._trigger_strategy.acquire(source_descriptor))
+        self._metrics.record_stage(stage="S0", duration_ms=(time.monotonic() - s0_start) * 1000.0)
         resume_scope = (
             self._tracking_store.list_txn_nums_for_batch(resolved_batch_id)
             if from_stage > 1
@@ -167,10 +182,19 @@ class StagedPipeline:
         self._tracking_store.flush()
         self._tracking_store.complete_batch(resolved_batch_id)
 
+        elapsed = time.monotonic() - start
+        total_docs = s1_done + skipped
+        self._metrics.close_batch(
+            pipeline=self._pipeline_name,
+            batch_id=resolved_batch_id,
+            total_docs=total_docs,
+            elapsed_s=elapsed,
+        )
+
         return RunReport(
             batch_id=resolved_batch_id,
             total_triggers=len(triggers),
-            total_docs=s1_done + skipped,
+            total_docs=total_docs,
             s1_done=s1_done,
             s1_skipped_cross_batch=skipped,
             s2_done=s2_done,
@@ -181,7 +205,7 @@ class StagedPipeline:
             s4_failed=s4_failed,
             s5_done=s5_done,
             s5_failed=s5_failed,
-            elapsed_seconds=time.monotonic() - start,
+            elapsed_seconds=elapsed,
         )
 
     # ----------------------------------------------------------- helpers
@@ -233,26 +257,37 @@ class StagedPipeline:
         items: list[_StageItem] = []
         skipped_cross_batch = 0
         for trigger in triggers:
-            try:
-                docs = self._indexing_service.find_documents(trigger)
-            except RVABREPNotFoundError:
-                _log.warning(
-                    "pipeline: trigger has no rvabrep rows",
-                    extra={"batch_id": batch_id, "shortname": trigger.shortname},
-                )
-                continue
-            except RVABREPDeletedError:
-                _log.warning(
-                    "pipeline: every rvabrep row deleted",
-                    extra={"batch_id": batch_id, "shortname": trigger.shortname},
-                )
-                continue
-            except IndexingError:
-                _log.exception(
-                    "pipeline: indexing failed",
-                    extra={"batch_id": batch_id, "shortname": trigger.shortname},
-                )
-                continue
+            docs: list[RVABREPDocument] = []
+            with StageTimer(
+                self._metrics,
+                pipeline=self._pipeline_name,
+                stage="S1",
+                batch_id=batch_id,
+                txn_num=trigger.shortname,
+            ) as timer:
+                try:
+                    docs = self._indexing_service.find_documents(trigger)
+                except RVABREPNotFoundError:
+                    timer.mark_failed()
+                    _log.warning(
+                        "pipeline: trigger has no rvabrep rows",
+                        extra={"batch_id": batch_id, "shortname": trigger.shortname},
+                    )
+                    continue
+                except RVABREPDeletedError:
+                    timer.mark_failed()
+                    _log.warning(
+                        "pipeline: every rvabrep row deleted",
+                        extra={"batch_id": batch_id, "shortname": trigger.shortname},
+                    )
+                    continue
+                except IndexingError:
+                    timer.mark_failed()
+                    _log.exception(
+                        "pipeline: indexing failed",
+                        extra={"batch_id": batch_id, "shortname": trigger.shortname},
+                    )
+                    continue
             for doc in docs:
                 if resume_scope is not None and doc.txn_num not in resume_scope:
                     _log.info(
@@ -295,17 +330,25 @@ class StagedPipeline:
         failed = 0
         for item in items:
             txn = item.document.txn_num
-            try:
-                mapping = self._mapping_service.get_mapping(item.document.index7)
-            except IDRViNotMappedError as exc:
-                if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
-                    record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
-                    self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
-                    self._tracking_store.mark_stage_failed(
-                        txn, batch_id, StageStatus.S2_FAILED, str(exc)
-                    )
-                    failed += 1
-                continue
+            with StageTimer(
+                self._metrics,
+                pipeline=self._pipeline_name,
+                stage="S2",
+                batch_id=batch_id,
+                txn_num=txn,
+            ) as timer:
+                try:
+                    mapping = self._mapping_service.get_mapping(item.document.index7)
+                except IDRViNotMappedError as exc:
+                    timer.mark_failed()
+                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
+                        record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
+                        self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
+                        self._tracking_store.mark_stage_failed(
+                            txn, batch_id, StageStatus.S2_FAILED, str(exc)
+                        )
+                        failed += 1
+                    continue
             if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
                 record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
                 self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
@@ -324,19 +367,27 @@ class StagedPipeline:
         for item in items:
             assert item.mapping is not None
             txn = item.document.txn_num
-            try:
-                resolution = self._metadata_service.resolve(
-                    item.trigger, item.document, item.mapping
-                )
-            except (SourceFailedError, DefaultValidationFailedError) as exc:
-                if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
-                    record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
-                    self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
-                    self._tracking_store.mark_stage_failed(
-                        txn, batch_id, StageStatus.S3_FAILED, str(exc)
+            with StageTimer(
+                self._metrics,
+                pipeline=self._pipeline_name,
+                stage="S3",
+                batch_id=batch_id,
+                txn_num=txn,
+            ) as timer:
+                try:
+                    resolution = self._metadata_service.resolve(
+                        item.trigger, item.document, item.mapping
                     )
-                    failed += 1
-                continue
+                except (SourceFailedError, DefaultValidationFailedError) as exc:
+                    timer.mark_failed()
+                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
+                        record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
+                        self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
+                        self._tracking_store.mark_stage_failed(
+                            txn, batch_id, StageStatus.S3_FAILED, str(exc)
+                        )
+                        failed += 1
+                    continue
             if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
                 record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
                 self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
@@ -355,17 +406,25 @@ class StagedPipeline:
         failed = 0
         for item in items:
             txn = item.document.txn_num
-            try:
-                staged = self._assembler.assemble(item.document)
-            except (SourceFileMissingError, PDFAssemblyFailedError) as exc:
-                if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
-                    record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
-                    self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
-                    self._tracking_store.mark_stage_failed(
-                        txn, batch_id, StageStatus.S4_FAILED, str(exc)
-                    )
-                    failed += 1
-                continue
+            with StageTimer(
+                self._metrics,
+                pipeline=self._pipeline_name,
+                stage="S4",
+                batch_id=batch_id,
+                txn_num=txn,
+            ) as timer:
+                try:
+                    staged = self._assembler.assemble(item.document)
+                except (SourceFileMissingError, PDFAssemblyFailedError) as exc:
+                    timer.mark_failed()
+                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
+                        record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
+                        self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
+                        self._tracking_store.mark_stage_failed(
+                            txn, batch_id, StageStatus.S4_FAILED, str(exc)
+                        )
+                        failed += 1
+                    continue
             if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
                 record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
                 self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
@@ -391,21 +450,29 @@ class StagedPipeline:
                 continue
             record = self._build_record(item, batch_id, StageStatus.S5_PENDING)
             self._tracking_store.mark_stage_pending(record, StageStatus.S5_PENDING)
-            try:
-                cm_object_id = self._uploader.upload(
-                    file=item.staged_file,
-                    folder_path=item.mapping.cm_folder,
-                    object_type_id=item.mapping.cm_object_type,
-                    document_name=f"{txn}.pdf",
-                    mime_type="application/pdf",
-                    properties=dict(item.metadata.properties),
-                )
-            except (CMISClientError, CMISServerError, RetriesExhaustedError) as exc:
-                self._tracking_store.mark_stage_failed(
-                    txn, batch_id, StageStatus.S5_FAILED, str(exc)
-                )
-                failed += 1
-                continue
+            with StageTimer(
+                self._metrics,
+                pipeline=self._pipeline_name,
+                stage="S5",
+                batch_id=batch_id,
+                txn_num=txn,
+            ) as timer:
+                try:
+                    cm_object_id = self._uploader.upload(
+                        file=item.staged_file,
+                        folder_path=item.mapping.cm_folder,
+                        object_type_id=item.mapping.cm_object_type,
+                        document_name=f"{txn}.pdf",
+                        mime_type="application/pdf",
+                        properties=dict(item.metadata.properties),
+                    )
+                except (CMISClientError, CMISServerError, RetriesExhaustedError) as exc:
+                    timer.mark_failed()
+                    self._tracking_store.mark_stage_failed(
+                        txn, batch_id, StageStatus.S5_FAILED, str(exc)
+                    )
+                    failed += 1
+                    continue
             self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)
             item.cm_object_id = cm_object_id
             s5_done += 1

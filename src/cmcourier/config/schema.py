@@ -36,6 +36,7 @@ __all__ = [
     "SingleDocTriggerConfig",
     "MetadataConfigModel",
     "MetadataSourceConfig",
+    "ObservabilityConfig",
     "PipelineConfig",
     "RvabrepFiltersModel",
     "RvabrepTriggerConfig",
@@ -289,6 +290,36 @@ class TrackingConfig(BaseModel):
     db_path: Path
 
 
+class ObservabilityConfig(BaseModel):
+    """REBIRTH §17.4 observability — per-tier toggles + log dir + thresholds.
+
+    MVP ships tiers 1-4 (app log, pipeline metrics, network metrics,
+    slow-ops report). Tier 5 (system metrics via psutil) is deferred
+    to POST-MVP §2 — setting ``system_metrics: true`` raises here.
+    """
+
+    model_config = _STRICT
+    enabled: bool = True
+    pipeline_metrics: bool = True
+    network_metrics: bool = True
+    system_metrics: bool = False
+    log_dir: Path = Path("./logs")
+    log_format: Literal["json", "text"] = "json"
+    rotation_mb: int = Field(default=100, ge=1)
+    retention_days: int = Field(default=30, ge=1)
+    slow_op_threshold_ms: int = Field(default=5000, ge=0)
+    slow_op_top_n: int = Field(default=20, ge=1)
+
+    @field_validator("system_metrics")
+    @classmethod
+    def _reject_system_metrics(cls, value: bool) -> bool:
+        if value:
+            raise ValueError(
+                "observability.system_metrics is post-MVP (see docs/roadmap/POST-MVP.md §2)"
+            )
+        return value
+
+
 class PipelineConfig(BaseModel):
     """Top-level config aggregating every per-stage configuration block."""
 
@@ -300,4 +331,5 @@ class PipelineConfig(BaseModel):
     assembly: AssemblyConfig
     cmis: CmisConfigModel
     tracking: TrackingConfig
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     batch_size: int = Field(default=1000, ge=1)
