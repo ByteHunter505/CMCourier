@@ -94,7 +94,9 @@ class MockContentWriter:
         best_size = 0
         for dims, quality, fill in _PROFILES_SMALL_TO_LARGE:
             page_bytes = [self._render_jpeg_bytes(dims, quality, fill) for _ in range(plan.pages)]
-            pdf_bytes: bytes = img2pdf.convert(page_bytes)
+            # nodate=True suppresses img2pdf's default datetime.now() stamps so
+            # output is byte-deterministic for a fixed seed (REQ-024).
+            pdf_bytes: bytes = img2pdf.convert(page_bytes, nodate=True)
             size = len(pdf_bytes)
             dist = _distance_to_band(size, plan)
             if dist == 0:
