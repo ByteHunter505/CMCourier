@@ -157,7 +157,8 @@ class TestRvabrepPipeline:
         _stub_cmis_for_docs(["TXN_PIPE_001", "TXN_PIPE_002"])
         yaml_path = _write_rvabrep_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["rvabrep-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            ["rvabrep-pipeline", "run", "--no-tui", "--skip-doctor", "--config", str(yaml_path)],
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=" in result.stdout
@@ -175,7 +176,8 @@ class TestRvabrepPipeline:
         yaml_path = tmp_path / "config.yaml"
         yaml_path.write_text(f"trigger:\n  csv_path: {triggers}\n" + _common_blocks(tmp_path))
         result = cli_runner.invoke(
-            main, ["rvabrep-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            ["rvabrep-pipeline", "run", "--no-tui", "--skip-doctor", "--config", str(yaml_path)],
         )
         assert result.exit_code == 2
         assert "trigger.kind" in result.stderr
@@ -256,7 +258,15 @@ class TestAs400TriggerPipeline:
         monkeypatch.delenv("AS400_PASSWORD", raising=False)
         yaml_path = _write_as400_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["as400-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            [
+                "as400-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         assert result.exit_code == 2
         assert "AS400" in result.stderr
@@ -286,7 +296,15 @@ class TestAs400TriggerPipeline:
         _stub_cmis_for_docs(["TXN_PIPE_001"])
         yaml_path = _write_as400_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["as400-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            [
+                "as400-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
@@ -344,7 +362,8 @@ class TestLocalScanPipeline:
         yaml_path = tmp_path / "config.yaml"
         yaml_path.write_text(f"trigger:\n  csv_path: {triggers}\n" + _common_blocks(tmp_path))
         result = cli_runner.invoke(
-            main, ["local-scan-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            ["local-scan-pipeline", "run", "--no-tui", "--skip-doctor", "--config", str(yaml_path)],
         )
         assert result.exit_code == 2
         assert "trigger.kind" in result.stderr
@@ -365,7 +384,8 @@ class TestLocalScanPipeline:
         _stub_cmis_for_docs(["TXN_PIPE_001"])
         yaml_path = _write_local_scan_yaml(tmp_path, scan_dir)
         result = cli_runner.invoke(
-            main, ["local-scan-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            ["local-scan-pipeline", "run", "--no-tui", "--skip-doctor", "--config", str(yaml_path)],
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=" in result.stdout
@@ -408,6 +428,7 @@ class TestSingleDocPipeline:
             [
                 "single-doc",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -435,6 +456,7 @@ class TestSingleDocPipeline:
             [
                 "single-doc",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -509,6 +531,7 @@ class TestResumeFlag:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -531,6 +554,7 @@ class TestResumeFlag:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -557,6 +581,7 @@ class TestResumeFlag:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -586,6 +611,7 @@ class TestResumeFlag:
                 [
                     "csv-trigger-pipeline",
                     "run",
+                    "--no-tui",
                     "--skip-doctor",
                     "--config",
                     str(yaml_path),

@@ -145,7 +145,15 @@ class TestPipelineEmits:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path)
         result = _cli_runner().invoke(
-            main, ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         assert result.exit_code == 0, result.output
         log_dir = tmp_path / "logs"
@@ -175,7 +183,15 @@ class TestPipelineEmits:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path, slow_op_threshold_ms=0)
         result = _cli_runner().invoke(
-            main, ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         assert result.exit_code == 0, result.output
         log_dir = tmp_path / "logs"
@@ -195,7 +211,15 @@ class TestPipelineEmits:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path)
         _ = _cli_runner().invoke(
-            main, ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)]
+            main,
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         # Directly emit a record with a PII extra to verify masking.
         cif_value = "SECRET_CIF_999"

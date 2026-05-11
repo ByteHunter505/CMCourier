@@ -19,7 +19,7 @@ __all__ = ["main"]
 import logging
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import click
 
@@ -35,7 +35,7 @@ from cmcourier.config.schema import CsvTriggerConfig, PipelineConfig
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.observability.setup import configure as configure_observability
-from cmcourier.orchestrators.staged import RunReport
+from cmcourier.orchestrators.staged import RunReport, StagedPipeline
 from cmcourier.services.triggers import SingleDocTriggerStrategy
 
 _log = logging.getLogger(__name__)
@@ -102,6 +102,12 @@ def csv_trigger_pipeline_group() -> None:
     default=False,
     help="Auto-detect from-stage by reading batch state. Requires --batch-id.",
 )
+@click.option(
+    "--tui/--no-tui",
+    "tui",
+    default=True,
+    help="Start the live two-tab TUI. Default ON; --no-tui for headless shells.",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def csv_run_command(
     config_path: Path,
@@ -111,6 +117,7 @@ def csv_run_command(
     triggers_override: Path | None,
     skip_doctor: bool,
     resume: bool,
+    tui: bool,
     log_level: str,
 ) -> None:
     """Run the csv-trigger pipeline end-to-end."""
@@ -124,6 +131,7 @@ def csv_run_command(
         skip_doctor=skip_doctor,
         resume=resume,
         log_level=log_level,
+        tui=tui,
     )
 
 
@@ -149,6 +157,7 @@ def rvabrep_pipeline_group() -> None:
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
+@click.option("--tui/--no-tui", "tui", default=True)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def rvabrep_run_command(
     config_path: Path,
@@ -157,6 +166,7 @@ def rvabrep_run_command(
     batch_size: int | None,
     skip_doctor: bool,
     resume: bool,
+    tui: bool,
     log_level: str,
 ) -> None:
     """Run the rvabrep-pipeline end-to-end."""
@@ -170,6 +180,7 @@ def rvabrep_run_command(
         skip_doctor=skip_doctor,
         resume=resume,
         log_level=log_level,
+        tui=tui,
     )
 
 
@@ -195,6 +206,7 @@ def as400_trigger_pipeline_group() -> None:
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
+@click.option("--tui/--no-tui", "tui", default=True)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def as400_run_command(
     config_path: Path,
@@ -203,6 +215,7 @@ def as400_run_command(
     batch_size: int | None,
     skip_doctor: bool,
     resume: bool,
+    tui: bool,
     log_level: str,
 ) -> None:
     """Run the as400-trigger-pipeline end-to-end."""
@@ -216,6 +229,7 @@ def as400_run_command(
         skip_doctor=skip_doctor,
         resume=resume,
         log_level=log_level,
+        tui=tui,
     )
 
 
@@ -241,6 +255,7 @@ def local_scan_pipeline_group() -> None:
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
+@click.option("--tui/--no-tui", "tui", default=True)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def local_scan_run_command(
     config_path: Path,
@@ -249,6 +264,7 @@ def local_scan_run_command(
     batch_size: int | None,
     skip_doctor: bool,
     resume: bool,
+    tui: bool,
     log_level: str,
 ) -> None:
     """Run the local-scan-pipeline end-to-end."""
@@ -262,6 +278,7 @@ def local_scan_run_command(
         skip_doctor=skip_doctor,
         resume=resume,
         log_level=log_level,
+        tui=tui,
     )
 
 
@@ -291,6 +308,7 @@ def single_doc_group() -> None:
 @click.option("--batch-size", type=click.IntRange(min=1), default=None)
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
+@click.option("--tui/--no-tui", "tui", default=True)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def single_doc_run_command(
     config_path: Path,
@@ -302,6 +320,7 @@ def single_doc_run_command(
     batch_size: int | None,
     skip_doctor: bool,
     resume: bool,
+    tui: bool,
     log_level: str,
 ) -> None:
     """Run a one-shot pipeline for a single document."""
@@ -346,19 +365,23 @@ def single_doc_run_command(
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
 
-    try:
-        report = pipeline.run(
-            source_descriptor="",
-            batch_size=config.batch_size,
-            batch_id=batch_id,
-            from_stage=from_stage,
-        )
-    except Exception:
-        _log.exception("single-doc run failed unexpectedly")
-        sys.exit(3)
-
-    _emit_summary(report)
-    sys.exit(0 if report.s5_failed == 0 else 1)
+    pipeline_kwargs = {
+        "source_descriptor": "",
+        "batch_size": config.batch_size,
+        "batch_id": batch_id,
+        "from_stage": from_stage,
+    }
+    report = _run_with_optional_tui(
+        pipeline=pipeline,
+        config=config,
+        pipeline_kwargs=pipeline_kwargs,
+        tui=tui,
+    )
+    _emit_outcome(
+        report=report,
+        expected_kind="single-doc",
+        quiet=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +447,7 @@ def _run_pipeline_command(
     resume: bool,
     log_level: str,
     quiet: bool = False,
+    tui: bool = False,
 ) -> None:
     configure_logging(log_level)
     try:
@@ -461,28 +485,23 @@ def _run_pipeline_command(
         if isinstance(config.trigger, CsvTriggerConfig)
         else ""  # rvabrep / as400 strategies ignore source_descriptor
     )
-    try:
-        report = pipeline.run(
-            source_descriptor=source_descriptor,
-            batch_size=config.batch_size,
-            batch_id=batch_id,
-            from_stage=from_stage,
-        )
-    except Exception:
-        _log.exception("pipeline run failed unexpectedly")
-        if quiet:
-            click.echo("Unhandled error during pipeline.run — see logs", err=True)
-        sys.exit(3)
-
-    if not quiet:
-        _emit_summary(report)
-    elif report.s5_failed > 0:
-        click.echo(
-            f"pipeline={expected_kind}-trigger batch_id={report.batch_id} "
-            f"s5_failed={report.s5_failed} exit_code=1",
-            err=True,
-        )
-    sys.exit(0 if report.s5_failed == 0 else 1)
+    pipeline_kwargs = {
+        "source_descriptor": source_descriptor,
+        "batch_size": config.batch_size,
+        "batch_id": batch_id,
+        "from_stage": from_stage,
+    }
+    report = _run_with_optional_tui(
+        pipeline=pipeline,
+        config=config,
+        pipeline_kwargs=pipeline_kwargs,
+        tui=tui,
+    )
+    _emit_outcome(
+        report=report,
+        expected_kind=expected_kind,
+        quiet=quiet,
+    )
 
 
 def _apply_overrides(
@@ -504,6 +523,89 @@ def _apply_overrides(
     if updates:
         return config.model_copy(update=updates)
     return config
+
+
+def _run_with_optional_tui(
+    *,
+    pipeline: StagedPipeline,
+    config: PipelineConfig,
+    pipeline_kwargs: dict[str, Any],
+    tui: bool,
+) -> RunReport:
+    """Run ``pipeline.run(**kwargs)`` with or without the live TUI.
+
+    Returns the :class:`RunReport`. Exits 2/3 on misuse / unhandled errors,
+    matching the headless path's exit codes. When ``tui`` is the default
+    value (not user-supplied) and stderr is not a TTY, the TUI is
+    silently auto-disabled (REQ-034) so cron/CI keep working.
+    """
+    from cmcourier.cli._tui_runner import (  # noqa: PLC0415
+        run_pipeline_with_tui,
+        tty_available,
+    )
+    from cmcourier.tui import TUIDataProvider  # noqa: PLC0415
+
+    if tui and not tty_available():
+        ctx = click.get_current_context(silent=True)
+        explicit = False
+        if ctx is not None:
+            source = ctx.get_parameter_source("tui")
+            explicit = source is not None and source.name != "DEFAULT"
+        if explicit:
+            click.echo(
+                "ConfigurationError: --tui requires a TTY; use --no-tui for headless runs",
+                err=True,
+            )
+            sys.exit(2)
+        tui = False
+
+    if not tui:
+        try:
+            return pipeline.run(**pipeline_kwargs)
+        except Exception:
+            _log.exception("pipeline run failed unexpectedly")
+            sys.exit(3)
+
+    data_provider = TUIDataProvider(
+        pipeline_name=pipeline.pipeline_name,
+        metrics_recorder=pipeline.metrics_recorder,
+        pool_stats=pipeline.pool_stats,
+        concurrency_limit=pipeline.concurrency_limit,
+        cmis_config=config.cmis,
+        uploader=pipeline.uploader,
+        auto_tune=pipeline.auto_tune_controller,
+    )
+    outcome = run_pipeline_with_tui(
+        pipeline=pipeline,
+        data_provider=data_provider,
+        pipeline_kwargs=pipeline_kwargs,
+    )
+    if outcome.exception is not None:
+        _log.exception(
+            "pipeline run failed unexpectedly",
+            exc_info=outcome.exception,
+        )
+        sys.exit(3)
+    assert outcome.report is not None
+    return outcome.report
+
+
+def _emit_outcome(
+    *,
+    report: RunReport,
+    expected_kind: str,
+    quiet: bool,
+) -> None:
+    """Emit the per-run summary line + ``sys.exit`` with the right code."""
+    if not quiet:
+        _emit_summary(report)
+    elif report.s5_failed > 0:
+        click.echo(
+            f"pipeline={expected_kind}-trigger batch_id={report.batch_id} "
+            f"s5_failed={report.s5_failed} exit_code=1",
+            err=True,
+        )
+    sys.exit(0 if report.s5_failed == 0 else 1)
 
 
 def _run_auto_doctor(config: PipelineConfig, secrets) -> None:  # type: ignore[no-untyped-def]

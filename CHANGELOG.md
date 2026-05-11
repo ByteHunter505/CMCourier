@@ -12,11 +12,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- REBIRTH §11 remaining: pipeline `--no-tui` flag (blocked on
-  TUI design).
-- TUI (REBIRTH §10.6) — separate big change.
 - POST-MVP §2 system metrics (psutil sampling) + §3 offline log
   analyzer.
+
+---
+
+## [0.27.0] — 2026-05-10 — **live TUI + S5 worker pool + AIMD auto-tune (REBIRTH §10.6, §17.4)**
+
+The S5 (CMIS upload) stage moves from a sequential loop to a real
+`ThreadPoolExecutor` worker pool, gains a textual two-tab live
+TUI, and grows an AIMD (Additive-Increase / Multiplicative-
+Decrease) auto-tune controller. This is the §10.6 "TUI by default"
+commitment realized end-to-end.
+
+### Added
+
+- **`ThreadPoolExecutor`-based S5** in `StagedPipeline._stage_s5`.
+  The pool size comes from `cmis.workers` (default 4, range
+  1..32). Each task acquires a `ResizableSemaphore` slot before
+  uploading, so the AIMD controller can raise/lower the *active*
+  cap without draining the pool.
+- **`AutoTuneController`** (`services/auto_tune.py`). Runs on a
+  daemon thread, polls the recorder's `current_stage_p95("S5")`
+  every `cmis.auto_tune.interval_s` seconds, and applies AIMD:
+  observed p95 < target → +1 worker; observed p95 > target →
+  `*0.5` workers + bump upload timeout; in-band → noop. Honors
+  a warmup window so the first decision waits for stable
+  measurements. All decisions are logged with structured extras
+  (`workers_before/after`, `timeout_before_s/after_s`,
+  `p95_observed_ms`, `p95_target_ms`, `action`).
+- **Textual two-tab TUI** (`src/cmcourier/tui/`). PREP tab shows
+  S0..S4 progress bars + slow-op listings. UPLOAD tab shows S5
+  progress, a WORKERS panel (capacity/in-use/idle/timeout/
+  last-move/next-tick), a NETWORK panel + 60-bucket 1Hz
+  bandwidth sparkline (y-axis 0 → `cmis.max_bandwidth_mbps`,
+  auto-scale when ceiling is 0), and a RUN COMPLETE overlay.
+  Tabs are switched with `[P]`/`[U]`; `[Q]` exits.
+- **`--tui / --no-tui` CLI flag** on every pipeline run command
+  (`csv-trigger`, `rvabrep`, `as400-trigger`, `local-scan`,
+  `single-doc`). Default `tui=True`. When stderr is not a TTY
+  (cron, CI, pytest), the TUI auto-disables silently. An
+  *explicit* `--tui` in a non-TTY context exits **2** with a
+  clear `ConfigurationError`. The `background` command does not
+  accept `--tui` — unattended runs are always headless.
+- **Worker label in network events** (`worker` field, e.g.
+  `cmcourier-s5_3`). Whitelisted in
+  `observability/formatter.py::ALLOWED_EXTRA_FIELDS` and
+  surfaced in the TUI's slow-op rows.
+- **`auto_tune` config block** (Pydantic-validated). Fields:
+  `enabled`, `target_p95_ms`, `tolerance_ms`, `interval_s`,
+  `warmup_s`, `min_workers`, `max_workers`,
+  `min_timeout_s`, `max_timeout_s`. Cross-field validation
+  enforces `min_workers ≤ max_workers` and
+  `min_timeout_s ≤ max_timeout_s`.
+
+### Changed
+
+- **`CmisUploader._timeout_s` is now mutable** so the auto-tune
+  controller can adjust the upload timeout. `CmisConfig` stays
+  frozen — the per-instance override happens in the uploader.
+- **Thread-safety on the hot path**: `MetricsRecorder._StageBucket`
+  and `SlowOpAggregator._candidates` now hold a `threading.Lock`;
+  `SQLiteTrackingStore` opens with `check_same_thread=False` and
+  serializes reads through `_reader_lock`. `CmisUploader` gains
+  `_folder_lock` + `_warm_lock` so concurrent workers can't
+  double-warm or double-mkfolder.
+- **Circular import broken**: `cmcourier/config/__init__.py` now
+  resolves `build_pipeline` via a lazy `__getattr__` so
+  `orchestrators.staged` can import the observability stack
+  without re-entering config wiring.
+
+### Tests
+
+- 12 new unit tests for `WorkerPoolStats` + `ResizableSemaphore`.
+- 10 new unit tests for the AIMD `decide()` function +
+  `AutoTuneController`.
+- 25 new TUI tests (chart sparkline, data provider, both tabs).
+- 7 new integration tests for the S5 worker pool end-to-end.
+- 4 new CLI tests for `--tui` / `--no-tui` semantics including
+  the explicit-tui-in-non-TTY → exit 2 branch.
+- 655 tests total green, mypy clean, ruff clean.
+
+### Notes
+
+- Slow / fast S5 lanes remain explicitly post-MVP per
+  REBIRTH §10.7 — they aren't in 025 by design. The current
+  pool is a single resizable pool sized by `cmis.workers`.
+- The bandwidth chart uses the operator-configured
+  `cmis.max_bandwidth_mbps` rather than an autodetected
+  interface speed. Honest and fragile-detection-free.
 
 ---
 

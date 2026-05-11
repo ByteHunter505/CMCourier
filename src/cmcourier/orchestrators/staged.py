@@ -157,6 +157,36 @@ class StagedPipeline:
         # 025 phase 2: soft-cap concurrency limit. Auto-tune adjusts it.
         self._auto_tune_cfg = auto_tune
         self._concurrency_limit = ResizableSemaphore(self._workers)
+        # 025 phase 3: build the controller eagerly so the TUI can reference
+        # it before run() starts. The controller stays idle (no thread) until
+        # ``start()`` is called inside _stage_s5.
+        self._auto_tune_controller: AutoTuneController | None = self._build_auto_tune_controller()
+
+    # ------------------------------------------------- TUI accessors
+
+    @property
+    def metrics_recorder(self) -> MetricsRecorder:
+        return self._metrics
+
+    @property
+    def pool_stats(self) -> WorkerPoolStats:
+        return self._pool_stats
+
+    @property
+    def concurrency_limit(self) -> ResizableSemaphore:
+        return self._concurrency_limit
+
+    @property
+    def uploader(self) -> CmisUploader:
+        return self._uploader
+
+    @property
+    def pipeline_name(self) -> str:
+        return self._pipeline_name
+
+    @property
+    def auto_tune_controller(self) -> AutoTuneController | None:
+        return self._auto_tune_controller
 
     # --------------------------------------------------- auto-tune wiring
 
@@ -210,7 +240,7 @@ class StagedPipeline:
         s3_done = len(items)
         items, s4_failed = self._stage_s4(items, resolved_batch_id)
         s4_done = len(items)
-        controller = self._build_auto_tune_controller()
+        controller = self._auto_tune_controller
         try:
             if controller is not None:
                 controller.start()

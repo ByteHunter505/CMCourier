@@ -164,7 +164,14 @@ class TestRunHappyPath:
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)],
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
@@ -184,6 +191,7 @@ class TestRunErrors:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(tmp_path / "nope.yaml"),
@@ -205,7 +213,14 @@ class TestRunErrors:
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)],
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         assert result.exit_code == 2
         assert "ConfigurationError" in result.stderr
@@ -225,7 +240,14 @@ class TestRunErrors:
         yaml_path = _write_config_yaml(tmp_path, triggers_csv=triggers)
         result = cli_runner.invoke(
             main,
-            ["csv-trigger-pipeline", "run", "--skip-doctor", "--config", str(yaml_path)],
+            [
+                "csv-trigger-pipeline",
+                "run",
+                "--no-tui",
+                "--skip-doctor",
+                "--config",
+                str(yaml_path),
+            ],
         )
         # s5_done == 0 means stage failures upstream → exit 1.
         # But report.s5_failed is 0 (never reached S5), so technically REQ-020
@@ -257,6 +279,7 @@ class TestRunOverrides:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -282,6 +305,7 @@ class TestRunOverrides:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -341,7 +365,7 @@ class TestAutoDoctor:
         _stub_doctor_type_definitions()
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["csv-trigger-pipeline", "run", "--config", str(yaml_path)]
+            main, ["csv-trigger-pipeline", "run", "--no-tui", "--config", str(yaml_path)]
         )
         assert result.exit_code == 0, result.stderr
         # Doctor report rendered.
@@ -368,7 +392,7 @@ class TestAutoDoctor:
         )
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
-            main, ["csv-trigger-pipeline", "run", "--config", str(yaml_path)]
+            main, ["csv-trigger-pipeline", "run", "--no-tui", "--config", str(yaml_path)]
         )
         # Doctor FAIL → exit 2 before the pipeline starts.
         assert result.exit_code == 2
@@ -392,6 +416,7 @@ class TestAutoDoctor:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),

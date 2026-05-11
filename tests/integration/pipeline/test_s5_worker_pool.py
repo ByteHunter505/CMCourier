@@ -134,6 +134,7 @@ class TestS5WorkerPool:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -151,6 +152,7 @@ class TestS5WorkerPool:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -231,6 +233,7 @@ tracking:
             [
                 "csv-trigger-pipeline",
                 "run",
+                "--no-tui",
                 "--skip-doctor",
                 "--config",
                 str(yaml_path),
@@ -349,6 +352,7 @@ observability:
                 [
                     "csv-trigger-pipeline",
                     "run",
+                    "--no-tui",
                     "--skip-doctor",
                     "--config",
                     str(yaml_path),
