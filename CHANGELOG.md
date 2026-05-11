@@ -12,11 +12,138 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- REBIRTH §11 remaining: `background --pipeline` runner +
-  pipeline `--no-tui` flag (both blocked on TUI design).
+- REBIRTH §11 remaining: pipeline `--no-tui` flag (blocked on
+  TUI design).
 - TUI (REBIRTH §10.6) — separate big change.
 - POST-MVP §2 system metrics (psutil sampling) + §3 offline log
   analyzer.
+
+---
+
+## [0.26.0] — 2026-05-10 — **background runner (REBIRTH §11)**
+
+Cron-friendly entry point for unattended pipeline execution.
+Closes the last operationally-meaningful gap from REBIRTH §11
+ahead of the real dry run.
+
+### Added
+
+- **`cmcourier background --pipeline <kind>`** — single
+  dispatcher for unattended execution. Accepts the four
+  production pipelines (`csv-trigger`, `rvabrep`,
+  `as400-trigger`, `local-scan`); `single-doc` is intentionally
+  rejected by Click's `Choice` (it's an ad-hoc tool, not a
+  cron use case).
+- **Per-config exclusive lock** via
+  `cmcourier.cli.commands._lock.acquire_config_lock`. Lock file
+  lives at `${XDG_RUNTIME_DIR:-/tmp}/cmcourier/<sha256(config_path)[:12]>.lock`.
+  `fcntl.flock(fd, LOCK_EX | LOCK_NB)` — non-blocking. Second
+  invocation on the same config exits **75** (`os.EX_TEMPFAIL`,
+  cron-conventional "transient, retry later") and emits a
+  WARNING `background_lock_held` log line.
+- **`LockHeldError` exception** — raised by
+  `acquire_config_lock` on contention. Carries the lock path
+  for diagnostics. Released by the kernel on process exit
+  including `SIGKILL` (fd-close semantics).
+- **Quiet-on-success output**. The background runner suppresses
+  the `_emit_summary` stdout line on success — only the
+  structured observability tiers record the run. Cron stays
+  silent on green; the operator's mailer only fires when
+  something is wrong.
+- **Failure stderr summary**. On `report.s5_failed > 0`,
+  emits a single line:
+  `pipeline=<kind> batch_id=<id> s5_failed=<n> exit_code=1`.
+  Cron forwards this to the operator.
+- **`--log-level WARNING` default** (interactive runs default
+  to `INFO`). Same WARNING threshold as the rest of cron-aware
+  Unix tooling.
+- **5 background integration tests** + **9 unit tests** for
+  the lock module:
+  - Lock unit tests cover: roundtrip release, contention
+    raises, deterministic path, XDG / /tmp fallback, PID +
+    timestamp content, low-level fcntl semantics.
+  - Background CLI tests cover: help lists flags, unknown
+    pipeline rejected, quiet success, lock contention exits
+    75, lock released after run.
+
+### Changed
+
+- **`_run_pipeline_command` in `cli/app.py`** gains a
+  keyword-only `quiet: bool = False`. The interactive
+  pipelines pass `quiet=False` by default (unchanged
+  behavior); `background_command` passes `quiet=True`.
+- **`_apply_resume`** gains `quiet: bool = False` for
+  symmetry: when set, the "Nothing to resume" stdout echo is
+  suppressed (still exits 0).
+- **`cli/app.py`** registers the new `background_command` via
+  `main.add_command(background_command)` next to the other
+  top-level commands.
+
+### Verification
+
+- `pytest --cov`: **587 / 587 pass** in ~100 s (+14 net new).
+- Coverage: total **94 %**;
+  `cli/commands/_lock.py` at **100 %**,
+  `cli/commands/background.py` at **100 %**.
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (50 source files).
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+- Smoke: `cmcourier --help` lists `background` next to the
+  existing 9 commands. `cmcourier background --help` lists
+  every flag.
+
+### Rationale
+
+Until 024, the only way to schedule a CMCourier pipeline run
+was to call `csv-trigger-pipeline run` (or one of its
+siblings) from cron. That worked but leaked two problems:
+
+1. **No instance lock.** Two overlapping cron runs would race
+   on the tracking store. SQLite WAL keeps rows correct but
+   the batch lifecycle (`start_batch` / `mark_stage_*` /
+   `complete_batch`) interleaves badly enough to corrupt
+   per-stage counts. The kernel-enforced flock guarantees
+   only one runner per config at a time. Second runner exits
+   immediately with `EX_TEMPFAIL` (75) — cron's
+   `MAILTO=...` doesn't fire (success), cron's retry
+   semantics resume on the next tick.
+2. **Stdout chatter on success.** Cron emails on any
+   stdout/stderr output by default. The interactive command
+   prints a one-line `s5_done=N` summary on every successful
+   run. With a daily cron that's a spam email a day. The
+   structured logs (app log + metrics + slow-ops) already
+   capture everything an operator needs — terminal output
+   adds zero value to unattended runs.
+
+**Architectural decisions:**
+
+1. *fcntl over PID files.* PID files are operator-overrideable
+   (`echo 0 > /var/run/cmcourier.pid`) and leak on SIGKILL.
+   `fcntl.flock` is kernel-enforced and released
+   automatically when the fd closes — including on `SIGKILL`.
+   The lock file does store the PID + ISO timestamp for
+   debugging, but operators MUST NOT use it for process
+   control (the flock is authoritative).
+2. *Per-config locks, not per-host.* Two configs targeting
+   the same tracking store would still collide; that's an
+   operator misconfiguration, not a runner bug. Lock keyed
+   on `sha256(config_path.resolve())[:12]` means two
+   invocations on the same config file collide
+   deterministically.
+3. *Reuse over reinvention.* `background_command` doesn't
+   reimplement pipeline orchestration — it acquires the
+   lock, then dispatches into `_run_pipeline_command` (the
+   same helper the interactive commands use), with
+   `quiet=True`. Auto-doctor + `--resume` work identically.
+4. *Single-doc not supported.* `single-doc` requires
+   `--shortname`/`--system`/`--cif` per invocation — that's
+   ad-hoc, not scheduled. Click's `Choice` rejects it
+   explicitly so operators don't accidentally schedule one.
+5. *`os.EX_TEMPFAIL` not custom code.* The sysexits.h
+   convention (75 = "transient failure, retry later") is
+   what cron and systemd-timer + supervisor tools expect.
+   Using the documented constant means no operator surprise.
 
 ---
 

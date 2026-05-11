@@ -25,6 +25,7 @@ import click
 
 from cmcourier import __version__
 from cmcourier.cli.commands.as400_query import as400_query_command
+from cmcourier.cli.commands.background import background_command
 from cmcourier.cli.commands.batch import batch_group
 from cmcourier.cli.commands.inspect import inspect_group
 from cmcourier.cli.doctor import DoctorReport, run_doctor
@@ -58,6 +59,7 @@ def main() -> None:
 main.add_command(batch_group)
 main.add_command(inspect_group)
 main.add_command(as400_query_command)
+main.add_command(background_command)
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +423,7 @@ def _run_pipeline_command(
     skip_doctor: bool,
     resume: bool,
     log_level: str,
+    quiet: bool = False,
 ) -> None:
     configure_logging(log_level)
     try:
@@ -445,7 +448,7 @@ def _run_pipeline_command(
     if not skip_doctor:
         _run_auto_doctor(config, secrets)
     if resume:
-        from_stage = _apply_resume(config, batch_id, from_stage)
+        from_stage = _apply_resume(config, batch_id, from_stage, quiet=quiet)
 
     try:
         pipeline = build_pipeline(config, secrets, pipeline_name=f"{expected_kind}-trigger")
@@ -467,9 +470,18 @@ def _run_pipeline_command(
         )
     except Exception:
         _log.exception("pipeline run failed unexpectedly")
+        if quiet:
+            click.echo("Unhandled error during pipeline.run — see logs", err=True)
         sys.exit(3)
 
-    _emit_summary(report)
+    if not quiet:
+        _emit_summary(report)
+    elif report.s5_failed > 0:
+        click.echo(
+            f"pipeline={expected_kind}-trigger batch_id={report.batch_id} "
+            f"s5_failed={report.s5_failed} exit_code=1",
+            err=True,
+        )
     sys.exit(0 if report.s5_failed == 0 else 1)
 
 
@@ -522,12 +534,16 @@ def _apply_resume(
     config: PipelineConfig,
     batch_id: str | None,
     explicit_from_stage: int,
+    *,
+    quiet: bool = False,
 ) -> int:
     """Resolve ``--resume`` into a concrete ``from_stage`` int.
 
     Calls ``sys.exit`` on misuse (no batch_id, unknown batch, clean batch).
     When ``explicit_from_stage`` is non-default, it WINS and emits a
-    WARNING — explicit beats inferred.
+    WARNING — explicit beats inferred. ``quiet=True`` suppresses the
+    "Nothing to resume" stdout echo (still exits 0); used by the
+    background runner.
     """
     from cmcourier.adapters.tracking import SQLiteTrackingStore  # noqa: PLC0415
 
@@ -552,7 +568,8 @@ def _apply_resume(
             resolved = n
             break
     if resolved is None:
-        click.echo(f"Nothing to resume — batch {batch_id} is clean")
+        if not quiet:
+            click.echo(f"Nothing to resume — batch {batch_id} is clean")
         sys.exit(0)
     if explicit_from_stage != 1:
         _log.warning(
