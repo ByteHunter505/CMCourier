@@ -737,3 +737,55 @@ class TestCmisWorkersAndAutoTune:
         assert len(config.metadata.sources) == 2
         assert isinstance(config.metadata.sources[0], CsvMetadataSourceConfig)
         assert isinstance(config.metadata.sources[1], As400MetadataSourceConfig)
+
+
+# ---------------------------------------------------------------------------
+# 028 — Processing / multi-batch
+# ---------------------------------------------------------------------------
+
+
+class TestProcessingConfig:
+    def test_defaults(self) -> None:
+        from cmcourier.config.schema import ProcessingConfig
+
+        cfg = ProcessingConfig()
+        assert cfg.batches_in_flight == 2
+
+    def test_n_one_accepted(self) -> None:
+        from cmcourier.config.schema import ProcessingConfig
+
+        cfg = ProcessingConfig(batches_in_flight=1)
+        assert cfg.batches_in_flight == 1
+
+    def test_n_two_accepted(self) -> None:
+        from cmcourier.config.schema import ProcessingConfig
+
+        cfg = ProcessingConfig(batches_in_flight=2)
+        assert cfg.batches_in_flight == 2
+
+    def test_n_zero_rejected(self) -> None:
+        from cmcourier.config.schema import ProcessingConfig
+
+        with pytest.raises(ValidationError):
+            ProcessingConfig(batches_in_flight=0)
+
+    def test_n_three_rejected_pointing_to_followup(self) -> None:
+        """N>=3 is documented as a future change (see spec 028)."""
+        from cmcourier.config.schema import ProcessingConfig
+
+        with pytest.raises(ValidationError):
+            ProcessingConfig(batches_in_flight=3)
+
+    def test_pipeline_config_default_factory(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        config = PipelineConfig.model_validate(data)
+        assert config.processing.batches_in_flight == 2

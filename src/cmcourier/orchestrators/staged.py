@@ -314,6 +314,45 @@ class StagedPipeline:
             return batch_id
         return self._tracking_store.start_batch(total_records=batch_size)
 
+    # ----------------------------------------------------- multi-batch entry points
+    # 028: prep_chunk / upload_chunk let MultiBatchOrchestrator drive each chunk
+    # with its own MetricsRecorder while sharing the rest of the pipeline's
+    # state (S5 worker pool, tracking, services, AIMD controller).
+
+    def prep_chunk(
+        self,
+        *,
+        triggers: list[TriggerRecord],
+        batch_id: str,
+        recorder: MetricsRecorder,
+        from_stage: int = 1,
+    ) -> tuple[list[_StageItem], int, int, int, int, int]:
+        """Run S0..S4 on a pre-acquired chunk of triggers.
+
+        Returns ``(items, skipped, s1_done, s2_failed, s3_failed, s4_failed)``.
+        Trigger acquisition is the orchestrator's responsibility — this
+        method takes the list directly.
+        """
+        resume_scope = (
+            self._tracking_store.list_txn_nums_for_batch(batch_id) if from_stage > 1 else None
+        )
+        items, skipped = self._stage_s0_s1(triggers, batch_id, resume_scope, recorder=recorder)
+        s1_done = len(items)
+        items, s2_failed = self._stage_s2(items, batch_id, recorder=recorder)
+        items, s3_failed = self._stage_s3(items, batch_id, recorder=recorder)
+        items, s4_failed = self._stage_s4(items, batch_id, recorder=recorder)
+        return items, skipped, s1_done, s2_failed, s3_failed, s4_failed
+
+    def upload_chunk(
+        self,
+        *,
+        items: list[_StageItem],
+        batch_id: str,
+        recorder: MetricsRecorder,
+    ) -> tuple[int, int]:
+        """Run S5 on a prepared chunk. Returns ``(s5_done, s5_failed)``."""
+        return self._stage_s5(items, batch_id, recorder=recorder)
+
     def _build_record(
         self,
         item: _StageItem,
@@ -343,13 +382,16 @@ class StagedPipeline:
         triggers: list[TriggerRecord],
         batch_id: str,
         resume_scope: set[str] | None,
+        *,
+        recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
+        rec = recorder or self._metrics
         items: list[_StageItem] = []
         skipped_cross_batch = 0
         for trigger in triggers:
             docs: list[RVABREPDocument] = []
             with StageTimer(
-                self._metrics,
+                rec,
                 pipeline=self._pipeline_name,
                 stage="S1",
                 batch_id=batch_id,
@@ -415,13 +457,16 @@ class StagedPipeline:
         self,
         items: list[_StageItem],
         batch_id: str,
+        *,
+        recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
+        rec = recorder or self._metrics
         survivors: list[_StageItem] = []
         failed = 0
         for item in items:
             txn = item.document.txn_num
             with StageTimer(
-                self._metrics,
+                rec,
                 pipeline=self._pipeline_name,
                 stage="S2",
                 batch_id=batch_id,
@@ -451,14 +496,17 @@ class StagedPipeline:
         self,
         items: list[_StageItem],
         batch_id: str,
+        *,
+        recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
+        rec = recorder or self._metrics
         survivors: list[_StageItem] = []
         failed = 0
         for item in items:
             assert item.mapping is not None
             txn = item.document.txn_num
             with StageTimer(
-                self._metrics,
+                rec,
                 pipeline=self._pipeline_name,
                 stage="S3",
                 batch_id=batch_id,
@@ -491,13 +539,16 @@ class StagedPipeline:
         self,
         items: list[_StageItem],
         batch_id: str,
+        *,
+        recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
+        rec = recorder or self._metrics
         survivors: list[_StageItem] = []
         failed = 0
         for item in items:
             txn = item.document.txn_num
             with StageTimer(
-                self._metrics,
+                rec,
                 pipeline=self._pipeline_name,
                 stage="S4",
                 batch_id=batch_id,
@@ -527,6 +578,8 @@ class StagedPipeline:
         self,
         items: list[_StageItem],
         batch_id: str,
+        *,
+        recorder: MetricsRecorder | None = None,
     ) -> tuple[int, int]:
         """S5 uploads, parallelized over ``self._workers`` threads (025).
 
@@ -534,7 +587,11 @@ class StagedPipeline:
         `CmisUploader` is thread-safe per 025 R011/R012; per-stage
         metrics use a lock under the hood. Outcomes are tallied in
         the main thread from ``as_completed`` results.
+
+        028: ``recorder`` lets the multi-batch orchestrator route
+        S5 timings to the per-chunk recorder.
         """
+        rec = recorder or self._metrics
         self._pool_stats.set_pool_size(self._workers)
         self._pool_stats.set_queue_depth(len(items))
         s5_done = 0
@@ -543,7 +600,7 @@ class StagedPipeline:
             max_workers=self._workers,
             thread_name_prefix="cmcourier-s5",
         ) as pool:
-            futures = {pool.submit(self._upload_one, item, batch_id): item for item in items}
+            futures = {pool.submit(self._upload_one, item, batch_id, rec): item for item in items}
             for fut in as_completed(futures):
                 outcome = fut.result()
                 if outcome == "done":
@@ -557,6 +614,7 @@ class StagedPipeline:
         self,
         item: _StageItem,
         batch_id: str,
+        recorder: MetricsRecorder | None = None,
     ) -> Literal["done", "failed", "skipped"]:
         """Per-doc S5 work executed inside a worker thread (025)."""
         assert item.mapping is not None
@@ -576,7 +634,7 @@ class StagedPipeline:
             record = self._build_record(item, batch_id, StageStatus.S5_PENDING)
             self._tracking_store.mark_stage_pending(record, StageStatus.S5_PENDING)
             with StageTimer(
-                self._metrics,
+                recorder or self._metrics,
                 pipeline=self._pipeline_name,
                 stage="S5",
                 batch_id=batch_id,

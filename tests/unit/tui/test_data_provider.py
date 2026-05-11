@@ -140,6 +140,7 @@ class TestTUIDataProvider:
             net_log.info(
                 "cmis_upload",
                 extra={
+                    "batch_id": "b1",
                     "kind": "cmis_upload",
                     "duration_ms": 9999.0,
                     "txn_num": "TXN_S",

@@ -327,6 +327,19 @@ class TrackingConfig(BaseModel):
     db_path: Path
 
 
+class ProcessingConfig(BaseModel):
+    """POST-MVP §7 — multi-batch orchestration knobs.
+
+    ``batches_in_flight`` controls the producer-consumer overlap:
+    while batch N uploads (S5), batches N+1..N+(K-1) prepare
+    (S0–S4) concurrently. Default ``2`` is the canonical
+    "one preparing + one uploading" model.
+    """
+
+    model_config = _STRICT
+    batches_in_flight: int = Field(default=2, ge=1, le=2)
+
+
 class SystemMetricsConfig(BaseModel):
     """POST-MVP §2 — tier 5 system resource sampling via ``psutil``.
 
@@ -385,4 +398,5 @@ class PipelineConfig(BaseModel):
     cmis: CmisConfigModel
     tracking: TrackingConfig
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     batch_size: int = Field(default=1000, ge=1)

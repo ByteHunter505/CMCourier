@@ -243,15 +243,26 @@ class _SlowOpHandler(logging.Handler):
     start. Any record with a ``duration_ms`` attribute is a
     candidate; the aggregator's threshold filters cheap operations
     out before allocation.
+
+    028: every handler is tagged with the ``batch_id`` of the
+    recorder that owns it. Records whose ``record.batch_id`` does
+    not match are dropped at the handler level so multiple
+    concurrent recorders (one per chunk) don't cross-pollinate.
+    A record without a ``batch_id`` extra is also dropped — slow
+    ops outside any batch lifetime are not meaningful.
     """
 
-    def __init__(self, aggregator: SlowOpAggregator) -> None:
+    def __init__(self, aggregator: SlowOpAggregator, *, batch_id: str) -> None:
         super().__init__(level=logging.INFO)
         self._agg = aggregator
+        self._batch_id = batch_id
 
     def emit(self, record: logging.LogRecord) -> None:
         dms = getattr(record, "duration_ms", None)
         if dms is None:
+            return
+        record_batch_id = getattr(record, "batch_id", None)
+        if record_batch_id != self._batch_id:
             return
         self._agg.consider(
             kind=getattr(record, "kind", record.name),
@@ -338,7 +349,7 @@ class MetricsRecorder:
             threshold_ms=self._slow_op_threshold_ms,
             top_n=self._slow_op_top_n,
         )
-        self._slow_op_handler = _SlowOpHandler(self._aggregator)
+        self._slow_op_handler = _SlowOpHandler(self._aggregator, batch_id=batch_id)
         self._bandwidth_handler = _BandwidthHandler(self._bandwidth)
         self._monitored_loggers = [
             logging.getLogger("cmcourier"),

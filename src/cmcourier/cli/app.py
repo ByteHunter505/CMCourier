@@ -36,6 +36,7 @@ from cmcourier.config.schema import CsvTriggerConfig, PipelineConfig
 from cmcourier.config.wiring import build_pipeline
 from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.observability.setup import configure as configure_observability
+from cmcourier.orchestrators.multi_batch import MultiBatchOrchestrator, MultiBatchRunReport
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline
 from cmcourier.services.triggers import SingleDocTriggerStrategy
 
@@ -110,6 +111,13 @@ def csv_trigger_pipeline_group() -> None:
     default=True,
     help="Start the live two-tab TUI. Default ON; --no-tui for headless shells.",
 )
+@click.option(
+    "--batches-in-flight",
+    "batches_in_flight",
+    type=click.IntRange(1, 2),
+    default=None,
+    help="Override processing.batches_in_flight (1 or 2). Default reads YAML.",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def csv_run_command(
     config_path: Path,
@@ -120,6 +128,7 @@ def csv_run_command(
     skip_doctor: bool,
     resume: bool,
     tui: bool,
+    batches_in_flight: int | None,
     log_level: str,
 ) -> None:
     """Run the csv-trigger pipeline end-to-end."""
@@ -134,6 +143,7 @@ def csv_run_command(
         resume=resume,
         log_level=log_level,
         tui=tui,
+        batches_in_flight=batches_in_flight,
     )
 
 
@@ -160,6 +170,12 @@ def rvabrep_pipeline_group() -> None:
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
 @click.option("--tui/--no-tui", "tui", default=True)
+@click.option(
+    "--batches-in-flight",
+    "batches_in_flight",
+    type=click.IntRange(1, 2),
+    default=None,
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def rvabrep_run_command(
     config_path: Path,
@@ -169,6 +185,7 @@ def rvabrep_run_command(
     skip_doctor: bool,
     resume: bool,
     tui: bool,
+    batches_in_flight: int | None,
     log_level: str,
 ) -> None:
     """Run the rvabrep-pipeline end-to-end."""
@@ -183,6 +200,7 @@ def rvabrep_run_command(
         resume=resume,
         log_level=log_level,
         tui=tui,
+        batches_in_flight=batches_in_flight,
     )
 
 
@@ -209,6 +227,12 @@ def as400_trigger_pipeline_group() -> None:
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
 @click.option("--tui/--no-tui", "tui", default=True)
+@click.option(
+    "--batches-in-flight",
+    "batches_in_flight",
+    type=click.IntRange(1, 2),
+    default=None,
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def as400_run_command(
     config_path: Path,
@@ -218,6 +242,7 @@ def as400_run_command(
     skip_doctor: bool,
     resume: bool,
     tui: bool,
+    batches_in_flight: int | None,
     log_level: str,
 ) -> None:
     """Run the as400-trigger-pipeline end-to-end."""
@@ -232,6 +257,7 @@ def as400_run_command(
         resume=resume,
         log_level=log_level,
         tui=tui,
+        batches_in_flight=batches_in_flight,
     )
 
 
@@ -258,6 +284,12 @@ def local_scan_pipeline_group() -> None:
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
 @click.option("--tui/--no-tui", "tui", default=True)
+@click.option(
+    "--batches-in-flight",
+    "batches_in_flight",
+    type=click.IntRange(1, 2),
+    default=None,
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def local_scan_run_command(
     config_path: Path,
@@ -267,6 +299,7 @@ def local_scan_run_command(
     skip_doctor: bool,
     resume: bool,
     tui: bool,
+    batches_in_flight: int | None,
     log_level: str,
 ) -> None:
     """Run the local-scan-pipeline end-to-end."""
@@ -281,6 +314,7 @@ def local_scan_run_command(
         resume=resume,
         log_level=log_level,
         tui=tui,
+        batches_in_flight=batches_in_flight,
     )
 
 
@@ -311,6 +345,12 @@ def single_doc_group() -> None:
 @click.option("--skip-doctor", is_flag=True, default=False)
 @click.option("--resume", is_flag=True, default=False)
 @click.option("--tui/--no-tui", "tui", default=True)
+@click.option(
+    "--batches-in-flight",
+    "batches_in_flight",
+    type=click.IntRange(1, 2),
+    default=None,
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def single_doc_run_command(
     config_path: Path,
@@ -323,6 +363,7 @@ def single_doc_run_command(
     skip_doctor: bool,
     resume: bool,
     tui: bool,
+    batches_in_flight: int | None,
     log_level: str,
 ) -> None:
     """Run a one-shot pipeline for a single document."""
@@ -372,6 +413,8 @@ def single_doc_run_command(
         "batch_size": config.batch_size,
         "batch_id": batch_id,
         "from_stage": from_stage,
+        "batches_in_flight": batches_in_flight or config.processing.batches_in_flight,
+        "resume": resume,
     }
     report = _run_with_optional_tui(
         pipeline=pipeline,
@@ -450,6 +493,7 @@ def _run_pipeline_command(
     log_level: str,
     quiet: bool = False,
     tui: bool = False,
+    batches_in_flight: int | None = None,
 ) -> None:
     configure_logging(log_level)
     try:
@@ -492,6 +536,8 @@ def _run_pipeline_command(
         "batch_size": config.batch_size,
         "batch_id": batch_id,
         "from_stage": from_stage,
+        "batches_in_flight": batches_in_flight or config.processing.batches_in_flight,
+        "resume": resume,
     }
     report = _run_with_optional_tui(
         pipeline=pipeline,
@@ -533,13 +579,14 @@ def _run_with_optional_tui(
     config: PipelineConfig,
     pipeline_kwargs: dict[str, Any],
     tui: bool,
-) -> RunReport:
-    """Run ``pipeline.run(**kwargs)`` with or without the live TUI.
+) -> MultiBatchRunReport:
+    """Route the run through the multi-batch orchestrator (028).
 
-    Returns the :class:`RunReport`. Exits 2/3 on misuse / unhandled errors,
-    matching the headless path's exit codes. When ``tui`` is the default
-    value (not user-supplied) and stderr is not a TTY, the TUI is
-    silently auto-disabled (REQ-034) so cron/CI keep working.
+    Exit codes (2/3) match the pre-028 headless contract. When
+    ``tui=True`` and stderr is non-TTY, the TUI is auto-disabled
+    (REQ-034). The TUI itself only supports a single-batch view —
+    when enabled, ``batches_in_flight`` is forced to 1 so the
+    operator sees coherent live data.
     """
     from cmcourier.cli._tui_runner import (  # noqa: PLC0415
         run_pipeline_with_tui,
@@ -561,9 +608,31 @@ def _run_with_optional_tui(
             sys.exit(2)
         tui = False
 
+    # Extract orchestrator-specific kwargs and drop them from the dict we'd
+    # pass to the legacy ``pipeline.run``.
+    batches_in_flight = int(pipeline_kwargs.pop("batches_in_flight", 1))
+    resume_flag = bool(pipeline_kwargs.pop("resume", False))
+    if tui or resume_flag:
+        # TUI / resume → force single-batch path so the operator's view
+        # stays consistent.
+        batches_in_flight = 1
+    resume_batch_id = pipeline_kwargs.get("batch_id") if resume_flag else None
+
+    orchestrator = MultiBatchOrchestrator(
+        pipeline=pipeline,
+        config=config,
+        log_dir=config.observability.log_dir,
+    )
+
     if not tui:
         try:
-            return pipeline.run(**pipeline_kwargs)
+            return orchestrator.run(
+                source_descriptor=pipeline_kwargs["source_descriptor"],
+                batch_size=int(pipeline_kwargs["batch_size"]),
+                batches_in_flight=batches_in_flight,
+                from_stage=int(pipeline_kwargs.get("from_stage", 1)),
+                resume_batch_id=resume_batch_id,
+            )
         except Exception:
             _log.exception("pipeline run failed unexpectedly")
             sys.exit(3)
@@ -589,25 +658,54 @@ def _run_with_optional_tui(
         )
         sys.exit(3)
     assert outcome.report is not None
-    return outcome.report
+    return MultiBatchRunReport(chunks=[outcome.report])
 
 
 def _emit_outcome(
     *,
-    report: RunReport,
+    report: MultiBatchRunReport,
     expected_kind: str,
     quiet: bool,
 ) -> None:
-    """Emit the per-run summary line + ``sys.exit`` with the right code."""
+    """Emit the per-chunk + totals summary and ``sys.exit`` with the right code.
+
+    For the legacy single-chunk path the output is byte-identical to
+    pre-028. When more than one chunk ran, prints one line per chunk
+    followed by a TOTALS line.
+    """
     if not quiet:
-        _emit_summary(report)
-    elif report.s5_failed > 0:
+        if len(report.chunks) <= 1:
+            # Legacy single-batch output preserved verbatim.
+            if report.chunks:
+                _emit_summary(report.chunks[0])
+        else:
+            for idx, chunk in enumerate(report.chunks, start=1):
+                click.echo(
+                    f"chunk {idx}/{len(report.chunks)}  "
+                    f"batch_id={chunk.batch_id} "
+                    f"total_docs={chunk.total_docs} "
+                    f"s5_done={chunk.s5_done} "
+                    f"s5_failed={chunk.s5_failed} "
+                    f"elapsed_seconds={chunk.elapsed_seconds:.2f}"
+                )
+            click.echo(
+                f"TOTALS batch_count={len(report.chunks)} "
+                f"total_docs={report.total_docs} "
+                f"s5_done={report.s5_done} "
+                f"s5_failed={report.s5_failed} "
+                f"failed_chunks={len(report.failed_chunks)} "
+                f"elapsed_seconds={report.elapsed_seconds:.2f}"
+            )
+    elif report.s5_failed > 0 or report.failed_chunks:
         click.echo(
-            f"pipeline={expected_kind}-trigger batch_id={report.batch_id} "
-            f"s5_failed={report.s5_failed} exit_code=1",
+            f"pipeline={expected_kind}-trigger "
+            f"batch_count={len(report.chunks)} "
+            f"s5_failed={report.s5_failed} "
+            f"failed_chunks={len(report.failed_chunks)} exit_code=1",
             err=True,
         )
-    sys.exit(0 if report.s5_failed == 0 else 1)
+    exit_code = 1 if (report.s5_failed > 0 or report.failed_chunks) else 0
+    sys.exit(exit_code)
 
 
 def _run_auto_doctor(config: PipelineConfig, secrets) -> None:  # type: ignore[no-untyped-def]

@@ -222,6 +222,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Twenty-fifth change: live two-tab TUI + S5 worker pool + AIMD auto-tune (REBIRTH §10.6, §17.4)
 - [x] Twenty-sixth change: tier-5 system metrics (POST-MVP §2 — psutil sampling, ~0.1% CPU cost)
 - [x] Twenty-seventh change: offline log analyzer `cmcourier analyze batch/compare/trends` (POST-MVP §3)
+- [x] Twenty-eighth change: multi-batch orchestrator with N=2 producer-consumer overlap (POST-MVP §7, N=2)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

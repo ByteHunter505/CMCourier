@@ -16,7 +16,9 @@ Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 
 - **§1** — Adaptive heavy / light upload lanes (REBIRTH §10.7).
 - **§4** — `AS400TrackingStore` (centralize tracking in RVILIB).
-- **§7** — Multi-batch pipeline parallelism (`batches_in_flight > 2`).
+- **§7 (N > 2)** — Raise `batches_in_flight` cap above 2 (the
+  N=2 producer-consumer overlap shipped in 028; N=3..5 requires
+  a deeper refactor — deferred).
 - **§8** — Per-batch bandwidth quota.
 - **§9** — Cross-batch `document_cache` table.
 - **§10** — Watchlist items (per-folder CMIS concurrency, pool
@@ -34,6 +36,89 @@ Operational milestones outside the roadmap doc:
 - ~~§5 AIMD adaptive worker auto-tuning~~ — shipped in 025.
 - ~~§6 Additional pipelines (csv / as400 / local-scan)~~ —
   shipped in 012 / 014 / 016.
+- ~~§7 (N=2)~~ — producer-consumer overlap of two batches in
+  flight, shipped in 028.
+
+---
+
+## [0.30.0] — 2026-05-11 — **multi-batch orchestrator (POST-MVP §7, N=2)**
+
+The "siempre dos lotes en vuelo, uno preparándose y otro
+cargándose" model from POST-MVP §7 — turns out it was never
+implemented. The pre-028 `pipeline.run()` did S0→S5 in one
+sequential pass over the full trigger source. 028 introduces
+a producer-consumer orchestrator that chunks the source and
+overlaps prep + upload of consecutive chunks.
+
+### Added
+
+- **`ProcessingConfig`** Pydantic block under
+  `pipeline.processing` with `batches_in_flight: int = Field(
+  default=2, ge=1, le=2)`. Top-level
+  `pipeline.processing.batches_in_flight`.
+- **`cmcourier.orchestrators.chunked`** — pure
+  `chunked(items, size)` helper.
+- **`cmcourier.orchestrators.multi_batch.MultiBatchOrchestrator`**
+  — wraps a `StagedPipeline` and runs multiple chunks with
+  producer-consumer overlap. For `N=1` it's a thin
+  pass-through (byte-identical to pre-028). For `N=2` it
+  spawns one prep thread (S0..S4) and one upload thread
+  (S5) communicating via a bounded `queue.Queue`.
+- **`MultiBatchRunReport`** dataclass — aggregates per-chunk
+  `RunReport`s plus a `failed_chunks` list.
+- **`--batches-in-flight <N>` CLI flag** on every pipeline run
+  command. Defaults to `config.processing.batches_in_flight`.
+  `--resume` and `--tui` both force `N=1`.
+- **Per-chunk MetricsRecorder** — each chunk gets its own
+  recorder so per-chunk `batch_summary` events + slow-ops
+  files stay isolated. The shared S5 worker pool +
+  AutoTuneController + tracking store are reused across
+  chunks.
+
+### Changed
+
+- **`_SlowOpHandler`** now filters log records by
+  `record.batch_id` so multiple concurrent
+  MetricsRecorders don't cross-pollinate slow ops. Records
+  without a `batch_id` extra are dropped.
+- **Stage methods** (`_stage_s0_s1`, `_stage_s2..s5`) accept
+  an optional `recorder` keyword so the orchestrator can
+  route per-chunk timings to per-chunk recorders. Default
+  remains `self._metrics` for the legacy single-batch path.
+- **CLI output**: when more than one chunk runs, per-chunk
+  lines + a TOTALS line. When one chunk runs (or `N=1`),
+  the legacy single-line summary is preserved verbatim.
+
+### Tests
+
+- 6 new schema tests for `ProcessingConfig`.
+- 8 new chunker unit tests.
+- 3 new MetricsRecorder isolation tests (handlers filter by
+  batch_id; bandwidth sampler still sees everything).
+- 7 new orchestrator unit tests (N=1 pass-through, N=2
+  overlap, wall-clock proof of overlap, exception isolation,
+  N=3 rejection, empty source, resume forces N=1).
+- 5 new CLI integration tests covering `--batches-in-flight`.
+- 724 total green (up from 695 in 027), mypy clean, ruff
+  clean.
+
+### Documentation
+
+- New `docs/how-to/multi-batch.md` with the
+  producer-consumer model, output format, failure
+  semantics, and memory-budgeting guidance.
+
+### Notes
+
+- **N > 2 deferred**. The original POST-MVP §7 spec listed
+  N up to 5. Supporting N>2 requires per-chunk shared-pool
+  semantics for the S5 ResizableSemaphore + AutoTune
+  controller that would significantly inflate this change.
+  Documented as a future change.
+- **TUI multi-batch view deferred**. The TUI currently
+  shows one batch at a time. When `--tui` is on, the
+  orchestrator forces `N=1` so the operator's view stays
+  coherent.
 
 ---
 

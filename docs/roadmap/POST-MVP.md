@@ -17,8 +17,8 @@ Everything excluded lives below, with enough detail to start a new change direct
 
 ### Status snapshot
 
-- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016).
-- **Still deferred**: §1, §4, §7, §8, §9, plus the §10 watchlist.
+- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016); §7 (N=2) — two-batch producer-consumer overlap (shipped in change 028; N=3..5 deferred to a future change).
+- **Still deferred**: §1, §4, §7 (N>2), §8, §9, plus the §10 watchlist.
 
 ---
 
@@ -332,7 +332,15 @@ The Strategy interface for `S0` is part of the MVP (Constitution Principle I: th
 
 ---
 
-## §7. Multi-Batch Pipeline Parallelism (>2 Batches in Flight)
+## §7. Multi-Batch Pipeline Parallelism (>2 Batches in Flight) — **N=2 SHIPPED in change 028 (2026-05-11)**
+
+> The two-batch producer-consumer overlap (the canonical
+> "siempre dos lotes en vuelo" model) shipped in change 028.
+> Raising the cap above 2 (the original `1..5` range) requires
+> a per-chunk shared-pool refactor that's deferred to a future
+> change. See `specs/028-multi-batch-orchestrator/`,
+> `docs/how-to/multi-batch.md`, and
+> `CHANGELOG.md [0.30.0]`.
 
 ### Intent
 

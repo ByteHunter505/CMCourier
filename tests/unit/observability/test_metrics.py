@@ -263,3 +263,122 @@ class TestMetricsRecorderCloseBatch:
             pipeline_logger.removeHandler(capture)
 
         assert [r for r in capture.records if r.message == "batch_summary"] == []
+
+
+# ---------------------------------------------------------------------------
+# 028 — concurrent-batch isolation
+# ---------------------------------------------------------------------------
+
+
+class TestConcurrentBatchIsolation:
+    """Two recorders alive simultaneously must not see each other's
+    slow ops. The handler filters by ``record.batch_id``."""
+
+    def test_two_recorders_route_by_batch_id(self, tmp_path: Path) -> None:
+        rec_a = _make_recorder(tmp_path / "a")
+        rec_b = _make_recorder(tmp_path / "b")
+        rec_a.start_batch(pipeline="p", batch_id="A")
+        rec_b.start_batch(pipeline="p", batch_id="B")
+
+        net_log = logging.getLogger("cmcourier.metrics.network")
+        prev_level = net_log.level
+        prev_disabled = net_log.disabled
+        prev_propagate = net_log.propagate
+        # Match production: setup.py sets propagate=False so the handler
+        # on the parent ``cmcourier`` logger doesn't double-count.
+        net_log.propagate = False
+        net_log.setLevel(logging.INFO)
+        net_log.disabled = False
+        try:
+            net_log.info(
+                "cmis_upload",
+                extra={"batch_id": "A", "kind": "cmis_upload", "duration_ms": 9000.0},
+            )
+            net_log.info(
+                "cmis_upload",
+                extra={"batch_id": "B", "kind": "cmis_upload", "duration_ms": 8000.0},
+            )
+        finally:
+            net_log.setLevel(prev_level)
+            net_log.disabled = prev_disabled
+            net_log.propagate = prev_propagate
+
+        top_a = rec_a.aggregator_snapshot()
+        top_b = rec_b.aggregator_snapshot()
+        rec_a.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
+        rec_b.close_batch(pipeline="p", batch_id="B", total_docs=0, elapsed_s=0.0)
+
+        # Each recorder only sees its own batch's record.
+        assert len(top_a) == 1
+        assert top_a[0]["duration_ms"] == 9000.0
+        assert len(top_b) == 1
+        assert top_b[0]["duration_ms"] == 8000.0
+
+    def test_record_without_batch_id_dropped(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        rec.start_batch(pipeline="p", batch_id="A")
+        net_log = logging.getLogger("cmcourier.metrics.network")
+        prev_level = net_log.level
+        prev_disabled = net_log.disabled
+        prev_propagate = net_log.propagate
+        # Match production: setup.py sets propagate=False so the handler
+        # on the parent ``cmcourier`` logger doesn't double-count.
+        net_log.propagate = False
+        net_log.setLevel(logging.INFO)
+        net_log.disabled = False
+        try:
+            # No batch_id in extras → handler drops it.
+            net_log.info(
+                "cmis_upload",
+                extra={"kind": "cmis_upload", "duration_ms": 5000.0},
+            )
+        finally:
+            net_log.setLevel(prev_level)
+            net_log.disabled = prev_disabled
+            net_log.propagate = prev_propagate
+        snapshot = rec.aggregator_snapshot()
+        rec.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
+        assert snapshot == []
+
+    def test_bandwidth_handler_sees_all_records_regardless_of_batch(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        rec.start_batch(pipeline="p", batch_id="A")
+        net_log = logging.getLogger("cmcourier.metrics.network")
+        prev_level = net_log.level
+        prev_disabled = net_log.disabled
+        prev_propagate = net_log.propagate
+        # Match production: setup.py sets propagate=False so the handler
+        # on the parent ``cmcourier`` logger doesn't double-count.
+        net_log.propagate = False
+        net_log.setLevel(logging.INFO)
+        net_log.disabled = False
+        try:
+            # Two records: one matching, one with a different batch_id.
+            net_log.info(
+                "cmis_upload",
+                extra={
+                    "batch_id": "A",
+                    "kind": "cmis_upload",
+                    "duration_ms": 100.0,
+                    "size_bytes": 1024,
+                },
+            )
+            net_log.info(
+                "cmis_upload",
+                extra={
+                    "batch_id": "OTHER",
+                    "kind": "cmis_upload",
+                    "duration_ms": 200.0,
+                    "size_bytes": 2048,
+                },
+            )
+        finally:
+            net_log.setLevel(prev_level)
+            net_log.disabled = prev_disabled
+            net_log.propagate = prev_propagate
+        # Bandwidth sampler is process-level; both records counted there.
+        # Slow-op aggregator only got the "A" record.
+        snapshot = rec.aggregator_snapshot()
+        rec.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
+        assert len(snapshot) == 1
+        assert snapshot[0]["duration_ms"] == 100.0

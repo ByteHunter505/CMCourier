@@ -55,7 +55,14 @@ change closes that gap.
 
 - New `ProcessingConfig` Pydantic block under
   `PipelineConfig.processing` with:
-  - `batches_in_flight: int = Field(default=2, ge=1, le=5)`.
+  - `batches_in_flight: int = Field(default=2, ge=1, le=2)`.
+  - **Note**: this first ship narrows the original POST-MVP
+    §7 range of 1..5 to **just 1 and 2**. The user's stated
+    intent ("siempre dos lotes en vuelo, uno preparándose y
+    otro cargándose") maps exactly to N=2. Supporting N=3..5
+    requires a per-chunk MetricsRecorder refactor that's not
+    worth the cost without real-data validation — that's
+    documented as a future change.
 - New module
   `cmcourier/orchestrators/multi_batch.py` exposing:
   - `chunked(items, size) -> Iterator[list[T]]` — pure
