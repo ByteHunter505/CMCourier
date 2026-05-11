@@ -30,7 +30,6 @@ Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
   N=2 producer-consumer overlap shipped in 028; N=3..5 requires
   a deeper refactor — deferred).
 - **§8** — Per-batch bandwidth quota.
-- **§9** — Cross-batch `document_cache` table.
 - **§10** — Watchlist items (per-folder CMIS concurrency, pool
   warm-up, retry budgets per pipeline, CLI auto-completion, …).
 
@@ -49,6 +48,66 @@ Operational milestones outside the roadmap doc:
   shipped in 012 / 014 / 016.
 - ~~§7 (N=2)~~ — producer-consumer overlap of two batches in
   flight, shipped in 028.
+
+---
+
+## [0.38.0] — 2026-05-11 — **cross-batch document_cache table (POST-MVP §9)**
+
+S3 (Metadata Resolution) gains an optional cross-batch cache so
+re-runs of the same document skip the resolver and reuse previously
+resolved properties + healed trigger CIF. Storage is a SQLite table
+in the same DB as the tracking log. Default off — single-batch
+behavior is byte-identical to pre-037.
+
+### Added
+
+- `MetadataCacheConfig` nested under `MetadataConfigModel.cache`:
+  `enabled: bool = False`, `ttl_minutes: int = Field(default=60,
+  gt=0, le=43200)` (cap: 30 days).
+- `IDocumentCache` port + `CacheKey` / `CacheEntry` / `CacheStats`
+  frozen dataclasses in `cmcourier.domain.ports`.
+- `document_cache` table + `cached_at` index added to the SQLite
+  schema migration (created unconditionally, idempotent).
+- `SqliteDocumentCache` adapter (WAL, threading.Lock, JSON
+  properties payload, ON CONFLICT upsert).
+- `DocumentCacheService` (clock injection, TTL logic, in-memory
+  hit / miss counters, structured `document_cache_hit` /
+  `document_cache_miss` log events). Key derivation:
+  `compute_fields_hash(fields)` = SHA-256 of the sorted comma-joined
+  list. Mapping evolution invalidates by construction.
+- `cmcourier cache` CLI group: `stats` (text/json) and `clear`
+  (`--txn`, `--all`, `--older-than <minutes>`, exactly-one-of).
+- `docs/how-to/document-cache.md` operator guide.
+
+### Changed
+
+- `StagedPipeline.__init__` gains optional `document_cache`. When
+  set, `_stage_s3` consults the cache before
+  `MetadataService.resolve`; on hit short-circuits + restores the
+  healed CIF on the trigger; on miss runs the resolver and upserts.
+- `config/wiring.py` builds the service iff
+  `metadata.cache.enabled` and points `SqliteDocumentCache` at
+  `tracking.db_path`.
+
+### Backwards compatibility
+
+`metadata.cache.enabled = false` (the default) → cache reference is
+`None`, S3 always invokes the resolver, and the `document_cache`
+table stays empty. All 986 pre-037 tests keep passing.
+
+### Out of scope (deferred)
+
+- AS400-backed cache for §4 environments (single-host SQLite is
+  enough until multi-host deployments demand otherwise).
+- Partial-overlap reuse (sub-set of required fields counts as hit).
+  All-or-nothing on `fields_hash` keeps the correctness story
+  simple.
+- Auto-vacuum / compaction. Operators rely on
+  `cache clear --older-than` for housekeeping.
+
+### Spec
+
+- `specs/037-document-cache/`: spec.md, plan.md, tasks.md.
 
 ---
 

@@ -431,7 +431,15 @@ Global bandwidth policy only. The other policies error with a roadmap pointer.
 
 ---
 
-## §9. Cross-Batch Metadata Cache (`document_cache` Table)
+## §9. Cross-Batch Metadata Cache (`document_cache` Table) — **SHIPPED in change 037 (2026-05-11)**
+
+> Promoted out of post-MVP and delivered as part of change 037.
+> Default off; enable via `metadata.cache.enabled`. SQLite-backed,
+> TTL via `metadata.cache.ttl_minutes` (default 60). CLI:
+> `cmcourier cache stats|clear`. Structured
+> `document_cache_hit` / `_miss` events fed to `cmcourier analyze`.
+> See `specs/037-document-cache/`, `docs/how-to/document-cache.md`,
+> and `CHANGELOG.md [0.38.0]`.
 
 ### Intent
 
