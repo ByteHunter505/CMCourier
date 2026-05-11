@@ -29,7 +29,7 @@ __all__ = ["StagedPipeline", "RunReport"]
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 from cmcourier.adapters.assembly import PdfAssembler
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
-from cmcourier.config.schema import AutoTuneConfig
+from cmcourier.config.schema import AutoTuneConfig, HeavyLightLanesConfig
 from cmcourier.domain.exceptions import (
     CMISClientError,
     CMISServerError,
@@ -68,6 +68,9 @@ from cmcourier.observability.metrics import MetricsRecorder, StageTimer
 from cmcourier.observability.system_metrics import SystemMetricsSampler
 from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.indexing import IndexingService
+from cmcourier.services.lane_controller import LaneController
+from cmcourier.services.lane_splitter import Lane
+from cmcourier.services.lane_splitter import split as split_lanes
 from cmcourier.services.mapping import MappingService
 from cmcourier.services.metadata import MetadataService
 from cmcourier.services.worker_pool_stats import ResizableSemaphore, WorkerPoolStats
@@ -117,6 +120,11 @@ class _StageItem:
     cm_object_id: str | None = None
 
 
+def _size_of_stage_item(item: _StageItem) -> int:
+    """Size accessor for the lane splitter (036). 0 when staged_file missing."""
+    return item.staged_file.size_bytes if item.staged_file is not None else 0
+
+
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -142,6 +150,7 @@ class StagedPipeline:
         auto_tune: AutoTuneConfig | None = None,
         sampler: SystemMetricsSampler | None = None,
         coordinator: IdempotencyCoordinator | None = None,
+        heavy_light_lanes: HeavyLightLanesConfig | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -178,6 +187,17 @@ class StagedPipeline:
         # tracking_store (pre-034 behavior). When set, the coordinator
         # adds the AS400 NIARVILOG path on top.
         self._coordinator = coordinator
+        # 036: heavy/light lane coordinator. None when dual mode is off
+        # (the default) — S5 keeps the legacy single-pool path.
+        self._lanes_config = heavy_light_lanes
+        self._lane_controller: LaneController | None = None
+        if heavy_light_lanes is not None and heavy_light_lanes.enabled:
+            self._lane_controller = LaneController(
+                total_budget=self._workers,
+                heavy_initial_ratio=heavy_light_lanes.heavy_initial_ratio,
+                rebalance_interval_s=heavy_light_lanes.rebalance_interval_s,
+                idle_threshold_s=heavy_light_lanes.idle_threshold_s,
+            )
 
     # ------------------------------------------------- TUI accessors
 
@@ -209,20 +229,43 @@ class StagedPipeline:
     def sampler(self) -> SystemMetricsSampler | None:
         return self._sampler
 
+    @property
+    def lane_controller(self) -> LaneController | None:
+        """036: read-only handle for TUI / tests. ``None`` when dual mode is off."""
+        return self._lane_controller
+
     # --------------------------------------------------- auto-tune wiring
 
     def _build_auto_tune_controller(self) -> AutoTuneController | None:
-        """Return a controller iff ``cmis.auto_tune.enabled``; else None."""
+        """Return a controller iff ``cmis.auto_tune.enabled``; else None.
+
+        In dual-lane mode (036), AIMD steers the TOTAL worker budget;
+        the lane controller owns the per-lane split. ``on_pool_resize``
+        dispatches to whichever controller is active.
+        """
         if self._auto_tune_cfg is None or not self._auto_tune_cfg.enabled:
             return None
         return AutoTuneController(
             config=self._auto_tune_cfg,
             p95_provider=lambda: self._metrics.current_stage_p95("S5"),
-            current_workers_provider=lambda: self._concurrency_limit.capacity,
+            current_workers_provider=self._current_total_workers,
             current_timeout_provider=lambda: self._uploader._timeout_s,
-            on_pool_resize=self._concurrency_limit.set_capacity,
+            on_pool_resize=self._on_pool_resize,
             on_timeout_change=self._set_upload_timeout,
         )
+
+    def _current_total_workers(self) -> int:
+        """Return the current TOTAL worker budget across both modes (036)."""
+        if self._lane_controller is not None:
+            return self._lane_controller.snapshot().total_budget
+        return self._concurrency_limit.capacity
+
+    def _on_pool_resize(self, new_total: int) -> None:
+        """AIMD pool-resize hook. Dispatches by mode (036)."""
+        if self._lane_controller is not None:
+            self._lane_controller.set_total_budget(new_total)
+        else:
+            self._concurrency_limit.set_capacity(new_total)
 
     def _set_upload_timeout(self, new_timeout_s: float) -> None:
         """AIMD pushes a new timeout; uploader picks it up on the next call."""
@@ -609,6 +652,21 @@ class StagedPipeline:
         S5 timings to the per-chunk recorder.
         """
         rec = recorder or self._metrics
+        # 036: when dual-lane is configured AND the splitter says it's
+        # worth it, dispatch each item with its lane tag. Otherwise the
+        # legacy single-pool path runs byte-identically to pre-036.
+        assignment = self._partition_for_lanes(items)
+        if assignment is None:
+            return self._stage_5_single(items, batch_id, rec)
+        return self._stage_5_dual(assignment, batch_id, rec)
+
+    def _stage_5_single(
+        self,
+        items: list[_StageItem],
+        batch_id: str,
+        rec: MetricsRecorder,
+    ) -> tuple[int, int]:
+        """Legacy single-pool S5 (pre-036). Byte-identical to 025."""
         self._pool_stats.set_pool_size(self._workers)
         self._pool_stats.set_queue_depth(len(items))
         s5_done = 0
@@ -627,13 +685,75 @@ class StagedPipeline:
                 self._pool_stats.set_queue_depth(self._pool_stats.snapshot().queue_depth - 1)
         return s5_done, failed
 
+    def _partition_for_lanes(
+        self, items: list[_StageItem]
+    ) -> tuple[tuple[_StageItem, ...], tuple[_StageItem, ...]] | None:
+        """Return ``(heavy, light)`` items when dual mode applies, else ``None``."""
+        if self._lane_controller is None or self._lanes_config is None:
+            return None
+        if not self._lanes_config.enabled:
+            return None
+        assignment = split_lanes(
+            items,
+            threshold_bytes=self._lanes_config.heavy_threshold_bytes,
+            min_batch=self._lanes_config.heavy_lane_min_batch,
+            size_of=_size_of_stage_item,
+        )
+        if assignment.is_single_lane:
+            return None
+        return assignment.heavy, assignment.light
+
+    def _stage_5_dual(
+        self,
+        assignment: tuple[tuple[_StageItem, ...], tuple[_StageItem, ...]],
+        batch_id: str,
+        rec: MetricsRecorder,
+    ) -> tuple[int, int]:
+        """036: dual heavy/light dispatch sharing a single executor."""
+        assert self._lane_controller is not None
+        heavy_items, light_items = assignment
+        depths: dict[Lane, int] = {"heavy": len(heavy_items), "light": len(light_items)}
+        self._lane_controller.set_queue_depth("heavy", depths["heavy"])
+        self._lane_controller.set_queue_depth("light", depths["light"])
+        self._lane_controller.start()
+        s5_done = 0
+        failed = 0
+        try:
+            with ThreadPoolExecutor(
+                max_workers=self._workers,
+                thread_name_prefix="cmcourier-s5",
+            ) as pool:
+                futures: dict[Future[Literal["done", "failed", "skipped"]], Lane] = {}
+                for item in heavy_items:
+                    futures[pool.submit(self._upload_one, item, batch_id, rec, "heavy")] = "heavy"
+                for item in light_items:
+                    futures[pool.submit(self._upload_one, item, batch_id, rec, "light")] = "light"
+                for fut in as_completed(futures):
+                    lane = futures[fut]
+                    outcome = fut.result()
+                    if outcome == "done":
+                        s5_done += 1
+                    elif outcome == "failed":
+                        failed += 1
+                    depths[lane] = max(0, depths[lane] - 1)
+                    self._lane_controller.set_queue_depth(lane, depths[lane])
+        finally:
+            self._lane_controller.stop()
+        return s5_done, failed
+
     def _upload_one(
         self,
         item: _StageItem,
         batch_id: str,
         recorder: MetricsRecorder | None = None,
+        lane: Lane | None = None,
     ) -> Literal["done", "failed", "skipped"]:
-        """Per-doc S5 work executed inside a worker thread (025)."""
+        """Per-doc S5 work executed inside a worker thread (025 + 036).
+
+        When ``lane`` is None, the legacy single-pool semaphore +
+        stats path runs (pre-036). When set, the per-lane semaphore
+        and counters of the :class:`LaneController` are used instead.
+        """
         assert item.mapping is not None
         assert item.metadata is not None
         assert item.staged_file is not None
@@ -642,11 +762,15 @@ class StagedPipeline:
 
         # 025 phase 2: respect the auto-tune semaphore cap before
         # actually consuming a worker slot.
-        self._concurrency_limit.acquire()
-        self._pool_stats.mark_busy(worker_name)
+        if lane is None:
+            self._concurrency_limit.acquire()
+            self._pool_stats.mark_busy(worker_name)
+        else:
+            assert self._lane_controller is not None
+            self._lane_controller.acquire(lane)
         try:
             if self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S5_DONE):
-                self._pool_stats.mark_completed()
+                self._mark_completed(lane)
                 return "done"
             record = self._build_record(item, batch_id, StageStatus.S5_PENDING)
             self._tracking_store.mark_stage_pending(record, StageStatus.S5_PENDING)
@@ -669,7 +793,7 @@ class StagedPipeline:
                         "reason": "as400_claim_lost",
                     },
                 )
-                self._pool_stats.mark_completed()
+                self._mark_completed(lane)
                 return "skipped"
             with StageTimer(
                 recorder or self._metrics,
@@ -702,7 +826,7 @@ class StagedPipeline:
                         self._tracking_store.mark_stage_failed(
                             txn, batch_id, StageStatus.S5_FAILED, str(exc)
                         )
-                    self._pool_stats.mark_failed()
+                    self._mark_failed(lane)
                     return "failed"
             if self._coordinator is not None:
                 self._coordinator.mark_uploaded(
@@ -715,8 +839,26 @@ class StagedPipeline:
             else:
                 self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)
             item.cm_object_id = cm_object_id
-            self._pool_stats.mark_completed()
+            self._mark_completed(lane)
             return "done"
         finally:
-            self._pool_stats.mark_idle(worker_name)
-            self._concurrency_limit.release()
+            if lane is None:
+                self._pool_stats.mark_idle(worker_name)
+                self._concurrency_limit.release()
+            else:
+                assert self._lane_controller is not None
+                self._lane_controller.release(lane)
+
+    def _mark_completed(self, lane: Lane | None) -> None:
+        if lane is None:
+            self._pool_stats.mark_completed()
+        else:
+            assert self._lane_controller is not None
+            self._lane_controller.mark_completed(lane)
+
+    def _mark_failed(self, lane: Lane | None) -> None:
+        if lane is None:
+            self._pool_stats.mark_failed()
+        else:
+            assert self._lane_controller is not None
+            self._lane_controller.mark_failed(lane)

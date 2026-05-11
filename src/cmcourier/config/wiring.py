@@ -141,6 +141,7 @@ def build_pipeline(
         auto_tune=config.cmis.auto_tune,
         sampler=sampler,
         coordinator=coordinator,
+        heavy_light_lanes=config.processing.heavy_light_lanes,
     )
 
 
