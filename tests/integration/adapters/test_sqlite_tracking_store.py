@@ -423,3 +423,124 @@ class TestListTxnNumsForBatch:
         result = store.list_txn_nums_for_batch("does-not-exist")
         store.close()
         assert result == set()
+
+
+# ---------------------------------------------------------------------------
+# Group 9 — Operator-facing methods (021)
+# ---------------------------------------------------------------------------
+
+
+class TestListBatches:
+    def test_empty_store_returns_empty_list(self, store: SQLiteTrackingStore) -> None:
+        result = store.list_batches()
+        store.close()
+        assert result == []
+
+    def test_lists_batches_descending(self, store: SQLiteTrackingStore) -> None:
+        batch_a = store.start_batch(total_records=10)
+        batch_b = store.start_batch(total_records=20)
+        store.complete_batch(batch_a)
+        store.flush()
+        result = store.list_batches()
+        store.close()
+        ids_in_order = [b.batch_id for b in result]
+        # Both batches present; newer batch (b) first.
+        assert set(ids_in_order) == {batch_a, batch_b}
+        assert ids_in_order[0] == batch_b
+
+    def test_filter_in_progress(self, store: SQLiteTrackingStore) -> None:
+        batch_a = store.start_batch(total_records=10)
+        batch_b = store.start_batch(total_records=20)
+        store.complete_batch(batch_a)
+        store.flush()
+        result = store.list_batches(status="in_progress")
+        store.close()
+        ids = [b.batch_id for b in result]
+        assert ids == [batch_b]
+
+    def test_filter_completed(self, store: SQLiteTrackingStore) -> None:
+        batch_a = store.start_batch(total_records=10)
+        store.start_batch(total_records=20)  # leave in_progress
+        store.complete_batch(batch_a)
+        store.flush()
+        result = store.list_batches(status="completed")
+        store.close()
+        ids = [b.batch_id for b in result]
+        assert ids == [batch_a]
+
+
+class TestGetBatchDetails:
+    def test_unknown_batch_returns_none(self, store: SQLiteTrackingStore) -> None:
+        result = store.get_batch_details("ghost-123")
+        store.close()
+        assert result is None
+
+    def test_returns_per_stage_counts(self, store: SQLiteTrackingStore) -> None:
+        batch_id = store.start_batch(total_records=3)
+        store.mark_stage_pending(_make_record(batch_id, "TXN_A"), StageStatus.S1_PENDING)
+        store.mark_stage_done("TXN_A", batch_id, StageStatus.S1_DONE)
+        store.mark_stage_pending(_make_record(batch_id, "TXN_B"), StageStatus.S2_PENDING)
+        store.mark_stage_failed("TXN_B", batch_id, StageStatus.S2_FAILED, "mapping not found")
+        store.flush()
+        result = store.get_batch_details(batch_id)
+        store.close()
+        assert result is not None
+        assert result.info.batch_id == batch_id
+        assert result.stage_counts["S1"]["DONE"] == 1
+        assert result.stage_counts["S2"]["FAILED"] == 1
+        # Predictable shape: every S0..S5 stage present.
+        for stage in ("S0", "S1", "S2", "S3", "S4", "S5"):
+            assert set(result.stage_counts[stage].keys()) == {"DONE", "FAILED", "PENDING"}
+        # Failed record surfaces with error message.
+        assert len(result.failed_records) == 1
+        assert result.failed_records[0].txn_num == "TXN_B"
+        assert result.failed_records[0].status == "S2_FAILED"
+        assert result.failed_records[0].error_message == "mapping not found"
+
+
+class TestRetryFailed:
+    def test_no_failures_returns_zero(self, store: SQLiteTrackingStore) -> None:
+        batch_id = store.start_batch(total_records=1)
+        store.mark_stage_pending(_make_record(batch_id, "TXN_A"), StageStatus.S1_PENDING)
+        store.flush()
+        result = store.retry_failed(batch_id)
+        store.close()
+        assert result == 0
+
+    def test_resets_all_failed_to_pending(self, store: SQLiteTrackingStore) -> None:
+        batch_id = store.start_batch(total_records=2)
+        store.mark_stage_pending(_make_record(batch_id, "TXN_A"), StageStatus.S2_PENDING)
+        store.mark_stage_failed("TXN_A", batch_id, StageStatus.S2_FAILED, "boom")
+        store.mark_stage_pending(_make_record(batch_id, "TXN_B"), StageStatus.S5_PENDING)
+        store.mark_stage_failed("TXN_B", batch_id, StageStatus.S5_FAILED, "cmis 500")
+        store.flush()
+        reset = store.retry_failed(batch_id)
+        details = store.get_batch_details(batch_id)
+        store.close()
+        assert reset == 2
+        assert details is not None
+        assert details.stage_counts["S2"]["PENDING"] == 1
+        assert details.stage_counts["S5"]["PENDING"] == 1
+        assert details.failed_records == ()
+
+    def test_resets_only_specified_stage(self, store: SQLiteTrackingStore) -> None:
+        batch_id = store.start_batch(total_records=2)
+        store.mark_stage_pending(_make_record(batch_id, "TXN_A"), StageStatus.S2_PENDING)
+        store.mark_stage_failed("TXN_A", batch_id, StageStatus.S2_FAILED, "boom")
+        store.mark_stage_pending(_make_record(batch_id, "TXN_B"), StageStatus.S5_PENDING)
+        store.mark_stage_failed("TXN_B", batch_id, StageStatus.S5_FAILED, "cmis 500")
+        store.flush()
+        reset = store.retry_failed(batch_id, stage=StageStatus.S5_FAILED)
+        details = store.get_batch_details(batch_id)
+        store.close()
+        assert reset == 1
+        assert details is not None
+        # S5 reset, S2 still failed.
+        assert details.stage_counts["S5"]["PENDING"] == 1
+        assert details.stage_counts["S2"]["FAILED"] == 1
+
+    def test_rejects_non_failed_stage(self, store: SQLiteTrackingStore) -> None:
+        batch_id = store.start_batch(total_records=1)
+        with pytest.raises(TrackingError):
+            store.retry_failed(batch_id, stage=StageStatus.S5_DONE)
+        store.close()

@@ -24,6 +24,9 @@ from typing import Literal
 import click
 
 from cmcourier import __version__
+from cmcourier.cli.commands.as400_query import as400_query_command
+from cmcourier.cli.commands.batch import batch_group
+from cmcourier.cli.commands.inspect import inspect_group
 from cmcourier.cli.doctor import DoctorReport, run_doctor
 from cmcourier.cli.logging_setup import configure as configure_logging
 from cmcourier.config.loader import load_config, load_secrets
@@ -50,6 +53,11 @@ _TriggerKind = Literal["csv", "rvabrep", "as400", "local_scan", "single_doc"]
 @click.version_option(__version__, prog_name="cmcourier")
 def main() -> None:
     """CMCourier - RVI -> IBM Content Manager migration tool."""
+
+
+main.add_command(batch_group)
+main.add_command(inspect_group)
+main.add_command(as400_query_command)
 
 
 # ---------------------------------------------------------------------------

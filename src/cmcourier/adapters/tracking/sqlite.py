@@ -30,10 +30,16 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from cmcourier.domain.exceptions import TrackingError
-from cmcourier.domain.models import MigrationRecord, StageStatus
+from cmcourier.domain.models import (
+    BatchDetails,
+    BatchInfo,
+    FailedRecord,
+    MigrationRecord,
+    StageStatus,
+)
 from cmcourier.domain.ports import ITrackingStore
 
 _log = logging.getLogger(__name__)
@@ -362,6 +368,87 @@ class SQLiteTrackingStore(ITrackingStore):
             raise TrackingError("list_txn_nums_for_batch failed", batch_id=batch_id) from exc
         return {row[0] for row in rows}
 
+    # -------------------------------------------------- operator-facing (021)
+
+    def list_batches(
+        self,
+        status: Literal["in_progress", "completed"] | None = None,
+    ) -> list[BatchInfo]:
+        sql = "SELECT batch_id, started_at, completed_at, total_records FROM migration_batch"
+        params: tuple[object, ...] = ()
+        if status == "in_progress":
+            sql += " WHERE completed_at IS NULL"
+        elif status == "completed":
+            sql += " WHERE completed_at IS NOT NULL"
+        sql += " ORDER BY started_at DESC"
+        try:
+            rows = self._reader.execute(sql, params).fetchall()
+        except sqlite3.Error as exc:
+            raise TrackingError("list_batches failed") from exc
+        return [_row_to_batch_info(row) for row in rows]
+
+    def get_batch_details(self, batch_id: str) -> BatchDetails | None:
+        try:
+            batch_row = self._reader.execute(
+                "SELECT batch_id, started_at, completed_at, total_records "
+                "FROM migration_batch WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchone()
+            if batch_row is None:
+                return None
+            status_rows = self._reader.execute(
+                "SELECT status, COUNT(*) FROM migration_log WHERE batch_id = ? GROUP BY status",
+                (batch_id,),
+            ).fetchall()
+            failed_rows = self._reader.execute(
+                "SELECT rvabrep_txn_num, status, COALESCE(error_message, '') "
+                "FROM migration_log WHERE batch_id = ? AND status LIKE '%_FAILED'",
+                (batch_id,),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise TrackingError("get_batch_details failed", batch_id=batch_id) from exc
+        return BatchDetails(
+            info=_row_to_batch_info(batch_row),
+            stage_counts=_pivot_status_counts(status_rows),
+            failed_records=tuple(
+                FailedRecord(txn_num=r[0], status=r[1], error_message=r[2]) for r in failed_rows
+            ),
+        )
+
+    def retry_failed(
+        self,
+        batch_id: str,
+        stage: StageStatus | None = None,
+    ) -> int:
+        if stage is not None and "_FAILED" not in stage.value:
+            raise TrackingError(
+                "retry_failed expects a *_FAILED StageStatus or None",
+                stage=stage.value,
+            )
+        # Drain any pending writes so the UPDATE sees a consistent state.
+        self.flush()
+        try:
+            if stage is None:
+                cursor = self._reader.execute(
+                    "UPDATE migration_log "
+                    "SET status = REPLACE(status, '_FAILED', '_PENDING'), "
+                    "    error_message = NULL "
+                    "WHERE batch_id = ? AND status LIKE '%_FAILED'",
+                    (batch_id,),
+                )
+            else:
+                cursor = self._reader.execute(
+                    "UPDATE migration_log "
+                    "SET status = REPLACE(status, '_FAILED', '_PENDING'), "
+                    "    error_message = NULL "
+                    "WHERE batch_id = ? AND status = ?",
+                    (batch_id, stage.value),
+                )
+            self._reader.commit()
+        except sqlite3.Error as exc:
+            raise TrackingError("retry_failed failed", batch_id=batch_id) from exc
+        return int(cursor.rowcount)
+
     def close(self) -> None:
         """Idempotent shutdown: drain queue, stop writer, close reader."""
         if self._closed:
@@ -390,6 +477,43 @@ def _require_state(stage: StageStatus, expected_suffix: str) -> None:
     """Reject stage values whose name does not end with the expected suffix."""
     if not stage.value.endswith(f"_{expected_suffix}"):
         raise ValueError(f"expected a {expected_suffix} stage, got {stage.value!r}")
+
+
+def _row_to_batch_info(row: tuple[Any, ...]) -> BatchInfo:
+    """Map a (batch_id, started_at, completed_at, total_records) row."""
+    completed_at = datetime.fromisoformat(row[2]) if row[2] is not None else None
+    return BatchInfo(
+        batch_id=row[0],
+        started_at=datetime.fromisoformat(row[1]),
+        completed_at=completed_at,
+        total_records=int(row[3]),
+    )
+
+
+# Stages the CLI's ``batch show`` table always renders, in fixed order.
+_DISPLAY_STAGES: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4", "S5")
+_DISPLAY_OUTCOMES: tuple[str, ...] = ("DONE", "FAILED", "PENDING")
+
+
+def _pivot_status_counts(
+    rows: list[tuple[Any, ...]],
+) -> dict[str, dict[str, int]]:
+    """Group ``(status, count)`` rows into ``{Sn: {DONE: x, FAILED: y, PENDING: z}}``.
+
+    Always emits the full ``S0..S5`` × ``DONE / FAILED / PENDING`` shape
+    so the renderer has predictable cells.
+    """
+    pivot: dict[str, dict[str, int]] = {
+        stage: dict.fromkeys(_DISPLAY_OUTCOMES, 0) for stage in _DISPLAY_STAGES
+    }
+    for status_value, count in rows:
+        parts = str(status_value).split("_", 1)
+        if len(parts) != 2:
+            continue
+        stage, outcome = parts[0], parts[1]
+        if stage in pivot and outcome in pivot[stage]:
+            pivot[stage][outcome] = int(count)
+    return pivot
 
 
 def _record_to_params(record: MigrationRecord, stage: StageStatus) -> tuple[Any, ...]:

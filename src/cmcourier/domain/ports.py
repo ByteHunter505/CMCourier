@@ -21,9 +21,11 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, Literal
 
 from cmcourier.domain.models import (
+    BatchDetails,
+    BatchInfo,
     MigrationRecord,
     RVABREPDocument,
     StagedFile,
@@ -165,6 +167,41 @@ class ITrackingStore(ABC):
     @abstractmethod
     def close(self) -> None:
         """Release any resources (writer thread, cursors, file handles)."""
+
+    # -------------------------------------------------- operator-facing (021)
+
+    @abstractmethod
+    def list_batches(
+        self,
+        status: Literal["in_progress", "completed"] | None = None,
+    ) -> list[BatchInfo]:
+        """Enumerate batches, optionally filtered by completion state.
+
+        Returned list is ordered by ``started_at`` DESC. Empty when no
+        batches recorded. Used by ``cmcourier batch list``.
+        """
+
+    @abstractmethod
+    def get_batch_details(self, batch_id: str) -> BatchDetails | None:
+        """Aggregate per-stage counts + failed records for one batch.
+
+        Returns ``None`` for unknown ``batch_id``. Used by
+        ``cmcourier batch show``.
+        """
+
+    @abstractmethod
+    def retry_failed(
+        self,
+        batch_id: str,
+        stage: StageStatus | None = None,
+    ) -> int:
+        """Reset ``*_FAILED`` rows in ``batch_id`` back to ``*_PENDING``.
+
+        When ``stage`` is None, ALL failed stages are reset. When
+        ``stage`` is a ``Sn_FAILED`` value, only that stage is reset.
+        Returns the number of rows touched. Idempotent: a clean batch
+        returns 0. Used by ``cmcourier batch retry-failed``.
+        """
 
 
 # ---------------------------------------------------------------------------

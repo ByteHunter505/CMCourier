@@ -12,8 +12,128 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
+- REBIRTH §11 CLI follow-up: `inspect trigger`, `inspect mapping-stats`,
+  `batch export-report --format csv|json`, `doctor --check <name>`,
+  pipeline `--skip-doctor / --from Sn / --resume / --no-tui` flags,
+  `background` runner, TUI (REBIRTH §10.6).
 - POST-MVP §2 system metrics (psutil sampling) + §3 offline log analyzer.
+
+---
+
+## [0.23.0] — 2026-05-10 — **operator CLI essentials (REBIRTH §11)**
+
+Adds the six commands an operator needs between pipeline runs:
+batch lifecycle (list/show/retry-failed), preview commands (inspect
+rvabrep/mapping), and a raw AS400 query escape hatch. Pure
+additions on top of the existing pipelines + doctor + single-doc.
+No CLI surface that previously worked has changed.
+
+### Added
+
+- **`cmcourier batch list [--status in_progress|completed]`** —
+  enumerate batches with status + counts, newest first.
+- **`cmcourier batch show <batch_id>`** — per-stage counts
+  (S0..S5 × DONE/FAILED/PENDING) + failed records with their
+  error messages.
+- **`cmcourier batch retry-failed --batch <id> [--stage Sn]`** —
+  reset `*_FAILED` rows in `migration_log` back to `*_PENDING`
+  so the next pipeline run picks them up. Idempotent; reports
+  count reset.
+- **`cmcourier inspect rvabrep <shortname> <system_id>`** — print
+  the RVABREP rows S1 would produce for one trigger. Reads
+  through `IndexingService` to mirror real pipeline behavior.
+- **`cmcourier inspect mapping <id_rvi>`** — print the CM mapping
+  (folder + object type + required metadata fields) for one ID
+  RVI from the Modelo Documental.
+- **`cmcourier as400-query "<SQL>"`** — raw SQL against the AS400
+  configured in YAML (preferring `trigger.as400_connection`,
+  falling back to first `metadata.sources[*]` of kind `as400`).
+  Result cells truncated to 80 chars per column. Debug-only.
+- **3 new ITrackingStore port methods**: `list_batches`,
+  `get_batch_details`, `retry_failed`. Implemented in
+  `SQLiteTrackingStore` via the existing reader connection
+  (writes use REPLACE on the status column for safety).
+- **3 new domain dataclasses**: `BatchInfo` (with derived
+  `status` property), `FailedRecord`, `BatchDetails` (with
+  predictable `S0..S5 × DONE/FAILED/PENDING` shape).
+- **`cmcourier.cli.commands` subpackage** — new home for the
+  expanding CLI surface so `cli/app.py` stays a registry, not
+  a kitchen sink.
+- **23 new tests**: SQLite store (4 list/3 details/4 retry),
+  batch CLI (3 × 4), inspect CLI (3 + 3), as400-query CLI (4).
+
+### Changed
+
+- **`cli/app.py`** registers the new groups + standalone command
+  via `main.add_command(...)`. No change to existing pipeline
+  commands.
+- **`ITrackingStore`** gains 3 abstract methods. Only
+  `SQLiteTrackingStore` implements the port in production; the
+  `__abstractmethods__` test in `tests/unit/domain/test_ports.py`
+  was extended to reflect the new contract.
+
+### Verification
+
+- `pytest --cov`: **534 / 534 pass** in ~91 s (+32 net new across
+  the change cycle).
+- Coverage: total **94.21 %**; `cli/commands/batch.py` at **96 %**,
+  `inspect.py` at **95 %**, `as400_query.py` at **79 %** (error
+  branches not exercised in tests; targeted by the doctor
+  smoke), `_formatting.py` at **68 %** (edge cases like empty
+  headers).
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (47 source files).
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+- Smoke: `cmcourier --help` lists 9 commands (was 6).
+  `cmcourier batch list --help`, `cmcourier inspect rvabrep
+  --help`, `cmcourier as400-query --help` all render correctly.
+
+### Rationale
+
+Before 021 an operator who wanted to know "which batch failed and
+why?" had to open SQLite manually. "Retry the failed S5 uploads?"
+meant writing UPDATEs by hand. "What does S1 think of this
+trigger?" required spinning up Python. These three workflows are
+the daily bread of any migration in flight; making them ergonomic
+is the difference between a dry run that uncovers issues and a
+dry run that gets bogged down in tooling.
+
+**Architectural decisions worth flagging:**
+
+1. *Port extension, not direct SQLite from CLI*. Constitution I
+   says adapters are behind ports. The temptation was strong to
+   read SQLite directly from `batch list` for speed — resisted.
+   Three new methods on `ITrackingStore`, three new SQLite
+   implementations, and the CLI talks to the port. If a future
+   AS400-backed tracking store lands, every operator command
+   keeps working.
+
+2. *`REPLACE(status, '_FAILED', '_PENDING')` for retry*. Safe
+   because the only `_FAILED` substring in any `StageStatus`
+   value is the suffix. A regression test pins this invariant.
+   The alternative (parse + reassemble in Python before UPDATE)
+   was strictly more code for no benefit.
+
+3. *Predictable `stage_counts` shape*. The pivot helper always
+   emits all six stages × three outcomes, even when zero. The
+   CLI rendering is dumb because the data is consistent;
+   adding a stage in the future is one-line change.
+
+4. *`cli/commands/` subpackage*. Each new command family gets
+   its own module. The directory was empty since project
+   bootstrap — 021 finally uses it.
+
+5. *Per-command observability*. Every new command calls
+   `configure_observability(config.observability, "INFO")`
+   after `load_config`. Batch ops, inspect previews, and
+   raw queries all leave audit trails in `app-{date}.log`.
+
+6. *`as400-query` warns about PII*. The command emits a WARNING
+   to the observability log noting that raw cells may contain
+   PII. Operators are responsible for what they query; the log
+   captures the SQL prefix (≤80 chars) for after-the-fact
+   review.
 
 ---
 

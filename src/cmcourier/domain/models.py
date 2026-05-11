@@ -12,7 +12,10 @@ bound to the model semantics (REBIRTH §3.3, §3.4, §4.2).
 from __future__ import annotations
 
 __all__ = [
+    "BatchDetails",
+    "BatchInfo",
     "CMMapping",
+    "FailedRecord",
     "MigrationRecord",
     "ResolvedMetadata",
     "RVABREPDocument",
@@ -271,3 +274,54 @@ class MigrationRecord:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     retry_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Batch summaries (REBIRTH §11 — operator CLI surface, change 021)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class BatchInfo:
+    """One row of ``migration_batch`` plus a derived status.
+
+    ``status`` is ``'completed'`` once ``completed_at`` is non-null,
+    ``'in_progress'`` otherwise. Computed, not stored — keeps the
+    SQLite schema unchanged.
+    """
+
+    batch_id: str
+    started_at: datetime
+    completed_at: datetime | None
+    total_records: int
+
+    @property
+    def status(self) -> str:
+        return "completed" if self.completed_at is not None else "in_progress"
+
+
+@dataclass(frozen=True, slots=True)
+class FailedRecord:
+    """One ``*_FAILED`` row of ``migration_log``.
+
+    Used by ``batch show`` to surface what blocked progression.
+    """
+
+    txn_num: str
+    status: str
+    error_message: str
+
+
+@dataclass(frozen=True, slots=True)
+class BatchDetails:
+    """Aggregated state of a single batch.
+
+    ``stage_counts`` always contains keys ``S0..S5``; inner dict has
+    keys ``DONE / FAILED / PENDING`` with integer counts (zero for
+    missing combos). Predictable shape lets the CLI render a stable
+    table regardless of the batch's progress.
+    """
+
+    info: BatchInfo
+    stage_counts: Mapping[str, Mapping[str, int]]
+    failed_records: tuple[FailedRecord, ...]
