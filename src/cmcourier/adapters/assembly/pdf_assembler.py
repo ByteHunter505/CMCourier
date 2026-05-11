@@ -42,6 +42,7 @@ from cmcourier.domain.exceptions import (
     SourceFileMissingError,
 )
 from cmcourier.domain.models import RVABREPDocument, StagedFile
+from cmcourier.domain.ports import IAssembler
 
 _log = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class AssemblerConfig:
 # ---------------------------------------------------------------------------
 
 
-class PdfAssembler:
+class PdfAssembler(IAssembler):
     """Concrete :class:`IAssembler` for stage S4."""
 
     def __init__(self, config: AssemblerConfig) -> None:

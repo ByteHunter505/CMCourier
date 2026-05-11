@@ -13,8 +13,82 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Planned for next release
 
 - REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
-- Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
 - Observability tiers (REBIRTH §17.4).
+
+---
+
+## [0.21.0] — 2026-05-10 — **adapter port-hygiene cleanup**
+
+Closes a Constitution Principle I (hexagonal architecture) deuda:
+the last two adapters that implemented their ports structurally
+(duck-typed) now declare formal inheritance. Pure declarative
+cleanup — zero behavioral changes.
+
+### Added
+
+- **`PdfAssembler` now inherits from `IAssembler`**. The class
+  declaration is `class PdfAssembler(IAssembler):`. Python's ABC
+  machinery now guards against any future drift: if a required
+  abstract method were ever removed, `PdfAssembler(...)` would
+  raise `TypeError` at instantiation.
+- **`CmisUploader` now inherits from `IUploader`**. Same guarantee:
+  `ensure_folder`, `upload`, `test_connection`,
+  `get_type_definition` are now formally overrides validated by
+  mypy.
+- **2 new conformance tests**:
+  - `tests/integration/adapters/test_pdf_assembler.py::TestPortConformance::test_pdf_assembler_is_iassembler`
+  - `tests/integration/adapters/test_cmis_uploader.py::TestPortConformance::test_cmis_uploader_is_iuploader`
+  Each instantiates the adapter and asserts `isinstance(adapter,
+  port)` returns `True`. They fail loudly if a future change
+  drops the inheritance.
+
+### Changed
+
+- **Adapter import blocks**: `pdf_assembler.py` and
+  `cmis_uploader.py` each gained one import line
+  (`from cmcourier.domain.ports import IAssembler` /
+  `IUploader`). No other source edits.
+- **`__mro__`**: `PdfAssembler.__mro__` now contains `IAssembler`;
+  `CmisUploader.__mro__` now contains `IUploader`. This is the
+  observable runtime side of the change — `isinstance` checks
+  work, registries that filter by port type work, doctor /
+  diagnostic code can rely on it.
+
+### Verification
+
+- `pytest --cov`: **467 / 467 pass** in ~69 s (+2 net new).
+- Coverage: total **94.79 %** (unchanged);
+  `adapters/assembly/pdf_assembler.py` at **98 %**;
+  `adapters/upload/cmis_uploader.py` at **94 %**.
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (38 source files). Validated the
+  override signatures match the port abstract methods. No new
+  errors surfaced — signatures were already aligned, the
+  declaration just made the alignment formal.
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+
+### Rationale
+
+Constitution Principle I demands a strict port/adapter split. The
+project had been 60 % consistent (`TabularDataSource`,
+`As400DataSource`, `SQLiteTrackingStore`, and all 5 S0 strategies
+already inherited their ports). The two outliers were the
+assembler and uploader — both worked because Python uses duck
+typing at runtime, but neither was guarded against signature drift
+and neither passed `isinstance(adapter, port)` checks.
+
+This change closes the gap with minimal surface area: 2 imports,
+2 class declarations, 2 tests. mypy now validates every override,
+and Python's ABC instantiation check guards against missing
+methods. A future port-signature change (e.g., adding a parameter)
+will now surface at the adapter override instead of at the call
+site — a much earlier and more actionable failure point.
+
+The change is also a pedagogical artifact for new contributors:
+the ports/adapters split is no longer "mostly enforced, sometimes
+implicit" — every adapter says, at the top of its class
+declaration, which port it implements.
 
 ---
 

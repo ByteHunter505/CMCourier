@@ -664,3 +664,16 @@ class TestGetTypeDefinition:
         with pytest.raises(CMISServerError) as ei:
             uploader.get_type_definition("X")
         assert ei.value.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Port conformance (019, Constitution I)
+# ---------------------------------------------------------------------------
+
+
+class TestPortConformance:
+    def test_cmis_uploader_is_iuploader(self) -> None:
+        from cmcourier.domain.ports import IUploader
+
+        uploader = CmisUploader(_make_config())
+        assert isinstance(uploader, IUploader)

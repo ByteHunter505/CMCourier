@@ -390,3 +390,16 @@ class TestLoggingDiscipline:
             # No b'...' literals or huge integer dumps.
             assert "\\x" not in message
             assert "b'%" not in message
+
+
+# ---------------------------------------------------------------------------
+# Group 10 — Port conformance (019, Constitution I)
+# ---------------------------------------------------------------------------
+
+
+class TestPortConformance:
+    def test_pdf_assembler_is_iassembler(self, tmp_path: Path) -> None:
+        from cmcourier.domain.ports import IAssembler
+
+        assembler = PdfAssembler(_config(tmp_path))
+        assert isinstance(assembler, IAssembler)

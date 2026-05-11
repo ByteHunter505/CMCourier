@@ -49,6 +49,7 @@ from cmcourier.domain.exceptions import (
     RetriesExhaustedError,
 )
 from cmcourier.domain.models import StagedFile
+from cmcourier.domain.ports import IUploader
 
 _log = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class BandwidthLimiter:
 # ---------------------------------------------------------------------------
 
 
-class CmisUploader:
+class CmisUploader(IUploader):
     """Concrete :class:`IUploader` over CMIS Browser Binding."""
 
     def __init__(self, config: CmisConfig) -> None:
