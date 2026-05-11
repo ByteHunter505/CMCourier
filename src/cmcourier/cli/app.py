@@ -120,6 +120,13 @@ def csv_trigger_pipeline_group() -> None:
     default=None,
     help="Override processing.batches_in_flight (1 or 2). Default reads YAML.",
 )
+@click.option(
+    "--total",
+    "total",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Process at most N triggers from the source (for validation runs).",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def csv_run_command(
     config_path: Path,
@@ -131,6 +138,7 @@ def csv_run_command(
     resume: bool,
     tui: bool,
     batches_in_flight: int | None,
+    total: int | None,
     log_level: str,
 ) -> None:
     """Run the csv-trigger pipeline end-to-end."""
@@ -146,6 +154,7 @@ def csv_run_command(
         log_level=log_level,
         tui=tui,
         batches_in_flight=batches_in_flight,
+        total=total,
     )
 
 
@@ -178,6 +187,13 @@ def rvabrep_pipeline_group() -> None:
     type=click.IntRange(1, 2),
     default=None,
 )
+@click.option(
+    "--total",
+    "total",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Process at most N triggers from the source (for validation runs).",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def rvabrep_run_command(
     config_path: Path,
@@ -188,6 +204,7 @@ def rvabrep_run_command(
     resume: bool,
     tui: bool,
     batches_in_flight: int | None,
+    total: int | None,
     log_level: str,
 ) -> None:
     """Run the rvabrep-pipeline end-to-end."""
@@ -203,6 +220,7 @@ def rvabrep_run_command(
         log_level=log_level,
         tui=tui,
         batches_in_flight=batches_in_flight,
+        total=total,
     )
 
 
@@ -235,6 +253,13 @@ def as400_trigger_pipeline_group() -> None:
     type=click.IntRange(1, 2),
     default=None,
 )
+@click.option(
+    "--total",
+    "total",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Process at most N triggers from the source (for validation runs).",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def as400_run_command(
     config_path: Path,
@@ -245,6 +270,7 @@ def as400_run_command(
     resume: bool,
     tui: bool,
     batches_in_flight: int | None,
+    total: int | None,
     log_level: str,
 ) -> None:
     """Run the as400-trigger-pipeline end-to-end."""
@@ -260,6 +286,7 @@ def as400_run_command(
         log_level=log_level,
         tui=tui,
         batches_in_flight=batches_in_flight,
+        total=total,
     )
 
 
@@ -292,6 +319,13 @@ def local_scan_pipeline_group() -> None:
     type=click.IntRange(1, 2),
     default=None,
 )
+@click.option(
+    "--total",
+    "total",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Process at most N triggers from the source (for validation runs).",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def local_scan_run_command(
     config_path: Path,
@@ -302,6 +336,7 @@ def local_scan_run_command(
     resume: bool,
     tui: bool,
     batches_in_flight: int | None,
+    total: int | None,
     log_level: str,
 ) -> None:
     """Run the local-scan-pipeline end-to-end."""
@@ -317,6 +352,7 @@ def local_scan_run_command(
         log_level=log_level,
         tui=tui,
         batches_in_flight=batches_in_flight,
+        total=total,
     )
 
 
@@ -353,6 +389,13 @@ def single_doc_group() -> None:
     type=click.IntRange(1, 2),
     default=None,
 )
+@click.option(
+    "--total",
+    "total",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Process at most N triggers from the source (for validation runs).",
+)
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def single_doc_run_command(
     config_path: Path,
@@ -366,6 +409,7 @@ def single_doc_run_command(
     resume: bool,
     tui: bool,
     batches_in_flight: int | None,
+    total: int | None,
     log_level: str,
 ) -> None:
     """Run a one-shot pipeline for a single document."""
@@ -417,6 +461,7 @@ def single_doc_run_command(
         "from_stage": from_stage,
         "batches_in_flight": batches_in_flight or config.processing.batches_in_flight,
         "resume": resume,
+        "total": total,
     }
     report = _run_with_optional_tui(
         pipeline=pipeline,
@@ -496,6 +541,7 @@ def _run_pipeline_command(
     quiet: bool = False,
     tui: bool = False,
     batches_in_flight: int | None = None,
+    total: int | None = None,
 ) -> None:
     configure_logging(log_level)
     try:
@@ -540,6 +586,7 @@ def _run_pipeline_command(
         "from_stage": from_stage,
         "batches_in_flight": batches_in_flight or config.processing.batches_in_flight,
         "resume": resume,
+        "total": total,
     }
     report = _run_with_optional_tui(
         pipeline=pipeline,
@@ -613,6 +660,7 @@ def _run_with_optional_tui(
     # Extract orchestrator-specific kwargs and drop them from the dict.
     batches_in_flight = int(pipeline_kwargs.pop("batches_in_flight", 1))
     resume_flag = bool(pipeline_kwargs.pop("resume", False))
+    total = pipeline_kwargs.pop("total", None)
     if resume_flag:
         # Resume is inherently single-batch — the operator named a specific
         # batch_id; orchestrator chunking doesn't apply.
@@ -630,6 +678,7 @@ def _run_with_optional_tui(
         "batches_in_flight": batches_in_flight,
         "from_stage": int(pipeline_kwargs.get("from_stage", 1)),
         "resume_batch_id": resume_batch_id,
+        "total": total,
     }
 
     if not tui:

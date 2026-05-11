@@ -41,6 +41,48 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.34.0] — 2026-05-11 — **Tier 1 polish: `--total` flag + CI integration docs**
+
+Two small operational ergonomics wins bundled into one change.
+Closes the Tier 1 polish queue.
+
+### Added
+
+- **`--total <N>` flag** on every pipeline run command
+  (`csv-trigger`, `rvabrep`, `as400-trigger`, `local-scan`,
+  `single-doc`). Caps the number of triggers processed after
+  the S0 acquire. Useful for validating a config + environment
+  by running a tiny subset before the full migration.
+  - Threaded through `StagedPipeline.run(..., total=N)` and
+    `MultiBatchOrchestrator.run(..., total=N)`. Both N=1 and
+    N=2 paths respect it uniformly.
+  - `--total 0` rejected by Click's `IntRange(min=1)`.
+  - `--total <larger-than-source>` is a no-op (no truncation).
+- **CI / PR integration section** in
+  `docs/how-to/log-analysis.md`. Covers minimum-viable
+  regression check (bash `case` on `bottleneck.classification`),
+  GitHub Actions and GitLab CI yaml templates, useful `jq`
+  filters for throughput / p95 / slow-op extraction, exit-code
+  contract for the analyzer, and known CI limitations
+  (no real CMIS, small `--total` masks worker-saturation).
+
+### Tests
+
+- 5 new integration tests covering `--total`: caps N=1 path,
+  caps N=2 multi-chunk path, larger-than-source is a no-op,
+  zero rejected, `--help` lists the flag on every pipeline.
+- 748 total green (up from 743), mypy + ruff clean.
+
+### Notes
+
+- Skipped version `0.32.0` reserved for the parallel change
+  **031 mock-file-generator** developed on a separate branch.
+- This change closes the Tier 1 (operator polish) queue. Next
+  pending work needs real data (dry run staging) or external
+  confirmation (§4 AS400 tracking pending bank decision).
+
+---
+
 ## [0.33.0] — 2026-05-11 — **shell auto-completion (`cmcourier completion`)**
 
 > Skips 0.32.0 — that version is reserved for the parallel

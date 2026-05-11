@@ -197,6 +197,152 @@ output (sorted keys, no embedded timestamps, no random IDs).
 
 ---
 
+## CI / PR integration (033)
+
+The analyzer's `--format json` + deterministic output makes it a
+natural fit for a CI guardrail: every PR (or scheduled job) runs
+a small validation batch, then checks the bottleneck verdict +
+S5 p95 against a baseline. If a regression appears, the CI job
+fails and a comment is posted on the PR.
+
+### Minimum viable check
+
+The smallest useful CI step is "run the validation batch and
+assert the verdict didn't move from `under-utilized` →
+`network-bound`":
+
+```bash
+# In CI — run a tiny migration (the --total flag from 033 caps it):
+cmcourier csv-trigger-pipeline run \
+    --config staging.yaml \
+    --no-tui --skip-doctor \
+    --total 10 --batches-in-flight 1
+
+# Inspect the most recent batch's verdict:
+VERDICT=$(cmcourier analyze trends --last 1 --config staging.yaml --format json \
+          | jq -r '.[0].batch_id' \
+          | xargs -I {} cmcourier analyze batch {} --config staging.yaml --format json \
+          | jq -r '.bottleneck.classification')
+
+# Fail the build if a regression is detected:
+case "$VERDICT" in
+  "under-utilized"|"network-bound")
+    echo "::notice::CI batch verdict: $VERDICT"
+    ;;
+  "cpu-bound"|"memory-bound"|"disk-bound"|"worker-saturated")
+    echo "::error::CI batch verdict regressed to '$VERDICT'"
+    exit 1
+    ;;
+esac
+```
+
+### GitHub Actions
+
+```yaml
+- name: Run CMCourier validation batch
+  env:
+    CMIS_USERNAME: ${{ secrets.CMIS_USERNAME }}
+    CMIS_PASSWORD: ${{ secrets.CMIS_PASSWORD }}
+  run: |
+    cmcourier csv-trigger-pipeline run \
+      --config configs/staging.yaml \
+      --no-tui --skip-doctor \
+      --total 10 --batches-in-flight 1
+
+- name: Analyze most recent batch
+  run: |
+    LAST_BATCH=$(cmcourier analyze trends --last 1 \
+                  --config configs/staging.yaml --format json \
+                  | jq -r '.[0].batch_id')
+    cmcourier analyze batch "$LAST_BATCH" \
+      --config configs/staging.yaml --format json > batch-report.json
+    cat batch-report.json | jq .
+
+- name: Upload report artifact
+  uses: actions/upload-artifact@v4
+  with:
+    name: cmcourier-batch-report
+    path: batch-report.json
+```
+
+### GitLab CI
+
+```yaml
+cmcourier-validation:
+  stage: test
+  script:
+    - cmcourier csv-trigger-pipeline run
+        --config configs/staging.yaml
+        --no-tui --skip-doctor
+        --total 10 --batches-in-flight 1
+    - LAST_BATCH=$(cmcourier analyze trends --last 1
+                    --config configs/staging.yaml --format json
+                    | jq -r '.[0].batch_id')
+    - cmcourier analyze batch "$LAST_BATCH"
+        --config configs/staging.yaml --format json > batch-report.json
+  artifacts:
+    paths:
+      - batch-report.json
+    when: always
+```
+
+### Useful `jq` filters
+
+```bash
+# Throughput across the last 10 batches:
+cmcourier analyze trends --last 10 --config c.yaml --format json \
+  | jq '[.[].throughput_docs_per_s] | {min, max, avg: (add/length)}'
+
+# All S5 p95 values that crossed 5000 ms:
+cmcourier analyze trends --last 50 --config c.yaml --format json \
+  | jq '[.[] | select(.s5_p95_ms > 5000)] | length'
+
+# Verdict + confidence for a known batch:
+cmcourier analyze batch "$ID" --config c.yaml --format json \
+  | jq '.bottleneck | {classification, confidence}'
+
+# Top-3 slow ops by duration:
+cmcourier analyze batch "$ID" --config c.yaml --format json \
+  | jq '.slow_ops | sort_by(-.duration_ms) | .[:3]'
+```
+
+### Exit-code contract (regression gate)
+
+For CI usage, the analyzer's exit codes:
+
+* `0` — report produced successfully (regardless of the
+  classification).
+* `2` — config / CLI error (bad path, missing batch, malformed
+  flag).
+* `3` — unhandled exception inside the analyzer.
+
+**Classification is NOT in the exit code** — the analyzer
+reports facts; the CI job decides what counts as a regression.
+This keeps the analyzer composable and lets each project pick
+its own thresholds. The `case` block in the minimum-viable
+example above is the recommended pattern: parse the JSON
+output yourself and exit non-zero on the classes you care
+about.
+
+### Limitations in CI
+
+* **Real CMIS not available**: most CI runners can't reach
+  the bank's CMIS server. Use the `single-doc` pipeline
+  against a CMIS-emulator container, or run only the
+  pre-S5 stages and skip S5 entirely (a future change can
+  add `--skip-s5`).
+* **Small `--total` masks worker-saturation**: with `--total
+  10`, the AIMD controller never warms up and `active_workers`
+  stays low. The `worker-saturated` and `cpu-bound` verdicts
+  almost never fire in CI — that's expected. CI catches
+  config / wiring regressions, not load issues.
+* **Determinism is per-input**: identical JSONL produces
+  identical JSON, but two CI runs with different timing
+  produce different JSONL. Don't pin against `byte-identical
+  reports` across runs — pin against specific fields.
+
+---
+
 ## Cross-references
 
 - POST-MVP roadmap entry: `docs/roadmap/POST-MVP.md` §3.

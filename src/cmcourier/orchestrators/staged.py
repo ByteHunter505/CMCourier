@@ -228,8 +228,14 @@ class StagedPipeline:
         batch_size: int = 1000,
         batch_id: str | None = None,
         from_stage: int = 1,
+        total: int | None = None,
     ) -> RunReport:
-        """Run the csv-trigger pipeline end-to-end."""
+        """Run the csv-trigger pipeline end-to-end.
+
+        ``total`` (033) caps the number of triggers processed after the
+        S0 acquire — useful for validating a config against a small
+        subset before launching the full migration.
+        """
         start = time.monotonic()
         self._validate_parameters(batch_size, from_stage, batch_id)
         resolved_batch_id = self._resolve_batch_id(batch_id, from_stage, batch_size)
@@ -240,6 +246,8 @@ class StagedPipeline:
         try:
             s0_start = time.monotonic()
             triggers = list(self._trigger_strategy.acquire(source_descriptor))
+            if total is not None:
+                triggers = triggers[: max(0, total)]
             self._metrics.record_stage(
                 stage="S0", duration_ms=(time.monotonic() - s0_start) * 1000.0
             )

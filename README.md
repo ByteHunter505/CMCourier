@@ -226,6 +226,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Twenty-ninth change: shared `BandwidthLimiter` token bucket — `cmis.max_bandwidth_mbps` is now the real global cap
 - [x] Thirtieth change: TUI multi-batch view — new `CHUNKS` tab + live recorder binding
 - [x] Thirty-second change: shell auto-completion (`cmcourier completion bash|zsh|fish`)
+- [x] Thirty-third change: Tier 1 polish — `--total <N>` flag + CI integration docs for `analyze`
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

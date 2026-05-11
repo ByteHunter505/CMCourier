@@ -179,8 +179,13 @@ class MultiBatchOrchestrator:
         batches_in_flight: int,
         from_stage: int = 1,
         resume_batch_id: str | None = None,
+        total: int | None = None,
     ) -> MultiBatchRunReport:
-        """Acquire triggers, chunk, then run them per ``batches_in_flight``."""
+        """Acquire triggers, chunk, then run them per ``batches_in_flight``.
+
+        ``total`` (033) caps the trigger count after acquire. Applied
+        uniformly to both N=1 and N=2 paths.
+        """
         if resume_batch_id is not None or batches_in_flight == 1 or from_stage > 1:
             # Resume + single-in-flight + non-default from_stage all force the
             # legacy single-batch path: it preserves byte-identical semantics
@@ -190,6 +195,7 @@ class MultiBatchOrchestrator:
                 batch_size=batch_size,
                 resume_batch_id=resume_batch_id,
                 from_stage=from_stage,
+                total=total,
             )
         if batches_in_flight != 2:
             raise ValueError(
@@ -199,6 +205,7 @@ class MultiBatchOrchestrator:
         return self._run_overlapped(
             source_descriptor=source_descriptor,
             batch_size=batch_size,
+            total=total,
         )
 
     # ----- N=1 path ---------------------------------------------------
@@ -210,12 +217,14 @@ class MultiBatchOrchestrator:
         batch_size: int,
         resume_batch_id: str | None,
         from_stage: int,
+        total: int | None = None,
     ) -> MultiBatchRunReport:
         report = self._pipeline.run(
             source_descriptor=source_descriptor,
             batch_size=batch_size,
             batch_id=resume_batch_id,
             from_stage=from_stage,
+            total=total,
         )
         return MultiBatchRunReport(chunks=[report])
 
@@ -226,8 +235,11 @@ class MultiBatchOrchestrator:
         *,
         source_descriptor: str,
         batch_size: int,
+        total: int | None = None,
     ) -> MultiBatchRunReport:
         triggers = list(self._pipeline._trigger_strategy.acquire(source_descriptor))  # noqa: SLF001
+        if total is not None:
+            triggers = triggers[: max(0, total)]
         chunks_iter = chunked(triggers, batch_size)
         chunk_list = list(chunks_iter)
         if not chunk_list:
