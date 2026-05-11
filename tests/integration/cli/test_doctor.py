@@ -178,6 +178,7 @@ class TestRunDoctorHappyPath:
             "cmis_connectivity",
             "as400_connectivity",
             "tracking_openable",
+            "as400_sync",
             "mapping_completeness",
             "metadata_sources",
             "cm_type_alignment",
@@ -326,6 +327,21 @@ class TestAs400Connectivity:
         check = next(r for r in report.results if r.name == "as400_connectivity")
         assert check.status == CheckStatus.SKIP
         assert check.details["reason"] == "trigger_kind_not_as400"
+
+
+class TestAs400Sync:
+    """034: doctor check for AS400 NIARVILOG sync."""
+
+    @responses.activate
+    def test_skips_when_disabled(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        # Default config has as400_sync.enabled=false.
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets())
+        check = next(r for r in report.results if r.name == "as400_sync")
+        assert check.status == CheckStatus.SKIP
+        assert "disabled" in check.details.get("reason", "")
 
 
 class TestSampleDryRun:
@@ -487,6 +503,7 @@ class TestDoctorCheckFilter:
                 "cmis_connectivity",
                 "as400_connectivity",
                 "tracking_openable",
+                "as400_sync",
                 "mapping_completeness",
                 "metadata_sources",
                 "cm_type_alignment",

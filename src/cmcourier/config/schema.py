@@ -322,9 +322,39 @@ class CmisConfigModel(BaseModel):
     auto_tune: AutoTuneConfig = Field(default_factory=AutoTuneConfig)
 
 
+class As400SyncConfig(BaseModel):
+    """POST-MVP §4 — distributed idempotency coordination via AS400 NIARVILOG.
+
+    Default ``enabled=False`` preserves the pre-034 SQLite-only
+    behavior. When enabled, the pipeline coordinates with the
+    centralized ``RVILIB.NIARVILOG`` table for cross-batch
+    idempotency, atomic claim against concurrent processes, and
+    operator-visible upload state.
+    """
+
+    model_config = _STRICT
+    enabled: bool = False
+    connection: As400ConnectionConfig | None = None
+    library: str = "RVILIB"
+    table: str = "NIARVILOG"
+    stale_in_progress_minutes: int = Field(default=30, ge=1, le=1440)
+    retry_attempts: int = Field(default=3, ge=1, le=10)
+    retry_base_delay_s: float = Field(default=5.0, gt=0)
+
+    @model_validator(mode="after")
+    def _connection_required_when_enabled(self) -> As400SyncConfig:
+        if self.enabled and self.connection is None:
+            msg = (
+                "tracking.as400_sync.enabled=true requires tracking.as400_sync.connection to be set"
+            )
+            raise ValueError(msg)
+        return self
+
+
 class TrackingConfig(BaseModel):
     model_config = _STRICT
     db_path: Path
+    as400_sync: As400SyncConfig = Field(default_factory=As400SyncConfig)
 
 
 class ProcessingConfig(BaseModel):

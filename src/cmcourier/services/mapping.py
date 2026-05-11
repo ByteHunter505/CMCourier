@@ -39,9 +39,16 @@ class MappingColumnsConfig:
     col_id_corto: str = "ID Corto"
     col_clase_name: str = "CLASE DOCUMENTAL"
     col_metadata_list: str = "METADATOS"
+    # 034: optional column. When the CSV has it, populate ``CMMapping.cmis_type``;
+    # otherwise default to "". 035 will make it required when the CSV split lands.
+    col_cmis_type: str = "CMISType"
 
     def required_columns(self) -> tuple[str, ...]:
-        """Return the names of every column the service must find in the source."""
+        """Return the names of every column the service must find in the source.
+
+        ``col_cmis_type`` is intentionally NOT required — it's read when
+        present and defaults to "" when absent. See 035 follow-up.
+        """
         return (
             self.col_clase_id,
             self.col_id_rvi,
@@ -123,12 +130,15 @@ class MappingService:
                 )
 
     def _row_to_mapping(self, row: dict[str, object], id_rvi: str) -> CMMapping:
+        cmis_type_raw = row.get(self._columns.col_cmis_type)
+        cmis_type = "" if cmis_type_raw is None else str(cmis_type_raw).strip()
         return CMMapping(
             clase_id=str(row[self._columns.col_clase_id]).strip(),
             id_rvi=id_rvi,
             id_corto=str(row[self._columns.col_id_corto]).strip(),
             clase_name=str(row[self._columns.col_clase_name]).strip(),
             required_metadata_fields=_parse_metadata_list(row.get(self._columns.col_metadata_list)),
+            cmis_type=cmis_type,
         )
 
     def get_mapping(self, id_rvi: str) -> CMMapping:

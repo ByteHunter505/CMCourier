@@ -789,3 +789,71 @@ class TestProcessingConfig:
         )
         config = PipelineConfig.model_validate(data)
         assert config.processing.batches_in_flight == 2
+
+
+# ---------------------------------------------------------------------------
+# 034 — AS400 NIARVILOG sync config
+# ---------------------------------------------------------------------------
+
+
+class TestAs400SyncConfig:
+    def test_defaults_disabled(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig
+
+        cfg = As400SyncConfig()
+        assert cfg.enabled is False
+        assert cfg.library == "RVILIB"
+        assert cfg.table == "NIARVILOG"
+        assert cfg.stale_in_progress_minutes == 30
+        assert cfg.retry_attempts == 3
+        assert cfg.retry_base_delay_s == 5.0
+        # When disabled, connection is allowed to be None.
+        assert cfg.connection is None
+
+    def test_enabled_requires_connection(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig
+
+        with pytest.raises(ValidationError) as ei:
+            As400SyncConfig(enabled=True, connection=None)
+        assert "connection" in str(ei.value).lower()
+
+    def test_enabled_with_connection_valid(self) -> None:
+        from cmcourier.config.schema import As400ConnectionConfig, As400SyncConfig
+
+        cfg = As400SyncConfig(
+            enabled=True,
+            connection=As400ConnectionConfig(host="10.0.0.1"),
+        )
+        assert cfg.enabled is True
+        assert cfg.connection is not None
+        assert cfg.connection.host == "10.0.0.1"
+
+    def test_stale_minutes_out_of_range_rejected(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig
+
+        with pytest.raises(ValidationError):
+            As400SyncConfig(stale_in_progress_minutes=0)
+        with pytest.raises(ValidationError):
+            As400SyncConfig(stale_in_progress_minutes=2000)
+
+    def test_retry_policy_out_of_range_rejected(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig
+
+        with pytest.raises(ValidationError):
+            As400SyncConfig(retry_attempts=0)
+        with pytest.raises(ValidationError):
+            As400SyncConfig(retry_base_delay_s=0.0)
+
+    def test_tracking_config_has_as400_sync(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        config = PipelineConfig.model_validate(data)
+        assert config.tracking.as400_sync.enabled is False

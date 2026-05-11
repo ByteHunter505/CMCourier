@@ -179,13 +179,20 @@ class RVABREPDocument:
 
 @dataclass(frozen=True, slots=True)
 class CMMapping:
-    """One row of the Modelo Documental — RVI type to CM class (REBIRTH §4)."""
+    """One row of the Modelo Documental — RVI type to CM class (REBIRTH §4).
+
+    ``cmis_type`` (034) is the CMIS Type code that maps to AS400
+    ``NIARVILOG.TIPIDN``. Defaults to ``""`` until change 035
+    splits the mapping CSV into ``MapeoRVI_CM.csv`` +
+    ``MetadatosCM.csv`` with an explicit ``CMISType`` column.
+    """
 
     clase_id: str
     id_rvi: str
     id_corto: str
     clase_name: str
     required_metadata_fields: tuple[str, ...]
+    cmis_type: str = ""
 
     @property
     def cm_folder(self) -> str:

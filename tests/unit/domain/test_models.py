@@ -283,6 +283,19 @@ class TestCMMapping:
         )
         assert m.clase_id == "01.02.04.01.01"
         assert m.required_metadata_fields == ("BAC_CIF", "BAC_Num_Cuenta_Tarjeta")
+        # 034: cmis_type defaults to "" until 035 populates the column.
+        assert m.cmis_type == ""
+
+    def test_cmis_type_explicit(self) -> None:
+        m = CMMapping(
+            clase_id="01.02.04.01.01",
+            id_rvi="FF17",
+            id_corto="PT57",
+            clase_name="Autorizacion SMS",
+            required_metadata_fields=(),
+            cmis_type="MyCustomCMISType",
+        )
+        assert m.cmis_type == "MyCustomCMISType"
 
     def test_cm_folder_computed(self) -> None:
         m = CMMapping(

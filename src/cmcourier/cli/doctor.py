@@ -161,6 +161,8 @@ def run_doctor(
         results.append(_check_as400_connectivity(config, secrets))
     if _selected("tracking_openable", selected):
         results.append(_check_tracking_openable(config))
+    if _selected("as400_sync", selected):
+        results.append(_check_as400_sync(config, secrets))
     if _selected("mapping_completeness", selected):
         results.append(_check_mapping_completeness(config))
     if _selected("metadata_sources", selected):
@@ -355,6 +357,60 @@ def _check_tracking_openable(config: PipelineConfig) -> CheckResult:
         status=CheckStatus.PASS,
         message=f"SQLite tracking store openable at {db_path}",
         details=_frozen({"db_path": str(db_path)}),
+    )
+
+
+def _check_as400_sync(config: PipelineConfig, secrets: Secrets) -> CheckResult:
+    """034: validate AS400 NIARVILOG connection + table when sync is enabled.
+
+    SKIPs when ``tracking.as400_sync.enabled`` is False. When True,
+    connects to the configured AS400 and runs a probe query against
+    the NIARVILOG table.
+    """
+    sync_cfg = config.tracking.as400_sync
+    if not sync_cfg.enabled:
+        return _skip("as400_sync", "disabled (tracking.as400_sync.enabled=false)")
+    if sync_cfg.connection is None:  # pragma: no cover — schema guards this
+        return CheckResult(
+            name="as400_sync",
+            status=CheckStatus.FAIL,
+            message="as400_sync.enabled=true but connection is missing",
+            details=_frozen({"reason": "missing_connection"}),
+        )
+    if not secrets.as400_username or not secrets.as400_password:
+        return CheckResult(
+            name="as400_sync",
+            status=CheckStatus.FAIL,
+            message="AS400 credentials missing in environment",
+            details=_frozen({"host": sync_cfg.connection.host}),
+        )
+    full_table = f"{sync_cfg.library}.{sync_cfg.table}"
+    try:
+        src = As400DataSource(
+            host=sync_cfg.connection.host,
+            port=sync_cfg.connection.port,
+            database=sync_cfg.connection.database,
+            driver=sync_cfg.connection.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            table=full_table,
+        )
+        try:
+            # 1=0 keeps the probe cheap (zero rows returned, only schema check).
+            src.query(f"SELECT 1 FROM {full_table} WHERE 1=0", [])
+        finally:
+            src.close()
+    except Exception as exc:  # noqa: BLE001
+        return _fail(
+            "as400_sync",
+            exc,
+            {"host": sync_cfg.connection.host, "table": full_table},
+        )
+    return CheckResult(
+        name="as400_sync",
+        status=CheckStatus.PASS,
+        message=f"AS400 NIARVILOG reachable at {sync_cfg.connection.host}/{full_table}",
+        details=_frozen({"host": sync_cfg.connection.host, "table": full_table}),
     )
 
 
