@@ -184,7 +184,8 @@ def _open_metadata_source(
             driver=source_cfg.as400_connection.driver,
             username=secrets.as400_username,
             password=secrets.as400_password,
-            table=source_cfg.table,
+            table=source_cfg.table or "",
+            query=source_cfg.query,
         )
     raise RuntimeError(f"unknown metadata source kind: {source_cfg!r}")
 

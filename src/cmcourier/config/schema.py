@@ -55,6 +55,7 @@ from pydantic import (
     Field,
     FilePath,
     field_validator,
+    model_validator,
 )
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
@@ -194,16 +195,24 @@ class CsvMetadataSourceConfig(BaseModel):
 class As400MetadataSourceConfig(BaseModel):
     """A named AS400 source available to metadata resolution.
 
-    Prefetch runs ``SELECT * FROM <table>`` over the configured
-    connection. The operator is responsible for choosing tables
-    small enough to fit comfortably in memory.
+    Prefetch runs ``SELECT * FROM <table>`` (table mode) or
+    ``SELECT * FROM (<query>) AS T`` (query mode) over the configured
+    connection. Exactly one of ``table`` / ``query`` MUST be set —
+    the operator picks the form that scales to their data volume.
     """
 
     model_config = _STRICT
     kind: Literal["as400"]
     alias: str
     as400_connection: As400ConnectionConfig
-    table: str = Field(min_length=1)
+    table: str | None = Field(default=None, min_length=1)
+    query: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _exactly_one_table_or_query(self) -> As400MetadataSourceConfig:
+        if bool(self.table) == bool(self.query):
+            raise ValueError("as400 metadata source requires exactly one of `table` or `query`")
+        return self
 
 
 # Backwards-compatible name for the legacy CSV-only shape.

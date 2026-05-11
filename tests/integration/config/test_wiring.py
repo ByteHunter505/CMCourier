@@ -196,6 +196,39 @@ class TestBuildPipeline:
         assert ei.value.context["alias"] == "customers"
         assert "AS400_USERNAME" in ei.value.context["missing_vars"]
 
+    def test_as400_metadata_source_with_query_builds(self, tmp_path: Path) -> None:
+        # 018: query-mode AS400 metadata source. pyodbc connection is lazy
+        # so the constructor doesn't touch the network.
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "  sources:\n    - alias: clients",
+            "  sources:\n"
+            "    - kind: as400\n"
+            "      alias: customers\n"
+            "      as400_connection:\n"
+            '        host: "10.0.0.1"\n'
+            "      query: SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 1\n"
+            "    - alias: clients",
+            1,
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        secrets = Secrets(
+            cmis_username="tester",
+            cmis_password="secret-not-real",
+            as400_username="as400tester",
+            as400_password="as400secret",
+        )
+        pipeline = build_pipeline(config, secrets)
+        registry = pipeline._metadata_service._sources_registry  # type: ignore[attr-defined]
+        assert "customers" in registry
+        # The adapter's source_expr should wrap the query in a derived-table alias.
+        customers_src = registry["customers"]
+        assert customers_src._source_expr == (  # type: ignore[attr-defined]
+            "(SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 1) AS T"
+        )
+
     def test_single_doc_without_override_raises(self, tmp_path: Path) -> None:
         yaml_path = _write_yaml(tmp_path)
         text = yaml_path.read_text()

@@ -464,6 +464,49 @@ class TestMetadataSourceDiscriminatedUnion:
                 table="",
             )
 
+    def test_as400_with_query_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["metadata"]["sources"] = [
+            {
+                "kind": "as400",
+                "alias": "customers",
+                "as400_connection": {"host": "10.0.0.1"},
+                "query": "SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y'",
+            }
+        ]
+        config = PipelineConfig.model_validate(data)
+        source = config.metadata.sources[0]
+        assert isinstance(source, As400MetadataSourceConfig)
+        assert source.table is None
+        assert source.query == "SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y'"
+
+    def test_as400_both_table_and_query_rejected(self) -> None:
+        with pytest.raises(ValidationError) as ei:
+            As400MetadataSourceConfig(
+                kind="as400",
+                alias="x",
+                as400_connection=As400ConnectionConfig(host="h"),
+                table="CUSTOMERS",
+                query="SELECT * FROM CUSTOMERS",
+            )
+        assert "exactly one" in str(ei.value)
+
+    def test_as400_neither_table_nor_query_rejected(self) -> None:
+        with pytest.raises(ValidationError) as ei:
+            As400MetadataSourceConfig(
+                kind="as400",
+                alias="x",
+                as400_connection=As400ConnectionConfig(host="h"),
+            )
+        assert "exactly one" in str(ei.value)
+
     def test_unknown_kind_rejected(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
         data = _build_full_data(
             fixture_paths["trigger"],

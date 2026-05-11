@@ -15,7 +15,105 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - REBIRTH §11 CLI tree (`batch list/status/retry-failed`, `inspect rvabrep/triggers`).
 - Adapter port-hygiene cleanup: `PdfAssembler` and `CmisUploader` formally inherit `IAssembler`/`IUploader`.
 - Observability tiers (REBIRTH §17.4).
-- Per-field `as400_query` (follow-up to 015).
+
+---
+
+## [0.20.0] — 2026-05-10 — **per-source AS400 query override**
+
+Closes the production-data scale gap left by 015. AS400 metadata
+sources can now use a custom `SELECT ...` query (with filtering and
+column projection) instead of `SELECT * FROM <table>`. The
+MetadataService prefetch is untouched — the adapter wraps the
+query in a derived-table alias so the full `IDataSource` contract
+(`get_all`, `count`, `get_by_fields*`) keeps working transparently.
+
+### Added
+
+- **`As400MetadataSourceConfig.query: str | None`** — new optional
+  field. Operators specify a complete `SELECT ...` statement scoped
+  to the data the migration actually needs (e.g.,
+  `SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y'`). Pydantic's
+  `min_length=1` rejects empty strings.
+- **`As400MetadataSourceConfig.table: str | None`** — now optional.
+  An `@model_validator(mode="after")` enforces exactly-one of
+  `table` / `query`. Both-set and neither-set both raise
+  `ValidationError` at load time.
+- **`As400DataSource` constructor accepts `query: str | None`** —
+  new keyword-only argument. Mutually exclusive with `table`. The
+  adapter computes `self._source_expr = f"({query}) AS T" if query
+  else table` and uses that expression in every generated SQL
+  template.
+- **Derived-table alias (`AS T`)** wraps the operator query
+  whenever it's used as a `FROM` source. DB2/AS400 requires the
+  alias; using a single-letter `T` keeps generated SQL minimal.
+- **3 new schema tests**: query mode loads correctly, both-set
+  rejected with "exactly one" message, neither-set rejected.
+- **7 new adapter tests**: construction validation
+  (both/query-only/neither), and query-mode SQL templates for
+  `get_all` (subquery alias), `count`, `get_by_fields`, plus a
+  table-mode regression test asserting no subquery wrapping when
+  `table` is used.
+- **1 new wiring integration test**: query-mode YAML builds a
+  pipeline whose metadata registry contains an `As400DataSource`
+  with the expected `_source_expr`.
+
+### Changed
+
+- **`As400DataSource._table` attribute renamed to `_source_expr`**.
+  The new name reflects that the value may be either a bare table
+  identifier (table mode) or a parenthesized derived-table
+  expression (query mode). All internal SQL templates updated.
+- **`As400DataSource.__init__` signature**: `table` now defaults to
+  `""` (was required). Backwards-compat preserved — all existing
+  call sites pass `table=...` explicitly.
+- **Constructor rejects (both `table` AND `query` set)** with
+  `ConfigurationError` at the adapter boundary. Schema validation
+  catches the same case earlier, but the adapter check enforces the
+  invariant at every call site (defense in depth).
+- **`_build_metadata_sources` in `config/wiring.py`** and the
+  doctor's `_open_metadata_source` helper pass `query=src_cfg.query`
+  through to the adapter. Falsy `table` defaults to `""`.
+
+### Verification
+
+- `pytest --cov`: **465 / 465 pass** in ~70 s (+11 net new: 7
+  adapter, 3 schema, 1 wiring).
+- Coverage: total **94.79 %**; `adapters/sources/as400.py` at **88
+  %** (unchanged from 015).
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (38 source files). Caught a real
+  callsite (`doctor.py`) where `table: str | None` had to be
+  coerced — fixed by passing `source_cfg.table or ""`.
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+- Smoke: YAML loader parses
+  `metadata.sources[].query` correctly, `table` becomes `None`
+  when absent.
+
+### Rationale
+
+015 enabled AS400 metadata sources but only supported `SELECT *
+FROM <table>`. Production AS400 tables can have millions of rows
+and dozens of columns the migration never touches. Without query
+filtering, operators were forced to pre-stage the data into CSVs —
+defeating the value of native AS400 sources. 018 closes this gap
+without changing the prefetch model (1 source = 1 cached dataset);
+the operator simply scopes the query.
+
+The "per-field" framing in earlier roadmap notes was a misnomer.
+Per-field query overrides would break the shared-prefetch model
+(each field would need its own dataset). 018 settles on
+**per-source** — one query feeds one alias, which many fields can
+reference. This is consistent with the 015 source-registry
+architecture and keeps Constitution I (hexagonal architecture)
+intact.
+
+The derived-table alias (`(query) AS T`) is the key invariant: it
+lets the existing `IDataSource` methods (`count`,
+`get_by_fields`, `get_by_fields_in`) issue `... FROM (subquery) AS
+T WHERE ...` without knowing whether the source is table- or
+query-backed. The MetadataService, doctor, and every other caller
+sees a single polymorphic adapter.
 
 ---
 

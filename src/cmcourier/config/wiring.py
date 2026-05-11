@@ -240,7 +240,8 @@ def _build_metadata_sources(
             driver=src_cfg.as400_connection.driver,
             username=secrets.as400_username,
             password=secrets.as400_password,
-            table=src_cfg.table,
+            table=src_cfg.table or "",
+            query=src_cfg.query,
         )
     return registry
 

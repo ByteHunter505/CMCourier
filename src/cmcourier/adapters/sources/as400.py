@@ -26,7 +26,7 @@ import re
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from cmcourier.domain.exceptions import IndexingError
+from cmcourier.domain.exceptions import ConfigurationError, IndexingError
 from cmcourier.domain.ports import IDataSource
 
 # Lazy import: the `pyodbc` name is resolved inside `_connect()` so test
@@ -41,7 +41,17 @@ _SQLSTATE_RE = re.compile(r"^[0-9A-Z]{5}$")
 
 
 class As400DataSource(IDataSource):
-    """Concrete IDataSource over an AS400 ODBC connection."""
+    """Concrete IDataSource over an AS400 ODBC connection.
+
+    Accepts either a ``table`` (bare identifier) or a custom prefetch
+    ``query`` (a full ``SELECT ...`` statement), but never both. In
+    query mode the SQL is wrapped in a derived-table alias
+    (``(query) AS T``) so the full IDataSource contract (``get_all``,
+    ``count``, ``get_by_fields*``) keeps working transparently. The
+    "raw mode" (neither set) is valid for callers that only invoke
+    :meth:`query` or :meth:`query_stream` directly (e.g. trigger
+    strategies that own their own SQL).
+    """
 
     def __init__(
         self,
@@ -52,15 +62,20 @@ class As400DataSource(IDataSource):
         driver: str,
         username: str,
         password: str,
-        table: str,
+        table: str = "",
+        query: str | None = None,
     ) -> None:
+        if table and query:
+            raise ConfigurationError(
+                "As400DataSource: `table` and `query` are mutually exclusive",
+            )
         self._host = host
         self._port = port
         self._database = database
         self._driver = driver
         self._username = username
         self._password = password
-        self._table = table
+        self._source_expr = f"({query}) AS T" if query else table
         self._conn: Any = None
         self._closed = False
 
@@ -103,10 +118,10 @@ class As400DataSource(IDataSource):
 
     def get_by_fields(self, filters: Mapping[str, Any]) -> list[dict[str, Any]]:
         if not filters:
-            return self.query(f"SELECT * FROM {self._table}", [])
+            return self.query(f"SELECT * FROM {self._source_expr}", [])
         cols = list(filters.keys())
         where = " AND ".join(f"{c} = ?" for c in cols)
-        sql = f"SELECT * FROM {self._table} WHERE {where}"
+        sql = f"SELECT * FROM {self._source_expr} WHERE {where}"
         return self.query(sql, [filters[c] for c in cols])
 
     def get_by_fields_in(
@@ -124,15 +139,17 @@ class As400DataSource(IDataSource):
         for start in range(0, len(values), _IN_CHUNK_SIZE):
             chunk = values[start : start + _IN_CHUNK_SIZE]
             placeholders = ", ".join("?" * len(chunk))
-            sql = f"SELECT * FROM {self._table} WHERE {field} IN ({placeholders}){fixed_clause}"
+            sql = (
+                f"SELECT * FROM {self._source_expr} WHERE {field} IN ({placeholders}){fixed_clause}"
+            )
             results.extend(self.query(sql, list(chunk) + fixed_vals))
         return results
 
     def get_all(self) -> Iterator[dict[str, Any]]:
-        return self.query_stream(f"SELECT * FROM {self._table}", [])
+        return self.query_stream(f"SELECT * FROM {self._source_expr}", [])
 
     def count(self) -> int:
-        rows = self.query(f"SELECT COUNT(*) AS CNT FROM {self._table}", [])
+        rows = self.query(f"SELECT COUNT(*) AS CNT FROM {self._source_expr}", [])
         if not rows:
             return 0
         first = rows[0]

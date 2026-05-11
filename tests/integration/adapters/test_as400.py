@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from cmcourier.adapters.sources.as400 import As400DataSource
-from cmcourier.domain.exceptions import IndexingError
+from cmcourier.domain.exceptions import ConfigurationError, IndexingError
 
 pytestmark = pytest.mark.integration
 
@@ -347,3 +347,89 @@ class TestLifecycle:
         src.close()
         src.close()  # no-op
         assert fake_connection.closed
+
+
+# ---------------------------------------------------------------------------
+# 018: per-source query override
+# ---------------------------------------------------------------------------
+
+
+_BASE_KWARGS: dict[str, Any] = {
+    "host": "10.0.0.1",
+    "port": 446,
+    "database": "RVILIB",
+    "driver": "iSeries Access ODBC Driver",
+    "username": "tester",
+    "password": "secret-not-real",
+}
+
+
+class TestConstructionValidation:
+    def test_both_table_and_query_raises(self) -> None:
+        with pytest.raises(ConfigurationError):
+            As400DataSource(
+                **_BASE_KWARGS,
+                table="CUSTOMERS",
+                query="SELECT * FROM CUSTOMERS",
+            )
+
+    def test_query_only_construction_ok(self) -> None:
+        # No exception expected — query mode.
+        As400DataSource(
+            **_BASE_KWARGS,
+            query="SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y'",
+        )
+
+    def test_neither_table_nor_query_ok_raw_mode(self) -> None:
+        # Raw mode for callers that use query()/query_stream() directly
+        # (e.g. As400TriggerStrategy).
+        As400DataSource(**_BASE_KWARGS)
+
+
+class TestQueryMode:
+    def test_get_all_with_query_uses_subquery_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cursor = _FakeAs400Cursor(rows=[("CIF1", "NAME1")], columns=("CIF", "NAME"))
+        _patch_pyodbc_connect(monkeypatch, _FakeAs400Connection(cursor))
+        src = As400DataSource(
+            **_BASE_KWARGS,
+            query="SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y'",
+        )
+        list(src.get_all())
+        sql = cursor.executions[0][0]
+        assert sql == "SELECT * FROM (SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y') AS T"
+
+    def test_count_with_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cursor = _FakeAs400Cursor(rows=[(7,)], columns=("CNT",))
+        _patch_pyodbc_connect(monkeypatch, _FakeAs400Connection(cursor))
+        src = As400DataSource(
+            **_BASE_KWARGS,
+            query="SELECT 1 FROM SYSDUMMY1",
+        )
+        assert src.count() == 7
+        sql = cursor.executions[0][0]
+        assert "COUNT(*)" in sql
+        assert "FROM (SELECT 1 FROM SYSDUMMY1) AS T" in sql
+
+    def test_get_by_fields_with_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cursor = _FakeAs400Cursor(rows=[("123", "Name")], columns=("CIF", "NAME"))
+        _patch_pyodbc_connect(monkeypatch, _FakeAs400Connection(cursor))
+        src = As400DataSource(
+            **_BASE_KWARGS,
+            query="SELECT CIF, NAME FROM CUSTOMERS",
+        )
+        src.get_by_fields({"CIF": "123"})
+        sql, params = cursor.executions[0]
+        assert "FROM (SELECT CIF, NAME FROM CUSTOMERS) AS T" in sql
+        assert "CIF = ?" in sql
+        assert params == ["123"]
+
+    def test_table_mode_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Backwards-compat regression: table mode still uses bare identifier.
+        cursor = _FakeAs400Cursor(rows=[(1,)], columns=("CNT",))
+        _patch_pyodbc_connect(monkeypatch, _FakeAs400Connection(cursor))
+        src = As400DataSource(**_BASE_KWARGS, table="CUSTOMERS")
+        src.count()
+        sql = cursor.executions[0][0]
+        # FROM clause references the bare table identifier; no derived-table alias.
+        assert "FROM CUSTOMERS" in sql
+        assert " AS T" not in sql
