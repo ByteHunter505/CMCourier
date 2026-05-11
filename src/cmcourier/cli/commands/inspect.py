@@ -15,14 +15,22 @@ from __future__ import annotations
 __all__ = ["inspect_group"]
 
 import sys
+from collections.abc import Callable
+from itertools import islice
 from pathlib import Path
 
 import click
 
 from cmcourier.adapters.sources import TabularDataSource
 from cmcourier.cli.commands._formatting import render_table, truncate
-from cmcourier.config.loader import load_config
+from cmcourier.cli.commands._source_descriptor import (
+    ParsedDescriptor,
+    parse_source_descriptor,
+)
+from cmcourier.config.loader import Secrets, load_config, load_secrets
+from cmcourier.config.schema import PipelineConfig
 from cmcourier.config.wiring import (
+    _build_trigger_strategy,
     _indexing_columns_from_schema,
     _mapping_columns_from_schema,
 )
@@ -33,9 +41,14 @@ from cmcourier.domain.exceptions import (
     RVABREPNotFoundError,
 )
 from cmcourier.domain.models import TriggerRecord
+from cmcourier.domain.ports import S0Strategy
 from cmcourier.observability.setup import configure as configure_observability
 from cmcourier.services.indexing import IndexingService
 from cmcourier.services.mapping import MappingService
+from cmcourier.services.triggers import (
+    CsvTriggerStrategy,
+    SingleDocTriggerStrategy,
+)
 
 
 @click.group(name="inspect")
@@ -124,3 +137,160 @@ def _load(config_path: Path):  # type: ignore[no-untyped-def]
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# inspect mapping-stats (023)
+# ---------------------------------------------------------------------------
+
+
+@inspect_group.command(name="mapping-stats")
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+)
+def inspect_mapping_stats_command(config_path: Path) -> None:
+    """Print a structured summary of the Modelo Documental."""
+    config = _load(config_path)
+    configure_observability(config.observability, "INFO")
+    mapping_src = TabularDataSource(config.mapping.csv_path)
+    try:
+        mapping_service = MappingService(mapping_src, _mapping_columns_from_schema(config.mapping))
+        total = mapping_service.count()
+        classes: dict[str, int] = {}
+        folders: set[str] = set()
+        types: set[str] = set()
+        id_corto_count = 0
+        for mapping in mapping_service.get_all():
+            classes[mapping.clase_name] = classes.get(mapping.clase_name, 0) + 1
+            folders.add(mapping.cm_folder)
+            types.add(mapping.cm_object_type)
+            if mapping.id_corto:
+                id_corto_count += 1
+    finally:
+        mapping_src.close()
+    click.echo(f"Total mappings: {total}")
+    click.echo(f"Distinct document classes: {len(classes)}")
+    click.echo(f"Mappings with ID Corto: {id_corto_count} / {total}")
+    click.echo(f"Distinct CM object types: {len(types)}")
+    click.echo(f"Distinct CM folders: {len(folders)}")
+    if classes:
+        click.echo("")
+        click.echo("Top classes by mapping count:")
+        ranked = sorted(classes.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        rows = [[name, str(count)] for name, count in ranked]
+        click.echo(render_table(["CLASS", "COUNT"], rows))
+
+
+# ---------------------------------------------------------------------------
+# inspect trigger (023)
+# ---------------------------------------------------------------------------
+
+
+@inspect_group.command(name="trigger")
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+)
+@click.option(
+    "--source",
+    "source_descriptor",
+    type=str,
+    default=None,
+    help="Override trigger source (csv:<path> or single_doc:SHORT,SYS[,CIF]).",
+)
+@click.option("--limit", type=click.IntRange(min=1), default=10)
+def inspect_trigger_command(
+    config_path: Path,
+    source_descriptor: str | None,
+    limit: int,
+) -> None:
+    """Preview the first N triggers from a configured or ad-hoc source."""
+    config = _load(config_path)
+    configure_observability(config.observability, "INFO")
+
+    strategy, cleanup = _strategy_for_inspect(config, source_descriptor)
+    try:
+        records = list(islice(strategy.acquire(""), limit))
+    finally:
+        cleanup()
+
+    if not records:
+        click.echo("No triggers produced", err=True)
+        return
+    rows = [[r.shortname, r.cif or "-", r.system_id] for r in records]
+    click.echo(render_table(["SHORTNAME", "CIF", "SYSTEM_ID"], rows))
+
+
+def _strategy_for_inspect(
+    config: PipelineConfig,
+    source_descriptor: str | None,
+) -> tuple[S0Strategy, Callable[[], None]]:
+    """Build an S0Strategy + a cleanup callable to close any open sources."""
+    if source_descriptor is None:
+        return _strategy_from_config(config)
+    try:
+        parsed = parse_source_descriptor(source_descriptor)
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+    return _strategy_from_descriptor(parsed)
+
+
+def _strategy_from_descriptor(
+    parsed: ParsedDescriptor,
+) -> tuple[S0Strategy, Callable[[], None]]:
+    if parsed.scheme == "csv":
+        assert parsed.path is not None
+        if not parsed.path.exists():
+            click.echo(
+                f"ConfigurationError: csv source path does not exist: {parsed.path}",
+                err=True,
+            )
+            sys.exit(2)
+        src = TabularDataSource(parsed.path)
+        return CsvTriggerStrategy(src), src.close
+    if parsed.scheme == "single_doc":
+        strategy = SingleDocTriggerStrategy(
+            shortname=parsed.shortname,
+            system_id=parsed.system_id,
+            cif=parsed.cif,
+        )
+        return strategy, lambda: None
+    # parse_source_descriptor already rejected other schemes; defensive.
+    raise AssertionError(f"unhandled scheme: {parsed.scheme!r}")
+
+
+def _strategy_from_config(
+    config: PipelineConfig,
+) -> tuple[S0Strategy, Callable[[], None]]:
+    """Build a strategy from ``config.trigger`` using the existing wiring helper.
+
+    Inspect is read-only and does NOT require CMIS credentials; only AS400
+    trigger kinds need ``AS400_USERNAME`` / ``AS400_PASSWORD``. We try the
+    full secrets loader but fall back to an empty Secrets bundle so
+    csv/single_doc/rvabrep/local_scan configs Just Work without env vars.
+    """
+    try:
+        secrets = load_secrets()
+    except ConfigurationError:
+        secrets = Secrets(cmis_username="", cmis_password="")
+    rvabrep_src = TabularDataSource(config.indexing.csv_path)
+    indexing = IndexingService(
+        rvabrep_src,
+        _indexing_columns_from_schema(config.indexing.columns),
+        batch_size=config.indexing.batch_size,
+    )
+    try:
+        strategy = _build_trigger_strategy(config, secrets, rvabrep_src, indexing)
+    except ConfigurationError as exc:
+        rvabrep_src.close()
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+    return strategy, rvabrep_src.close

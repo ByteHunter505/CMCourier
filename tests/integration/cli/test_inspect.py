@@ -141,3 +141,150 @@ class TestInspectMapping:
         result = CliRunner().invoke(main, ["inspect", "mapping", "-c", str(yaml_path), "FFXX"])
         assert result.exit_code == 0
         assert "No mapping found" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# inspect trigger (023)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectTrigger:
+    def test_help(self) -> None:
+        result = CliRunner().invoke(main, ["inspect", "trigger", "--help"])
+        assert result.exit_code == 0
+        assert "--source" in result.stdout
+        assert "--limit" in result.stdout
+
+    def test_no_source_uses_yaml(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = CliRunner().invoke(main, ["inspect", "trigger", "-c", str(yaml_path)])
+        assert result.exit_code == 0, result.output
+        assert "SHORTNAME" in result.stdout
+        assert "TESTCLIENT01" in result.stdout
+
+    def test_source_csv_overrides(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        alt = tmp_path / "alt_triggers.csv"
+        alt.write_text("ShortName,CIF,SystemID\nOTHERCLIENT,999999,2\n")
+        result = CliRunner().invoke(
+            main,
+            [
+                "inspect",
+                "trigger",
+                "-c",
+                str(yaml_path),
+                "--source",
+                f"csv:{alt}",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "OTHERCLIENT" in result.stdout
+        assert "TESTCLIENT01" not in result.stdout
+
+    def test_source_single_doc(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = CliRunner().invoke(
+            main,
+            [
+                "inspect",
+                "trigger",
+                "-c",
+                str(yaml_path),
+                "--source",
+                "single_doc:DEBUG_SHORT,7,888888",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "DEBUG_SHORT" in result.stdout
+        assert "888888" in result.stdout
+        assert "7" in result.stdout
+
+    def test_source_as400_rejected(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = CliRunner().invoke(
+            main,
+            [
+                "inspect",
+                "trigger",
+                "-c",
+                str(yaml_path),
+                "--source",
+                "as400:SELECT 1",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "trigger.kind" in result.stderr or "YAML" in result.stderr
+
+    def test_limit_caps_output(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        many = tmp_path / "many_triggers.csv"
+        many.write_text(
+            "ShortName,CIF,SystemID\n"
+            + "\n".join(f"CLIENT{i:02d},{i:06d},1" for i in range(20))
+            + "\n"
+        )
+        result = CliRunner().invoke(
+            main,
+            [
+                "inspect",
+                "trigger",
+                "-c",
+                str(yaml_path),
+                "--source",
+                f"csv:{many}",
+                "--limit",
+                "3",
+            ],
+        )
+        assert result.exit_code == 0
+        # Header + 3 data rows = 4 lines (no trailing summary).
+        lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
+        assert len(lines) == 4
+
+    def test_zero_triggers(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        empty = tmp_path / "empty.csv"
+        empty.write_text("ShortName,CIF,SystemID\n")
+        result = CliRunner().invoke(
+            main,
+            [
+                "inspect",
+                "trigger",
+                "-c",
+                str(yaml_path),
+                "--source",
+                f"csv:{empty}",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "No triggers produced" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# inspect mapping-stats (023)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectMappingStats:
+    def test_help(self) -> None:
+        result = CliRunner().invoke(main, ["inspect", "mapping-stats", "--help"])
+        assert result.exit_code == 0
+        assert "--config" in result.stdout
+
+    def test_basic_summary(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = CliRunner().invoke(main, ["inspect", "mapping-stats", "-c", str(yaml_path)])
+        assert result.exit_code == 0, result.output
+        assert "Total mappings:" in result.stdout
+        assert "Distinct document classes:" in result.stdout
+        assert "Mappings with ID Corto:" in result.stdout
+        assert "Distinct CM object types:" in result.stdout
+        assert "Distinct CM folders:" in result.stdout
+
+    def test_top_classes_table_present(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = CliRunner().invoke(main, ["inspect", "mapping-stats", "-c", str(yaml_path)])
+        assert result.exit_code == 0
+        assert "Top classes by mapping count:" in result.stdout
+        assert "CLASS" in result.stdout
+        assert "COUNT" in result.stdout

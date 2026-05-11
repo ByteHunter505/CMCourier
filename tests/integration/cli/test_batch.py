@@ -254,3 +254,113 @@ class TestBatchRetryFailed:
         )
         assert result.exit_code == 0
         assert "Reset 0 FAILED" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# batch export-report (023)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchExportReport:
+    def test_help(self) -> None:
+        result = CliRunner().invoke(main, ["batch", "export-report", "--help"])
+        assert result.exit_code == 0
+        for flag in ("--batch", "--format", "--output"):
+            assert flag in result.stdout
+
+    def test_csv_stdout(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        batch_id = _seed_batch(tmp_path / "tracking.db", fail_stage=StageStatus.S5_FAILED)
+        result = CliRunner().invoke(
+            main,
+            [
+                "batch",
+                "export-report",
+                "-c",
+                str(yaml_path),
+                "--batch",
+                batch_id,
+                "--format",
+                "csv",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        # Header + 6 stage rows.
+        lines = result.stdout.strip().splitlines()
+        assert lines[0].startswith("batch_id,status,started_at")
+        assert len(lines) == 7
+        # Each row has the batch_id in column 0.
+        for line in lines[1:]:
+            assert line.startswith(f"{batch_id},")
+        # S5 row reports the failed count.
+        s5_line = next(ln for ln in lines if ",S5," in ln)
+        assert s5_line.endswith(",0,1,0")
+
+    def test_json_stdout(self, tmp_path: Path) -> None:
+        import json
+
+        yaml_path = _write_yaml(tmp_path)
+        batch_id = _seed_batch(tmp_path / "tracking.db", fail_stage=StageStatus.S5_FAILED)
+        result = CliRunner().invoke(
+            main,
+            [
+                "batch",
+                "export-report",
+                "-c",
+                str(yaml_path),
+                "--batch",
+                batch_id,
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["batch_id"] == batch_id
+        assert "stage_counts" in payload
+        assert "failed_records" in payload
+        assert payload["stage_counts"]["S5"]["FAILED"] == 1
+        assert len(payload["failed_records"]) == 1
+        assert payload["failed_records"][0]["txn_num"] == "TXN_SEED"
+
+    def test_output_writes_file(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        batch_id = _seed_batch(tmp_path / "tracking.db", complete=True)
+        out_path = tmp_path / "report.csv"
+        result = CliRunner().invoke(
+            main,
+            [
+                "batch",
+                "export-report",
+                "-c",
+                str(yaml_path),
+                "--batch",
+                batch_id,
+                "--format",
+                "csv",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Report written to" in result.stdout
+        assert out_path.exists()
+        assert out_path.read_text().startswith("batch_id,status,")
+
+    def test_unknown_batch_exits_1(self, tmp_path: Path) -> None:
+        yaml_path = _write_yaml(tmp_path)
+        result = CliRunner().invoke(
+            main,
+            [
+                "batch",
+                "export-report",
+                "-c",
+                str(yaml_path),
+                "--batch",
+                "ghost-batch",
+                "--format",
+                "json",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Batch not found" in result.stderr

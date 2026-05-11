@@ -12,12 +12,130 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned for next release
 
-- REBIRTH §11 CLI follow-up (remaining): `inspect trigger`,
-  `inspect mapping-stats`, `batch export-report --format csv|json`,
-  pipeline `--no-tui` flag, `background` runner,
-  TUI (REBIRTH §10.6).
+- REBIRTH §11 remaining: `background --pipeline` runner +
+  pipeline `--no-tui` flag (both blocked on TUI design).
+- TUI (REBIRTH §10.6) — separate big change.
 - POST-MVP §2 system metrics (psutil sampling) + §3 offline log
   analyzer.
+
+---
+
+## [0.25.0] — 2026-05-10 — **complete REBIRTH §11 menus**
+
+Closes the §11 menus with three small commands. After this
+change the only §11 entries still missing are the `background`
+runner and the TUI — both depend on a TUI design that's a
+separate change. Operators now have the full read-only triage +
+offline-analysis surface.
+
+### Added
+
+- **`cmcourier inspect trigger [--source <descriptor>] [--limit N]`**
+  — preview the first N triggers a source would emit. When
+  `--source` is omitted, builds the strategy from
+  `config.trigger` via the existing wiring helper. When
+  `--source csv:<path>` is given, builds a one-off
+  `CsvTriggerStrategy` over the path. When
+  `--source single_doc:<short>,<sys>[,<cif>]` is given,
+  builds a one-off `SingleDocTriggerStrategy`. Other schemes
+  (`rvabrep`, `as400`, `local_scan`) require richer config —
+  the command rejects with a clear hint pointing operators
+  at the YAML.
+- **`cmcourier inspect mapping-stats`** — structured summary of
+  the Modelo Documental:
+  - `Total mappings: <n>`
+  - `Distinct document classes: <n>`
+  - `Mappings with ID Corto: <n> / <total>`
+  - `Distinct CM object types: <n>`
+  - `Distinct CM folders: <n>`
+  - Top-5 classes by mapping count (tie-break alphabetical).
+- **`cmcourier batch export-report --batch <id> --format csv|json
+  [--output <path>]`** — dump a batch's full state for offline
+  analysis. CSV emits a flat S0..S5 table with batch metadata
+  repeated on every row; JSON emits the full `BatchDetails`
+  payload (stage_counts + failed_records nested). Default
+  writes to stdout; `--output` writes a file plus a
+  confirmation line.
+- **`cmcourier.cli.commands._source_descriptor`** — new helper
+  module owning the `csv:<path>` / `single_doc:<...>` parser.
+  Pure function + frozen dataclass. Unit tested independently
+  of Click.
+- **18 new tests** across:
+  - `tests/unit/cli/commands/test_source_descriptor.py` (10
+    tests: scheme parsing + rejection paths).
+  - `tests/integration/cli/test_inspect.py` (7 trigger + 3
+    mapping-stats tests).
+  - `tests/integration/cli/test_batch.py` (5 export-report
+    tests).
+
+### Changed
+
+- **`cli/commands/inspect.py`** grew from 2 commands to 4
+  (rvabrep, mapping, trigger, mapping-stats). Module size
+  ~290 LOC.
+- **`cli/commands/batch.py`** grew from 3 commands to 4
+  (list, show, retry-failed, export-report). Module size ~290
+  LOC.
+- **`inspect trigger` "permissive secrets" path**: when
+  building a strategy from `config.trigger`, CMIS env vars
+  aren't required (only AS400 trigger kinds need
+  `AS400_USERNAME` / `AS400_PASSWORD`). The fallback to an
+  empty `Secrets` bundle lets csv-trigger / single-doc configs
+  work without exporting CMIS creds — a real ergonomics win
+  for read-only inspection.
+
+### Verification
+
+- `pytest --cov`: **573 / 573 pass** in ~96 s (+25 net new
+  across the change cycle).
+- Coverage: total **94 %**;
+  `cli/commands/_source_descriptor.py` at **95 %**,
+  `cli/commands/batch.py` at **96 %**,
+  `cli/commands/inspect.py` at **92 %**.
+- `ruff check` / `ruff format --check`: clean.
+- `mypy src/cmcourier`: clean (48 source files).
+- `pre-commit run --all-files`: ruff + ruff format + mypy all
+  pass.
+- Smoke: `cmcourier inspect --help` lists `trigger`,
+  `rvabrep`, `mapping`, `mapping-stats`. `cmcourier batch
+  --help` lists `list`, `show`, `retry-failed`,
+  `export-report`.
+
+### Rationale
+
+Before 023 an operator who wanted to know "what would the
+trigger source emit?" had to spin up a tiny pipeline run.
+"How many CM classes does the Modelo Documental have?" meant
+opening Excel. "Send me this batch's report" meant taking a
+screenshot of the terminal. Three small commands close all
+three gaps — none of them need new ports or schema changes.
+
+**Architectural decisions worth flagging:**
+
+1. *Reuse, don't fork.* `inspect trigger` without `--source`
+   reuses the wiring's `_build_trigger_strategy`. `inspect
+   mapping-stats` reuses `MappingService.get_all()` /
+   `count()`. `batch export-report` reuses `get_batch_details`
+   from 021. No service was modified; only new CLI surfaces.
+2. *Descriptor parser in its own module.* Click subcommands
+   call a pure function; the function is unit-testable
+   without spinning up a CLI runner. Future schemes (when
+   they're worth supporting via CLI args) land here.
+3. *CSV stays flat; JSON nests.* `batch export-report`'s two
+   formats serve two audiences. CSV is for Excel /
+   spreadsheet workflows that hate nested data. JSON is for
+   tooling that wants the full structured payload. No
+   `--include-failed-records` flag — the format chooses for
+   you.
+4. *Inspect commands don't auto-doctor.* Unlike pipeline run
+   commands (022), inspect commands are read-only and offline
+   (they don't touch CMIS). Running doctor would just waste
+   the operator's time during triage.
+5. *`_strategy_from_config` falls back to empty secrets.*
+   Inspect is read-only. CMIS isn't touched. If the operator
+   hasn't exported CMIS env vars, that's fine for inspect.
+   The full pipeline-run path keeps the strict secrets check
+   it always had.
 
 ---
 

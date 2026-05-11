@@ -3,6 +3,8 @@
 * ``batch list`` — enumerate batches with status + counts.
 * ``batch show <id>`` — per-stage counts + failed records.
 * ``batch retry-failed --batch <id> [--stage Sn]`` — reset failures.
+* ``batch export-report --batch <id> --format csv|json [--output <path>]``
+  — dump full batch state for offline analysis.
 
 All commands open the tracking store via the wiring layer (so the
 SQLite-specific concerns stay behind ``ITrackingStore``).
@@ -12,9 +14,13 @@ from __future__ import annotations
 
 __all__ = ["batch_group"]
 
+import csv
+import io
+import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -22,7 +28,7 @@ from cmcourier.adapters.tracking import SQLiteTrackingStore
 from cmcourier.cli.commands._formatting import render_table, truncate
 from cmcourier.config.loader import load_config
 from cmcourier.domain.exceptions import ConfigurationError
-from cmcourier.domain.models import StageStatus
+from cmcourier.domain.models import BatchDetails, StageStatus
 from cmcourier.observability.setup import configure as configure_observability
 
 _log = logging.getLogger(__name__)
@@ -186,3 +192,118 @@ def _load(config_path: Path):  # type: ignore[no-untyped-def]
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# batch export-report (023)
+# ---------------------------------------------------------------------------
+
+
+@batch_group.command(name="export-report")
+@click.option(
+    "--config",
+    "-c",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    required=True,
+)
+@click.option("--batch", "batch_id", type=str, required=True)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["csv", "json"]),
+    required=True,
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write the report to a file (default: stdout).",
+)
+def batch_export_report_command(
+    config_path: Path,
+    batch_id: str,
+    output_format: str,
+    output_path: Path | None,
+) -> None:
+    """Dump a batch's full state to CSV or JSON for offline analysis."""
+    config = _load(config_path)
+    configure_observability(config.observability, "INFO")
+    store = SQLiteTrackingStore(config.tracking.db_path)
+    try:
+        details = store.get_batch_details(batch_id)
+    finally:
+        store.close()
+    if details is None:
+        click.echo(f"Batch not found: {batch_id}", err=True)
+        sys.exit(1)
+
+    body = _render_csv(details) if output_format == "csv" else _render_json(details)
+
+    if output_path is None:
+        click.echo(body, nl=False)
+        return
+    try:
+        output_path.write_text(body, encoding="utf-8")
+    except OSError as exc:
+        click.echo(f"ConfigurationError: cannot write {output_path}: {exc}", err=True)
+        sys.exit(2)
+    click.echo(f"Report written to {output_path}")
+
+
+def _render_csv(details: BatchDetails) -> str:
+    info = details.info
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(
+        [
+            "batch_id",
+            "status",
+            "started_at",
+            "completed_at",
+            "total_records",
+            "stage",
+            "done",
+            "failed",
+            "pending",
+        ]
+    )
+    completed = info.completed_at.isoformat() if info.completed_at else ""
+    for stage in ("S0", "S1", "S2", "S3", "S4", "S5"):
+        counts = details.stage_counts.get(stage, {})
+        writer.writerow(
+            [
+                info.batch_id,
+                info.status,
+                info.started_at.isoformat(),
+                completed,
+                info.total_records,
+                stage,
+                counts.get("DONE", 0),
+                counts.get("FAILED", 0),
+                counts.get("PENDING", 0),
+            ]
+        )
+    return buf.getvalue()
+
+
+def _render_json(details: BatchDetails) -> str:
+    info = details.info
+    payload: dict[str, Any] = {
+        "batch_id": info.batch_id,
+        "status": info.status,
+        "started_at": info.started_at.isoformat(),
+        "completed_at": info.completed_at.isoformat() if info.completed_at else None,
+        "total_records": info.total_records,
+        "stage_counts": {stage: dict(counts) for stage, counts in details.stage_counts.items()},
+        "failed_records": [
+            {
+                "txn_num": f.txn_num,
+                "status": f.status,
+                "error_message": f.error_message,
+            }
+            for f in details.failed_records
+        ],
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
