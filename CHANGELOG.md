@@ -35,14 +35,6 @@ Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
 - **§10** — Watchlist items (per-folder CMIS concurrency, pool
   warm-up, retry budgets per pipeline, CLI auto-completion, …).
 
-Immediate follow-up to 034:
-
-- **035** — split mapping CSV into `MapeoRVI_CM.csv` +
-  `MetadatosCM.csv` with the new `CMISType` column. Today
-  CMCourier reads a single consolidated CSV; the bank's
-  production format is two separate files. 034 leaves
-  `cmis_type = ""` (default) until 035 populates the column.
-
 Operational milestones outside the roadmap doc:
 
 - Real-data dry run against staging.
@@ -58,6 +50,75 @@ Operational milestones outside the roadmap doc:
   shipped in 012 / 014 / 016.
 - ~~§7 (N=2)~~ — producer-consumer overlap of two batches in
   flight, shipped in 028.
+
+---
+
+## [0.36.0] — 2026-05-11 — **mapping CSV split (MapeoRVI_CM + MetadatosCM) + CMISType column**
+
+Aligns CMCourier with the bank's **production** Modelo Documental
+format. `MappingConfig` now accepts either the legacy consolidated
+CSV (`csv_path`) or the production split pair
+(`rvi_cm_csv_path` + `metadatos_csv_path`). When operating in split
+mode, the service joins `MapeoRVI_CM.csv` and `MetadatosCM.csv` by
+`IDCM ↔ IDCorto` and populates `CMMapping.cmis_type` from the new
+`CMISType` column. This unblocks the AS400 `NIARVILOG.TIPIDN` field
+introduced in 034 (no longer always empty in production).
+
+### Added
+
+- `MappingConfig.rvi_cm_csv_path` + `metadatos_csv_path` +
+  `model_validator` enforcing exactly-one-of with `csv_path`.
+- `MappingConfig.cmis_type_column` exposed in the pydantic schema
+  (gap left by 034).
+- `MappingColumnsConfig` split-mode column-name fields with
+  defaults matching the real bank headers (`IDRVI`, `IDCM`,
+  `IDClaseDocumental`, `CMISType`, `IDCorto`, `Metadato`,
+  `Requerido`) plus `required_marker = "Yes"`.
+- `MappingService(source, columns, metadata_source=...)`: when
+  `metadata_source` is set, the service runs the split-mode loader
+  (join by `IDCM ↔ IDCorto`, filter `Requerido` truthy values
+  case-insensitively, set `clase_name = clase_id`).
+- `cmcourier.config.wiring.build_mapping_service(MappingConfig)` —
+  single factory dispatching on mode and managing source
+  open/close. Consumed by `wire_services_from_config`,
+  `cli.doctor._check_mapping_completeness`,
+  `cli.doctor._check_cm_type_alignment`,
+  `cli.commands.inspect.inspect_mapping`,
+  `cli.commands.inspect.inspect_mapping_stats`.
+- `docs/samples/csv/MapeoRVI_CM.csv` gains the `CMISType` column
+  (empty placeholder values — the bank fills these at deployment).
+
+### Changed
+
+- `MappingConfig.csv_path` becomes `FilePath | None` (was
+  required) to allow the alternative split mode.
+- `MappingService` no longer takes ownership of its sources'
+  lifecycle in production paths — `build_mapping_service` closes
+  them after the cache loads.
+- `docs/how-to/as400-sync.md` `TIPIDN` row updated; the
+  known-limitation note ("empty until 035 ships") removed.
+
+### Backwards compatibility
+
+All 857 pre-035 tests keep passing. The legacy consolidated test
+fixture `tests/fixtures/services/modelo_documental.csv` continues
+to drive `MappingConfig(csv_path=...)`. The Java parallel
+migrator's append-only read of `MapeoRVI_CM.csv` is preserved
+(`CMISType` is added as a trailing column).
+
+### Out of scope
+
+- Reading the production `MapeoRVI_CM.csv` with `CMISType` values
+  populated — the bank owns that file.
+- Migrating test fixtures to split format. They stay consolidated
+  to exercise the legacy mode.
+- Changing `clase_name` representation in CLI output or logs —
+  split mode uses `clase_id` (production CSV has no name column,
+  confirmed by the bank).
+
+### Spec
+
+- `specs/035-mapping-csv-split/`: spec.md, plan.md, tasks.md.
 
 ---
 
@@ -122,7 +183,8 @@ pre-034.
     `CTENUM ← int(trigger.cif or 0)`,
     `STSCOD ← N/I/O/F` (state-machine derived),
     `IDNBAC ← mapping.id_corto` (= IDCM),
-    `TIPIDN ← mapping.cmis_type` (empty until **035**),
+    `TIPIDN ← mapping.cmis_type` (populated from
+    `MapeoRVI_CM.CMISType` in split mode — 035),
     `OBJIDN ← record.cm_object_id`,
     `NUMREI ← record.retry_count`,
     `EERRMSG ← record.error_message`.

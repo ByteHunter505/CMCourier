@@ -75,7 +75,7 @@ constraints — make sure your fixtures match:
 | ``CTENUM DECIMAL(9,0)`` | ← | ``int(trigger.cif or 0)`` | CIF as numeric |
 | ``STSCOD CHAR(1)`` | ← | derived | ``N`` / ``I`` / ``O`` / ``F`` |
 | ``IDNBAC VARCHAR(10)`` | ← | ``mapping.id_corto`` | ID de CM, ej ``CN01`` |
-| ``TIPIDN VARCHAR(128)`` | ← | ``mapping.cmis_type`` | Empty until **035** ships the CSV split |
+| ``TIPIDN VARCHAR(128)`` | ← | ``mapping.cmis_type`` | From ``MapeoRVI_CM.CMISType`` in split mode (035); ``""`` in consolidated mode if absent |
 | ``OBJIDN VARCHAR(128)`` | ← | ``record.cm_object_id`` (post-S5) | The CMIS object id |
 | ``NUMREI INTEGER`` | ← | ``record.retry_count`` | Retry counter |
 | ``PMRREI TIMESTAMP`` | ← | claim time | ``CURRENT_TIMESTAMP`` on INSERT |
@@ -249,9 +249,6 @@ as ``As400CoordinationError`` immediately.
   NIARVILOG has at most one row per ``TRNNUM`` (the first
   page's ``IMGARC``). Multi-page docs share a single row.
   Confirmed with the operator in spec 034.
-* **``TIPIDN`` is empty until 035 ships**. CMCourier writes
-  ``''`` until the mapping CSV split lands the ``CMISType``
-  column. The Java parallel migrator must tolerate this.
 * **``sync resolve --prefer-as400`` doesn't write SQLite
   directly** in 034 — operator re-runs the pipeline with
   ``--resume``. Direct write can be added in a future change
@@ -268,8 +265,10 @@ as ``As400CoordinationError`` immediately.
 
 * POST-MVP roadmap entry: ``docs/roadmap/POST-MVP.md`` §4.
 * Spec: ``specs/034-as400-niarvilog-sync/``.
-* CSV split follow-up: change 035 (``MapeoRVI_CM.csv`` +
-  ``MetadatosCM.csv`` + ``CMISType`` column).
+* Mapping CSV split: change 035 (``MapeoRVI_CM.csv`` +
+  ``MetadatosCM.csv`` + ``CMISType`` column —
+  see ``specs/035-mapping-csv-split/`` and ``MappingConfig``
+  in ``docs/configuration-guide.md``).
 * Related: change 014 (AS400 trigger source — same pyodbc
   pattern), change 028 (multi-batch — claim happens
   inside ``_upload_one``).
