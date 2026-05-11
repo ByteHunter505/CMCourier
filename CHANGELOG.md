@@ -41,6 +41,45 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.33.0] — 2026-05-11 — **shell auto-completion (`cmcourier completion`)**
+
+> Skips 0.32.0 — that version is reserved for the parallel
+> change 031 (HTML report for `cmcourier analyze`) being
+> developed on a separate branch.
+
+
+
+The CLI surface area is now ~17 subcommands across 5 pipelines,
+4 batch ops, 3 inspect targets, 3 analyze sub-modes, plus
+doctor/background/as400-query. Tab-completion stops being a
+nice-to-have and becomes a real DX win.
+
+### Added
+
+- **`cmcourier completion <bash|zsh|fish>`** subcommand. Emits
+  the shell-completion script on stdout. Backed by Click's
+  built-in :mod:`click.shell_completion` (auto-tracks every
+  subcommand + option that ships in the future without
+  maintenance).
+- Install instructions documented in the new subcommand's
+  docstring — one-line `eval` in `.bashrc`/`.zshrc`, or a
+  redirect to `~/.config/fish/completions/cmcourier.fish` for
+  fish.
+
+### Tests
+
+- 6 new CLI integration tests: every shell's script renders,
+  unknown shells rejected by `click.Choice`, `--help` lists
+  the subcommand and the supported shells.
+- 743 total green (up from 737), mypy + ruff clean.
+
+### Notes
+
+- Zero impact on existing functionality — `cmcourier`
+  invocations without `completion` behave identically.
+
+---
+
 ## [0.31.0] — 2026-05-11 — **TUI multi-batch view (`CHUNKS` tab)**
 
 The producer-consumer overlap shipped in 028 had a UX caveat:

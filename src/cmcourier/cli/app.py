@@ -28,6 +28,7 @@ from cmcourier.cli.commands.analyze import analyze_group
 from cmcourier.cli.commands.as400_query import as400_query_command
 from cmcourier.cli.commands.background import background_command
 from cmcourier.cli.commands.batch import batch_group
+from cmcourier.cli.commands.completion import completion_command
 from cmcourier.cli.commands.inspect import inspect_group
 from cmcourier.cli.doctor import DoctorReport, run_doctor
 from cmcourier.cli.logging_setup import configure as configure_logging
@@ -63,6 +64,7 @@ main.add_command(inspect_group)
 main.add_command(as400_query_command)
 main.add_command(background_command)
 main.add_command(analyze_group)
+main.add_command(completion_command)
 
 
 # ---------------------------------------------------------------------------
