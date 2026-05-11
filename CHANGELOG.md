@@ -41,6 +41,50 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.30.1] — 2026-05-11 — **fix: shared `BandwidthLimiter` (real cap enforced)**
+
+A latent bug surfaced by 025's concurrent S5 worker pool: the
+pre-029 `BandwidthLimiter` was constructed **per upload call**,
+so each worker thread had its own token bucket. With
+`cmis.workers=4` and `cmis.max_bandwidth_mbps=100`, the
+effective network ceiling was `~400 Mbps` — four times the
+configured value. The configured cap was meaningless.
+
+### Fixed
+
+- **`TokenBucket`** extracted from `BandwidthLimiter` as a
+  thread-safe, process-shared bucket. `CmisUploader.__init__`
+  builds one bucket from `cfg.max_bandwidth_mbps` and reuses
+  it for every upload. Concurrent `consume()` calls serialize
+  on an internal lock so the configured rate is the **global**
+  ceiling.
+- **`BandwidthLimiter.__init__(stream, bucket)`** — the
+  limiter is now a thin file-like wrapper that defers
+  throttling to the shared bucket. No per-instance token math.
+- **`cmcourier analyze`** `network-bound` heuristic is now
+  meaningful: the comparison against `cmis.max_bandwidth_mbps`
+  reflects an actual enforced ceiling.
+
+### Tests
+
+- New `TestTokenBucket` group (3 tests): zero-mbps no-op,
+  single-thread throttle, **property test proving 4
+  concurrent workers cannot exceed the cap** (`wall_elapsed
+  > expected_at_global_rate`).
+- Existing `TestBandwidthLimiter` adapted to the new
+  `(stream, bucket)` constructor — behavior for single-stream
+  cases unchanged.
+- 727 total green (up from 724), mypy clean, ruff clean.
+
+### Notes
+
+- Not on the POST-MVP roadmap (it was a latent bug, not a
+  feature). The roadmap §1 (heavy/light lanes) explicitly
+  required this fix as a prerequisite — that work is now
+  unblocked.
+
+---
+
 ## [0.30.0] — 2026-05-11 — **multi-batch orchestrator (POST-MVP §7, N=2)**
 
 The "siempre dos lotes en vuelo, uno preparándose y otro

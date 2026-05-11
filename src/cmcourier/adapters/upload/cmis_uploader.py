@@ -31,7 +31,7 @@ beyond a truncation cap.
 
 from __future__ import annotations
 
-__all__ = ["BandwidthLimiter", "CmisConfig", "CmisUploader"]
+__all__ = ["BandwidthLimiter", "CmisConfig", "CmisUploader", "TokenBucket"]
 
 import logging
 import threading
@@ -87,33 +87,54 @@ class CmisConfig:
 # ---------------------------------------------------------------------------
 
 
-class BandwidthLimiter:
-    """Token-bucket read throttle for a file-like stream (REBIRTH §8.6)."""
+class TokenBucket:
+    """Process-shared token bucket (REBIRTH §8.6, fixed in 029).
 
-    def __init__(self, stream: IO[bytes], mbps: float) -> None:
-        self._stream = stream
+    A single instance is owned by :class:`CmisUploader` and reused
+    across every upload + every worker thread. Concurrent
+    ``consume()`` calls serialize on the internal lock so the
+    configured rate is the **global** ceiling, not a per-call
+    one. ``mbps=0`` disables throttling entirely (no lock taken).
+    """
+
+    def __init__(self, mbps: float) -> None:
         self._enabled = mbps > 0
-        self._rate = mbps * 1_000_000.0
+        self._rate = mbps * 1_000_000.0  # bytes/sec
         self._tokens = 0.0
         self._last_refill = time.monotonic()
+        self._lock = threading.Lock()
+
+    def consume(self, n_bytes: int) -> None:
+        """Block until ``n_bytes`` tokens are available, then deduct."""
+        if not self._enabled or n_bytes <= 0:
+            return
+        # Compute the sleep outside the lock so other threads can
+        # refill their token math while this one waits. The lock
+        # only guards the (tokens, last_refill) state.
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                elapsed = now - self._last_refill
+                self._tokens += elapsed * self._rate
+                self._last_refill = now
+                if self._tokens >= n_bytes:
+                    self._tokens -= n_bytes
+                    return
+                deficit = (n_bytes - self._tokens) / self._rate
+            time.sleep(deficit)
+
+
+class BandwidthLimiter:
+    """File-like wrapper that defers throttling to a shared bucket."""
+
+    def __init__(self, stream: IO[bytes], bucket: TokenBucket) -> None:
+        self._stream = stream
+        self._bucket = bucket
 
     def read(self, size: int = -1) -> bytes:
-        if not self._enabled:
-            return self._stream.read(size)
         chunk_size = size if size >= 0 else 1 << 20
-        self._wait_for_tokens(chunk_size)
-        self._tokens -= chunk_size
+        self._bucket.consume(chunk_size)
         return self._stream.read(chunk_size)
-
-    def _wait_for_tokens(self, needed: int) -> None:
-        while self._tokens < needed:
-            now = time.monotonic()
-            elapsed = now - self._last_refill
-            self._tokens += elapsed * self._rate
-            self._last_refill = now
-            if self._tokens < needed:
-                deficit = (needed - self._tokens) / self._rate
-                time.sleep(deficit)
 
     def seek(self, *args: Any, **kwargs: Any) -> int:
         return self._stream.seek(*args, **kwargs)
@@ -159,6 +180,11 @@ class CmisUploader(IUploader):
         # keep the live value here. Request paths consult this property
         # via ``self._timeout_s``; defaults to the configured value.
         self._timeout_s: float = float(config.timeout_seconds)
+        # 029: one shared TokenBucket per uploader so the configured
+        # ``max_bandwidth_mbps`` is the global cap across every
+        # concurrent upload (not a per-call ceiling that multiplies
+        # by worker count).
+        self._bandwidth_bucket = TokenBucket(mbps=config.max_bandwidth_mbps)
 
     # ----------------------------------------------------------- public API
 
@@ -244,7 +270,7 @@ class CmisUploader(IUploader):
         url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{normalized}"
         with file.path.open("rb") as fh:
             stream: IO[bytes] = (
-                BandwidthLimiter(fh, self._cfg.max_bandwidth_mbps)  # type: ignore[assignment]
+                BandwidthLimiter(fh, self._bandwidth_bucket)  # type: ignore[assignment]
                 if self._cfg.max_bandwidth_mbps > 0
                 else fh
             )

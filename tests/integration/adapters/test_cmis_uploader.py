@@ -26,6 +26,7 @@ from cmcourier.adapters.upload.cmis_uploader import (
     BandwidthLimiter,
     CmisConfig,
     CmisUploader,
+    TokenBucket,
 )
 from cmcourier.domain.exceptions import (
     CMISClientError,
@@ -520,14 +521,77 @@ class TestUploadWindows10053:
 # ---------------------------------------------------------------------------
 
 
+class TestTokenBucket:
+    """Direct tests for the new shared token bucket (029, REQ-001)."""
+
+    def test_zero_mbps_is_noop(self) -> None:
+        bucket = TokenBucket(mbps=0.0)
+        start = time.monotonic()
+        bucket.consume(10_000_000)  # 10 MB
+        elapsed = time.monotonic() - start
+        assert elapsed < 0.05  # no throttling
+
+    def test_single_thread_throttles_to_rate(self) -> None:
+        # 0.5 MB/s for 1 MB ≈ 2.0 s nominal.
+        bucket = TokenBucket(mbps=0.5)
+        start = time.monotonic()
+        # Drain 1 MB in 10×100 KB chunks (mimics a real upload).
+        for _ in range(10):
+            bucket.consume(100_000)
+        elapsed = time.monotonic() - start
+        assert 1.5 < elapsed < 3.0, elapsed
+
+    def test_n_concurrent_workers_share_cap(self) -> None:
+        """REQ-004 property test: N workers consuming concurrently
+        against a shared bucket cannot exceed the configured rate.
+
+        4 workers × 0.5 MB each at 1 MB/s → ≈2.0 s aggregate.
+        Each worker draining alone would take 0.5 s; a per-worker
+        bucket would let them finish in parallel in 0.5 s and prove
+        the bug. The shared bucket forces them to serialize tokens.
+        """
+        import threading as _threading
+
+        bucket = TokenBucket(mbps=1.0)  # 1 MB/s aggregate
+        bytes_per_worker = 500_000  # 0.5 MB each
+        n_workers = 4
+        results: list[float] = []
+
+        def _worker() -> None:
+            t0 = time.monotonic()
+            for _ in range(10):
+                bucket.consume(bytes_per_worker // 10)
+            results.append(time.monotonic() - t0)
+
+        threads = [_threading.Thread(target=_worker, name=f"w_{i}") for i in range(n_workers)]
+        wall_start = time.monotonic()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        wall_elapsed = time.monotonic() - wall_start
+
+        total_bytes = bytes_per_worker * n_workers  # 2 MB
+        # At 1 MB/s aggregate, 2 MB takes ~2.0 s. Anything well under
+        # 1.5 s would prove the cap leaked. Be lenient on upper bound
+        # (CI / GIL noise) — the lower bound is the real assertion.
+        assert wall_elapsed > 1.5, (
+            f"shared cap leaked: {n_workers} workers drained "
+            f"{total_bytes} B in {wall_elapsed:.2f}s "
+            f"(expected ≥ {total_bytes / 1_000_000:.1f}s at 1 MB/s)"
+        )
+        assert wall_elapsed < 4.0, wall_elapsed
+
+
 class TestBandwidthLimiter:
-    def test_throttles_to_configured_rate(self, tmp_path: Path) -> None:
+    def test_throttles_via_shared_bucket(self, tmp_path: Path) -> None:
         size = 1_000_000  # 1 MB
         path = tmp_path / "blob.bin"
         path.write_bytes(b"x" * size)
         # 0.5 MB/s on 1 MB ≈ 2.0 s nominal.
+        bucket = TokenBucket(mbps=0.5)
         with path.open("rb") as fh:
-            limiter = BandwidthLimiter(fh, mbps=0.5)
+            limiter = BandwidthLimiter(fh, bucket)
             start = time.monotonic()
             consumed = 0
             while True:
@@ -539,9 +603,9 @@ class TestBandwidthLimiter:
         assert consumed == size
         assert 1.5 < elapsed < 3.0, elapsed
 
-    def test_mbps_zero_passes_through(self) -> None:
+    def test_zero_bucket_passes_through(self) -> None:
         stream = io.BytesIO(b"abcdef")
-        limiter = BandwidthLimiter(stream, mbps=0.0)
+        limiter = BandwidthLimiter(stream, TokenBucket(mbps=0.0))
         start = time.monotonic()
         data = limiter.read(6)
         elapsed = time.monotonic() - start
@@ -550,7 +614,7 @@ class TestBandwidthLimiter:
 
     def test_passthrough_methods(self) -> None:
         stream = io.BytesIO(b"abcdef")
-        limiter = BandwidthLimiter(stream, mbps=10.0)
+        limiter = BandwidthLimiter(stream, TokenBucket(mbps=10.0))
         assert limiter.tell() == 0
         limiter.read(3)
         assert limiter.tell() == 3
