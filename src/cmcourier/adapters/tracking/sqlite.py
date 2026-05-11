@@ -94,6 +94,26 @@ ON migration_log (rvabrep_txn_num)
 WHERE status = 'S5_DONE'
 """
 
+# 037: cross-batch metadata cache (POST-MVP §9). The table is created
+# unconditionally — the schema migration is cheap and idempotent. The
+# pipeline only reads / writes it when ``metadata.cache.enabled`` is
+# True; otherwise the table stays empty.
+_CREATE_DOCUMENT_CACHE = """
+CREATE TABLE IF NOT EXISTS document_cache (
+    txn_num         TEXT NOT NULL,
+    fields_hash     TEXT NOT NULL,
+    trigger_cif     TEXT,
+    properties_json TEXT NOT NULL,
+    cached_at       TEXT NOT NULL,
+    PRIMARY KEY (txn_num, fields_hash)
+)
+"""
+
+_CREATE_IDX_DOCUMENT_CACHE_AGE = """
+CREATE INDEX IF NOT EXISTS idx_document_cache_cached_at
+ON document_cache (cached_at)
+"""
+
 
 # ---------------------------------------------------------------------------
 # PRAGMAs (REBIRTH §9.3)
@@ -227,6 +247,8 @@ class SQLiteTrackingStore(ITrackingStore):
         conn.execute(_CREATE_MIGRATION_BATCH)
         conn.execute(_CREATE_IDX_TXN_BATCH)
         conn.execute(_CREATE_IDX_UPLOADED)
+        conn.execute(_CREATE_DOCUMENT_CACHE)
+        conn.execute(_CREATE_IDX_DOCUMENT_CACHE_AGE)
         conn.commit()
 
     # ------------------------------------------------------------ writer loop

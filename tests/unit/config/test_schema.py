@@ -26,6 +26,7 @@ from cmcourier.config.schema import (
     HeavyLightLanesConfig,
     IndexingSourceConfig,
     MappingConfig,
+    MetadataCacheConfig,
     MetadataConfigModel,
     PipelineConfig,
     ProcessingConfig,
@@ -1043,3 +1044,57 @@ class TestHeavyLightLanesConfig:
         assert config.processing.heavy_light_lanes.enabled is True
         assert config.processing.heavy_light_lanes.heavy_threshold_bytes == 5_000_000
         assert config.processing.heavy_light_lanes.heavy_initial_ratio == 0.3
+
+
+# ---------------------------------------------------------------------------
+# MetadataCacheConfig (037 — POST-MVP §9 cross-batch document_cache)
+# ---------------------------------------------------------------------------
+
+
+class TestMetadataCacheConfig:
+    def test_defaults_disabled(self) -> None:
+        cfg = MetadataCacheConfig()
+        assert cfg.enabled is False
+        assert cfg.ttl_minutes == 60
+
+    def test_enabled_with_override(self) -> None:
+        cfg = MetadataCacheConfig(enabled=True, ttl_minutes=120)
+        assert cfg.enabled is True
+        assert cfg.ttl_minutes == 120
+
+    @pytest.mark.parametrize("ttl", [0, -1])
+    def test_ttl_must_be_positive(self, ttl: int) -> None:
+        with pytest.raises(ValidationError):
+            MetadataCacheConfig(ttl_minutes=ttl)
+
+    def test_ttl_max_30_days(self) -> None:
+        MetadataCacheConfig(ttl_minutes=43200)  # 30 days = OK
+        with pytest.raises(ValidationError):
+            MetadataCacheConfig(ttl_minutes=43201)
+
+    def test_metadata_config_includes_cache(self) -> None:
+        mc = MetadataConfigModel(
+            field_sources={
+                "BAC_CIF": FieldConfig(
+                    sources=[FieldSourceItem(source_type="trigger", lookup_value_column="cif")]
+                )
+            }
+        )
+        assert mc.cache.enabled is False
+        assert isinstance(mc.cache, MetadataCacheConfig)
+
+    def test_pipeline_loads_with_cache_enabled(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["metadata"]["cache"] = {"enabled": True, "ttl_minutes": 30}
+        config = PipelineConfig.model_validate(data)
+        assert config.metadata.cache.enabled is True
+        assert config.metadata.cache.ttl_minutes == 30

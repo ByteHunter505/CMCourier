@@ -35,6 +35,7 @@ __all__ = [
     "IndexingSourceConfig",
     "LocalScanTriggerConfig",
     "MappingConfig",
+    "MetadataCacheConfig",
     "SingleDocTriggerConfig",
     "MetadataConfigModel",
     "MetadataSourceConfig",
@@ -298,12 +299,29 @@ class FieldConfig(BaseModel):
     default_value: str | None = None
 
 
+class MetadataCacheConfig(BaseModel):
+    """POST-MVP §9 — cross-batch metadata cache configuration (037).
+
+    When ``enabled`` is ``True``, ``StagedPipeline`` consults a
+    SQLite-backed ``document_cache`` table before invoking S3
+    (Metadata Resolution). A hit whose ``cached_at`` is within
+    ``ttl_minutes`` short-circuits the resolver; a miss runs the
+    resolver and upserts the result. Default off — single-batch
+    behavior is byte-identical to pre-037.
+    """
+
+    model_config = _STRICT
+    enabled: bool = False
+    ttl_minutes: int = Field(default=60, gt=0, le=43200)  # cap: 30 days
+
+
 class MetadataConfigModel(BaseModel):
     model_config = _STRICT
     field_aliases: dict[str, str] = Field(default_factory=dict)
     field_sources: dict[str, FieldConfig]
     sources: list[MetadataSourceConfig] = Field(default_factory=list)
     prefetch_enabled: bool = True
+    cache: MetadataCacheConfig = Field(default_factory=MetadataCacheConfig)
 
 
 class AssemblyConfig(BaseModel):

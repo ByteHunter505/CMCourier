@@ -12,8 +12,12 @@ in the local-scan pipeline).
 from __future__ import annotations
 
 __all__ = [
+    "CacheEntry",
+    "CacheKey",
+    "CacheStats",
     "IAssembler",
     "IDataSource",
+    "IDocumentCache",
     "ITrackingStore",
     "IUploader",
     "S0Strategy",
@@ -21,6 +25,8 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from cmcourier.domain.models import (
@@ -298,3 +304,66 @@ class S0Strategy(ABC):
     def acquire(self, source_descriptor: str) -> Iterator[TriggerRecord]:
         """Yield trigger records lazily. Trigger lists may be huge (200k+);
         callers iterate, never materialize."""
+
+
+# ---------------------------------------------------------------------------
+# IDocumentCache — cross-batch S3 metadata cache (POST-MVP §9, 037)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CacheKey:
+    """Identifies a cache entry. ``fields_hash`` is the SHA-256 hex of
+    the sorted required-fields list — mapping evolution invalidates by
+    construction."""
+
+    txn_num: str
+    fields_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class CacheEntry:
+    """One stored row in ``document_cache``."""
+
+    txn_num: str
+    fields_hash: str
+    trigger_cif: str | None
+    properties: Mapping[str, str]
+    cached_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CacheStats:
+    """Snapshot of the cache table state at one instant."""
+
+    total_rows: int
+    oldest_cached_at: datetime | None
+    newest_cached_at: datetime | None
+
+
+class IDocumentCache(ABC):
+    """Cross-batch metadata cache. SQLite implementation in 037 Phase 1."""
+
+    @abstractmethod
+    def get(self, key: CacheKey) -> CacheEntry | None:
+        """Return the entry or ``None``. TTL is checked by the service."""
+
+    @abstractmethod
+    def put(self, entry: CacheEntry) -> None:
+        """Upsert. Replaces an entry with the same ``(txn_num, fields_hash)``."""
+
+    @abstractmethod
+    def clear_txn(self, txn_num: str) -> int:
+        """Delete every row matching ``txn_num`` (any fields hash). Returns rows deleted."""
+
+    @abstractmethod
+    def clear_all(self) -> int:
+        """Truncate. Returns rows deleted."""
+
+    @abstractmethod
+    def clear_older_than(self, threshold: datetime) -> int:
+        """Delete rows whose ``cached_at`` < threshold. Returns rows deleted."""
+
+    @abstractmethod
+    def stats(self) -> CacheStats:
+        """Return current table stats."""
