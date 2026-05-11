@@ -47,6 +47,7 @@ dmypy.json
 logs/
 tmp/
 staging/
+!scripts/staging/    # 039: scaffolding for the dry-run simulation is tracked
 data/migration_tracking.db
 data/*.db
 data/*.db-journal

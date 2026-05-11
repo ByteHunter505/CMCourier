@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Alfresco Content Model for CMCourier staging dry-runs.
+
+    Declares one type ``cmcourier:bacDoc`` that extends ``cm:content``
+    and adds the metadata properties CMCourier's MetadataService
+    typically emits during S3. Lets Alfresco accept upload requests
+    where ``object_type_id = cmcourier:bacDoc`` carrying these custom
+    properties without rejecting them as undeclared.
+
+    Deployment (Compu B):
+      1. Drop this file into the Alfresco extension volume mount
+         (``./alfresco-extension/alfresco/extension/`` per
+         ``alfresco-compose.yml``).
+      2. Restart the alfresco container.
+      3. Verify the type:
+         curl -u admin:admin "http://<host>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser?cmisselector=typeDefinition&typeId=cmcourier:bacDoc"
+
+    This model is NOT a faithful copy of the bank's production CMIS
+    type definitions (those use IBM CM's ``$t!-N_BAC_…v-1`` ID format
+    that Alfresco rejects on syntax). It's a single working stand-in
+    so the end-to-end pipeline runs without per-property validation
+    rejections.
+
+    Add or rename properties to match the metadata fields your
+    MapeoRVI_CM / MetadatosCM sample actually emits.
+-->
+<model name="cmcourier:contentModel"
+       xmlns="http://www.alfresco.org/model/dictionary/1.0">
+
+    <description>Staging-only content model for CMCourier dry-runs.</description>
+    <author>CMCourier</author>
+    <version>1.0</version>
+
+    <imports>
+        <import uri="http://www.alfresco.org/model/dictionary/1.0" prefix="d"/>
+        <import uri="http://www.alfresco.org/model/content/1.0" prefix="cm"/>
+    </imports>
+
+    <namespaces>
+        <namespace uri="http://cmcourier.example/model/content/1.0" prefix="cmcourier"/>
+    </namespaces>
+
+    <types>
+        <type name="cmcourier:bacDoc">
+            <title>CMCourier BAC document (staging)</title>
+            <parent>cm:content</parent>
+            <properties>
+                <!-- Common metadata fields. Extend / rename to match
+                     the bank's required_metadata_fields set you load
+                     in MetadatosCM.csv. All declared as d:text so we
+                     do not impose validation we cannot mirror in
+                     prod's IBM CM. -->
+                <property name="cmcourier:BAC_CIF">
+                    <title>BAC CIF</title>
+                    <type>d:text</type>
+                    <mandatory>false</mandatory>
+                </property>
+                <property name="cmcourier:Nombre_Cliente">
+                    <title>Nombre del cliente</title>
+                    <type>d:text</type>
+                    <mandatory>false</mandatory>
+                </property>
+                <property name="cmcourier:Short_Name">
+                    <title>Short name</title>
+                    <type>d:text</type>
+                    <mandatory>false</mandatory>
+                </property>
+                <property name="cmcourier:Fvenc_Inicio">
+                    <title>Fecha de vencimiento (inicio)</title>
+                    <type>d:text</type>
+                    <mandatory>false</mandatory>
+                </property>
+                <property name="cmcourier:Fvenc_Fin">
+                    <title>Fecha de vencimiento (fin)</title>
+                    <type>d:text</type>
+                    <mandatory>false</mandatory>
+                </property>
+                <property name="cmcourier:NUM_CUENTA_TARJETA">
+                    <title>Número de cuenta / tarjeta</title>
+                    <type>d:text</type>
+                    <mandatory>false</mandatory>
+                </property>
+            </properties>
+        </type>
+    </types>
+</model>
