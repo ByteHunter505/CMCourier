@@ -306,10 +306,16 @@ class TestLogDirWritable:
         assert check.status == CheckStatus.PASS
 
     def test_unwritable_dir_fails(self, tmp_path: Path) -> None:
-        # /proc/1/forbidden is non-writable for non-root processes.
+        # Point ``log_dir`` at an existing regular file. ``Path.mkdir(
+        # parents=True, exist_ok=True)`` raises ``FileExistsError``
+        # (subclass of ``OSError``) when the last component is a
+        # non-directory, on both POSIX and Windows — no need for a
+        # platform-specific unwritable path like ``/proc/1/...``.
+        blocker = tmp_path / "log_dir_is_a_file"
+        blocker.write_text("not a directory")
         yaml_path = _write_yaml(tmp_path)
         text = yaml_path.read_text()
-        text += "\nobservability:\n  log_dir: /proc/1/cmcourier_forbidden\n"
+        text += f"\nobservability:\n  log_dir: {blocker}\n"
         yaml_path.write_text(text)
         config = load_config(yaml_path)
         report = run_doctor(config, _secrets())

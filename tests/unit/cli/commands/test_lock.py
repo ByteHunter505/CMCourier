@@ -82,8 +82,12 @@ class TestAcquireConfigLock:
 
     def test_pid_and_timestamp_written(self, runtime_dir: Path, tmp_path: Path) -> None:
         config_path = _make_config_file(tmp_path)
+        # Read AFTER release: msvcrt.locking on Windows is a mandatory
+        # lock, so reading while the lock is held raises PermissionError.
+        # The lock file persists after release on both platforms.
         with acquire_config_lock(config_path) as lock_path:
-            content = lock_path.read_text()
+            pass
+        content = lock_path.read_text()
         # Expect "<pid> <iso-timestamp>".
         match = re.match(r"^(\d+) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})", content)
         assert match is not None
@@ -91,11 +95,17 @@ class TestAcquireConfigLock:
 
     def test_lock_file_truncated_on_reacquire(self, runtime_dir: Path, tmp_path: Path) -> None:
         config_path = _make_config_file(tmp_path)
+        # First acquire creates the file and writes pid+timestamp.
         with acquire_config_lock(config_path) as lock_path:
-            lock_path.write_text("stale junk from a previous owner\n")
+            pass
+        # Simulate stale junk left behind by a previous owner (between
+        # acquires, when nobody holds the lock — Windows mandatory lock
+        # would block this write otherwise).
+        lock_path.write_text("stale junk from a previous owner\n")
         # Second acquire truncates first.
-        with acquire_config_lock(config_path) as lock_path:
-            content = lock_path.read_text()
+        with acquire_config_lock(config_path):
+            pass
+        content = lock_path.read_text()
         assert "stale junk" not in content
         assert str(os.getpid()) in content
 

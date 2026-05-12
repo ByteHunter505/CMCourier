@@ -6,6 +6,7 @@ SUT (the strategies) does no I/O of its own; the data source is wiring.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -263,7 +264,9 @@ class TestLocalScanStrategy:
                 list(strategy.acquire())
         finally:
             src.close()
-        assert ei.value.context["scan_path"].endswith("/exist")
+        # ``Path.name`` is platform-agnostic — ``.endswith("/exist")``
+        # would fail on Windows where the separator is ``\``.
+        assert Path(ei.value.context["scan_path"]).name == "exist"
 
     def test_blank_shortname_dropped(self, tmp_path: Path) -> None:
         # Build a tiny rvabrep CSV in tmp_path with a blank shortname row.
@@ -285,6 +288,14 @@ class TestLocalScanStrategy:
         shortnames = {t.shortname for t in triggers}
         assert shortnames == {"TESTOK"}
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "NTFS is case-insensitive by default — '0AAAUI0K.PDF' and "
+            "'0AAAUI0K.pdf' collapse onto a single file on Windows, so the "
+            "scenario this test exercises cannot be constructed there."
+        ),
+    )
     def test_native_pdf_case_insensitive(self, tmp_path: Path) -> None:
         # Build a rvabrep with two PDF entries, lower- and upper-case file_name.
         rvabrep = tmp_path / "rvabrep_pdf.csv"
