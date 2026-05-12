@@ -3,10 +3,11 @@
 Same machinery as the interactive pipelines but with three
 unattended-mode behaviors:
 
-1. **Per-config lock** (``fcntl.flock``). Two overlapping
-   invocations on the same config exit immediately — the second
-   one with status ``75`` (``os.EX_TEMPFAIL``), the cron-canonical
-   "transient failure, retry later".
+1. **Per-config lock** (POSIX ``fcntl.flock`` / Windows
+   ``msvcrt.locking``). Two overlapping invocations on the same
+   config exit immediately — the second one with status ``75``
+   (cron-canonical ``EX_TEMPFAIL`` "transient failure, retry later";
+   Windows Task Scheduler treats any non-zero exit as failure).
 2. **Quiet success**. No stdout summary line. Cron emails only
    fire when something is wrong.
 3. **WARNING-by-default log level**. Operators can ``--log-level
@@ -26,7 +27,6 @@ from __future__ import annotations
 __all__ = ["background_command"]
 
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -37,6 +37,9 @@ from cmcourier.cli.commands._lock import LockHeldError, acquire_config_lock
 _log = logging.getLogger(__name__)
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+# POSIX ``os.EX_TEMPFAIL`` literal — the constant only exists on Unix
+# Python builds, so hardcode it to keep the module importable on Windows.
+_EXIT_TEMPFAIL = 75
 _PIPELINE_CHOICES = ("csv-trigger", "rvabrep", "as400-trigger", "local-scan")
 # Maps the CLI's pipeline name onto the internal ``trigger.kind`` value.
 _KIND_MAP: dict[str, str] = {
@@ -114,4 +117,4 @@ def background_command(
             extra={"url_prefix": str(exc.path)[:80]},
         )
         click.echo(f"Another instance is running: {exc.path}", err=True)
-        sys.exit(os.EX_TEMPFAIL)
+        sys.exit(_EXIT_TEMPFAIL)

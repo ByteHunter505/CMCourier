@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 import re
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,11 @@ from cmcourier.cli.commands._lock import (
     acquire_config_lock,
 )
 
+if sys.platform != "win32":
+    import fcntl
+
 pytestmark = pytest.mark.unit
+_IS_WINDOWS = sys.platform == "win32"
 
 
 @pytest.fixture
@@ -41,18 +46,20 @@ class TestLockPathFor:
         b = _make_config_file(tmp_path, "b.yaml")
         assert _lock_path_for(a) != _lock_path_for(b)
 
+    @pytest.mark.skipif(_IS_WINDOWS, reason="XDG_RUNTIME_DIR is POSIX-only")
     def test_uses_xdg_runtime_dir(self, runtime_dir: Path, tmp_path: Path) -> None:
         config_path = _make_config_file(tmp_path)
         lock_path = _lock_path_for(config_path)
         assert lock_path.is_relative_to(runtime_dir / "cmcourier")
 
-    def test_falls_back_to_tmp_when_xdg_unset(
+    def test_falls_back_to_system_temp_when_xdg_unset(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
         config_path = _make_config_file(tmp_path)
         lock_path = _lock_path_for(config_path)
-        assert lock_path.is_relative_to(Path("/tmp/cmcourier"))
+        expected_base = (Path(tempfile.gettempdir()) if _IS_WINDOWS else Path("/tmp")) / "cmcourier"
+        assert lock_path.is_relative_to(expected_base)
 
 
 class TestAcquireConfigLock:
@@ -92,6 +99,7 @@ class TestAcquireConfigLock:
         assert "stale junk" not in content
         assert str(os.getpid()) in content
 
+    @pytest.mark.skipif(_IS_WINDOWS, reason="fcntl is POSIX-only; msvcrt has different semantics")
     def test_low_level_fcntl_blocks_after_acquire(self, runtime_dir: Path, tmp_path: Path) -> None:
         """Sanity check that the underlying fcntl semantics are non-blocking."""
         config_path = _make_config_file(tmp_path)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -14,6 +13,11 @@ from cmcourier.cli.app import main
 from cmcourier.cli.commands._lock import acquire_config_lock
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
+
+# Cron-canonical "transient failure" exit code. Hardcoded because ``os.EX_TEMPFAIL``
+# only exists on POSIX Python builds; the production code in
+# ``cli/commands/background.py`` uses the same literal.
+_EXIT_TEMPFAIL = 75
 
 _TESTS_ROOT = Path(__file__).parent.parent.parent
 _PIPELINE_FIXTURES = _TESTS_ROOT / "fixtures" / "pipeline"
@@ -207,7 +211,7 @@ class TestBackgroundLockContention:
                     "--skip-doctor",
                 ],
             )
-        assert result.exit_code == os.EX_TEMPFAIL
+        assert result.exit_code == _EXIT_TEMPFAIL
         assert "Another instance is running" in result.stderr
         assert str(lock_path) in result.stderr
 
