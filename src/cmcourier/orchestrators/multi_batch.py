@@ -201,6 +201,21 @@ class MultiBatchOrchestrator:
         with self._state_lock:
             return self._upload_active_recorder
 
+    def _upload_p95_observer(self) -> float:
+        """043 — p95 source for the AIMD controller in multi-batch mode.
+
+        Reads from the upload-active recorder so the controller sees the
+        latency of the chunk currently in S5 — not the pipeline's own
+        recorder, which receives nothing because each chunk uses its own
+        per-batch recorder. Returns ``0.0`` when no chunk is uploading yet
+        (during warmup), matching the controller's "no data → assume
+        slack" semantics.
+        """
+        rec = self.upload_recorder()
+        if rec is None:
+            return 0.0
+        return rec.current_stage_p95("S5")
+
     def _update_chunk_state(
         self,
         *,
@@ -435,6 +450,11 @@ class MultiBatchOrchestrator:
             controller = self._pipeline.auto_tune_controller
             try:
                 if controller is not None:
+                    # 043: in multi-batch mode the pipeline's own recorder is
+                    # never written to (each chunk has its own), so the
+                    # controller's default p95_provider always reads zero.
+                    # Point it at the upload-active recorder before start().
+                    controller.set_p95_provider(self._upload_p95_observer)
                     controller.start()
                 while True:
                     item = upload_queue.get()

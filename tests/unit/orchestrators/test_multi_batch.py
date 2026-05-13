@@ -362,3 +362,63 @@ class TestUploadRecorder042:
             from cmcourier.observability.metrics import MetricsRecorder
 
             assert all(isinstance(r, MetricsRecorder) for r in observed)
+
+
+class TestAimdMultiBatchP95Wiring043:
+    """043 — overlapped path swaps the controller's p95 source to point at
+    the upload-active recorder. Single-batch path stays unchanged."""
+
+    def test_observer_returns_zero_with_no_active_upload(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers_per_call=_make_triggers(1))
+        orch = _build_orchestrator(pipeline, tmp_path)
+        # No chunk has entered UPLOAD yet → observer returns 0.0 cleanly.
+        assert orch._upload_p95_observer() == 0.0  # noqa: SLF001
+
+    def test_overlapped_run_swaps_controllers_p95_provider(self, tmp_path: Path) -> None:
+        """The orchestrator must call ``set_p95_provider`` on the live
+        controller before ``start()``. We capture the call by patching the
+        controller's method."""
+        triggers = _make_triggers(4)
+        pipeline = _FakePipeline(triggers_per_call=triggers)
+        captured: list[object] = []
+
+        # Inject a fake controller into the pipeline so we can observe the
+        # set_p95_provider call. The fake exposes the same surface
+        # _upload_loop touches.
+        from cmcourier.services.auto_tune import AutoTuneConfig, AutoTuneController
+
+        cfg = AutoTuneConfig(
+            enabled=True,
+            adjustment_interval_s=60,
+            warmup_seconds=0,
+            min_threads=1,
+            max_threads=16,
+        )
+        real_ctl = AutoTuneController(
+            config=cfg,
+            p95_provider=lambda: 999.0,  # the "wrong" pre-043 source
+            current_workers_provider=lambda: 4,
+            current_timeout_provider=lambda: 60.0,
+            on_pool_resize=lambda _n: None,
+            on_timeout_change=lambda _t: None,
+        )
+        orig_set = real_ctl.set_p95_provider
+
+        def _spy(provider):  # type: ignore[no-untyped-def]
+            captured.append(provider)
+            orig_set(provider)
+
+        real_ctl.set_p95_provider = _spy  # type: ignore[method-assign]
+        # Patch pipeline.auto_tune_controller property to return our spy.
+        type(pipeline).auto_tune_controller = property(  # type: ignore[attr-defined]
+            lambda _self: real_ctl,
+        )
+
+        orch = _build_orchestrator(pipeline, tmp_path)
+        orch.run(source_descriptor="", batch_size=2, batches_in_flight=2)
+
+        assert captured, "set_p95_provider must be called before controller.start()"
+        # The captured provider is the orchestrator's upload-side observer.
+        # Calling it after the run (all chunks DONE → upload slot None)
+        # returns 0.0.
+        assert captured[0]() == 0.0
