@@ -169,6 +169,12 @@ class MultiBatchOrchestrator:
         # The active recorder feeds the live PREP/UPLOAD tab bindings.
         self._chunks_state: dict[int, ChunkState] = {}
         self._active_recorder: MetricsRecorder | None = None
+        # 042: separate slot for the UPLOAD-side binding so the PREP flip
+        # (set when chunk N+1 enters PREP while chunk N is still uploading)
+        # no longer disturbs the UPLOAD tab's percentile + MB display.
+        # ``upload_recorder()`` returns this; ``active_recorder()`` keeps
+        # the pre-042 "most-recent PREP-or-UPLOAD" semantics for PREP tab.
+        self._upload_active_recorder: MetricsRecorder | None = None
         self._state_lock = threading.Lock()
 
     # ----- TUI binding hooks (030) -----------------------------------
@@ -182,6 +188,18 @@ class MultiBatchOrchestrator:
         """The most recently started chunk's recorder, or ``None``."""
         with self._state_lock:
             return self._active_recorder
+
+    def upload_recorder(self) -> MetricsRecorder | None:
+        """042 — recorder of the chunk currently inside S5, or ``None``.
+
+        Distinct from ``active_recorder``: when chunk N+1 enters PREP while
+        chunk N is uploading, ``active_recorder`` flips to N+1 but
+        ``upload_recorder`` stays on N. The TUI's UPLOAD tab binds here so
+        its percentile / MB display tracks the chunk that is actually
+        uploading, not the one preparing the next batch.
+        """
+        with self._state_lock:
+            return self._upload_active_recorder
 
     def _update_chunk_state(
         self,
@@ -254,6 +272,10 @@ class MultiBatchOrchestrator:
     def _set_active_recorder(self, recorder: MetricsRecorder | None) -> None:
         with self._state_lock:
             self._active_recorder = recorder
+
+    def _set_upload_active_recorder(self, recorder: MetricsRecorder | None) -> None:
+        with self._state_lock:
+            self._upload_active_recorder = recorder
 
     # ----- public API -------------------------------------------------
 
@@ -427,6 +449,8 @@ class MultiBatchOrchestrator:
                         upload_started_monotonic=upload_started,
                     )
                     self._set_active_recorder(item.recorder)
+                    # 042: independent UPLOAD-side binding for the TUI tab.
+                    self._set_upload_active_recorder(item.recorder)
                     try:
                         s5_done, s5_failed = self._pipeline.upload_chunk(
                             items=item.items,
@@ -453,6 +477,12 @@ class MultiBatchOrchestrator:
                             upload_skipped=item.recorder.upload_skipped_count(),
                             upload_elapsed_s=upload_elapsed,
                         )
+                        # 042: chunk left S5 — release the UPLOAD-side slot
+                        # so the TUI doesn't keep showing this chunk's
+                        # numbers after the next chunk enters UPLOAD.
+                        with self._state_lock:
+                            if self._upload_active_recorder is item.recorder:
+                                self._upload_active_recorder = None
                         with results_lock:
                             results.append(
                                 RunReport(
@@ -486,6 +516,9 @@ class MultiBatchOrchestrator:
                             batch_id=item.batch_id,
                             status="FAILED",
                         )
+                        with self._state_lock:
+                            if self._upload_active_recorder is item.recorder:
+                                self._upload_active_recorder = None
                         with results_lock:
                             failed.append((item.batch_id, type(exc).__name__))
             finally:

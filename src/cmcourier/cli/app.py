@@ -714,6 +714,9 @@ def _run_with_optional_tui(
         auto_tune=pipeline.auto_tune_controller,
         # 030: live-bind the active chunk's recorder + chunk-state list.
         recorder_provider=orchestrator.active_recorder,
+        # 042: independent UPLOAD-tab binding so PREP-side flips don't
+        # stomp the S5 percentile / MB display mid-upload.
+        upload_recorder_provider=orchestrator.upload_recorder,
         chunks_provider=orchestrator.chunks_snapshot,
         # 036: surface heavy/light lane stats when dual mode is enabled.
         lane_controller=pipeline.lane_controller,

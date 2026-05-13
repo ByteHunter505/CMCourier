@@ -296,3 +296,69 @@ class TestOrchestratorChunkState:
         orch.run(source_descriptor="", batch_size=1, batches_in_flight=2)
         # 2 chunks × 1 recorder each = 2 recorders constructed.
         assert len(recorder_seen) == 2
+
+
+# ---------------------------------------------------------------------------
+# 042 — separate UPLOAD-active recorder slot
+# ---------------------------------------------------------------------------
+
+
+class TestUploadRecorder042:
+    """042: ``upload_recorder()`` tracks the chunk currently in S5 and is
+    immune to PREP-side flips that move ``active_recorder()`` around."""
+
+    def test_initial_upload_recorder_is_none(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers_per_call=_make_triggers(1))
+        orch = _build_orchestrator(pipeline, tmp_path)
+        assert orch.upload_recorder() is None
+
+    def test_upload_recorder_cleared_after_run(self, tmp_path: Path) -> None:
+        """After every chunk leaves UPLOAD, the slot must be released so
+        the dashboard doesn't keep showing the last chunk's numbers
+        forever."""
+        triggers = _make_triggers(4)
+        pipeline = _FakePipeline(triggers_per_call=triggers)
+        orch = _build_orchestrator(pipeline, tmp_path)
+        orch.run(source_descriptor="", batch_size=2, batches_in_flight=2)
+        assert orch.upload_recorder() is None
+
+    def test_upload_recorder_observed_during_upload(self, tmp_path: Path) -> None:
+        """While a chunk is in S5 the upload recorder must be that chunk's
+        recorder. We use a slow upload to keep the chunk inside S5 long
+        enough to capture the binding."""
+        import threading as _t
+
+        triggers = _make_triggers(2)
+        observed: list[object] = []
+        latch = _t.Event()
+
+        def _on_upload_recorder(orch_ref: MultiBatchOrchestrator) -> None:
+            # Poll until the upload slot is set, then capture and release.
+            for _ in range(200):
+                rec = orch_ref.upload_recorder()
+                if rec is not None:
+                    observed.append(rec)
+                    latch.set()
+                    return
+                _t.Event().wait(0.005)
+
+        pipeline = _FakePipeline(
+            triggers_per_call=triggers,
+            prep_sleep_s=0.0,
+            upload_sleep_s=0.25,  # hold the slot long enough for the poller
+        )
+        orch = _build_orchestrator(pipeline, tmp_path)
+        watcher = _t.Thread(target=_on_upload_recorder, args=(orch,), daemon=True)
+        watcher.start()
+        orch.run(source_descriptor="", batch_size=1, batches_in_flight=2)
+        latch.wait(timeout=2.0)
+        watcher.join(timeout=1.0)
+        # Either captured at least one binding, or the run was so fast we
+        # missed it — but the post-run slot MUST be cleared.
+        assert orch.upload_recorder() is None
+        if observed:
+            # The captured recorder must be one of the chunk recorders
+            # (a MetricsRecorder instance, not None).
+            from cmcourier.observability.metrics import MetricsRecorder
+
+            assert all(isinstance(r, MetricsRecorder) for r in observed)

@@ -185,3 +185,36 @@ class TestRenderChunksBreakdown041:
         assert "(3.2s)" in out
         assert "(1.5s)" in out
         assert "UPLOAD" in out
+
+
+class TestRenderChunksLiveCounters042:
+    """042 — when a chunk is in status UPLOAD, the row must reflect the
+    live s5_done/s5_failed/upload_skipped from the upload-active recorder
+    instead of waiting for the DONE transition (where the orchestrator
+    persists them into ChunkState)."""
+
+    def test_upload_row_shows_live_done_count(self) -> None:
+        # The data_provider already substitutes the live values when it
+        # has an upload_recorder; here we verify render_chunks renders
+        # whatever the dict provides (the snapshot dict carries the
+        # post-override values).
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "AAA",
+                "status": "UPLOAD",
+                "s5_done": 17,  # live count from upload_done_count()
+                "s5_failed": 0,
+                "upload_skipped": 0,
+                "doc_count": 50,
+                "total_bytes": 5 * 1_048_576,
+                "prep_done": 50,
+                "prep_elapsed_s": 12.4,
+                "upload_elapsed_s": 4.2,
+            },
+        )
+        out = render_chunks(_snap(chunks))
+        # Cell renders as done/skip/fail (elapsed)
+        assert "17/0/0   (4.2s)" in out
+        # NOT showing the stale 0/0/0 the pre-042 code would have shown
+        assert "0/0/0   (4.2s)" not in out

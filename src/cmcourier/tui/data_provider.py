@@ -115,6 +115,7 @@ class TUIDataProvider:
         uploader: CmisUploader,
         auto_tune: AutoTuneController | None = None,
         recorder_provider: Callable[[], MetricsRecorder | None] | None = None,
+        upload_recorder_provider: Callable[[], MetricsRecorder | None] | None = None,
         chunks_provider: Callable[[], list[Any]] | None = None,
         lane_controller: LaneController | None = None,
     ) -> None:
@@ -125,6 +126,13 @@ class TUIDataProvider:
         # recorder. For single-batch runs the fallback (== the
         # pipeline's own recorder) is used.
         self._recorder_provider: Callable[[], MetricsRecorder | None] | None = recorder_provider
+        # 042: independent UPLOAD-tab binding. When set, this is used for
+        # everything S5-shaped (bytes uploaded, S5 percentiles, live
+        # done/failed counters). Falls back to ``recorder_provider`` when
+        # unset (e.g. single-batch runs that don't expose the dual slot).
+        self._upload_recorder_provider: Callable[[], MetricsRecorder | None] | None = (
+            upload_recorder_provider
+        )
         self._chunks_provider: Callable[[], list[Any]] | None = chunks_provider
         self._pool_stats = pool_stats
         self._concurrency_limit = concurrency_limit
@@ -145,6 +153,19 @@ class TUIDataProvider:
                 return live
         return self._fallback_recorder
 
+    @property
+    def _upload_metrics(self) -> MetricsRecorder:
+        """042 — UPLOAD-side recorder; isolated from PREP-side flips.
+
+        Falls back to ``self._metrics`` when no upload-side provider is
+        wired (single-batch runs) so the dashboard keeps working unchanged.
+        """
+        if self._upload_recorder_provider is not None:
+            live = self._upload_recorder_provider()
+            if live is not None:
+                return live
+        return self._metrics
+
     # ------------------------------------------------------- lifecycle hooks
 
     def mark_batch_started(self, batch_id: str) -> None:
@@ -159,6 +180,15 @@ class TUIDataProvider:
 
     def snapshot(self) -> TUISnapshot:
         stages = self._metrics.stages_snapshot()
+        # 042: override the S5 entry with the upload-side recorder's data so
+        # the UPLOAD-tab percentile block reflects the chunk currently
+        # uploading, not whichever chunk last flipped the active slot.
+        if self._upload_recorder_provider is not None:
+            upload_rec = self._upload_recorder_provider()
+            if upload_rec is not None:
+                upload_stages = upload_rec.stages_snapshot()
+                if UPLOAD_STAGE in upload_stages:
+                    stages = {**stages, UPLOAD_STAGE: upload_stages[UPLOAD_STAGE]}
         pool = self._pool_stats.snapshot()
         elapsed = (
             time.monotonic() - self._batch_started_monotonic
@@ -222,14 +252,19 @@ class TUIDataProvider:
     def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:
         """Render the orchestrator's chunk-state machine for the TUI.
 
-        041 expands every row with per-stage stats and live elapsed values
-        (so a PREP-in-flight chunk shows its growing wall-clock without
-        the orchestrator having to mutate the dataclass each tick).
+        041 expands every row with per-stage stats and live elapsed values.
+        042 overrides ``s5_done`` / ``s5_failed`` from the upload-active
+        recorder while a chunk is in status ``UPLOAD`` so the CHUNKS row
+        ticks live instead of waiting for the DONE transition.
         """
         if self._chunks_provider is None:
             return ()
         chunks = self._chunks_provider()
         now = time.monotonic()
+        # 042: the upload-side recorder is the one whose counters track the
+        # chunk currently in S5. Reading it once per snapshot avoids per-row
+        # lock contention.
+        upload_rec = self._upload_recorder_provider() if self._upload_recorder_provider else None
         out: list[dict[str, object]] = []
         for chunk in chunks:
             status = str(getattr(chunk, "status", "?"))
@@ -245,20 +280,30 @@ class TUIDataProvider:
                 prep_elapsed = max(prep_elapsed, now - float(prep_started))
             if status == "UPLOAD" and isinstance(upload_started, (int, float)):
                 upload_elapsed = max(upload_elapsed, now - float(upload_started))
+            s5_done = int(getattr(chunk, "s5_done", 0) or 0)
+            s5_failed = int(getattr(chunk, "s5_failed", 0) or 0)
+            upload_skipped = int(getattr(chunk, "upload_skipped", 0) or 0)
+            # 042: live override while in UPLOAD. The orchestrator only
+            # sets ``upload_active_recorder`` on exactly one chunk at a time
+            # (S5 lane is single-threaded across chunks), so this is safe.
+            if status == "UPLOAD" and upload_rec is not None:
+                s5_done = max(s5_done, upload_rec.upload_done_count())
+                s5_failed = max(s5_failed, upload_rec.upload_failed_count())
+                upload_skipped = max(upload_skipped, upload_rec.upload_skipped_count())
             out.append(
                 {
                     "chunk_idx": getattr(chunk, "chunk_idx", -1),
                     "batch_id": getattr(chunk, "batch_id", ""),
                     "status": status,
-                    "s5_done": getattr(chunk, "s5_done", 0),
-                    "s5_failed": getattr(chunk, "s5_failed", 0),
+                    "s5_done": s5_done,
+                    "s5_failed": s5_failed,
                     # 041 — per-chunk plan + per-stage breakdown
                     "doc_count": getattr(chunk, "doc_count", 0),
                     "total_bytes": getattr(chunk, "total_bytes", 0),
                     "prep_done": getattr(chunk, "prep_done", 0),
                     "prep_skipped": getattr(chunk, "prep_skipped", 0),
                     "prep_failed": getattr(chunk, "prep_failed", 0),
-                    "upload_skipped": getattr(chunk, "upload_skipped", 0),
+                    "upload_skipped": upload_skipped,
                     "prep_started_monotonic": prep_started,
                     "prep_elapsed_s": prep_elapsed,
                     "upload_started_monotonic": upload_started,
@@ -287,7 +332,10 @@ class TUIDataProvider:
         * avg_mbps and ETA are derived. ETA is hidden (``None``) until the
           chunk is past 5 % of its bytes (the early projection is noisy).
         """
-        recorder = self._metrics
+        # 042: bind the bytes counter to the UPLOAD-side recorder (chunk
+        # currently in S5), not the PREP-aware ``self._metrics`` which
+        # would flip to the next chunk's recorder mid-upload.
+        recorder = self._upload_metrics
         bytes_uploaded = recorder.bandwidth.cumulative_bytes()
         bytes_total = 0
         elapsed_s = global_elapsed_s
