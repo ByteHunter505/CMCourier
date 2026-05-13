@@ -238,6 +238,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Forty-second change (040): Alfresco CMIS compatibility — `repo_id=""` semantics + mime-property heuristic + JSON formatter allowlist + doctor `cmis_type` override; live smoke against Alfresco 23.x ships 0 failures end-to-end
 - [x] Forty-third change (041): TUI quality-of-life pass — clean dashboard (stderr handler is detached when Textual owns the terminal), UPLOAD tab adds MB-uploaded/MB-planned + per-chunk wall-clock + avg MB/s + ETA, CHUNKS tab becomes a per-stage breakdown table with TOTAL aggregate row
 - [x] Forty-fourth change (042): TUI multi-batch metric isolation — per-batch `_BandwidthHandler` filter (no more byte bleed across overlapping chunks), live `s5_done`/`s5_failed` propagated into CHUNKS row during UPLOAD (no more stuck `0/0/0`), separate `upload_recorder()` slot in `MultiBatchOrchestrator` so UPLOAD-tab S5 percentiles aren't disturbed by PREP-side recorder flips
+- [x] Forty-fifth change (043): AIMD auto-tune sees real p95 in multi-batch mode — `AutoTuneController.set_p95_provider` swap hook + orchestrator wires the upload-active recorder so the elastic-protection property is restored (pre-043 the controller observed `p95=0` always and only grew workers, never decreased)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

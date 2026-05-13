@@ -51,6 +51,55 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.46.0] — 2026-05-13 — **AIMD auto-tune sees real p95 in multi-batch mode**
+
+Live verification of 0.45.0 against staging
+(``--total 200 --batches-in-flight 2``, F.4 of the validation
+checklist) caught a silent regression introduced by spec 028: the
+AIMD controller's ``p95_provider`` was bound to the pipeline's own
+``MetricsRecorder``, which in multi-batch mode receives no S5
+events (each chunk uses its own recorder). The controller observed
+``p95 = 0`` for the entire 19-minute run, kept incrementing the
+worker pool every 15 s, and saturated at ``max_threads=16`` with
+zero down-throttles. The pool's elastic-protection property was
+effectively disabled.
+
+Same architectural class as 042 #3 — a consumer reading from the
+"default" recorder instead of the upload-active one. Fix is a
+small, surgical wire-up: 043 introduces a swappable p95 source on
+the controller and the orchestrator points it at
+``upload_recorder()`` before starting the controller thread.
+
+### Fixed
+
+- **AIMD ignored S5 latency in multi-batch mode.** The pipeline's
+  ``self._metrics`` recorder never sees S5 events when chunks have
+  their own recorders. ``staged.py:255``'s
+  ``p95_provider=lambda: self._metrics.current_stage_p95("S5")``
+  always read 0 ⇒ controller never down-throttled ⇒ workers grew
+  to the cap and stayed there regardless of real latency. The
+  multi-batch orchestrator now overrides this binding to read from
+  the upload-active recorder.
+
+### Added
+
+- ``AutoTuneController.set_p95_provider(provider)`` — swap the p95
+  source after construction. Atomic reference replacement; takes
+  effect on the next ``adjustment_interval_s`` tick without
+  restarting the controller thread.
+- ``MultiBatchOrchestrator._upload_p95_observer()`` — reads
+  ``self.upload_recorder().current_stage_p95("S5")`` with a
+  ``0.0`` fallback for the warmup window. Wired into
+  ``_run_overlapped._upload_loop`` before ``controller.start()``.
+
+### Operational note
+
+Single-batch (``batches_in_flight=1``) behavior is unchanged —
+the controller keeps reading from ``self._metrics`` which still
+receives every S5 event on that path. The fix is multi-batch-only.
+
+---
+
 ## [0.45.0] — 2026-05-13 — **TUI metrics: per-chunk isolation + live UPLOAD counters**
 
 Live verification of 0.44.0 against the testserver Alfresco with
