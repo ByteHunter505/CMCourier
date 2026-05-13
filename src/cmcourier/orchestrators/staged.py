@@ -719,6 +719,8 @@ class StagedPipeline:
                     s5_done += 1
                 elif outcome == "failed":
                     failed += 1
+                elif outcome == "skipped":
+                    rec.record_upload_skipped()
                 self._pool_stats.set_queue_depth(self._pool_stats.snapshot().queue_depth - 1)
         return s5_done, failed
 
@@ -791,6 +793,8 @@ class StagedPipeline:
                         s5_done += 1
                     elif outcome == "failed":
                         failed += 1
+                    elif outcome == "skipped":
+                        rec.record_upload_skipped()
                     depths[lane] = max(0, depths[lane] - 1)
                     self._lane_controller.set_queue_depth(lane, depths[lane])
         finally:

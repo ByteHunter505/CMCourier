@@ -141,6 +141,82 @@ class TestRenderUpload:
 
 
 # ---------------------------------------------------------------------------
+# 041: per-chunk MB progress + timer + ETA on the UPLOAD bar line
+# ---------------------------------------------------------------------------
+
+
+_ONE_MB = 1_048_576
+
+
+class TestRenderUploadChunkProgress041:
+    def test_zero_progress_omits_chunk_timer(self) -> None:
+        out = render_upload(
+            _baseline_snap(
+                current_chunk_bytes_uploaded=0,
+                current_chunk_bytes_total=200 * _ONE_MB,
+                current_chunk_elapsed_s=0.0,
+                current_chunk_avg_mbps=0.0,
+                current_chunk_eta_s=None,
+            )
+        )
+        # Bar line carries the MB segment even at 0 %; total is known.
+        assert "0.0 MB" in out
+        assert "200.0 MB" in out
+        # No timer line until at least one byte is uploaded.
+        assert "chunk elapsed" not in out
+        assert "est remaining" not in out
+
+    def test_forty_percent_shows_mb_timer_and_eta(self) -> None:
+        out = render_upload(
+            _baseline_snap(
+                current_chunk_bytes_uploaded=80 * _ONE_MB,
+                current_chunk_bytes_total=200 * _ONE_MB,
+                current_chunk_elapsed_s=134.0,  # 00:02:14
+                current_chunk_avg_mbps=2.13,
+                current_chunk_eta_s=198.0,  # 00:03:18
+            )
+        )
+        assert "80.0 MB" in out
+        assert "200.0 MB" in out
+        assert "chunk elapsed 00:02:14" in out
+        assert "avg 2.13 MB/s" in out
+        assert "est remaining 00:03:18" in out
+
+    def test_complete_progress_keeps_mb_and_drops_eta(self) -> None:
+        # progress >= 100 % → data provider passes eta_s=None.
+        out = render_upload(
+            _baseline_snap(
+                current_chunk_bytes_uploaded=200 * _ONE_MB,
+                current_chunk_bytes_total=200 * _ONE_MB,
+                current_chunk_elapsed_s=305.0,
+                current_chunk_avg_mbps=0.65,
+                current_chunk_eta_s=None,
+                is_complete=True,
+            )
+        )
+        assert "200.0 MB / 200.0 MB" in out
+        assert "chunk elapsed 00:05:05" in out
+        assert "est remaining" not in out
+
+    def test_unknown_total_renders_uploaded_only(self) -> None:
+        """Single-batch mode has no chunk-state ⇒ total bytes is 0."""
+        out = render_upload(
+            _baseline_snap(
+                current_chunk_bytes_uploaded=12 * _ONE_MB,
+                current_chunk_bytes_total=0,
+                current_chunk_elapsed_s=60.0,
+                current_chunk_avg_mbps=0.20,
+                current_chunk_eta_s=None,
+            )
+        )
+        assert "12.0 MB" in out
+        assert " / " not in out.split("docs")[1].split("\n")[0], (
+            "no denominator when total is unknown"
+        )
+        assert "chunk elapsed 00:01:00" in out
+
+
+# ---------------------------------------------------------------------------
 # 036: dual heavy/light upload sub-panels
 # ---------------------------------------------------------------------------
 

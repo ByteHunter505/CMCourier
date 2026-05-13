@@ -33,6 +33,7 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,6 +51,12 @@ class ChunkState:
     """One row in the orchestrator's chunk-state machine (030, TUI binding).
 
     Statuses: ``QUEUED``, ``PREP``, ``UPLOAD``, ``DONE``, ``FAILED``.
+
+    041 adds the per-stage breakdown that drives the CHUNKS tab table and
+    the UPLOAD tab's chunk-scoped MB/timer/ETA display. The ``*_monotonic``
+    fields are populated when the chunk transitions into the stage; the
+    ``*_elapsed_s`` fields are frozen when it leaves. While the chunk is
+    live in a stage, the consumer derives elapsed = ``now - started``.
     """
 
     chunk_idx: int
@@ -57,6 +64,17 @@ class ChunkState:
     status: str
     s5_done: int = 0
     s5_failed: int = 0
+    # 041 — per-chunk plan + per-stage stats
+    doc_count: int = 0
+    total_bytes: int = 0
+    prep_done: int = 0
+    prep_skipped: int = 0
+    prep_failed: int = 0
+    upload_skipped: int = 0
+    prep_started_monotonic: float | None = None
+    prep_elapsed_s: float = 0.0
+    upload_started_monotonic: float | None = None
+    upload_elapsed_s: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +133,24 @@ class _PreparedChunk:
 _PREP_DONE = object()
 
 
+def _items_total_bytes(items: Sequence[object]) -> int:
+    """Sum ``staged_file.size_bytes`` defensively across a chunk's items.
+
+    Production items always carry a ``staged_file`` after S4. Unit-test
+    stubs (``SimpleNamespace`` etc.) sometimes don't — fall back to 0
+    for any item that doesn't expose the chain.
+    """
+    total = 0
+    for it in items:
+        staged = getattr(it, "staged_file", None)
+        if staged is None:
+            continue
+        size = getattr(staged, "size_bytes", None)
+        if isinstance(size, int):
+            total += size
+    return total
+
+
 class MultiBatchOrchestrator:
     """Run a ``StagedPipeline`` with producer-consumer overlap."""
 
@@ -155,14 +191,64 @@ class MultiBatchOrchestrator:
         status: str,
         s5_done: int = 0,
         s5_failed: int = 0,
+        doc_count: int | None = None,
+        total_bytes: int | None = None,
+        prep_done: int | None = None,
+        prep_skipped: int | None = None,
+        prep_failed: int | None = None,
+        upload_skipped: int | None = None,
+        prep_started_monotonic: float | None = None,
+        prep_elapsed_s: float | None = None,
+        upload_started_monotonic: float | None = None,
+        upload_elapsed_s: float | None = None,
     ) -> None:
+        """Atomic transition for one chunk. ``None`` means "keep previous value"
+        for that field — so callers only have to supply what actually changed.
+        """
         with self._state_lock:
+            prev = self._chunks_state.get(chunk_idx)
             self._chunks_state[chunk_idx] = ChunkState(
                 chunk_idx=chunk_idx,
                 batch_id=batch_id,
                 status=status,
                 s5_done=s5_done,
                 s5_failed=s5_failed,
+                doc_count=(doc_count if doc_count is not None else (prev.doc_count if prev else 0)),
+                total_bytes=(
+                    total_bytes if total_bytes is not None else (prev.total_bytes if prev else 0)
+                ),
+                prep_done=(prep_done if prep_done is not None else (prev.prep_done if prev else 0)),
+                prep_skipped=(
+                    prep_skipped if prep_skipped is not None else (prev.prep_skipped if prev else 0)
+                ),
+                prep_failed=(
+                    prep_failed if prep_failed is not None else (prev.prep_failed if prev else 0)
+                ),
+                upload_skipped=(
+                    upload_skipped
+                    if upload_skipped is not None
+                    else (prev.upload_skipped if prev else 0)
+                ),
+                prep_started_monotonic=(
+                    prep_started_monotonic
+                    if prep_started_monotonic is not None
+                    else (prev.prep_started_monotonic if prev else None)
+                ),
+                prep_elapsed_s=(
+                    prep_elapsed_s
+                    if prep_elapsed_s is not None
+                    else (prev.prep_elapsed_s if prev else 0.0)
+                ),
+                upload_started_monotonic=(
+                    upload_started_monotonic
+                    if upload_started_monotonic is not None
+                    else (prev.upload_started_monotonic if prev else None)
+                ),
+                upload_elapsed_s=(
+                    upload_elapsed_s
+                    if upload_elapsed_s is not None
+                    else (prev.upload_elapsed_s if prev else 0.0)
+                ),
             )
 
     def _set_active_recorder(self, recorder: MetricsRecorder | None) -> None:
@@ -263,13 +349,34 @@ class MultiBatchOrchestrator:
                     )
                     recorder = self._build_chunk_recorder()
                     recorder.start_batch(pipeline=self._pipeline.pipeline_name, batch_id=batch_id)
-                    self._update_chunk_state(chunk_idx=idx, batch_id=batch_id, status="PREP")
-                    self._set_active_recorder(recorder)
                     started = time.monotonic()
+                    self._update_chunk_state(
+                        chunk_idx=idx,
+                        batch_id=batch_id,
+                        status="PREP",
+                        prep_started_monotonic=started,
+                    )
+                    self._set_active_recorder(recorder)
                     items, skipped, s1d, s2f, s3f, s4f = self._pipeline.prep_chunk(
                         triggers=chunk,
                         batch_id=batch_id,
                         recorder=recorder,
+                    )
+                    prep_elapsed = time.monotonic() - started
+                    total_bytes = _items_total_bytes(items)
+                    # Freeze the PREP-side breakdown the moment prep wraps; the
+                    # chunk will sit in the upload queue with status=PREP until
+                    # picked up, but its prep numbers are already final.
+                    self._update_chunk_state(
+                        chunk_idx=idx,
+                        batch_id=batch_id,
+                        status="PREP",
+                        doc_count=s1d + skipped,
+                        total_bytes=total_bytes,
+                        prep_done=len(items),
+                        prep_skipped=skipped,
+                        prep_failed=s2f + s3f + s4f,
+                        prep_elapsed_s=prep_elapsed,
                     )
                     upload_queue.put(
                         _PreparedChunk(
@@ -312,10 +419,12 @@ class MultiBatchOrchestrator:
                     if item is _PREP_DONE:
                         return
                     assert isinstance(item, _PreparedChunk)
+                    upload_started = time.monotonic()
                     self._update_chunk_state(
                         chunk_idx=item.chunk_idx,
                         batch_id=item.batch_id,
                         status="UPLOAD",
+                        upload_started_monotonic=upload_started,
                     )
                     self._set_active_recorder(item.recorder)
                     try:
@@ -327,6 +436,7 @@ class MultiBatchOrchestrator:
                         self._pipeline._tracking_store.flush()  # noqa: SLF001
                         self._pipeline._tracking_store.complete_batch(item.batch_id)  # noqa: SLF001
                         elapsed = time.monotonic() - item.started_at
+                        upload_elapsed = time.monotonic() - upload_started
                         total_docs = item.s1_done + item.skipped
                         item.recorder.close_batch(
                             pipeline=self._pipeline.pipeline_name,
@@ -340,6 +450,8 @@ class MultiBatchOrchestrator:
                             status="DONE",
                             s5_done=s5_done,
                             s5_failed=s5_failed,
+                            upload_skipped=item.recorder.upload_skipped_count(),
+                            upload_elapsed_s=upload_elapsed,
                         )
                         with results_lock:
                             results.append(

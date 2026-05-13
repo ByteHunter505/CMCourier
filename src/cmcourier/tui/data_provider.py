@@ -87,6 +87,15 @@ class TUISnapshot:
     # ---------- 036: heavy/light lane state (None when single-lane mode)
     lane_snapshot: LaneSnapshot | None = None
 
+    # ---------- 041: per-chunk UPLOAD progress (bytes + timer + ETA)
+    # In single-batch mode (no chunks_state) these fall back to the
+    # cumulative recorder counter and the global run elapsed.
+    current_chunk_bytes_uploaded: int = 0
+    current_chunk_bytes_total: int = 0
+    current_chunk_elapsed_s: float = 0.0
+    current_chunk_avg_mbps: float = 0.0
+    current_chunk_eta_s: float | None = None
+
 
 class TUIDataProvider:
     """Snapshot factory the TUI polls every refresh tick.
@@ -159,6 +168,15 @@ class TUIDataProvider:
         completed = pool.completed
         throughput = (completed / elapsed) if elapsed > 0 and completed > 0 else 0.0
 
+        chunks_snapshot = self._chunks_state_snapshot()
+        (
+            chunk_bytes_uploaded,
+            chunk_bytes_total,
+            chunk_elapsed_s,
+            chunk_avg_mbps,
+            chunk_eta_s,
+        ) = self._current_chunk_progress(chunks_snapshot, global_elapsed_s=elapsed)
+
         bw_cfg = self._cmis_config.auto_tune
         return TUISnapshot(
             pipeline=self._pipeline_name,
@@ -190,10 +208,15 @@ class TUIDataProvider:
             bandwidth_ceiling_mbps=self._cmis_config.max_bandwidth_mbps,
             bandwidth_series=tuple(self._metrics.bandwidth.series(60)),
             slow_ops_all=tuple(self._metrics.aggregator_snapshot()),
-            chunks_state=self._chunks_state_snapshot(),
+            chunks_state=chunks_snapshot,
             lane_snapshot=(
                 self._lane_controller.snapshot() if self._lane_controller is not None else None
             ),
+            current_chunk_bytes_uploaded=chunk_bytes_uploaded,
+            current_chunk_bytes_total=chunk_bytes_total,
+            current_chunk_elapsed_s=chunk_elapsed_s,
+            current_chunk_avg_mbps=chunk_avg_mbps,
+            current_chunk_eta_s=chunk_eta_s,
         )
 
     def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:
@@ -210,9 +233,88 @@ class TUIDataProvider:
                     "status": getattr(chunk, "status", "?"),
                     "s5_done": getattr(chunk, "s5_done", 0),
                     "s5_failed": getattr(chunk, "s5_failed", 0),
+                    # 041 — per-chunk plan + per-stage breakdown
+                    "doc_count": getattr(chunk, "doc_count", 0),
+                    "total_bytes": getattr(chunk, "total_bytes", 0),
+                    "prep_done": getattr(chunk, "prep_done", 0),
+                    "prep_skipped": getattr(chunk, "prep_skipped", 0),
+                    "prep_failed": getattr(chunk, "prep_failed", 0),
+                    "upload_skipped": getattr(chunk, "upload_skipped", 0),
+                    "prep_started_monotonic": getattr(chunk, "prep_started_monotonic", None),
+                    "prep_elapsed_s": float(getattr(chunk, "prep_elapsed_s", 0.0) or 0.0),
+                    "upload_started_monotonic": getattr(chunk, "upload_started_monotonic", None),
+                    "upload_elapsed_s": float(getattr(chunk, "upload_elapsed_s", 0.0) or 0.0),
                 }
             )
         return tuple(out)
+
+    def _current_chunk_progress(
+        self,
+        chunks_snapshot: tuple[dict[str, object], ...],
+        *,
+        global_elapsed_s: float,
+    ) -> tuple[int, int, float, float, float | None]:
+        """Resolve the five UPLOAD-tab "current chunk" fields (041).
+
+        Returns ``(bytes_uploaded, bytes_total, elapsed_s, avg_mbps, eta_s)``.
+
+        Strategy:
+        * Bytes-uploaded always comes from the live recorder's cumulative
+          counter — works in single AND multi-batch because the recorder
+          is per-chunk in multi-batch and per-run in single-batch.
+        * Bytes-total + elapsed come from the active chunk's ``ChunkState``
+          when multi-batch; otherwise (single-batch) bytes-total is 0 and
+          elapsed is the global run elapsed.
+        * avg_mbps and ETA are derived. ETA is hidden (``None``) until the
+          chunk is past 5 % of its bytes (the early projection is noisy).
+        """
+        recorder = self._metrics
+        bytes_uploaded = recorder.bandwidth.cumulative_bytes()
+        bytes_total = 0
+        elapsed_s = global_elapsed_s
+        active = self._active_chunk(chunks_snapshot)
+        if active is not None:
+            bt = active.get("total_bytes")
+            if isinstance(bt, int):
+                bytes_total = bt
+            mono = active.get("prep_started_monotonic")
+            if isinstance(mono, (int, float)):
+                elapsed_s = max(0.0, time.monotonic() - float(mono))
+        if elapsed_s > 0 and bytes_uploaded > 0:
+            avg_mbps = (bytes_uploaded / 1_048_576.0) / elapsed_s
+        else:
+            avg_mbps = 0.0
+        eta_s: float | None = None
+        if bytes_total > 0 and bytes_uploaded > 0 and elapsed_s > 0:
+            progress = bytes_uploaded / bytes_total
+            if 0.05 < progress < 1.0:
+                # naive linear projection — same shape as a doc-count ETA but
+                # in bytes. Operators read this as "good enough for the
+                # next-coffee decision", which is what they ask for.
+                eta_s = elapsed_s * (1.0 - progress) / progress
+        return bytes_uploaded, bytes_total, elapsed_s, avg_mbps, eta_s
+
+    @staticmethod
+    def _active_chunk(
+        chunks_snapshot: tuple[dict[str, object], ...],
+    ) -> dict[str, object] | None:
+        """Pick the chunk that should drive the UPLOAD tab's progress block.
+
+        Preference order: UPLOAD-in-flight > PREP-in-flight > last DONE.
+        Returns ``None`` when no chunks exist (single-batch mode).
+        """
+        if not chunks_snapshot:
+            return None
+        upload = [c for c in chunks_snapshot if str(c.get("status", "")) == "UPLOAD"]
+        if upload:
+            return upload[-1]
+        prep = [c for c in chunks_snapshot if str(c.get("status", "")) == "PREP"]
+        if prep:
+            return prep[-1]
+        done = [c for c in chunks_snapshot if str(c.get("status", "")) == "DONE"]
+        if done:
+            return done[-1]
+        return None
 
     # ------------------------------------------------------- helpers
 

@@ -182,15 +182,27 @@ class _BandwidthSampler:
         self._lock = threading.Lock()
         # bucket_ts (int seconds since epoch) → bytes total this second
         self._buckets: dict[int, int] = {}
+        # 041: cumulative bytes uploaded since this sampler was created. The
+        # rolling buckets above evict after 60 s; this counter never does, so
+        # the TUI can show a per-chunk "MB uploaded so far" total. The
+        # ``MetricsRecorder`` lifecycle is per-chunk, so this is naturally
+        # chunk-scoped.
+        self._cumulative_bytes: int = 0
 
     def record_upload(self, size_bytes: int, completed_at: float) -> None:
         ts = int(completed_at)
         cutoff = ts - self._WINDOW_SECONDS
         with self._lock:
             self._buckets[ts] = self._buckets.get(ts, 0) + int(size_bytes)
+            self._cumulative_bytes += int(size_bytes)
             stale = [k for k in self._buckets if k < cutoff]
             for k in stale:
                 del self._buckets[k]
+
+    def cumulative_bytes(self) -> int:
+        """Total bytes uploaded since this sampler started (never decays)."""
+        with self._lock:
+            return self._cumulative_bytes
 
     def current_mbps(self) -> float:
         """MB/s in the most recent completed 1-second bucket."""
@@ -340,6 +352,10 @@ class MetricsRecorder:
         # attaches/detaches alongside the slow-op handler.
         self._bandwidth = _BandwidthSampler()
         self._bandwidth_handler: _BandwidthHandler | None = None
+        # 041: S5 already-uploaded counter so the CHUNKS tab can show
+        # idempotency hits per chunk. Per-chunk recorder ⇒ per-chunk count.
+        self._s5_skipped: int = 0
+        self._s5_skipped_lock = threading.Lock()
 
     def start_batch(self, *, pipeline: str, batch_id: str) -> None:
         self._stage_buckets = {}
@@ -474,6 +490,15 @@ class MetricsRecorder:
     def stages_snapshot(self) -> dict[str, dict[str, float | int]]:
         """Per-stage percentile/count snapshot for the TUI."""
         return {stage: bucket.summary() for stage, bucket in self._stage_buckets.items()}
+
+    def record_upload_skipped(self) -> None:
+        """041: tally an S5 outcome of ``"skipped"`` (idempotency / claim-lost)."""
+        with self._s5_skipped_lock:
+            self._s5_skipped += 1
+
+    def upload_skipped_count(self) -> int:
+        with self._s5_skipped_lock:
+            return self._s5_skipped
 
 
 # ---------------------------------------------------------------------------

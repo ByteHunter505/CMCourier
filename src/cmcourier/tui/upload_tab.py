@@ -17,12 +17,23 @@ def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
     p99 = float(s5.get("p99_ms", 0.0))
     target = max(count + snap.queue_depth, 1)
     bar = _bar(count, target, width=28)
+    mb_segment = _mb_segment(
+        snap.current_chunk_bytes_uploaded,
+        snap.current_chunk_bytes_total,
+    )
+    chunk_timer_line = _chunk_timer_line(snap)
 
     lines: list[str] = [
-        f"  S5 UPLOAD     {bar}  {count:>4} / {target:<4}",
-        f"                p50 {p50:>7.1f} ms  p95 {p95:>7.1f} ms  p99 {p99:>7.1f} ms",
-        "",
+        f"  S5 UPLOAD     {bar}  {count:>4} / {target:<4} docs   {mb_segment}",
     ]
+    if chunk_timer_line is not None:
+        lines.append(chunk_timer_line)
+    lines.extend(
+        [
+            f"                p50 {p50:>7.1f} ms  p95 {p95:>7.1f} ms  p99 {p99:>7.1f} ms",
+            "",
+        ]
+    )
     if snap.lane_snapshot is not None:
         # 036: dual heavy/light sub-panels replace the single-pool view.
         lines.extend(_render_lane_panels(snap))
@@ -115,6 +126,41 @@ def _bar(value: int, target: int, *, width: int) -> str:
     ratio = max(0.0, min(1.0, value / target))
     filled = int(round(ratio * width))
     return "█" * filled + "░" * (width - filled)
+
+
+def _mb_segment(bytes_uploaded: int, bytes_total: int) -> str:
+    """Format the ``X.X MB / Y.Y MB`` segment shown at end of the bar line.
+
+    When ``bytes_total`` is unknown (single-batch mode, no chunk-state),
+    falls back to just ``X.X MB`` so the operator still sees the cumulative
+    upload volume without a misleading denominator.
+    """
+    mb_up = bytes_uploaded / 1_048_576.0
+    if bytes_total > 0:
+        return f"{mb_up:.1f} MB / {bytes_total / 1_048_576.0:.1f} MB"
+    return f"{mb_up:.1f} MB"
+
+
+def _chunk_timer_line(snap: TUISnapshot) -> str | None:
+    """Build the per-chunk timer / avg-speed / ETA line. ``None`` when no
+    upload activity has been recorded yet (avoid printing a noisy zero line).
+    """
+    if snap.current_chunk_elapsed_s <= 0.0 and snap.current_chunk_bytes_uploaded == 0:
+        return None
+    elapsed_str = _format_hms(snap.current_chunk_elapsed_s)
+    avg_str = f"{snap.current_chunk_avg_mbps:.2f} MB/s"
+    prefix = f"                chunk elapsed {elapsed_str}   avg {avg_str}"
+    if snap.current_chunk_eta_s is not None:
+        return f"{prefix}   est remaining {_format_hms(snap.current_chunk_eta_s)}"
+    return prefix
+
+
+def _format_hms(seconds: float) -> str:
+    """Format a non-negative wall-clock duration as ``HH:MM:SS``."""
+    s = max(0, int(seconds))
+    hh, rem = divmod(s, 3600)
+    mm, ss = divmod(rem, 60)
+    return f"{hh:02d}:{mm:02d}:{ss:02d}"
 
 
 def _render_lane_panels(snap: TUISnapshot) -> list[str]:
