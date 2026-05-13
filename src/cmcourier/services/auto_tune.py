@@ -134,6 +134,18 @@ class AutoTuneController:
         )
         self._thread.start()
 
+    def set_p95_provider(self, provider: Callable[[], float]) -> None:
+        """043 — swap the p95 observation source after construction.
+
+        The controller reads ``self._p95_provider`` once per tick, so a
+        replacement takes effect on the next ``adjustment_interval_s``
+        boundary without restarting the thread. Used by the multi-batch
+        orchestrator to point the controller at the upload-active
+        recorder (single-batch mode keeps the constructor-time default).
+        """
+        with self._state_lock:
+            self._p95_provider = provider
+
     # ------------------------------------------------------ TUI accessors
 
     @property

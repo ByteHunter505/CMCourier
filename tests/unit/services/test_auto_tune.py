@@ -171,3 +171,65 @@ class TestAutoTuneController:
         controller.stop(timeout=2.0)
         # No assertion on calls — we just want clean start/stop without
         # hanging the test runner.
+
+
+class TestSetP95Provider043:
+    """043 — controller's p95 source can be swapped after construction so
+    the multi-batch orchestrator can point it at the upload-active
+    recorder instead of the pipeline's own (which receives nothing in
+    multi-batch mode)."""
+
+    def test_set_p95_provider_replaces_attribute(self) -> None:
+        cfg = AutoTuneConfig(
+            enabled=True,
+            adjustment_interval_s=10,
+            warmup_seconds=0,
+            min_threads=1,
+            max_threads=16,
+        )
+        ctl = AutoTuneController(
+            config=cfg,
+            p95_provider=lambda: 100.0,
+            current_workers_provider=lambda: 4,
+            current_timeout_provider=lambda: 60.0,
+            on_pool_resize=lambda _n: None,
+            on_timeout_change=lambda _t: None,
+        )
+        # Pre-swap: read the original provider's return value.
+        assert ctl._p95_provider() == 100.0  # noqa: SLF001 — direct field check
+        ctl.set_p95_provider(lambda: 7000.0)
+        # Post-swap: the new provider is in place.
+        assert ctl._p95_provider() == 7000.0  # noqa: SLF001
+
+    def test_swap_takes_effect_on_next_tick(self) -> None:
+        """Drive _tick manually with the swapped provider and assert the
+        emitted decision reflects the new observed_p95."""
+        cfg = AutoTuneConfig(
+            enabled=True,
+            adjustment_interval_s=15,
+            warmup_seconds=0,
+            min_threads=2,
+            max_threads=16,
+            target_p95_ms=3000.0,
+            timeout_auto_adjust=False,
+        )
+        ctl = AutoTuneController(
+            config=cfg,
+            p95_provider=lambda: 100.0,  # well below target → would say +1
+            current_workers_provider=lambda: 4,
+            current_timeout_provider=lambda: 60.0,
+            on_pool_resize=lambda _n: None,
+            on_timeout_change=lambda _t: None,
+        )
+        # Swap to a provider that reports far ABOVE target → should drive
+        # a multiplicative-decrease decision on the next tick.
+        ctl.set_p95_provider(lambda: 9000.0)
+        # Direct tick (no thread) — simulates one elapsed cycle past warmup.
+        ctl._tick(elapsed_s=20.0)  # noqa: SLF001
+        # _last_decision now reflects the swapped provider's observation.
+        d = ctl.last_decision
+        assert d is not None
+        # AIMD: above-target observation triggers multiplicative decrease,
+        # which the controller emits as ``action="halve"``.
+        assert d.action == "halve", f"expected halve, got {d.action!r}"
+        assert d.workers < 4, "workers must drop below the 4 starting count"
