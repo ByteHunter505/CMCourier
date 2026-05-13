@@ -48,10 +48,24 @@ cmcourier doctor -c config-staging.yaml --check cm-targets
 cmcourier doctor -c config-staging.yaml
 ```
 
+## Generating the synthetic dataset
+
+See `docs/how-to/mock-rvabrep-generator.md` for the full runbook. For
+the impatient — to drop a 50 000-row RVABREP + materialize the
+matching file tree:
+
+```bash
+cmcourier mock rvabrep --rows 50000 --output sample/rvabrep-50k.csv --seed 50000
+cmcourier mock generate \
+  --rvabrep-csv sample/rvabrep-50k.csv \
+  --root sample/files \
+  --pdf-min 100kb --pdf-max 2mb \
+  --img-min 20kb --img-max 200kb \
+  --seed 1
+```
+
 ## What this does NOT cover
 
-- Generating the synthetic dataset (CSVs + source files). You generate
-  that yourself per `docs/how-to/local-staging-simulation.md §3`.
 - Network setup between the staging host and the CMCourier client.
   Whatever LAN/VPN/Tailscale reachability you have on port 8080 is
   your responsibility.

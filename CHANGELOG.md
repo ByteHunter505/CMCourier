@@ -51,6 +51,76 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.42.0] — 2026-05-13 — **Synthetic RVABREP CSV generator**
+
+Closes the scale gap between the 10-row hand-curated fixtures the
+repo ships and the bank's real RVABREP exports. Operators can now
+produce a deterministic CSV at any scale (100, 50 000, 1 000 000)
+that chains directly into the existing ``mock generate`` (031) for
+file-tree materialization.
+
+### Added
+
+- ``cmcourier mock rvabrep`` subcommand under the existing
+  ``mock`` group. Flags: ``--rows``, ``--output``, ``--seed``,
+  ``--idrvi-source``, ``--idrvi-top``, ``--image-mix``,
+  ``--date-from``, ``--date-to``, ``--clients``,
+  ``--delete-rate``, ``--cif-rate``. Defaults sized for a
+  staging dry-run (50000 rows, 5000 clients, 5% delete rate,
+  95% CIF presence, 20 IDRVIs).
+- ``cmcourier.services.mock.rvabrep_generator`` — streaming
+  generator (``csv.writer``-based, bounded memory for 1M rows),
+  per-column pickers and a ``_validate_row`` invariant check
+  that runs before each write.
+- ``docs/how-to/mock-rvabrep-generator.md`` — operator runbook
+  with the per-column rules, scaling characteristics, the
+  chained ``mock generate`` flow, and the ``--idrvi-source``
+  caveat against CMIS-target type registration.
+
+### Column shape
+
+Output uses **ABA codes** (``ABABCD``, ``ABAANB``, ``ABAHCD``, ...)
+to match ``IndexingColumnsModel`` defaults so the CSV is consumed
+by ``mock generate`` and every downstream pipeline without a
+config override.
+
+### Per-column rules (REBIRTH §3.2)
+
+- ``ABABCD`` shortname: pool of ``--clients`` distinct identifiers
+  from a banking lexicon + 2-digit suffix.
+- ``ABAACD`` system_id: 70/15/10/5 mix of "1"/"5"/"2"/"3".
+- ``ABAANB`` txn_num: deterministic 6-char base32 from row index
+  (1G distinct values possible).
+- ``ABACST`` delete_code: "D" with prob ``--delete-rate``.
+- ``ABACCD`` index2 / CIF: one stable CIF per client; present with
+  prob ``--cif-rate``.
+- ``ABAHCD`` index7 / IDRVI: Zipf-weighted draw from the top
+  ``--idrvi-top`` IDRVIs lex-sorted from the source CSV.
+- ``ABABST`` image_type: B/O/C per ``--image-mix``.
+- ``ABAJCD`` file_name: prefix letter aligned with image_type,
+  random 7-char body, correct extension.
+- ``ABAADT`` creation_date / ``ABABDT`` last_view_date: CYYMMDD,
+  uniform in ``[--date-from, --date-to]``.
+- ``ABABUN`` total_pages: 1 for PDF; for paged 70% [1,5], 25%
+  [6,50], 5% [51,540].
+
+### Performance
+
+100 rows in < 0.5s; 50 000 rows in ~3s; 1 000 000 rows in ~50s on a
+laptop. Streaming write keeps memory bounded — never materializes
+the full dataset.
+
+### Tests
+
+14 unit cases + 4 integration scenarios = 1071 tests green.
+Determinism asserted via byte-identical re-runs at the CLI level.
+End-to-end chain into ``mock generate`` materializes physical files
+without config overrides.
+
+See ``specs/039-mock-rvabrep-generator/`` for the full proposal.
+
+---
+
 ## [0.41.0] — 2026-05-13 — **CMIS target pre-flight + upload payload trace**
 
 Closes three gaps that previously surfaced as mid-batch S5 failures:
