@@ -36,25 +36,27 @@ from cmcourier.domain.models import parse_cymmdd
 # ---------------------------------------------------------------------------
 
 
-# Output column order (friendly names — matches IndexingColumnsConfig defaults
-# and what cmcourier mock generate reads).
+# Output column order — REBIRTH §3.2 ABA codes. Matches
+# IndexingColumnsModel defaults so the output is consumed by
+# ``mock generate`` and every downstream pipeline without a config
+# override.
 _HEADER: tuple[str, ...] = (
-    "shortname",
-    "system_id",
-    "txn_num",
-    "delete_code",
-    "index2",
-    "index3",
-    "index4",
-    "index5",
-    "index6",
-    "index7",
-    "image_type",
-    "image_path",
-    "file_name",
-    "creation_date",
-    "last_view_date",
-    "total_pages",
+    "ABABCD",  # shortname / index1
+    "ABAACD",  # system_id / system_code
+    "ABAANB",  # txn_num
+    "ABACST",  # delete_code
+    "ABACCD",  # index2 / CIF
+    "ABADCD",  # index3
+    "ABAECD",  # index4
+    "ABAFCD",  # index5
+    "ABAGCD",  # index6
+    "ABAHCD",  # index7 / IDRVI
+    "ABABST",  # image_type
+    "ABAICD",  # image_path
+    "ABAJCD",  # file_name
+    "ABAADT",  # creation_date
+    "ABABDT",  # last_view_date
+    "ABABUN",  # total_pages
 )
 
 

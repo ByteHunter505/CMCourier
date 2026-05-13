@@ -88,7 +88,7 @@ class TestTxnUniqueness:
         out = tmp_path / "r.csv"
         generate_rvabrep(_spec(rows=5000, seed=5000), out)
         rows = _read_rows(out)
-        txns = [r["txn_num"] for r in rows]
+        txns = [r["ABAANB"] for r in rows]
         assert len(set(txns)) == len(txns) == 5000
 
 
@@ -102,9 +102,9 @@ class TestImageMix:
         rows = _read_rows(out)
         n = len(rows)
         observed = {
-            "B": sum(1 for r in rows if r["image_type"] == "B") / n,
-            "O": sum(1 for r in rows if r["image_type"] == "O") / n,
-            "C": sum(1 for r in rows if r["image_type"] == "C") / n,
+            "B": sum(1 for r in rows if r["ABABST"] == "B") / n,
+            "O": sum(1 for r in rows if r["ABABST"] == "O") / n,
+            "C": sum(1 for r in rows if r["ABABST"] == "C") / n,
         }
         # ±3% tolerance at N=5000.
         assert abs(observed["B"] - 0.60) < 0.03
@@ -117,7 +117,7 @@ class TestIdrviPool:
         out = tmp_path / "r.csv"
         generate_rvabrep(_spec(rows=2000, seed=2000), out)
         rows = _read_rows(out)
-        seen = {r["index7"] for r in rows}
+        seen = {r["ABAHCD"] for r in rows}
         assert seen <= set(_DEFAULT_POOL)
 
 
@@ -127,18 +127,18 @@ class TestImageInvariants:
         generate_rvabrep(_spec(rows=1000, seed=1000), out)
         rows = _read_rows(out)
         for row in rows:
-            if row["image_type"] == "O":
-                assert row["file_name"].endswith(".PDF")
-                assert row["total_pages"] == "1"
+            if row["ABABST"] == "O":
+                assert row["ABAJCD"].endswith(".PDF")
+                assert row["ABABUN"] == "1"
 
     def test_paged_rows_have_numeric_extension(self, tmp_path: Path) -> None:
         out = tmp_path / "r.csv"
         generate_rvabrep(_spec(rows=1000, seed=1000), out)
         rows = _read_rows(out)
         for row in rows:
-            if row["image_type"] in ("B", "C"):
-                assert row["file_name"].endswith(".001")
-                assert int(row["total_pages"]) >= 1
+            if row["ABABST"] in ("B", "C"):
+                assert row["ABAJCD"].endswith(".001")
+                assert int(row["ABABUN"]) >= 1
 
 
 class TestDateRange:
@@ -149,7 +149,7 @@ class TestDateRange:
         generate_rvabrep(_spec(rows=300, seed=300, date_from=df, date_to=dt), out)
         rows = _read_rows(out)
         for row in rows:
-            parsed = parse_cymmdd(row["creation_date"]).date()
+            parsed = parse_cymmdd(row["ABAADT"]).date()
             assert df <= parsed <= dt
 
     def test_last_view_zero_or_after_creation(self, tmp_path: Path) -> None:
@@ -157,10 +157,10 @@ class TestDateRange:
         generate_rvabrep(_spec(rows=500, seed=500), out)
         rows = _read_rows(out)
         for row in rows:
-            if row["last_view_date"] == "0":
+            if row["ABABDT"] == "0":
                 continue
-            created = parse_cymmdd(row["creation_date"]).date()
-            viewed = parse_cymmdd(row["last_view_date"]).date()
+            created = parse_cymmdd(row["ABAADT"]).date()
+            viewed = parse_cymmdd(row["ABABDT"]).date()
             assert viewed >= created
 
 
