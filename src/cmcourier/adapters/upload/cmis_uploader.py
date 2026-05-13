@@ -58,7 +58,6 @@ _network_log = logging.getLogger("cmcourier.metrics.network")
 
 _log = logging.getLogger(__name__)
 
-_SYSTEM_FOLDER_PREFIX = "$"
 _WINDOWS_ABORT_MARKER = "10053"
 _MAX_BACKOFF_S = 60.0
 _RESPONSE_BODY_TRUNCATION = 1024
@@ -188,11 +187,9 @@ class CmisUploader(IUploader):
         )
         self._session.mount("http://", adapter)
         self._session.mount("https://", adapter)
-        self._folder_cache: set[str] = set()
         self._warm = False
-        # 025: S5 worker pool calls upload/ensure_folder concurrently.
-        # The per-instance state above is shared across worker threads.
-        self._folder_lock = threading.Lock()
+        # 025: S5 worker pool calls upload concurrently. The per-instance
+        # state above is shared across worker threads.
         self._warm_lock = threading.Lock()
         # 025 phase 2: the AIMD auto-tune controller may adjust the
         # request timeout mid-batch. CmisConfig itself is frozen, so we
@@ -289,28 +286,58 @@ class CmisUploader(IUploader):
             return {}
         return data if isinstance(data, dict) else {}
 
-    def ensure_folder(self, folder_path: str) -> None:
-        """Create ``folder_path`` recursively. Idempotent + cached.
+    def verify_folder_exists(self, folder_path: str) -> bool:
+        """Return ``True`` iff *folder_path* exists on the CM server and is
+        a ``cmis:folder``.
 
-        Thread-safe (025): two workers racing on the same folder hit
-        the cache check inside the lock; only one issues the POST.
-        Repeat POSTs across workers for different paths are fine —
-        the CMIS endpoint returns 409 which we treat as success.
+        Read-only — never creates the folder. CMCourier deposits documents
+        only; the target folder tree is governed by the CMIS administrator
+        (038). Used by ``doctor --check cm-targets`` to pre-flight every
+        ``CMISFolder`` declared in MapeoRVI_CM before S5 ever runs.
+
+        Returns ``False`` on 404 or when the path resolves to a non-folder
+        object. Raises ``CMISClientError`` (401/403) or ``CMISServerError``
+        (5xx) on connectivity / authentication failures so doctor surfaces
+        configuration errors loudly.
         """
-        segments = [
-            s for s in folder_path.split("/") if s and not s.startswith(_SYSTEM_FOLDER_PREFIX)
-        ]
-        parent = ""
-        for seg in segments:
-            abs_path = f"{parent}/{seg}".lstrip("/") if parent else seg
-            with self._folder_lock:
-                if abs_path in self._folder_cache:
-                    parent = abs_path
-                    continue
-            self._create_folder_segment(parent, seg)
-            with self._folder_lock:
-                self._folder_cache.add(abs_path)
-            parent = abs_path
+        normalized = folder_path.strip("/")
+        url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{normalized}"
+        t0 = time.monotonic()
+        resp = self._session.get(
+            url,
+            params={"cmisselector": "object"},
+            timeout=self._timeout_s,
+        )
+        _network_log.info(
+            "cmis_get",
+            extra={
+                "kind": "cmis_verify_folder",
+                "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+                "status": resp.status_code,
+                "url_prefix": url[:80],
+                "worker": threading.current_thread().name,
+            },
+        )
+        if resp.status_code == 404:
+            return False
+        body = _truncate(resp.text)
+        if resp.status_code >= 500:
+            raise CMISServerError(status_code=resp.status_code, response_body=body)
+        if resp.status_code >= 400:
+            raise CMISClientError(status_code=resp.status_code, response_body=body)
+        try:
+            data = resp.json()
+        except ValueError:
+            return False
+        if not isinstance(data, dict):
+            return False
+        props = data.get("properties") or data.get("succinctProperties") or {}
+        if not isinstance(props, dict):
+            return False
+        base = props.get("cmis:baseTypeId")
+        if isinstance(base, dict):
+            base = base.get("value")
+        return base == "cmis:folder"
 
     def upload(
         self,
@@ -321,9 +348,15 @@ class CmisUploader(IUploader):
         mime_type: str,
         properties: Mapping[str, str],
     ) -> str:
-        """Stream the staged file and return the resulting cmis:objectId."""
+        """Stream the staged file and return the resulting cmis:objectId.
+
+        The target folder is NOT verified or created here — the operator
+        is expected to have run ``doctor --check cm-targets`` (038) before
+        the pipeline. If the folder is missing or is not a CMIS folder,
+        the server returns a 4xx and the failure surfaces via the
+        existing retry / metrics path.
+        """
         normalized = folder_path.strip("/")
-        self.ensure_folder(folder_path)
         url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{normalized}"
         with file.path.open("rb") as fh:
             stream: IO[bytes] = (
@@ -372,29 +405,6 @@ class CmisUploader(IUploader):
             self._warm = True
         data = resp.json()
         return data if isinstance(data, dict) else {}
-
-    def _create_folder_segment(self, parent_path: str, segment: str) -> None:
-        url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{parent_path}".rstrip("/")
-        encoder = MultipartEncoder(
-            fields={
-                "cmisaction": "createFolder",
-                "propertyId[0]": "cmis:objectTypeId",
-                "propertyValue[0]": "cmis:folder",
-                "propertyId[1]": "cmis:name",
-                "propertyValue[1]": segment,
-            }
-        )
-        try:
-            self._post_with_retries(
-                url,
-                encoder,
-                {"Content-Type": encoder.content_type},
-                txn_num=f"folder:{segment}",
-            )
-        except CMISClientError as exc:
-            if exc.status_code == 409:
-                return
-            raise
 
     def _post_with_retries(
         self,

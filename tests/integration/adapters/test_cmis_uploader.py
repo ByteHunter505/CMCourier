@@ -268,68 +268,109 @@ class TestTestConnection:
 
 
 # ---------------------------------------------------------------------------
-# Group 4 — ensure_folder
+# Group 4 — verify_folder_exists (038: read-only; doctor's pre-flight uses
+# this, S5 no longer touches folder verification on the happy path)
 # ---------------------------------------------------------------------------
 
 
-class TestEnsureFolder:
+class TestVerifyFolderExists:
     @responses.activate
-    def test_skips_system_folders(self) -> None:
+    def test_returns_true_for_existing_folder(self) -> None:
         _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
         responses.add(
-            responses.POST, _root_url("BAC_01_02_04_01_01"), json={"ok": True}, status=201
+            responses.GET,
+            _root_url("EXISTS"),
+            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
+            status=200,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
         )
         uploader = CmisUploader(_make_config())
-        uploader.ensure_folder("/$type/BAC_01_02_04_01_01")
-        # 1 warmup GET + 1 createFolder POST (for BAC_..., not for $type)
-        post_calls = [c for c in responses.calls if c.request.method == "POST"]
-        assert len(post_calls) == 1
+        assert uploader.verify_folder_exists("/EXISTS") is True
 
     @responses.activate
-    def test_recursive_creation_three_segments(self) -> None:
+    def test_returns_true_for_succinct_response(self) -> None:
         _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("A"), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("A/B"), json={"ok": True}, status=201)
-        uploader = CmisUploader(_make_config())
-        uploader.ensure_folder("/A/B/C")
-        post_calls = [c for c in responses.calls if c.request.method == "POST"]
-        assert len(post_calls) == 3
-
-    @responses.activate
-    def test_cache_prevents_repost(self) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("A"), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("A/B"), json={"ok": True}, status=201)
-        uploader = CmisUploader(_make_config())
-        uploader.ensure_folder("/A/B/C")
-        first_pass = sum(1 for c in responses.calls if c.request.method == "POST")
-        uploader.ensure_folder("/A/B/C")
-        second_pass_extra = (
-            sum(1 for c in responses.calls if c.request.method == "POST") - first_pass
+        responses.add(
+            responses.GET,
+            _root_url("EXISTS"),
+            json={"succinctProperties": {"cmis:baseTypeId": "cmis:folder"}},
+            status=200,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
         )
-        assert first_pass == 3
-        assert second_pass_extra == 0
+        uploader = CmisUploader(_make_config())
+        assert uploader.verify_folder_exists("/EXISTS") is True
 
     @responses.activate
-    def test_409_treated_as_success(self) -> None:
+    def test_returns_false_on_404(self) -> None:
         _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"err": "conflict"}, status=409)
+        responses.add(
+            responses.GET,
+            _root_url("MISSING"),
+            json={"error": "not found"},
+            status=404,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
         uploader = CmisUploader(_make_config())
-        uploader.ensure_folder("/EXISTS")  # must not raise
+        assert uploader.verify_folder_exists("/MISSING") is False
 
     @responses.activate
-    def test_path_cached_after_409(self) -> None:
+    def test_returns_false_when_path_is_document_not_folder(self) -> None:
         _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"err": "conflict"}, status=409)
+        responses.add(
+            responses.GET,
+            _root_url("DOC_AT_THIS_PATH"),
+            json={"properties": {"cmis:baseTypeId": {"value": "cmis:document"}}},
+            status=200,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
         uploader = CmisUploader(_make_config())
-        uploader.ensure_folder("/EXISTS")
-        before = sum(1 for c in responses.calls if c.request.method == "POST")
-        uploader.ensure_folder("/EXISTS")
-        after = sum(1 for c in responses.calls if c.request.method == "POST")
-        assert after == before  # second call short-circuits via cache
+        assert uploader.verify_folder_exists("/DOC_AT_THIS_PATH") is False
+
+    @responses.activate
+    def test_raises_on_401(self) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.GET,
+            _root_url("ANY"),
+            json={"error": "unauthorized"},
+            status=401,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
+        uploader = CmisUploader(_make_config())
+        with pytest.raises(CMISClientError) as ei:
+            uploader.verify_folder_exists("/ANY")
+        assert ei.value.status_code == 401
+
+    @responses.activate
+    def test_raises_on_5xx(self) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.GET,
+            _root_url("ANY"),
+            json={"error": "server down"},
+            status=503,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
+        uploader = CmisUploader(_make_config())
+        with pytest.raises(CMISServerError) as ei:
+            uploader.verify_folder_exists("/ANY")
+        assert ei.value.status_code == 503
+
+    @responses.activate
+    def test_does_not_post_anything(self) -> None:
+        """Read-only contract: no folder is ever created."""
+        _stub_warmup()
+        responses.add(
+            responses.GET,
+            _root_url("X"),
+            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
+            status=200,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
+        uploader = CmisUploader(_make_config())
+        uploader.verify_folder_exists("/X")
+        post_calls = [c for c in responses.calls if c.request.method == "POST"]
+        assert post_calls == []
 
 
 # ---------------------------------------------------------------------------

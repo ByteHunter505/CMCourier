@@ -236,10 +236,19 @@ class IUploader(ABC):
     """Uploads a staged file to IBM Content Manager via CMIS."""
 
     @abstractmethod
-    def ensure_folder(self, folder_path: str) -> None:
-        """Create *folder_path* on the CM server if it does not exist.
+    def verify_folder_exists(self, folder_path: str) -> bool:
+        """Return ``True`` iff *folder_path* exists on the CM server AND
+        its ``cmis:baseTypeId`` is ``cmis:folder``.
 
-        Idempotent: HTTP 409 (Conflict) is treated as success per REBIRTH §8.3.
+        Read-only — never creates the folder. CMCourier deposits documents
+        only; the target folder tree is governed by the CMIS administrator.
+        Used by the pre-flight ``doctor --check cm-targets`` step (038) to
+        fail-loud before S5 ever attempts an upload.
+
+        Returns ``False`` on 404 or when the path exists but resolves to a
+        non-folder object (a document, an item, etc.). Raises only on
+        connectivity / authentication failures (``CMISClientError`` for
+        401/403, ``CMISServerError`` for 5xx).
         """
 
     @abstractmethod
