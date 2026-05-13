@@ -158,6 +158,28 @@ A passing PR includes:
 
 ---
 
+## Releasing a new version
+
+Whenever `pyproject.toml` `version =` is bumped:
+
+1. Edit `pyproject.toml` → bump `version`.
+2. Refresh the editable install's metadata so the package registry
+   sees the new number — Python's `importlib.metadata` reads it at
+   install time, NOT at every runtime import:
+   ```bash
+   .venv/bin/pip install -e . --no-deps
+   ```
+3. Verify: `.venv/bin/cmcourier --version` shows the new number.
+4. `CHANGELOG.md` gets a new `## [X.Y.Z]` section in the same commit
+   that bumps `pyproject.toml`.
+
+The `__version__` constant in `src/cmcourier/__init__.py` is derived
+from package metadata — do NOT hardcode a number there. Skipping
+step 2 is the reason a release can ship correctly but
+`cmcourier --version` still reports the previous number.
+
+---
+
 ## Constitutional amendments
 
 The constitution can change, but only through the procedure in its [`Governance` section](.specify/memory/constitution.md#governance):
