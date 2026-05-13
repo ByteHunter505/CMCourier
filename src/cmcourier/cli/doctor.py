@@ -133,6 +133,14 @@ _CHECK_GROUPS: dict[str, frozenset[str]] = {
     "mapping": frozenset({"mapping_completeness"}),
     "metadata": frozenset({"metadata_sources", "sample_dry_run"}),
     "cm-types": frozenset({"cm_type_alignment"}),
+    # 038: cm-targets is the new umbrella; cm-types stays for back-compat.
+    "cm-targets": frozenset(
+        {
+            "cm_type_alignment",
+            "cmis_folders_exist",
+            "cmis_properties_alignment",
+        }
+    ),
     "all": frozenset(),
 }
 
@@ -173,6 +181,18 @@ def run_doctor(
             results.append(_skip("cm_type_alignment", "cmis_connectivity FAILed; skipping"))
         else:
             results.append(_check_cm_type_alignment(config, secrets))
+    if _selected("cmis_folders_exist", selected):
+        cmis_check = next((r for r in results if r.name == "cmis_connectivity"), None)
+        if cmis_check is not None and cmis_check.status != CheckStatus.PASS:
+            results.append(_skip("cmis_folders_exist", "cmis_connectivity FAILed; skipping"))
+        else:
+            results.append(_check_cmis_folders_exist(config, secrets))
+    if _selected("cmis_properties_alignment", selected):
+        cmis_check = next((r for r in results if r.name == "cmis_connectivity"), None)
+        if cmis_check is not None and cmis_check.status != CheckStatus.PASS:
+            results.append(_skip("cmis_properties_alignment", "cmis_connectivity FAILed; skipping"))
+        else:
+            results.append(_check_cmis_properties_alignment(config, secrets))
     if _selected("sample_dry_run", selected):
         results.append(_check_sample_dry_run(config, secrets))
     return DoctorReport(
@@ -511,6 +531,116 @@ def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckR
         status=CheckStatus.PASS,
         message=f"all {len(unique_types)} cm_object_type(s) resolve on CM",
         details=_frozen({"checked_count": str(len(unique_types))}),
+    )
+
+
+def _check_cmis_folders_exist(config: PipelineConfig, secrets: Secrets) -> CheckResult:
+    """038: verify every ``CMISFolder`` declared in MapeoRVI_CM exists.
+
+    Read-only — never creates. SKIP if no row has ``cmis_folder`` populated
+    (consolidated-mapping mode or split mode where the column is empty
+    everywhere — the existing ``cm_type_alignment`` check still covers
+    the type side).
+    """
+    try:
+        mapping = build_mapping_service(config.mapping)
+        unique_folders = sorted({m.cmis_folder for m in mapping.get_all() if m.cmis_folder})
+        if not unique_folders:
+            return _skip(
+                "cmis_folders_exist",
+                "no CMISFolder populated in mapping; nothing to verify",
+            )
+        uploader = _build_uploader(config, secrets)
+    except Exception as exc:  # noqa: BLE001
+        return _fail("cmis_folders_exist", exc)
+    missing: list[str] = []
+    for folder in unique_folders:
+        try:
+            if not uploader.verify_folder_exists(folder):
+                missing.append(folder)
+        except Exception:  # noqa: BLE001 — surface every missing in one pass
+            missing.append(folder)
+    if missing:
+        return CheckResult(
+            name="cmis_folders_exist",
+            status=CheckStatus.FAIL,
+            message=(
+                f"{len(missing)} CMIS folder(s) missing on the server. "
+                f"Create them in CMIS before running the pipeline."
+            ),
+            details=_frozen(
+                {
+                    "missing_folders": ",".join(missing),
+                    "checked_count": str(len(unique_folders)),
+                }
+            ),
+        )
+    return CheckResult(
+        name="cmis_folders_exist",
+        status=CheckStatus.PASS,
+        message=f"all {len(unique_folders)} CMIS folder(s) exist on the server",
+        details=_frozen({"checked_count": str(len(unique_folders))}),
+    )
+
+
+def _check_cmis_properties_alignment(config: PipelineConfig, secrets: Secrets) -> CheckResult:
+    """038: verify each ``(CMISType, CMISPropertyId)`` pair declared in
+    the mapping × MetadatosCM join exists on the CMIS type's
+    ``propertyDefinitions``.
+
+    SKIP if no row in the mapping carries a ``cmis_property_ids`` catalog
+    (column absent or every cell blank).
+    """
+    try:
+        mapping = build_mapping_service(config.mapping)
+        pairs: list[tuple[str, str]] = []
+        for m in mapping.get_all():
+            if not m.cmis_property_ids:
+                continue
+            type_id = m.cmis_type or m.cm_object_type
+            for cmis_prop in m.cmis_property_ids.values():
+                pairs.append((type_id, cmis_prop))
+        unique_pairs = sorted(set(pairs))
+        if not unique_pairs:
+            return _skip(
+                "cmis_properties_alignment",
+                "no CMISPropertyId populated in MetadatosCM; nothing to verify",
+            )
+        uploader = _build_uploader(config, secrets)
+    except Exception as exc:  # noqa: BLE001
+        return _fail("cmis_properties_alignment", exc)
+    type_defs: dict[str, Mapping[str, object]] = {}
+    missing_by_type: dict[str, list[str]] = {}
+    for type_id, cmis_prop in unique_pairs:
+        if type_id not in type_defs:
+            try:
+                type_defs[type_id] = uploader.get_type_definition(type_id)
+            except Exception:  # noqa: BLE001
+                missing_by_type.setdefault(type_id, []).append("<type not found>")
+                continue
+        props = type_defs[type_id].get("propertyDefinitions") or {}
+        if not isinstance(props, Mapping) or cmis_prop not in props:
+            missing_by_type.setdefault(type_id, []).append(cmis_prop)
+    if missing_by_type:
+        summary = "; ".join(
+            f"{t} missing {len(v)}: {', '.join(v)}" for t, v in sorted(missing_by_type.items())
+        )
+        return CheckResult(
+            name="cmis_properties_alignment",
+            status=CheckStatus.FAIL,
+            message=f"{sum(len(v) for v in missing_by_type.values())} property gap(s): {summary}",
+            details=_frozen(
+                {
+                    "missing": summary,
+                    "checked_pairs": str(len(unique_pairs)),
+                }
+            ),
+        )
+    return CheckResult(
+        name="cmis_properties_alignment",
+        status=CheckStatus.PASS,
+        message=f"all {len(unique_pairs)} (type, property) pair(s) align with CMIS",
+        details=_frozen({"checked_pairs": str(len(unique_pairs))}),
     )
 
 

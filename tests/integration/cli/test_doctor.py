@@ -146,6 +146,103 @@ def _stub_type_definitions_ok(types: tuple[str, ...] = _DISTINCT_TYPES) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 038 — split-mode helpers used by cm-targets tests
+# ---------------------------------------------------------------------------
+
+
+def _write_rvi_cm_csv(
+    path: Path,
+    rows: list[tuple[str, str, str, str, str]],
+) -> None:
+    """rows: ``(IDRVI, IDCM, IDClaseDocumental, CMISType, CMISFolder)``."""
+    lines = ["IDSistema,IDRVI,IDCM,IDClaseDocumental,CMISType,CMISFolder"]
+    for idrvi, idcm, idclase, cmis_type, cmis_folder in rows:
+        lines.append(f",{idrvi},{idcm},{idclase},{cmis_type},{cmis_folder}")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def _write_metadatos_csv(
+    path: Path,
+    rows: list[tuple[str, str, str, str]],
+) -> None:
+    """rows: ``(IDCorto, Metadato, Requerido, CMISPropertyId)``."""
+    lines = ["IDCorto,Metadato,Requerido,CMISPropertyId"]
+    for idcorto, meta, req, cmis_prop in rows:
+        lines.append(f"{idcorto},{meta},{req},{cmis_prop}")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def _write_split_yaml(
+    tmp_path: Path,
+    *,
+    rvi_cm_csv: Path,
+    metadatos_csv: Path,
+) -> Path:
+    triggers_csv = tmp_path / "triggers.csv"
+    triggers_csv.write_text("ShortName,CIF,SystemID\nTESTCLIENT01,123456,1\n")
+    clients_csv = _SERVICES_FIXTURES / "metadata" / "clients.csv"
+    yaml_path = tmp_path / "config.yaml"
+    yaml_path.write_text(
+        dedent(
+            f"""\
+            trigger:
+              csv_path: {triggers_csv}
+            indexing:
+              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              columns:
+                shortname_column: shortname
+                system_id_column: system_id
+                delete_code_column: delete_code
+                txn_num_column: txn_num
+                index2_column: index2
+                index3_column: index3
+                index4_column: index4
+                index5_column: index5
+                index6_column: index6
+                index7_column: index7
+                image_type_column: image_type
+                image_path_column: image_path
+                file_name_column: file_name
+                creation_date_column: creation_date
+                last_view_date_column: last_view_date
+                total_pages_column: total_pages
+            mapping:
+              rvi_cm_csv_path: {rvi_cm_csv}
+              metadatos_csv_path: {metadatos_csv}
+            metadata:
+              field_aliases:
+                CIF: BAC_CIF
+                Nombre_Cliente: BAC_Nombre_Cliente
+              field_sources:
+                BAC_CIF:
+                  sources:
+                    - source_type: trigger
+                      lookup_value_column: cif
+                BAC_Nombre_Cliente:
+                  sources:
+                    - source_type: "csv:clients"
+                      lookup_value_column: Nombre_Cliente
+                      lookup_key_column: CIF
+              sources:
+                - alias: clients
+                  csv_path: {clients_csv}
+            assembly:
+              source_root: {_ASSEMBLY_FIXTURES}
+              temp_dir: {tmp_path / "stg"}
+            cmis:
+              base_url: {_CMIS_BASE_URL}
+              repo_id: "{_CMIS_REPO_ID}"
+              retry_base_delay_s: 0.0
+              retry_max_attempts: 2
+            tracking:
+              db_path: {tmp_path / "tracking.db"}
+            """
+        )
+    )
+    return yaml_path
+
+
+# ---------------------------------------------------------------------------
 # run_doctor happy path
 # ---------------------------------------------------------------------------
 
@@ -182,6 +279,8 @@ class TestRunDoctorHappyPath:
             "mapping_completeness",
             "metadata_sources",
             "cm_type_alignment",
+            "cmis_folders_exist",
+            "cmis_properties_alignment",
             "sample_dry_run",
         ]
 
@@ -513,6 +612,8 @@ class TestDoctorCheckFilter:
                 "mapping_completeness",
                 "metadata_sources",
                 "cm_type_alignment",
+                "cmis_folders_exist",
+                "cmis_properties_alignment",
                 "sample_dry_run",
             ]
         )
@@ -527,3 +628,193 @@ class TestDoctorCheckFilter:
         yaml_path = _write_yaml(tmp_path)
         result = cli_runner.invoke(main, ["doctor", "--config", str(yaml_path), "--check", "bogus"])
         assert result.exit_code == 2  # Click validation
+
+
+# ---------------------------------------------------------------------------
+# 038 — cmis_folders_exist (cm-targets group)
+# ---------------------------------------------------------------------------
+
+
+class TestCmisFoldersExist:
+    @responses.activate
+    def test_skip_when_no_cmis_folder_populated(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        rvi_cm = tmp_path / "rvi_cm.csv"
+        metadatos = tmp_path / "metadatos.csv"
+        # No CMISFolder values populated (all blank).
+        _write_rvi_cm_csv(
+            rvi_cm,
+            [
+                ("FB01", "CN01", "01.01.01.01.01", "", ""),
+            ],
+        )
+        _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
+        _stub_type_definitions_ok(("$t!-2_BAC_01_01_01_01_01v-1",))
+        config = load_config(
+            _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
+        )
+        report = run_doctor(config, _secrets(), selected="cm-targets")
+        folders = next(r for r in report.results if r.name == "cmis_folders_exist")
+        assert folders.status == CheckStatus.SKIP
+        assert "no CMISFolder" in folders.message.lower() or "nothing to verify" in folders.message
+
+    @responses.activate
+    def test_pass_when_all_folders_exist(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        rvi_cm = tmp_path / "rvi_cm.csv"
+        metadatos = tmp_path / "metadatos.csv"
+        _write_rvi_cm_csv(
+            rvi_cm,
+            [
+                ("FB01", "CN01", "01.01.01.01.01", "", "/cmcourier-staging/CN01"),
+            ],
+        )
+        _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
+        # Stub: verify_folder_exists for /cmcourier-staging/CN01 returns true.
+        responses.add(
+            responses.GET,
+            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/CN01",
+            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
+            status=200,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
+        _stub_type_definitions_ok(("$t!-2_BAC_01_01_01_01_01v-1",))
+        config = load_config(
+            _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
+        )
+        report = run_doctor(config, _secrets(), selected="cm-targets")
+        folders = next(r for r in report.results if r.name == "cmis_folders_exist")
+        assert folders.status == CheckStatus.PASS, f"{folders.message} / {folders.details}"
+
+    @responses.activate
+    def test_fail_when_folder_missing(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        rvi_cm = tmp_path / "rvi_cm.csv"
+        metadatos = tmp_path / "metadatos.csv"
+        _write_rvi_cm_csv(
+            rvi_cm,
+            [
+                ("FB01", "CN01", "01.01.01.01.01", "", "/cmcourier-staging/MISSING"),
+            ],
+        )
+        _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
+        responses.add(
+            responses.GET,
+            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/MISSING",
+            json={"error": "not found"},
+            status=404,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
+        _stub_type_definitions_ok(("$t!-2_BAC_01_01_01_01_01v-1",))
+        config = load_config(
+            _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
+        )
+        report = run_doctor(config, _secrets(), selected="cm-targets")
+        folders = next(r for r in report.results if r.name == "cmis_folders_exist")
+        assert folders.status == CheckStatus.FAIL
+        assert "/cmcourier-staging/MISSING" in folders.details["missing_folders"]
+
+
+# ---------------------------------------------------------------------------
+# 038 — cmis_properties_alignment (cm-targets group)
+# ---------------------------------------------------------------------------
+
+
+class TestCmisPropertiesAlignment:
+    @responses.activate
+    def test_skip_when_no_property_catalog(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        rvi_cm = tmp_path / "rvi_cm.csv"
+        metadatos = tmp_path / "metadatos.csv"
+        _write_rvi_cm_csv(rvi_cm, [("FB01", "CN01", "01.01.01.01.01", "", "")])
+        _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
+        _stub_type_definitions_ok(("$t!-2_BAC_01_01_01_01_01v-1",))
+        config = load_config(
+            _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
+        )
+        report = run_doctor(config, _secrets(), selected="cm-targets")
+        props = next(r for r in report.results if r.name == "cmis_properties_alignment")
+        assert props.status == CheckStatus.SKIP
+
+    @responses.activate
+    def test_pass_when_all_align(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        rvi_cm = tmp_path / "rvi_cm.csv"
+        metadatos = tmp_path / "metadatos.csv"
+        # cmis_type=D:cmcourier:bacDoc overrides the derived type.
+        _write_rvi_cm_csv(
+            rvi_cm,
+            [("FB01", "CN01", "01.01.01.01.01", "D:cmcourier:bacDoc", "")],
+        )
+        _write_metadatos_csv(
+            metadatos,
+            [
+                ("CN01", "CIF", "Yes", "cmcourier:BAC_CIF"),
+                ("CN01", "Nombre_Cliente", "Yes", "cmcourier:Nombre_Cliente"),
+            ],
+        )
+        # The typeDefinition response declares both properties.
+        responses.add(
+            responses.GET,
+            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
+            json={
+                "id": "D:cmcourier:bacDoc",
+                "propertyDefinitions": {
+                    "cmcourier:BAC_CIF": {"id": "cmcourier:BAC_CIF"},
+                    "cmcourier:Nombre_Cliente": {"id": "cmcourier:Nombre_Cliente"},
+                },
+            },
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "typeDefinition", "typeId": "D:cmcourier:bacDoc"}
+                )
+            ],
+        )
+        config = load_config(
+            _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
+        )
+        report = run_doctor(config, _secrets(), selected="cm-targets")
+        props = next(r for r in report.results if r.name == "cmis_properties_alignment")
+        assert props.status == CheckStatus.PASS, f"{props.message} / {props.details}"
+
+    @responses.activate
+    def test_fail_when_property_missing(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        rvi_cm = tmp_path / "rvi_cm.csv"
+        metadatos = tmp_path / "metadatos.csv"
+        _write_rvi_cm_csv(
+            rvi_cm,
+            [("FB01", "CN01", "01.01.01.01.01", "D:cmcourier:bacDoc", "")],
+        )
+        _write_metadatos_csv(
+            metadatos,
+            [
+                ("CN01", "CIF", "Yes", "cmcourier:BAC_CIF"),
+                ("CN01", "Bogus_Field", "Yes", "cmcourier:DoesNotExist"),
+            ],
+        )
+        # typeDefinition declares only one of the two catalogued properties.
+        responses.add(
+            responses.GET,
+            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
+            json={
+                "id": "D:cmcourier:bacDoc",
+                "propertyDefinitions": {
+                    "cmcourier:BAC_CIF": {"id": "cmcourier:BAC_CIF"},
+                },
+            },
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "typeDefinition", "typeId": "D:cmcourier:bacDoc"}
+                )
+            ],
+        )
+        config = load_config(
+            _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
+        )
+        report = run_doctor(config, _secrets(), selected="cm-targets")
+        props = next(r for r in report.results if r.name == "cmis_properties_alignment")
+        assert props.status == CheckStatus.FAIL
+        assert "cmcourier:DoesNotExist" in props.details["missing"]
