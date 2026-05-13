@@ -51,6 +51,68 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.45.0] — 2026-05-13 — **TUI metrics: per-chunk isolation + live UPLOAD counters**
+
+Live verification of 0.44.0 against the testserver Alfresco with
+``batches_in_flight=2`` surfaced three multi-batch overlap bugs the
+041 unit tests could not catch. Each fix is small and isolated; no
+public APIs change except ``_BandwidthHandler.__init__`` (private —
+the constructor now requires a ``batch_id`` kwarg, mirroring the
+existing ``_SlowOpHandler`` signature).
+
+### Fixed
+
+- **Bandwidth bleed across overlapping chunks.** Pre-042, the
+  per-chunk ``MetricsRecorder._bandwidth`` sampler was fed by a
+  ``_BandwidthHandler`` that filtered only by ``kind=="cmis_upload"``
+  and not by ``batch_id``. With ``batches_in_flight=2`` two handlers
+  were attached to ``cmcourier.metrics.network`` simultaneously, and
+  every ``cmis_upload`` event incremented both samplers — chunk N+1's
+  ``cumulative_bytes`` ended up containing chunk N's bytes too. The
+  final TUI frame would show ``S5 UPLOAD ... 77.3 MB / 40.4 MB``
+  (uploaded > planned, impossible if isolation worked). The
+  handler now carries ``batch_id`` and short-circuits when
+  ``record.batch_id != self._batch_id``, matching ``_SlowOpHandler``.
+- **CHUNKS row UPLOAD column stuck at ``0/0/0`` mid-flight.**
+  ``MultiBatchOrchestrator._update_chunk_state(status="UPLOAD")``
+  never wrote the live ``s5_done`` / ``s5_failed`` counters —
+  ``ChunkState`` only got the totals on the DONE transition. While
+  S5 was running, the row showed zero counters for minutes. The
+  data provider now reads live counters from the upload-active
+  recorder when ``status == "UPLOAD"`` and substitutes them into
+  the chunks-state dict. The frozen ``ChunkState`` values remain
+  the source of truth for DONE / FAILED rows.
+- **S5 percentiles bound to the wrong chunk during PREP overlap.**
+  ``MultiBatchOrchestrator._active_recorder`` was a single slot
+  written by both ``_prep_loop`` and ``_upload_loop``. When chunk
+  N+1 entered PREP while chunk N was still uploading, the active
+  slot flipped to N+1 (with zero S5 data yet) and the UPLOAD tab's
+  percentile block read from the wrong recorder. The orchestrator
+  now keeps a separate ``_upload_active_recorder`` slot exposed via
+  ``upload_recorder()``; the UPLOAD-tab binding reads exclusively
+  from this slot, leaving ``active_recorder()`` for the PREP-tab
+  (which already had correct semantics).
+
+### Added
+
+- ``MetricsRecorder.record_upload_done()`` /
+  ``record_upload_failed()`` + their ``upload_done_count()`` /
+  ``upload_failed_count()`` getters. Mirrors the
+  ``record_upload_skipped`` pair from 041 Phase 3. Wired into both
+  ``_stage_5_single`` and ``_stage_5_dual``.
+- ``MultiBatchOrchestrator.upload_recorder()`` callback.
+- ``TUIDataProvider(upload_recorder_provider=...)`` kwarg.
+
+### Operational note
+
+No config changes. Existing staging configs work unchanged. The
+fixes are observable: with the TUI on and ``batches_in_flight=2``,
+the per-chunk MB ratio now stays within ``X ≤ Y`` and the CHUNKS
+row's ``UPLOAD d/s/f`` ticks up live instead of jumping from 0/0/0
+to its final value at the DONE transition.
+
+---
+
 ## [0.44.0] — 2026-05-13 — **TUI: clean dashboard + MB progress + CHUNKS breakdown**
 
 Three operator-visible TUI improvements surfaced during the

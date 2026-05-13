@@ -237,6 +237,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Forty-first change (039): synthetic RVABREP CSV generator — `cmcourier mock rvabrep` streams a seed-deterministic CSV at any scale (chains into `mock generate` for file materialization)
 - [x] Forty-second change (040): Alfresco CMIS compatibility — `repo_id=""` semantics + mime-property heuristic + JSON formatter allowlist + doctor `cmis_type` override; live smoke against Alfresco 23.x ships 0 failures end-to-end
 - [x] Forty-third change (041): TUI quality-of-life pass — clean dashboard (stderr handler is detached when Textual owns the terminal), UPLOAD tab adds MB-uploaded/MB-planned + per-chunk wall-clock + avg MB/s + ETA, CHUNKS tab becomes a per-stage breakdown table with TOTAL aggregate row
+- [x] Forty-fourth change (042): TUI multi-batch metric isolation — per-batch `_BandwidthHandler` filter (no more byte bleed across overlapping chunks), live `s5_done`/`s5_failed` propagated into CHUNKS row during UPLOAD (no more stuck `0/0/0`), separate `upload_recorder()` slot in `MultiBatchOrchestrator` so UPLOAD-tab S5 percentiles aren't disturbed by PREP-side recorder flips
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
