@@ -70,8 +70,18 @@ assembly:
 # S5 — CMIS upload (Alfresco staging)
 # ---------------------------------------------------------------------
 cmis:
+  # Browser Binding service URL + repository id (040).
+  # - IBM Content Manager: base_url terminates in ``.../cmis-browser``;
+  #   set repo_id to the CM repository identifier
+  #   (e.g. ``$x!icmnlsdb_cmis``). The adapter emits URLs like
+  #   ``.../cmis-browser/<repo_id>/root/<folder>``.
+  # - Alfresco Community: base_url already includes everything up to
+  #   ``.../public/cmis/versions/1.1/browser``; set repo_id to ""
+  #   (empty). The adapter emits ``.../browser/root/<folder>`` without
+  #   a doubled slash. The mime type property is also omitted in
+  #   Alfresco mode — the multipart Content-Type carries it instead.
   base_url: "http://<compu-b-ip>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser"
-  repo_id: "-default-"            # value from repositoryInfo on Alfresco
+  repo_id: ""                       # "" for Alfresco; "-default-" or "$x!..." for IBM CM
   timeout_seconds: 60.0
   verify_ssl: false
   max_bandwidth_mbps: 20.0        # LAN — bump up if your switch is fast

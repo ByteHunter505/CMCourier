@@ -203,7 +203,7 @@ tracking:
 
 cmis:
   base_url: "http://<compu-b>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser"
-  repo_id: "-default-"
+  repo_id: ""                       # 040: Alfresco wants empty here, NOT "-default-"
   workers: 4
   max_bandwidth_mbps: 20.0   # LAN; remove the cap on Tailscale.
 

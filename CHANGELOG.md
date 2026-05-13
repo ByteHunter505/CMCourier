@@ -51,6 +51,74 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.43.0] — 2026-05-13 — **Alfresco CMIS compatibility**
+
+Closes the gap that prevented CMCourier from running end-to-end
+against Alfresco Community 23.x. Four targeted fixes inside the
+``CmisUploader`` + observability + doctor — the staging dry-run
+now ships 0 failures from doctor through pipeline upload.
+
+### Added
+
+- ``CmisUploader._service_url(suffix)`` helper. When
+  ``CmisConfig.repo_id`` is set, emits the IBM-CM path form
+  ``{base}/{repo_id}/{suffix}``; when empty, emits the Alfresco
+  form ``{base}/{suffix}`` without a doubled slash.
+- New ``CmisConfig.repo_id`` semantics: empty string is now a
+  first-class value meaning "the base_url already encodes the
+  repository id" (Alfresco). Any non-empty string preserves the
+  pre-040 IBM-CM behavior byte-for-byte.
+- 7 new uploader tests: ``TestServiceUrl`` (4 unit cases) +
+  ``TestAlfrescoStyleUrls`` (3 integration cases confirming
+  emitted URLs contain no doubled slashes).
+
+### Changed
+
+- ``CmisUploader.test_connection`` unwraps Alfresco's wrapped
+  ``repositoryInfo`` response (``{"<repo_id>": {...}}``) so the
+  doctor ``cmis_connectivity`` check passes against both servers.
+- ``CmisUploader._build_multipart_for_upload`` omits the explicit
+  ``cmis:contentStreamMimeType`` property when ``repo_id=""``.
+  Alfresco rejects that property as read-only (mime inferred from
+  the multipart Content-Type); IBM CM requires it explicitly per
+  the legacy ``cmis_services.py`` notes.
+- ``JsonFormatter.ALLOWED_EXTRA_FIELDS`` extended with the 038
+  payload trace fields (``event``, ``url``, ``object_type_id``,
+  ``document_name``, ``mime_type``, ``content_bytes``,
+  ``properties_json``, ``status_code``, ``response_body``,
+  ``curl_equivalent``). Without this, ``s5_upload_attempt`` and
+  ``s5_upload_failed`` events landed in ``metrics.jsonl`` with
+  only ``ts/level/logger/msg`` — every diagnostic field promised
+  by the 038 spec was silently dropped at serialization time.
+  The caplog-based 038 tests passed because caplog reads
+  ``record.__dict__`` before the formatter runs.
+- ``doctor._check_cm_type_alignment`` now uses
+  ``m.cmis_type or m.cm_object_type`` for the unique-types set.
+  Mirror of the upload-time selection — without this, every
+  ``CMISType`` override row was double-counted as the derived
+  ``$t!-...v-1`` form, breaking the cm-targets pre-flight when
+  the operator was using 035's override.
+- ``scripts/staging/config-staging.yaml.template`` documents the
+  IBM-CM-vs-Alfresco distinction inline on the ``cmis`` section.
+- ``docs/how-to/local-staging-simulation.md`` uses ``repo_id: ""``
+  in the example config.
+
+### Live verification
+
+Against the testserver Alfresco staging on Tailscale:
+
+```
+doctor                          → 9 PASS / 2 SKIP / 0 FAIL relevant
+doctor --check cm-targets       → 3 PASS (types + folders + properties)
+csv-trigger-pipeline run --total 5
+  → 5 triggers / 107 docs / s5_done=26 / s5_failed=0 / 3.91s
+27 docs queryable on Alfresco under /cmcourier-staging/CA* per Zipf.
+```
+
+See ``specs/040-alfresco-url-compat/`` for the full proposal.
+
+---
+
 ## [0.42.0] — 2026-05-13 — **Synthetic RVABREP CSV generator**
 
 Closes the scale gap between the 10-row hand-curated fixtures the
