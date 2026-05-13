@@ -276,6 +276,28 @@ cmcourier csv-trigger-pipeline run \
   --total 50000           # the full synthetic batch
 ```
 
+### Running with TUI (0.44.0+)
+
+Drop `--no-tui` and the Textual dashboard launches in the same
+terminal. As of 0.44.0 the dashboard no longer competes with
+``log.info()`` for the screen — the stderr handler is detached
+for the lifetime of the TUI, so the dashboard frame stays clean.
+Logs still flow to ``sample/logs/app-YYYY-MM-DD.log``; tail that
+file in a second terminal if you want to follow them live.
+
+What to watch in the TUI:
+
+- **UPLOAD tab** — progress bar shows docs (``9 / 22``) with
+  ``MB uploaded / MB planned`` on the right of the same line; the
+  next line shows ``chunk elapsed HH:MM:SS   avg X.XX MB/s   est
+  remaining HH:MM:SS``. ETA hides until the chunk crosses 5 %
+  completion.
+- **CHUNKS tab** (multi-batch only — ``batches_in_flight=2``) —
+  per-chunk row with docs, MB, ``PREP done/skip/fail (elapsed)``,
+  ``UPLOAD done/skip/fail (elapsed)`` and a ``TOTAL`` aggregate
+  row at the bottom. QUEUED chunks render ``—/—/—`` in the stage
+  columns so a glance can tell "not yet" from "zero outcomes".
+
 ## Step 7 — Verify in Alfresco
 
 ```bash

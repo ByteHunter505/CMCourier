@@ -236,6 +236,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Fortieth change (038): CMIS target pre-flight + upload payload trace — `CMISFolder` + `CMISPropertyId` columns; `doctor --check cm-targets` (folders + properties); `IUploader.verify_folder_exists` (read-only); `s5_upload_attempt` / `s5_upload_failed` events with PII masking + `observability.unmask_pii` toggle
 - [x] Forty-first change (039): synthetic RVABREP CSV generator — `cmcourier mock rvabrep` streams a seed-deterministic CSV at any scale (chains into `mock generate` for file materialization)
 - [x] Forty-second change (040): Alfresco CMIS compatibility — `repo_id=""` semantics + mime-property heuristic + JSON formatter allowlist + doctor `cmis_type` override; live smoke against Alfresco 23.x ships 0 failures end-to-end
+- [x] Forty-third change (041): TUI quality-of-life pass — clean dashboard (stderr handler is detached when Textual owns the terminal), UPLOAD tab adds MB-uploaded/MB-planned + per-chunk wall-clock + avg MB/s + ETA, CHUNKS tab becomes a per-stage breakdown table with TOTAL aggregate row
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

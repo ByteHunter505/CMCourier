@@ -51,6 +51,66 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.44.0] — 2026-05-13 — **TUI: clean dashboard + MB progress + CHUNKS breakdown**
+
+Three operator-visible TUI improvements surfaced during the
+staging dry-run. None changes pipeline semantics — they all make
+the live dashboard usable when a real chunked run is in flight.
+
+### Added
+
+- ``cmcourier.observability.setup.configure(..., tui_active: bool)``.
+  When ``True`` (set by the CLI right before the Textual app
+  starts) the stderr ``StreamHandler`` is **not** attached to the
+  ``cmcourier`` logger, so log lines no longer tear the dashboard
+  frame. The rotating ``FileHandler`` continues to receive every
+  event — operators tail
+  ``observability.log_dir/app-YYYY-MM-DD.log`` from a separate
+  terminal to follow log output during a TUI run.
+- ``TUISnapshot.current_chunk_bytes_uploaded /
+  _bytes_total / _elapsed_s / _avg_mbps / _eta_s``. Drives the
+  UPLOAD tab's new ``MB uploaded / MB planned`` segment + chunk
+  timer line + naive linear ETA (hidden until > 5 % progress).
+- ``MetricsRecorder.bandwidth.cumulative_bytes()`` — per-chunk
+  cumulative S5 byte counter (the existing rolling window decays
+  at 60 s and isn't suitable for a chunk-scoped MB display).
+- ``MetricsRecorder.upload_skipped_count()`` and
+  ``record_upload_skipped()`` — track S5 ``"skipped"`` outcomes
+  (previously dropped on the floor). Surface on the CHUNKS tab as
+  ``UPLOAD ... skip`` counts.
+- ``ChunkState`` per-stage breakdown fields:
+  ``doc_count``, ``total_bytes``, ``prep_done``, ``prep_skipped``,
+  ``prep_failed``, ``upload_skipped``, ``prep_started_monotonic``,
+  ``prep_elapsed_s``, ``upload_started_monotonic``,
+  ``upload_elapsed_s``. The orchestrator freezes ``*_elapsed_s``
+  when a chunk leaves the stage; the TUI computes live elapsed
+  for in-flight stages from the matching ``*_started_monotonic``.
+
+### Changed
+
+- ``render_upload`` now puts the MB segment on the right of the
+  progress bar (``S5 UPLOAD  ████░░  9 / 22 docs   127.3 MB / 312.8 MB``)
+  and inserts a second line with chunk-scoped wall-clock + avg
+  MB/s + ETA. The doc-count bar shape stays the same so operators
+  who already read it that way are not jarred.
+- ``render_chunks`` rewritten as a wider table with per-stage
+  ``done/skip/fail (elapsed)`` cells and a ``TOTAL`` aggregate
+  row. QUEUED rows render ``—/—/—`` in the stage columns to
+  prevent zero-vs-not-yet confusion. Default width raised from
+  76 → 92 to fit the breakdown comfortably.
+- ``MultiBatchOrchestrator._update_chunk_state`` now takes the
+  new field set as optional kwargs with "None means keep
+  previous". Allows partial transitions (e.g. "we just entered
+  PREP — record the start timestamp, leave totals at zero").
+
+### Operational note
+
+The TUI's main thread no longer competes with logging for the
+terminal. If you need to watch app logs during a run, open a
+second terminal and ``tail -F sample/logs/app-$(date +%F).log``.
+
+---
+
 ## [0.43.0] — 2026-05-13 — **Alfresco CMIS compatibility**
 
 Closes the gap that prevented CMCourier from running end-to-end
