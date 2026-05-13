@@ -498,7 +498,7 @@ def single_doc_run_command(
 @click.option(
     "--check",
     "selected_check",
-    type=click.Choice(["connections", "mapping", "metadata", "cm-types", "all"]),
+    type=click.Choice(["connections", "mapping", "metadata", "cm-types", "cm-targets", "all"]),
     default="all",
     help="Run only the named REBIRTH §11 check group (default: all).",
 )
