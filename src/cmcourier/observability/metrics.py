@@ -233,14 +233,24 @@ class _BandwidthSampler:
 
 
 class _BandwidthHandler(logging.Handler):
-    """Logging handler that feeds the bandwidth sampler from network events."""
+    """Logging handler that feeds the bandwidth sampler from network events.
 
-    def __init__(self, sampler: _BandwidthSampler) -> None:
+    042: filters by ``batch_id`` so overlapping chunks (``batches_in_flight>1``)
+    don't bleed each other's bytes into per-chunk samplers. Pre-042, every
+    live handler received every ``cmis_upload`` event regardless of which
+    chunk produced it — the same shape ``_SlowOpHandler`` solved at 025 by
+    short-circuiting on ``record.batch_id != self._batch_id``.
+    """
+
+    def __init__(self, sampler: _BandwidthSampler, *, batch_id: str) -> None:
         super().__init__(level=logging.INFO)
         self._sampler = sampler
+        self._batch_id = batch_id
 
     def emit(self, record: logging.LogRecord) -> None:
         if getattr(record, "kind", "") != "cmis_upload":
+            return
+        if getattr(record, "batch_id", None) != self._batch_id:
             return
         size = getattr(record, "size_bytes", None)
         if size is None:
@@ -366,7 +376,7 @@ class MetricsRecorder:
             top_n=self._slow_op_top_n,
         )
         self._slow_op_handler = _SlowOpHandler(self._aggregator, batch_id=batch_id)
-        self._bandwidth_handler = _BandwidthHandler(self._bandwidth)
+        self._bandwidth_handler = _BandwidthHandler(self._bandwidth, batch_id=batch_id)
         self._monitored_loggers = [
             logging.getLogger("cmcourier"),
             logging.getLogger("cmcourier.metrics.network"),

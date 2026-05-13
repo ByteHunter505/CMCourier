@@ -340,20 +340,25 @@ class TestConcurrentBatchIsolation:
         rec.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
         assert snapshot == []
 
-    def test_bandwidth_handler_sees_all_records_regardless_of_batch(self, tmp_path: Path) -> None:
+    def test_bandwidth_handler_filters_by_batch_id(self, tmp_path: Path) -> None:
+        """042 — bandwidth handler must drop records from other batches.
+
+        Pre-042 the handler only filtered by ``kind=="cmis_upload"``, so
+        with ``batches_in_flight>1`` two live handlers were attached to
+        ``cmcourier.metrics.network`` and each cmis_upload event bled into
+        both samplers. This test asserts a foreign-batch record does NOT
+        advance the recorder's own cumulative byte counter.
+        """
         rec = _make_recorder(tmp_path)
         rec.start_batch(pipeline="p", batch_id="A")
         net_log = logging.getLogger("cmcourier.metrics.network")
         prev_level = net_log.level
         prev_disabled = net_log.disabled
         prev_propagate = net_log.propagate
-        # Match production: setup.py sets propagate=False so the handler
-        # on the parent ``cmcourier`` logger doesn't double-count.
         net_log.propagate = False
         net_log.setLevel(logging.INFO)
         net_log.disabled = False
         try:
-            # Two records: one matching, one with a different batch_id.
             net_log.info(
                 "cmis_upload",
                 extra={
@@ -366,7 +371,7 @@ class TestConcurrentBatchIsolation:
             net_log.info(
                 "cmis_upload",
                 extra={
-                    "batch_id": "OTHER",
+                    "batch_id": "OTHER",  # foreign chunk, must be ignored
                     "kind": "cmis_upload",
                     "duration_ms": 200.0,
                     "size_bytes": 2048,
@@ -376,9 +381,39 @@ class TestConcurrentBatchIsolation:
             net_log.setLevel(prev_level)
             net_log.disabled = prev_disabled
             net_log.propagate = prev_propagate
-        # Bandwidth sampler is process-level; both records counted there.
-        # Slow-op aggregator only got the "A" record.
+        # Only the matching record reaches the sampler.
+        assert rec.bandwidth.cumulative_bytes() == 1024
+        # Slow-op aggregator filter (pre-042 behavior) still works.
         snapshot = rec.aggregator_snapshot()
         rec.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
         assert len(snapshot) == 1
         assert snapshot[0]["duration_ms"] == 100.0
+
+    def test_bandwidth_handler_accepts_matching_batch_id(self, tmp_path: Path) -> None:
+        """042 — multiple matching records aggregate into cumulative_bytes."""
+        rec = _make_recorder(tmp_path)
+        rec.start_batch(pipeline="p", batch_id="A")
+        net_log = logging.getLogger("cmcourier.metrics.network")
+        prev_level = net_log.level
+        prev_disabled = net_log.disabled
+        prev_propagate = net_log.propagate
+        net_log.propagate = False
+        net_log.setLevel(logging.INFO)
+        net_log.disabled = False
+        try:
+            for size in (1024, 2048, 4096):
+                net_log.info(
+                    "cmis_upload",
+                    extra={
+                        "batch_id": "A",
+                        "kind": "cmis_upload",
+                        "duration_ms": 100.0,
+                        "size_bytes": size,
+                    },
+                )
+        finally:
+            net_log.setLevel(prev_level)
+            net_log.disabled = prev_disabled
+            net_log.propagate = prev_propagate
+        assert rec.bandwidth.cumulative_bytes() == 1024 + 2048 + 4096
+        rec.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
