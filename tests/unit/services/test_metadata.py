@@ -112,6 +112,18 @@ def _make_mapping(*fields: str) -> CMMapping:
     )
 
 
+def _make_mapping_with_catalog(*fields: str, catalog: Mapping[str, str] | None) -> CMMapping:
+    """038: ``CMMapping`` with a ``cmis_property_ids`` catalog wired in."""
+    return CMMapping(
+        clase_id="01.02.04.01.01",
+        id_rvi="FF17",
+        id_corto="PT57",
+        clase_name="Test",
+        required_metadata_fields=fields,
+        cmis_property_ids=catalog,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -775,3 +787,54 @@ class TestEdgeCases:
                 _make_mapping("BAC_X"),
             )
         assert exc.value.context.get("source_type") == "csv:clients"
+
+
+# ---------------------------------------------------------------------------
+# 038 — CMISPropertyId translation
+# ---------------------------------------------------------------------------
+
+
+class TestCmisPropertyIdTranslation:
+    """``mapping.cmis_property_ids`` (038) rewrites resolution keys.
+
+    Without a catalog, ``MetadataResolution.metadata`` keeps the canonical
+    field names (``BAC_CIF`` etc.) — pre-038 behavior. With a catalog,
+    each key whose friendly name is in the catalog is replaced by the
+    catalogued CMIS property id. Keys not in the catalog pass through
+    unchanged (partial catalogs are valid).
+    """
+
+    def test_none_catalog_keeps_canonical_keys(self, service: MetadataService) -> None:
+        trigger = TriggerRecord(shortname="JUANPEREZ01", cif="123456", system_id="1")
+        result = service.resolve(trigger, _make_document(), _make_mapping("CIF", "ShortName"))
+        assert "BAC_CIF" in result.metadata
+        assert "BAC_Shortname" in result.metadata
+        assert "cmcourier:BAC_CIF" not in result.metadata
+
+    def test_full_catalog_translates_every_key(self, service: MetadataService) -> None:
+        trigger = TriggerRecord(shortname="JUANPEREZ01", cif="123456", system_id="1")
+        catalog = {
+            "CIF": "cmcourier:BAC_CIF",
+            "ShortName": "cmcourier:Short_Name",
+        }
+        mapping = _make_mapping_with_catalog("CIF", "ShortName", catalog=catalog)
+        result = service.resolve(trigger, _make_document(), mapping)
+        assert result.metadata["cmcourier:BAC_CIF"] == "123456"
+        assert result.metadata["cmcourier:Short_Name"] == "JUANPEREZ01"
+        assert "BAC_CIF" not in result.metadata
+        assert "BAC_Shortname" not in result.metadata
+
+    def test_partial_catalog_keeps_uncatalogued_canonical(self, service: MetadataService) -> None:
+        trigger = TriggerRecord(shortname="JUANPEREZ01", cif="123456", system_id="1")
+        catalog = {"CIF": "cmcourier:BAC_CIF"}  # ShortName intentionally not in catalog
+        mapping = _make_mapping_with_catalog("CIF", "ShortName", catalog=catalog)
+        result = service.resolve(trigger, _make_document(), mapping)
+        assert result.metadata["cmcourier:BAC_CIF"] == "123456"
+        assert result.metadata["BAC_Shortname"] == "JUANPEREZ01"
+
+    def test_empty_catalog_keeps_canonical(self, service: MetadataService) -> None:
+        trigger = TriggerRecord(shortname="JUANPEREZ01", cif="123456", system_id="1")
+        mapping = _make_mapping_with_catalog("CIF", catalog={})
+        result = service.resolve(trigger, _make_document(), mapping)
+        # Empty catalog is treated as "no catalog" (falsy) — keys stay canonical.
+        assert "BAC_CIF" in result.metadata

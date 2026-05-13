@@ -897,9 +897,12 @@ class TestMappingConfigModes:
         assert cfg.rvi_cm_id_cm_column == "IDCM"
         assert cfg.rvi_cm_clase_id_column == "IDClaseDocumental"
         assert cfg.rvi_cm_cmis_type_column == "CMISType"
+        # 038: new optional columns default to "CMISFolder" / "CMISPropertyId".
+        assert cfg.rvi_cm_cmis_folder_column == "CMISFolder"
         assert cfg.metadatos_id_corto_column == "IDCorto"
         assert cfg.metadatos_metadata_column == "Metadato"
         assert cfg.metadatos_required_column == "Requerido"
+        assert cfg.metadatos_cmis_property_id_column == "CMISPropertyId"
         assert cfg.required_marker == "Yes"
 
     def test_rejects_both_modes(

@@ -1,1232 +1,1232 @@
-﻿IDCorto,Metadato,Requerido
-CN01,CIF,Yes
-CN01,Nombre_Cliente,Yes
-CN01, Short_Name,Yes
-CN01, Fvenc_Inicio,Yes
-CN01, Fvenc_Fin,Yes
-CN02,CIF,Yes
-CN02,Nombre_Cliente,Yes
-CN02, Short_Name,Yes
-CN02, Fvenc_Inicio,Yes
-CN02, Fvenc_Fin,Yes
-CN03,CIF,Yes
-CN03,Nombre_Cliente,Yes
-CN03, Short_Name,Yes
-CN03, Fvenc_Inicio,Yes
-CN03, Fvenc_Fin,Yes
-CN04,CIF,Yes
-CN04,Nombre_Cliente,Yes
-CN04, Short_Name,Yes
-CN05,CIF,Yes
-CN05,Nombre_Cliente,Yes
-CN05, Short_Name,Yes
-CN06,CIF,Yes
-CN06,Nombre_Cliente,Yes
-CN06, Short_Name,Yes
-CN07,CIF,Yes
-CN07,Nombre_Cliente,Yes
-CN07, Short_Name,Yes
-CN08,CIF,Yes
-CN08,Nombre_Cliente,Yes
-CN08, Short_Name,Yes
-CN09,CIF,Yes
-CN09,Nombre_Cliente,Yes
-CN09, Short_Name,Yes
-CN09, Fvenc_Inicio,Yes
-CN09, Fvenc_Fin,Yes
-CN10,CIF,Yes
-CN10,Nombre_Cliente,Yes
-CN10, Short_Name,Yes
-CN11,CIF,Yes
-CN11,Nombre_Cliente,Yes
-CN11, Short_Name,Yes
-CN12,CIF,Yes
-CN12,Nombre_Cliente,Yes
-CN12, Short_Name,Yes
-CN12,CIF,Yes
-CN12,Nombre_Cliente,Yes
-CN12, Short_Name,Yes
-CN14,CIF,Yes
-CN14,Nombre_Cliente,Yes
-CN14, Short_Name,Yes
-CN15,CIF,Yes
-CN15,Nombre_Cliente,Yes
-CN15, Short_Name,Yes
-CN16,CIF,Yes
-CN16,Nombre_Cliente,Yes
-CN16, Short_Name,Yes
-CN17,CIF,Yes
-CN17,Nombre_Cliente,Yes
-CN17, Short_Name,Yes
-CN17, Fecha_Firma,Yes
-CN18,CIF,Yes
-CN18,Nombre_Cliente,Yes
-CN18, Short_Name,Yes
-CN19,CIF,Yes
-CN19,Nombre_Cliente,Yes
-CN19, Short_Name,Yes
-CN20,CIF,Yes
-CN20,Nombre_Cliente,Yes
-CN20, Short_Name,Yes
-CN21,CIF,Yes
-CN21,Nombre_Cliente,Yes
-CN21, Short_Name,Yes
-CN22,CIF,Yes
-CN22,Nombre_Cliente,Yes
-CN22, Short_Name,Yes
-CN23,CIF,Yes
-CN23,Nombre_Cliente,Yes
-CN23, Short_Name,Yes
-CN24,CIF,Yes
-CN24,Nombre_Cliente,Yes
-CN24, Short_Name,Yes
-CN25,CIF,Yes
-CN25,Nombre_Cliente,Yes
-CN25, Short_Name,Yes
-CN26,CIF,Yes
-CN26,Nombre_Cliente,Yes
-CN26, Short_Name,Yes
-CN27,CIF,Yes
-CN27,Nombre_Cliente,Yes
-CN27, Short_Name,Yes
-CN28,CIF,Yes
-CN28,Nombre_Cliente,Yes
-CN28, Short_Name,Yes
-CJ01,CIF,Yes
-CJ01,Nombre_Cliente,Yes
-CJ01, Short_Name,Yes
-CJ01, Fvenc_Inicio,Yes
-CJ01, Fvenc_Fin,Yes
-CJ02,CIF,Yes
-CJ02,Nombre_Cliente,Yes
-CJ02, Short_Name,Yes
-CJ02, Fvenc_Inicio,Yes
-CJ02, Fvenc_Fin,Yes
-CJ03,CIF,Yes
-CJ03,Nombre_Cliente,Yes
-CJ03, Short_Name,Yes
-CJ03, Fvenc_Inicio,Yes
-CJ03, Fvenc_Fin,Yes
-CJ04,CIF,Yes
-CJ04,Nombre_Cliente,Yes
-CJ04, Short_Name,Yes
-CJ05,CIF,Yes
-CJ05,Nombre_Cliente,Yes
-CJ05, Short_Name,Yes
-CJ05, Fvenc_Inicio,Yes
-CJ05, Fvenc_Fin,Yes
-CJ06,CIF,Yes
-CJ06,Nombre_Cliente,Yes
-CJ06, Short_Name,Yes
-CJ07,CIF,Yes
-CJ07,Nombre_Cliente,Yes
-CJ07, Short_Name,Yes
-CJ08,CIF,Yes
-CJ08,Nombre_Cliente,Yes
-CJ08, Short_Name,Yes
-CJ09,CIF,Yes
-CJ09,Nombre_Cliente,Yes
-CJ09, Short_Name,Yes
-CJ10,CIF,Yes
-CJ10,Nombre_Cliente,Yes
-CJ10, Short_Name,Yes
-CJ11,CIF,Yes
-CJ11,Nombre_Cliente,Yes
-CJ11, Short_Name,Yes
-CJ12,CIF,Yes
-CJ12,Nombre_Cliente,Yes
-CJ12, Short_Name,Yes
-CJ13,CIF,Yes
-CJ13,Nombre_Cliente,Yes
-CJ13, Short_Name,Yes
-CJ14,CIF,Yes
-CJ14,Nombre_Cliente,Yes
-CJ14, Short_Name,Yes
-CJ15,CIF,Yes
-CJ15,Nombre_Cliente,Yes
-CJ15, Short_Name,Yes
-CJ16,CIF,Yes
-CJ16,Nombre_Cliente,Yes
-CJ16, Short_Name,Yes
-CJ17,CIF,Yes
-CJ17,Nombre_Cliente,Yes
-CJ17, Short_Name,Yes
-CJ18,CIF,Yes
-CJ18,Nombre_Cliente,Yes
-CJ18, Short_Name,Yes
-CJ19,CIF,Yes
-CJ19,Nombre_Cliente,Yes
-CJ19, Short_Name,Yes
-CJ20,CIF,Yes
-CJ20,Nombre_Cliente,Yes
-CJ20, Short_Name,Yes
-CJ21,CIF,Yes
-CJ21,Nombre_Cliente,Yes
-CJ21, Short_Name,Yes
-CJ21, Fvenc_Inicio,Yes
-CJ21, Fvenc_Fin,Yes
-CJ22,CIF,Yes
-CJ22,Nombre_Cliente,Yes
-CJ22, Short_Name,Yes
-CJ22, Fvenc_Inicio,Yes
-CJ22, Fvenc_Fin,Yes
-CJ23,CIF,Yes
-CJ23,Nombre_Cliente,Yes
-CJ23, Short_Name,Yes
-CJ23, Fvenc_Inicio,Yes
-CJ23, Fvenc_Fin,Yes
-CJ24,CIF,Yes
-CJ24,Nombre_Cliente,Yes
-CJ24, Short_Name,Yes
-CJ25,CIF,Yes
-CJ25,Nombre_Cliente,Yes
-CJ25, Short_Name,Yes
-CJ26,CIF,Yes
-CJ26,Nombre_Cliente,Yes
-CJ26, Short_Name,Yes
-CJ27,CIF,Yes
-CJ27,Nombre_Cliente,Yes
-CJ27, Short_Name,Yes
-CJ28,CIF,Yes
-CJ28,Nombre_Cliente,Yes
-CJ28, Short_Name,Yes
-CJ29,CIF,Yes
-CJ29,Nombre_Cliente,Yes
-CJ29, Short_Name,Yes
-CJ30,CIF,Yes
-CJ30,Nombre_Cliente,Yes
-CJ30, Short_Name,Yes
-CJ31,CIF,Yes
-CJ31,Nombre_Cliente,Yes
-CJ31, Short_Name,Yes
-CJ32,CIF,Yes
-CJ32,Nombre_Cliente,Yes
-CJ32, Short_Name,Yes
-CJ33,CIF,Yes
-CJ33,Nombre_Cliente,Yes
-CJ33, Short_Name,Yes
-CJ34,CIF,Yes
-CJ34,Nombre_Cliente,Yes
-CJ34, Short_Name,Yes
-CJ35,CIF,Yes
-CJ35,Nombre_Cliente,Yes
-CJ35, Short_Name,Yes
-CJ36,CIF,Yes
-CJ36,Nombre_Cliente,Yes
-CJ36, Short_Name,Yes
-CJ37,CIF,Yes
-CJ37,Nombre_Cliente,Yes
-CJ37, Short_Name,Yes
-CJ38,CIF,Yes
-CJ38,Nombre_Cliente,Yes
-CJ38, Short_Name,Yes
-CJ39,CIF,Yes
-CJ39,Nombre_Cliente,Yes
-CJ39, Short_Name,Yes
-CJ40,CIF,Yes
-CJ40,Nombre_Cliente,Yes
-CJ40, Short_Name,Yes
-CJ41,CIF,Yes
-CJ41,Nombre_Cliente,Yes
-CJ41, Short_Name,Yes
-CJ42,CIF,Yes
-CJ42,Nombre_Cliente,Yes
-CJ42, Short_Name,Yes
-CJ42, Fecha,Yes
-CJ43,CIF,Yes
-CJ43,Nombre_Cliente,Yes
-CJ43, Short_Name,Yes
-CJ43, Fvenc_Inicio,Yes
-CJ43, Fvenc_Fin,Yes
-CJ44,CIF,Yes
-CJ44,Nombre_Cliente,Yes
-CJ44, Short_Name,Yes
-CJ44, Fecha,Yes
-CJ45,CIF,Yes
-CJ45,Nombre_Cliente,Yes
-CJ45, Short_Name,Yes
-CJ45, Fecha,Yes
-CJ46,CIF,Yes
-CJ46,Nombre_Cliente,Yes
-CJ46, Short_Name,Yes
-CJ46, Fecha,Yes
-CJ47,CIF,Yes
-CJ47,Nombre_Cliente,Yes
-CJ47, Short_Name,Yes
-CJ47, Fecha,Yes
-CJ48,CIF,Yes
-CJ48,Nombre_Cliente,Yes
-CJ48, Short_Name,Yes
-CJ48, Fecha,Yes
-PT01,CIF,Yes
-PT01, NUM_PRESTAMO,Yes
-PT01,Nombre_Cliente,Yes
-PT01, Short_Name,Yes
-PT02,CIF,Yes
-PT02, NUM_PRESTAMO,Yes
-PT02,Nombre_Cliente,Yes
-PT02, Short_Name,Yes
-PT03,CIF,Yes
-PT03, NUM_PRESTAMO,Yes
-PT03,Nombre_Cliente,Yes
-PT03, Short_Name,Yes
-PT04,CIF,Yes
-PT04, NUM_PRESTAMO,Yes
-PT04,Nombre_Cliente,Yes
-PT04, Short_Name,Yes
-PT05,CIF,Yes
-PT05, NUM_PRESTAMO,Yes
-PT05,Nombre_Cliente,Yes
-PT05, Short_Name,Yes
-PT06,CIF,Yes
-PT06, NUM_PRESTAMO,Yes
-PT06,Nombre_Cliente,Yes
-PT06, Short_Name,Yes
-PT07,CIF,Yes
-PT07, NUM_PRESTAMO,Yes
-PT07,Nombre_Cliente,Yes
-PT07, Short_Name,Yes
-PT08,CIF,Yes
-PT08, NUM_PRESTAMO,Yes
-PT08,Nombre_Cliente,Yes
-PT08, Short_Name,Yes
-PT09,CIF,Yes
-PT09, NUM_PRESTAMO,Yes
-PT09,Nombre_Cliente,Yes
-PT09, Short_Name,Yes
-PT10,CIF,Yes
-PT10, NUM_PRESTAMO,Yes
-PT10,Nombre_Cliente,Yes
-PT10, Short_Name,Yes
-PT11,CIF,Yes
-PT11, NUM_PRESTAMO,Yes
-PT11,Nombre_Cliente,Yes
-PT11, Short_Name,Yes
-PT12,CIF,Yes
-PT12, NUM_PRESTAMO,Yes
-PT12,Nombre_Cliente,Yes
-PT12, Short_Name,Yes
-PT13,CIF,Yes
-PT13, NUM_PRESTAMO,Yes
-PT13,Nombre_Cliente,Yes
-PT13, Short_Name,Yes
-PT14,CIF,Yes
-PT14, NUM_PRESTAMO,Yes
-PT14,Nombre_Cliente,Yes
-PT14, Short_Name,Yes
-PT15,CIF,Yes
-PT15, NUM_PRESTAMO,Yes
-PT15,Nombre_Cliente,Yes
-PT15, Short_Name,Yes
-PT15, F_Inicio,Yes
-PT15, F_Fin,Yes
-PT16,CIF,Yes
-PT16, NUM_PRESTAMO,Yes
-PT16,Nombre_Cliente,Yes
-PT16, Short_Name,Yes
-PT17,CIF,Yes
-PT17, NUM_PRESTAMO,Yes
-PT17,Nombre_Cliente,Yes
-PT17, Short_Name,Yes
-PT18,CIF,Yes
-PT18, NUM_PRESTAMO,Yes
-PT18,Nombre_Cliente,Yes
-PT18, Short_Name,Yes
-PT19,CIF,Yes
-PT19, NUM_PRESTAMO,Yes
-PT19,Nombre_Cliente,Yes
-PT19, Short_Name,Yes
-PT20,CIF,Yes
-PT20, NUM_PRESTAMO,Yes
-PT20,Nombre_Cliente,Yes
-PT20, Short_Name,Yes
-PT21,CIF,Yes
-PT21, NUM_PRESTAMO,Yes
-PT21,Nombre_Cliente,Yes
-PT21, Short_Name,Yes
-PT22,CIF,Yes
-PT22, NUM_PRESTAMO,Yes
-PT22,Nombre_Cliente,Yes
-PT22, Short_Name,Yes
-PT23,CIF,Yes
-PT23, NUM_PRESTAMO,Yes
-PT23,Nombre_Cliente,Yes
-PT23, Short_Name,Yes
-PT24,CIF,Yes
-PT24, NUM_PRESTAMO,Yes
-PT24,Nombre_Cliente,Yes
-PT24, Short_Name,Yes
-PT25,CIF,Yes
-PT25, NUM_PRESTAMO,Yes
-PT25,Nombre_Cliente,Yes
-PT25, Short_Name,Yes
-PT25, Fvenc_Inicio,Yes
-PT25, Fvenc_Fin,Yes
-PT26,CIF,Yes
-PT26, NUM_PRESTAMO,Yes
-PT26,Nombre_Cliente,Yes
-PT26, Short_Name,Yes
-PT27,CIF,Yes
-PT27, NUM_PRESTAMO,Yes
-PT27,Nombre_Cliente,Yes
-PT27, Short_Name,Yes
-PT28,CIF,Yes
-PT28, NUM_PRESTAMO,Yes
-PT28,Nombre_Cliente,Yes
-PT28, Short_Name,Yes
-PT29,CIF,Yes
-PT29, NUM_PRESTAMO,Yes
-PT29,Nombre_Cliente,Yes
-PT29, Short_Name,Yes
-PT30,CIF,Yes
-PT30, NUM_PRESTAMO,Yes
-PT30,Nombre_Cliente,Yes
-PT30, Short_Name,Yes
-PT31,CIF,Yes
-PT31, NUM_PRESTAMO,Yes
-PT31,Nombre_Cliente,Yes
-PT31, Short_Name,Yes
-PT32,CIF,Yes
-PT32, NUM_PRESTAMO,Yes
-PT32,Nombre_Cliente,Yes
-PT32, Short_Name,Yes
-PT33,CIF,Yes
-PT33, NUM_PRESTAMO,Yes
-PT33,Nombre_Cliente,Yes
-PT33, Short_Name,Yes
-PT34,CIF,Yes
-PT34, NUM_PRESTAMO,Yes
-PT34,Nombre_Cliente,Yes
-PT34, Short_Name,Yes
-PT35,CIF,Yes
-PT35, NUM_PRESTAMO,Yes
-PT35,Nombre_Cliente,Yes
-PT35, Short_Name,Yes
-PT36,CIF,Yes
-PT36, NUM_PRESTAMO,Yes
-PT36,Nombre_Cliente,Yes
-PT36, Short_Name,Yes
-PT37,CIF,Yes
-PT37, NUM_PRESTAMO,Yes
-PT37,Nombre_Cliente,Yes
-PT37, Short_Name,Yes
-PT38,CIF,Yes
-PT38, NUM_PRESTAMO,Yes
-PT38,Nombre_Cliente,Yes
-PT38, Short_Name,Yes
-PT39,CIF,Yes
-PT39, NUM_PRESTAMO,Yes
-PT39,Nombre_Cliente,Yes
-PT39, Short_Name,Yes
-PT40,CIF,Yes
-PT40, NUM_PRESTAMO,Yes
-PT40,Nombre_Cliente,Yes
-PT40, Short_Name,Yes
-PT41,CIF,Yes
-PT41, NUM_PRESTAMO,Yes
-PT41,Nombre_Cliente,Yes
-PT41, Short_Name,Yes
-PT42,CIF,Yes
-PT42, NUM_PRESTAMO,Yes
-PT42,Nombre_Cliente,Yes
-PT42, Short_Name,Yes
-PT43,CIF,Yes
-PT43, NUM_PRESTAMO,Yes
-PT43,Nombre_Cliente,Yes
-PT43, Short_Name,Yes
-PT44,CIF,Yes
-PT44, NUM_PRESTAMO,Yes
-PT44,Nombre_Cliente,Yes
-PT44, Short_Name,Yes
-PT44, F_Inicio,Yes
-PT44, F_Fin,Yes
-PT45,CIF,Yes
-PT45, NUM_PRESTAMO,Yes
-PT45,Nombre_Cliente,Yes
-PT45, Short_Name,Yes
-PT46,CIF,Yes
-PT46, NUM_PRESTAMO,Yes
-PT46,Nombre_Cliente,Yes
-PT46, Short_Name,Yes
-PT47,CIF,Yes
-PT47, NUM_PRESTAMO,Yes
-PT47,Nombre_Cliente,Yes
-PT47, Short_Name,Yes
-PT48,CIF,Yes
-PT48, NUM_PRESTAMO,Yes
-PT48,Nombre_Cliente,Yes
-PT48, Short_Name,Yes
-PT49,CIF,Yes
-PT49, NUM_PRESTAMO,Yes
-PT49,Nombre_Cliente,Yes
-PT49, Short_Name,Yes
-PT50,CIF,Yes
-PT50, NUM_PRESTAMO,Yes
-PT50,Nombre_Cliente,Yes
-PT50, Short_Name,Yes
-PT51,CIF,Yes
-PT51, NUM_PRESTAMO,Yes
-PT51,Nombre_Cliente,Yes
-PT51, Short_Name,Yes
-PT52,CIF,Yes
-PT52, NUM_PRESTAMO,Yes
-PT52,Nombre_Cliente,Yes
-PT52, Short_Name,Yes
-PT53,CIF,Yes
-PT53, NUM_PRESTAMO,Yes
-PT53,Nombre_Cliente,Yes
-PT53, Short_Name,Yes
-PT54,CIF,Yes
-PT54, NUM_PRESTAMO,Yes
-PT54,Nombre_Cliente,Yes
-PT54, Short_Name,Yes
-PT55,CIF,Yes
-PT55, NUM_PRESTAMO,Yes
-PT55,Nombre_Cliente,Yes
-PT55, Short_Name,Yes
-PT56,CIF,Yes
-PT56, NUM_PRESTAMO,Yes
-PT56,Nombre_Cliente,Yes
-PT56, Short_Name,Yes
-HP01,CIF,Yes
-HP01, NUM_PRESTAMO,Yes
-HP01,Nombre_Cliente,Yes
-HP01, Short_Name,Yes
-HF02,CIF,Yes
-HF02, NUM_PRESTAMO,Yes
-HF02,Nombre_Cliente,Yes
-HF02, Short_Name,Yes
-HP03,CIF,Yes
-HP03, NUM_PRESTAMO,Yes
-HP03,Nombre_Cliente,Yes
-HP03, Short_Name,Yes
-HP04,CIF,Yes
-HP04, NUM_PRESTAMO,Yes
-HP04,Nombre_Cliente,Yes
-HP04, Short_Name,Yes
-HP05,CIF,Yes
-HP05, NUM_PRESTAMO,Yes
-HP05,Nombre_Cliente,Yes
-HP05, Short_Name,Yes
-HP06,CIF,Yes
-HP06, NUM_PRESTAMO,Yes
-HP06,Nombre_Cliente,Yes
-HP06, Short_Name,Yes
-HP07,CIF,Yes
-HP07, NUM_PRESTAMO,Yes
-HP07,Nombre_Cliente,Yes
-HP07, Short_Name,Yes
-HP08,CIF,Yes
-HP08, NUM_PRESTAMO,Yes
-HP08,Nombre_Cliente,Yes
-HP08, Short_Name,Yes
-HP09,CIF,Yes
-HP09, NUM_PRESTAMO,Yes
-HP09,Nombre_Cliente,Yes
-HP09, Short_Name,Yes
-HP10,CIF,Yes
-HP10, NUM_PRESTAMO,Yes
-HP10,Nombre_Cliente,Yes
-HP10, Short_Name,Yes
-HP11,CIF,Yes
-HP11, NUM_PRESTAMO,Yes
-HP11,Nombre_Cliente,Yes
-HP11, Short_Name,Yes
-HP12,CIF,Yes
-HP12, NUM_PRESTAMO,Yes
-HP12,Nombre_Cliente,Yes
-HP12, Short_Name,Yes
-HP13,CIF,Yes
-HP13, NUM_PRESTAMO,Yes
-HP13,Nombre_Cliente,Yes
-HP13, Short_Name,Yes
-HP14,CIF,Yes
-HP14, NUM_PRESTAMO,Yes
-HP14,Nombre_Cliente,Yes
-HP14, Short_Name,Yes
-HP15,CIF,Yes
-HP15, NUM_PRESTAMO,Yes
-HP15,Nombre_Cliente,Yes
-HP15, Short_Name,Yes
-HP16,CIF,Yes
-HP16, NUM_PRESTAMO,Yes
-HP16,Nombre_Cliente,Yes
-HP16, Short_Name,Yes
-HP17,CIF,Yes
-HP17, NUM_PRESTAMO,Yes
-HP17,Nombre_Cliente,Yes
-HP17, Short_Name,Yes
-HP18,CIF,Yes
-HP18, NUM_PRESTAMO,Yes
-HP18,Nombre_Cliente,Yes
-HP18, Short_Name,Yes
-HP19,CIF,Yes
-HP19, NUM_PRESTAMO,Yes
-HP19,Nombre_Cliente,Yes
-HP19, Short_Name,Yes
-HP20,CIF,Yes
-HP20, NUM_PRESTAMO,Yes
-HP20,Nombre_Cliente,Yes
-HP20, Short_Name,Yes
-HP21,CIF,Yes
-HP21, NUM_PRESTAMO,Yes
-HP21,Nombre_Cliente,Yes
-HP21, Short_Name,Yes
-HP22,CIF,Yes
-HP22, NUM_PRESTAMO,Yes
-HP22,Nombre_Cliente,Yes
-HP22, Short_Name,Yes
-CO01,CIF,Yes
-CO01, NUM_PRESTAMO,Yes
-CO01,Nombre_Cliente,Yes
-CO01, Short_Name,Yes
-CO02,CIF,Yes
-CO02, NUM_PRESTAMO,Yes
-CO02,Nombre_Cliente,Yes
-CO02, Short_Name,Yes
-CO03,CIF,Yes
-CO03, NUM_PRESTAMO,Yes
-CO03,Nombre_Cliente,Yes
-CO03, Short_Name,Yes
-CO04,CIF,Yes
-CO04, NUM_PRESTAMO,Yes
-CO04,Nombre_Cliente,Yes
-CO04, Short_Name,Yes
-CO05,CIF,Yes
-CO05, NUM_PRESTAMO,Yes
-CO05,Nombre_Cliente,Yes
-CO05, Short_Name,Yes
-CO06,CIF,Yes
-CO06, NUM_PRESTAMO,Yes
-CO06,Nombre_Cliente,Yes
-CO06, Short_Name,Yes
-CO07,CIF,Yes
-CO07, NUM_PRESTAMO,Yes
-CO07,Nombre_Cliente,Yes
-CO07, Short_Name,Yes
-CO08,CIF,Yes
-CO08, NUM_PRESTAMO,Yes
-CO08,Nombre_Cliente,Yes
-CO08, Short_Name,Yes
-CO09,CIF,Yes
-CO09, NUM_PRESTAMO,Yes
-CO09,Nombre_Cliente,Yes
-CO09, Short_Name,Yes
-CO10,CIF,Yes
-CO10, NUM_PRESTAMO,Yes
-CO10,Nombre_Cliente,Yes
-CO10, Short_Name,Yes
-CO11,CIF,Yes
-CO11, NUM_PRESTAMO,Yes
-CO11,Nombre_Cliente,Yes
-CO11, Short_Name,Yes
-CO12,CIF,Yes
-CO12, NUM_PRESTAMO,Yes
-CO12,Nombre_Cliente,Yes
-CO12, Short_Name,Yes
-CO13,CIF,Yes
-CO13, NUM_PRESTAMO,Yes
-CO13,Nombre_Cliente,Yes
-CO13, Short_Name,Yes
-CO14,CIF,Yes
-CO14, NUM_PRESTAMO,Yes
-CO14,Nombre_Cliente,Yes
-CO14, Short_Name,Yes
-CO15,CIF,Yes
-CO15, NUM_PRESTAMO,Yes
-CO15,Nombre_Cliente,Yes
-CO15, Short_Name,Yes
-CO16,CIF,Yes
-CO16, NUM_PRESTAMO,Yes
-CO16,Nombre_Cliente,Yes
-CO16, Short_Name,Yes
-CO17,CIF,Yes
-CO17, NUM_PRESTAMO,Yes
-CO17,Nombre_Cliente,Yes
-CO17, Short_Name,Yes
-CO18,CIF,Yes
-CO18, NUM_PRESTAMO,Yes
-CO18,Nombre_Cliente,Yes
-CO18, Short_Name,Yes
-CO18, F_Inicio,Yes
-CO18, F_Fin,Yes
-CO19,CIF,Yes
-CO19, NUM_PRESTAMO,Yes
-CO19,Nombre_Cliente,Yes
-CO19, Short_Name,Yes
-CO20,CIF,Yes
-CO20, NUM_PRESTAMO,Yes
-CO20,Nombre_Cliente,Yes
-CO20, Short_Name,Yes
-CO21,CIF,Yes
-CO21, NUM_PRESTAMO,Yes
-CO21,Nombre_Cliente,Yes
-CO21, Short_Name,Yes
-CO22,CIF,Yes
-CO22, NUM_PRESTAMO,Yes
-CO22,Nombre_Cliente,Yes
-CO22, Short_Name,Yes
-CO23,CIF,Yes
-CO23, NUM_PRESTAMO,Yes
-CO23,Nombre_Cliente,Yes
-CO23, Short_Name,Yes
-CO24,CIF,Yes
-CO24, NUM_PRESTAMO,Yes
-CO24,Nombre_Cliente,Yes
-CO24, Short_Name,Yes
-CO25,CIF,Yes
-CO25, NUM_PRESTAMO,Yes
-CO25,Nombre_Cliente,Yes
-CO25, Short_Name,Yes
-CO26,CIF,Yes
-CO26, NUM_PRESTAMO,Yes
-CO26,Nombre_Cliente,Yes
-CO26, Short_Name,Yes
-CO27,CIF,Yes
-CO27, NUM_PRESTAMO,Yes
-CO27,Nombre_Cliente,Yes
-CO27, Short_Name,Yes
-CO28,CIF,Yes
-CO28, NUM_PRESTAMO,Yes
-CO28,Nombre_Cliente,Yes
-CO28, Short_Name,Yes
-CO29,CIF,Yes
-CO29, NUM_PRESTAMO,Yes
-CO29,Nombre_Cliente,Yes
-CO29, Short_Name,Yes
-CO30,CIF,Yes
-CO30, NUM_PRESTAMO,Yes
-CO30,Nombre_Cliente,Yes
-CO30, Short_Name,Yes
-CO31,CIF,Yes
-CO31, NUM_PRESTAMO,Yes
-CO31,Nombre_Cliente,Yes
-CO31, Short_Name,Yes
-CO32,CIF,Yes
-CO32, NUM_PRESTAMO,Yes
-CO32,Nombre_Cliente,Yes
-CO32, Short_Name,Yes
-CO33,CIF,Yes
-CO33, NUM_PRESTAMO,Yes
-CO33,Nombre_Cliente,Yes
-CO33, Short_Name,Yes
-CO34,CIF,Yes
-CO34, NUM_PRESTAMO,Yes
-CO34,Nombre_Cliente,Yes
-CO34, Short_Name,Yes
-CO35,CIF,Yes
-CO35, NUM_PRESTAMO,Yes
-CO35,Nombre_Cliente,Yes
-CO35, Short_Name,Yes
-CO36,CIF,Yes
-CO36, NUM_PRESTAMO,Yes
-CO36,Nombre_Cliente,Yes
-CO36, Short_Name,Yes
-CO37,CIF,Yes
-CO37, NUM_PRESTAMO,Yes
-CO37,Nombre_Cliente,Yes
-CO37, Short_Name,Yes
-CO38,CIF,Yes
-CO38, NUM_PRESTAMO,Yes
-CO38,Nombre_Cliente,Yes
-CO38, Short_Name,Yes
-PT57,CIF,Yes
-PT57, NUM_CUENTA_TARJETA,Yes
-PT57,Nombre_Cliente,Yes
-PT57, Short_Name,Yes
-PT58,CIF,Yes
-PT58, NUM_CUENTA_TARJETA,Yes
-PT58,Nombre_Cliente,Yes
-PT58, Short_Name,Yes
-PT59,CIF,Yes
-PT59, NUM_CUENTA_TARJETA,Yes
-PT59,Nombre_Cliente,Yes
-PT59, Short_Name,Yes
-PT60,CIF,Yes
-PT60, NUM_CUENTA_TARJETA,Yes
-PT60,Nombre_Cliente,Yes
-PT60, Short_Name,Yes
-PT61,CIF,Yes
-PT61, NUM_CUENTA_TARJETA,Yes
-PT61,Nombre_Cliente,Yes
-PT61, Short_Name,Yes
-PT62,CIF,Yes
-PT62, NUM_CUENTA_TARJETA,Yes
-PT62,Nombre_Cliente,Yes
-PT62, Short_Name,Yes
-PT63,CIF,Yes
-PT63, NUM_CUENTA_TARJETA,Yes
-PT63,Nombre_Cliente,Yes
-PT63, Short_Name,Yes
-PT64,CIF,Yes
-PT64, NUM_CUENTA_TARJETA,Yes
-PT64,Nombre_Cliente,Yes
-PT64, Short_Name,Yes
-PT65,CIF,Yes
-PT65, NUM_CUENTA_TARJETA,Yes
-PT65,Nombre_Cliente,Yes
-PT65, Short_Name,Yes
-PT66,CIF,Yes
-PT66, NUM_CUENTA_TARJETA,Yes
-PT66,Nombre_Cliente,Yes
-PT66, Short_Name,Yes
-PT67,CIF,Yes
-PT67, NUM_CUENTA_TARJETA,Yes
-PT67,Nombre_Cliente,Yes
-PT67, Short_Name,Yes
-PT68,CIF,Yes
-PT68, NUM_CUENTA_TARJETA,Yes
-PT68,Nombre_Cliente,Yes
-PT68, Short_Name,Yes
-PT69,CIF,Yes
-PT69, NUM_CUENTA_TARJETA,Yes
-PT69,Nombre_Cliente,Yes
-PT69, Short_Name,Yes
-PT70,CIF,Yes
-PT70, NUM_CUENTA_TARJETA,Yes
-PT70,Nombre_Cliente,Yes
-PT70, Short_Name,Yes
-PT71,CIF,Yes
-PT71, NUM_CUENTA_TARJETA,Yes
-PT71,Nombre_Cliente,Yes
-PT71, Short_Name,Yes
-PT71, F_Inicio,Yes
-PT71, F_Fin,Yes
-PT72,CIF,Yes
-PT72, NUM_CUENTA_TARJETA,Yes
-PT72,Nombre_Cliente,Yes
-PT72, Short_Name,Yes
-PT73,CIF,Yes
-PT73, NUM_CUENTA_TARJETA,Yes
-PT73,Nombre_Cliente,Yes
-PT73, Short_Name,Yes
-PT74,CIF,Yes
-PT74, NUM_CUENTA_TARJETA,Yes
-PT74,Nombre_Cliente,Yes
-PT74, Short_Name,Yes
-PT75,CIF,Yes
-PT75, NUM_CUENTA_TARJETA,Yes
-PT75,Nombre_Cliente,Yes
-PT75, Short_Name,Yes
-PT76,CIF,Yes
-PT76, NUM_CUENTA_TARJETA,Yes
-PT76,Nombre_Cliente,Yes
-PT76, Short_Name,Yes
-PT77,CIF,Yes
-PT77, NUM_CUENTA_TARJETA,Yes
-PT77,Nombre_Cliente,Yes
-PT77, Short_Name,Yes
-PT78,CIF,Yes
-PT78, NUM_CUENTA_TARJETA,Yes
-PT78,Nombre_Cliente,Yes
-PT78, Short_Name,Yes
-PT79,CIF,Yes
-PT79, NUM_CUENTA_TARJETA,Yes
-PT79,Nombre_Cliente,Yes
-PT79, Short_Name,Yes
-PT80,CIF,Yes
-PT80, NUM_CUENTA_TARJETA,Yes
-PT80,Nombre_Cliente,Yes
-PT80, Short_Name,Yes
-PT81,CIF,Yes
-PT81, NUM_CUENTA_TARJETA,Yes
-PT81,Nombre_Cliente,Yes
-PT81, Short_Name,Yes
-PT82,CIF,Yes
-PT82, NUM_CUENTA_TARJETA,Yes
-PT82,Nombre_Cliente,Yes
-PT82, Short_Name,Yes
-PT83,CIF,Yes
-PT83, NUM_CUENTA_TARJETA,Yes
-PT83,Nombre_Cliente,Yes
-PT83, Short_Name,Yes
-PT84,CIF,Yes
-PT84, NUM_CUENTA_TARJETA,Yes
-PT84,Nombre_Cliente,Yes
-PT84, Short_Name,Yes
-PT85,CIF,Yes
-PT85, NUM_CUENTA_TARJETA,Yes
-PT85,Nombre_Cliente,Yes
-PT85, Short_Name,Yes
-PT86,CIF,Yes
-PT86, NUM_CUENTA_TARJETA,Yes
-PT86,Nombre_Cliente,Yes
-PT86, Short_Name,Yes
-PT87,CIF,Yes
-PT87, NUM_CUENTA_TARJETA,Yes
-PT87,Nombre_Cliente,Yes
-PT87, Short_Name,Yes
-PT88,CIF,Yes
-PT88, NUM_CUENTA_TARJETA,Yes
-PT88,Nombre_Cliente,Yes
-PT88, Short_Name,Yes
-PT89,CIF,Yes
-PT89, NUM_CUENTA_TARJETA,Yes
-PT89,Nombre_Cliente,Yes
-PT89, Short_Name,Yes
-BN01,CIF,Yes
-BN01, NUM_CTA,Yes
-BN01,Nombre_Cliente,Yes
-BN01, Short_Name,Yes
-BN01, Fecha_Firma,Yes
-BN02,CIF,Yes
-BN02, NUM_CTA,Yes
-BN02,Nombre_Cliente,Yes
-BN02, Short_Name,Yes
-BN02, Fecha_Firma,Yes
-BN03,CIF,Yes
-BN03, NUM_CTA,Yes
-BN03,Nombre_Cliente,Yes
-BN03, Short_Name,Yes
-BN04,CIF,Yes
-BN04, NUM_CTA,Yes
-BN04,Nombre_Cliente,Yes
-BN04, Short_Name,Yes
-BN05,CIF,Yes
-BN05, NUM_CTA,Yes
-BN05,Nombre_Cliente,Yes
-BN05, Short_Name,Yes
-BN06,CIF,Yes
-BN06, NUM_CTA,Yes
-BN06,Nombre_Cliente,Yes
-BN06, Short_Name,Yes
-BN07,CIF,Yes
-BN07, NUM_CTA,Yes
-BN07,Nombre_Cliente,Yes
-BN07, Short_Name,Yes
-BN08,CIF,Yes
-BN08, NUM_CTA,Yes
-BN08,Nombre_Cliente,Yes
-BN08, Short_Name,Yes
-BN10,CIF,Yes
-BN10, NUM_CTA,Yes
-BN10,Nombre_Cliente,Yes
-BN10, Short_Name,Yes
-BN11,CIF,Yes
-BN11, NUM_CTA,Yes
-BN11,Nombre_Cliente,Yes
-BN11, Short_Name,Yes
-BN12,CIF,Yes
-BN12, NUM_CTA,Yes
-BN12,Nombre_Cliente,Yes
-BN12, Short_Name,Yes
-BN13,CIF,Yes
-BN13, NUM_CTA,Yes
-BN13,Nombre_Cliente,Yes
-BN13, Short_Name,Yes
-BN15,CIF,Yes
-BN15, NUM_CTA,Yes
-BN15,Nombre_Cliente,Yes
-BN15, Short_Name,Yes
-BN16,CIF,Yes
-BN16, NUM_CTA,Yes
-BN16,Nombre_Cliente,Yes
-BN16, Short_Name,Yes
-BN17,CIF,Yes
-BN17, NUM_CTA,Yes
-BN17,Nombre_Cliente,Yes
-BN17, Short_Name,Yes
-BN18,CIF,Yes
-BN18, NUM_CTA,Yes
-BN18,Nombre_Cliente,Yes
-BN18, Short_Name,Yes
-BN18, F_Inicio,Yes
-BN18, F_Fin,Yes
-BN19,CIF,Yes
-BN19, NUM_CTA,Yes
-BN19,Nombre_Cliente,Yes
-BN19, Short_Name,Yes
-BN20,CIF,Yes
-BN20, NUM_CTA,Yes
-BN20,Nombre_Cliente,Yes
-BN20, Short_Name,Yes
-BN21,CIF,Yes
-BN21, NUM_CTA,Yes
-BN21,Nombre_Cliente,Yes
-BN21, Short_Name,Yes
-BN22,CIF,Yes
-BN22, NUM_CTA,Yes
-BN22,Nombre_Cliente,Yes
-BN22, Short_Name,Yes
-BN23,CIF,Yes
-BN23, NUM_CTA,Yes
-BN23,Nombre_Cliente,Yes
-BN23, Short_Name,Yes
-BN24,CIF,Yes
-BN24, NUM_CTA,Yes
-BN24,Nombre_Cliente,Yes
-BN24, Short_Name,Yes
-BN25,CIF,Yes
-BN25, NUM_CTA,Yes
-BN25,Nombre_Cliente,Yes
-BN25, Short_Name,Yes
-BN26,CIF,Yes
-BN26, NUM_CTA,Yes
-BN26,Nombre_Cliente,Yes
-BN26, Short_Name,Yes
-BN27,CIF,Yes
-BN27, NUM_CTA,Yes
-BN27,Nombre_Cliente,Yes
-BN27, Short_Name,Yes
-BN28,CIF,Yes
-BN28, NUM_CTA,Yes
-BN28,Nombre_Cliente,Yes
-BN28, Short_Name,Yes
-BN29,CIF,Yes
-BN29, NUM_CTA,Yes
-BN29,Nombre_Cliente,Yes
-BN29, Short_Name,Yes
-BN30,CIF,Yes
-BN30, NUM_CTA,Yes
-BN30,Nombre_Cliente,Yes
-BN30, Short_Name,Yes
-BN31,CIF,Yes
-BN31, NUM_CTA,Yes
-BN31,Nombre_Cliente,Yes
-BN31, Short_Name,Yes
-BN32,CIF,Yes
-BN32, NUM_CTA,Yes
-BN32,Nombre_Cliente,Yes
-BN32, Short_Name,Yes
-AF01,CIF,Yes
-AF01, NUM_AFILIADO,Yes
-AF01,SUCURSAL,Yes
-AF01,Nombre_Cliente,Yes
-AF01, Short_Name,Yes
-AF02,CIF,Yes
-AF02, NUM_AFILIADO,Yes
-AF02,SUCURSAL,Yes
-AF02,Nombre_Cliente,Yes
-AF02, Short_Name,Yes
-AF03,CIF,Yes
-AF03, NUM_AFILIADO,Yes
-AF03,SUCURSAL,Yes
-AF03,Nombre_Cliente,Yes
-AF03, Short_Name,Yes
-AF04,CIF,Yes
-AF04, NUM_AFILIADO,Yes
-AF04,SUCURSAL,Yes
-AF04,Nombre_Cliente,Yes
-AF04, Short_Name,Yes
-AF05,CIF,Yes
-AF05, NUM_AFILIADO,Yes
-AF05,SUCURSAL,Yes
-AF05,Nombre_Cliente,Yes
-AF05, Short_Name,Yes
-AF06,CIF,Yes
-AF06, NUM_AFILIADO,Yes
-AF06,SUCURSAL,Yes
-AF06,Nombre_Cliente,Yes
-AF06, Short_Name,Yes
-AF07,CIF,Yes
-AF07, NUM_AFILIADO,Yes
-AF07,SUCURSAL,Yes
-AF07,Nombre_Cliente,Yes
-AF07, Short_Name,Yes
-AF08,CIF,Yes
-AF08, NUM_AFILIADO,Yes
-AF08,SUCURSAL,Yes
-AF08,Nombre_Cliente,Yes
-AF08, Short_Name,Yes
-AF09,CIF,Yes
-AF09, NUM_AFILIADO,Yes
-AF09,SUCURSAL,Yes
-AF09,Nombre_Cliente,Yes
-AF09, Short_Name,Yes
-AF10,CIF,Yes
-AF10, NUM_AFILIADO,Yes
-AF10,SUCURSAL,Yes
-AF10,Nombre_Cliente,Yes
-AF10, Short_Name,Yes
-AF11,CIF,Yes
-AF11, NUM_AFILIADO,Yes
-AF11,SUCURSAL,Yes
-AF11,Nombre_Cliente,Yes
-AF11, Short_Name,Yes
-AF12,CIF,Yes
-AF12, NUM_AFILIADO,Yes
-AF12,SUCURSAL,Yes
-AF12,Nombre_Cliente,Yes
-AF12, Short_Name,Yes
-AF13,CIF,Yes
-AF13, NUM_AFILIADO,Yes
-AF13,SUCURSAL,Yes
-AF13,Nombre_Cliente,Yes
-AF13, Short_Name,Yes
-AF14,CIF,Yes
-AF14, NUM_AFILIADO,Yes
-AF14,SUCURSAL,Yes
-AF14,Nombre_Cliente,Yes
-AF14, Short_Name,Yes
-AF15,CIF,Yes
-AF15, NUM_AFILIADO,Yes
-AF15,SUCURSAL,Yes
-AF15,Nombre_Cliente,Yes
-AF15, Short_Name,Yes
-AF16,CIF,Yes
-AF16, NUM_AFILIADO,Yes
-AF16,SUCURSAL,Yes
-AF16,Nombre_Cliente,Yes
-AF16, Short_Name,Yes
-AF17,CIF,Yes
-AF17, NUM_AFILIADO,Yes
-AF17,SUCURSAL,Yes
-AF17,Nombre_Cliente,Yes
-AF17, Short_Name,Yes
-AF18,CIF,Yes
-AF18, NUM_AFILIADO,Yes
-AF18,SUCURSAL,Yes
-AF18,Nombre_Cliente,Yes
-AF18, Short_Name,Yes
-AF19,CIF,Yes
-AF19, NUM_AFILIADO,Yes
-AF19,SUCURSAL,Yes
-AF19,Nombre_Cliente,Yes
-AF19, Short_Name,Yes
-AF20,CIF,Yes
-AF20, NUM_AFILIADO,Yes
-AF20,SUCURSAL,Yes
-AF20,Nombre_Cliente,Yes
-AF20, Short_Name,Yes
-AF21,CIF,Yes
-AF21, NUM_AFILIADO,Yes
-AF21,SUCURSAL,Yes
-AF21,Nombre_Cliente,Yes
-AF21, Short_Name,Yes
-AF22,CIF,Yes
-AF22, NUM_AFILIADO,Yes
-AF22,SUCURSAL,Yes
-AF22,Nombre_Cliente,Yes
-AF22, Short_Name,Yes
-AF23,CIF,Yes
-AF23, NUM_AFILIADO,Yes
-AF23,SUCURSAL,Yes
-AF23,Nombre_Cliente,Yes
-AF23, Short_Name,Yes
-AF24,CIF,Yes
-AF24, NUM_AFILIADO,Yes
-AF24,SUCURSAL,Yes
-AF24,Nombre_Cliente,Yes
-AF24, Short_Name,Yes
-AF25,CIF,Yes
-AF25, NUM_AFILIADO,Yes
-AF25,SUCURSAL,Yes
-AF25,Nombre_Cliente,Yes
-AF25, Short_Name,Yes
-AF26,CIF,Yes
-AF26, NUM_AFILIADO,Yes
-AF26,SUCURSAL,Yes
-AF26,Nombre_Cliente,Yes
-AF26, Short_Name,Yes
-AF27,CIF,Yes
-AF27, NUM_AFILIADO,Yes
-AF27,SUCURSAL,Yes
-AF27,Nombre_Cliente,Yes
-AF27, Short_Name,Yes
-AF28,CIF,Yes
-AF28, NUM_AFILIADO,Yes
-AF28,SUCURSAL,Yes
-AF28,Nombre_Cliente,Yes
-AF28, Short_Name,Yes
-AF29,CIF,Yes
-AF29, NUM_AFILIADO,Yes
-AF29,SUCURSAL,Yes
-AF29,Nombre_Cliente,Yes
-AF29, Short_Name,Yes
-AF30,CIF,Yes
-AF30, NUM_AFILIADO,Yes
-AF30,SUCURSAL,Yes
-AF30,Nombre_Cliente,Yes
-AF30, Short_Name,Yes
-AF31,CIF,Yes
-AF31, NUM_AFILIADO,Yes
-AF31,SUCURSAL,Yes
-AF31,Nombre_Cliente,Yes
-AF31, Short_Name,Yes
-AF32,CIF,Yes
-AF32, NUM_AFILIADO,Yes
-AF32,SUCURSAL,Yes
-AF32,Nombre_Cliente,Yes
-AF32, Short_Name,Yes
-AF33,CIF,Yes
-AF33, NUM_AFILIADO,Yes
-AF33,SUCURSAL,Yes
-AF33,Nombre_Cliente,Yes
-AF33, Short_Name,Yes
-AF33, F_Inicio,Yes
-AF33, F_Fin,Yes
-AF34,CIF,Yes
-AF34, NUM_AFILIADO,Yes
-AF34,SUCURSAL,Yes
-AF34,Nombre_Cliente,Yes
-AF34, Short_Name,Yes
-AF35,CIF,Yes
-AF35, NUM_AFILIADO,Yes
-AF35,SUCURSAL,Yes
-AF35,Nombre_Cliente,Yes
-AF35, Short_Name,Yes
-AF36,CIF,Yes
-AF36, NUM_AFILIADO,Yes
-AF36,SUCURSAL,Yes
-AF36,Nombre_Cliente,Yes
-AF36, Short_Name,Yes
-AF37,CIF,Yes
-AF37, NUM_AFILIADO,Yes
-AF37,SUCURSAL,Yes
-AF37,Nombre_Cliente,Yes
-AF37, Short_Name,Yes
-AF38,CIF,Yes
-AF38, NUM_AFILIADO,Yes
-AF38,SUCURSAL,Yes
-AF38,Nombre_Cliente,Yes
-AF38, Short_Name,Yes
-AF39,CIF,Yes
-AF39, NUM_AFILIADO,Yes
-AF39,SUCURSAL,Yes
-AF39,Nombre_Cliente,Yes
-AF39, Short_Name,Yes
-AF40,CIF,Yes
-AF40, NUM_AFILIADO,Yes
-AF40,SUCURSAL,Yes
-AF40,Nombre_Cliente,Yes
-AF40, Short_Name,Yes
-AF41,CIF,Yes
-AF41, NUM_AFILIADO,Yes
-AF41,SUCURSAL,Yes
-AF41,Nombre_Cliente,Yes
-AF41, Short_Name,Yes
-AF42,CIF,Yes
-AF42, NUM_AFILIADO,Yes
-AF42,SUCURSAL,Yes
-AF42,Nombre_Cliente,Yes
-AF42, Short_Name,Yes
-AF43,CIF,Yes
-AF43, NUM_AFILIADO,Yes
-AF43,SUCURSAL,Yes
-AF43,Nombre_Cliente,Yes
-AF43, Short_Name,Yes
-AF44,CIF,Yes
-AF44, NUM_AFILIADO,Yes
-AF44,SUCURSAL,Yes
-AF44,Nombre_Cliente,Yes
-AF44, Short_Name,Yes
-AF45,CIF,Yes
-AF45, NUM_AFILIADO,Yes
-AF45,SUCURSAL,Yes
-AF45,Nombre_Cliente,Yes
-AF45, Short_Name,Yes
-AF46,CIF,Yes
-AF46, NUM_AFILIADO,Yes
-AF46,SUCURSAL,Yes
-AF46,Nombre_Cliente,Yes
-AF46, Short_Name,Yes
-AF47,CIF,Yes
-AF47, NUM_AFILIADO,Yes
-AF47,SUCURSAL,Yes
-AF47,Nombre_Cliente,Yes
-AF47, Short_Name,Yes
-AF48,CIF,Yes
-AF48, NUM_AFILIADO,Yes
-AF48,SUCURSAL,Yes
-AF48,Nombre_Cliente,Yes
-AF48, Short_Name,Yes
+﻿IDCorto,Metadato,Requerido,CMISPropertyId
+CN01,CIF,Yes,cmcourier:BAC_CIF
+CN01,Nombre_Cliente,Yes,cmcourier:Nombre_Cliente
+CN01, Short_Name,Yes,cmcourier:Short_Name
+CN01, Fvenc_Inicio,Yes,cmcourier:Fvenc_Inicio
+CN01, Fvenc_Fin,Yes,cmcourier:Fvenc_Fin
+CN02,CIF,Yes,
+CN02,Nombre_Cliente,Yes,
+CN02, Short_Name,Yes,
+CN02, Fvenc_Inicio,Yes,
+CN02, Fvenc_Fin,Yes,
+CN03,CIF,Yes,
+CN03,Nombre_Cliente,Yes,
+CN03, Short_Name,Yes,
+CN03, Fvenc_Inicio,Yes,
+CN03, Fvenc_Fin,Yes,
+CN04,CIF,Yes,
+CN04,Nombre_Cliente,Yes,
+CN04, Short_Name,Yes,
+CN05,CIF,Yes,
+CN05,Nombre_Cliente,Yes,
+CN05, Short_Name,Yes,
+CN06,CIF,Yes,
+CN06,Nombre_Cliente,Yes,
+CN06, Short_Name,Yes,
+CN07,CIF,Yes,
+CN07,Nombre_Cliente,Yes,
+CN07, Short_Name,Yes,
+CN08,CIF,Yes,
+CN08,Nombre_Cliente,Yes,
+CN08, Short_Name,Yes,
+CN09,CIF,Yes,
+CN09,Nombre_Cliente,Yes,
+CN09, Short_Name,Yes,
+CN09, Fvenc_Inicio,Yes,
+CN09, Fvenc_Fin,Yes,
+CN10,CIF,Yes,
+CN10,Nombre_Cliente,Yes,
+CN10, Short_Name,Yes,
+CN11,CIF,Yes,
+CN11,Nombre_Cliente,Yes,
+CN11, Short_Name,Yes,
+CN12,CIF,Yes,
+CN12,Nombre_Cliente,Yes,
+CN12, Short_Name,Yes,
+CN12,CIF,Yes,
+CN12,Nombre_Cliente,Yes,
+CN12, Short_Name,Yes,
+CN14,CIF,Yes,
+CN14,Nombre_Cliente,Yes,
+CN14, Short_Name,Yes,
+CN15,CIF,Yes,
+CN15,Nombre_Cliente,Yes,
+CN15, Short_Name,Yes,
+CN16,CIF,Yes,
+CN16,Nombre_Cliente,Yes,
+CN16, Short_Name,Yes,
+CN17,CIF,Yes,
+CN17,Nombre_Cliente,Yes,
+CN17, Short_Name,Yes,
+CN17, Fecha_Firma,Yes,
+CN18,CIF,Yes,
+CN18,Nombre_Cliente,Yes,
+CN18, Short_Name,Yes,
+CN19,CIF,Yes,
+CN19,Nombre_Cliente,Yes,
+CN19, Short_Name,Yes,
+CN20,CIF,Yes,
+CN20,Nombre_Cliente,Yes,
+CN20, Short_Name,Yes,
+CN21,CIF,Yes,
+CN21,Nombre_Cliente,Yes,
+CN21, Short_Name,Yes,
+CN22,CIF,Yes,
+CN22,Nombre_Cliente,Yes,
+CN22, Short_Name,Yes,
+CN23,CIF,Yes,
+CN23,Nombre_Cliente,Yes,
+CN23, Short_Name,Yes,
+CN24,CIF,Yes,
+CN24,Nombre_Cliente,Yes,
+CN24, Short_Name,Yes,
+CN25,CIF,Yes,
+CN25,Nombre_Cliente,Yes,
+CN25, Short_Name,Yes,
+CN26,CIF,Yes,
+CN26,Nombre_Cliente,Yes,
+CN26, Short_Name,Yes,
+CN27,CIF,Yes,
+CN27,Nombre_Cliente,Yes,
+CN27, Short_Name,Yes,
+CN28,CIF,Yes,
+CN28,Nombre_Cliente,Yes,
+CN28, Short_Name,Yes,
+CJ01,CIF,Yes,
+CJ01,Nombre_Cliente,Yes,
+CJ01, Short_Name,Yes,
+CJ01, Fvenc_Inicio,Yes,
+CJ01, Fvenc_Fin,Yes,
+CJ02,CIF,Yes,
+CJ02,Nombre_Cliente,Yes,
+CJ02, Short_Name,Yes,
+CJ02, Fvenc_Inicio,Yes,
+CJ02, Fvenc_Fin,Yes,
+CJ03,CIF,Yes,
+CJ03,Nombre_Cliente,Yes,
+CJ03, Short_Name,Yes,
+CJ03, Fvenc_Inicio,Yes,
+CJ03, Fvenc_Fin,Yes,
+CJ04,CIF,Yes,
+CJ04,Nombre_Cliente,Yes,
+CJ04, Short_Name,Yes,
+CJ05,CIF,Yes,
+CJ05,Nombre_Cliente,Yes,
+CJ05, Short_Name,Yes,
+CJ05, Fvenc_Inicio,Yes,
+CJ05, Fvenc_Fin,Yes,
+CJ06,CIF,Yes,
+CJ06,Nombre_Cliente,Yes,
+CJ06, Short_Name,Yes,
+CJ07,CIF,Yes,
+CJ07,Nombre_Cliente,Yes,
+CJ07, Short_Name,Yes,
+CJ08,CIF,Yes,
+CJ08,Nombre_Cliente,Yes,
+CJ08, Short_Name,Yes,
+CJ09,CIF,Yes,
+CJ09,Nombre_Cliente,Yes,
+CJ09, Short_Name,Yes,
+CJ10,CIF,Yes,
+CJ10,Nombre_Cliente,Yes,
+CJ10, Short_Name,Yes,
+CJ11,CIF,Yes,
+CJ11,Nombre_Cliente,Yes,
+CJ11, Short_Name,Yes,
+CJ12,CIF,Yes,
+CJ12,Nombre_Cliente,Yes,
+CJ12, Short_Name,Yes,
+CJ13,CIF,Yes,
+CJ13,Nombre_Cliente,Yes,
+CJ13, Short_Name,Yes,
+CJ14,CIF,Yes,
+CJ14,Nombre_Cliente,Yes,
+CJ14, Short_Name,Yes,
+CJ15,CIF,Yes,
+CJ15,Nombre_Cliente,Yes,
+CJ15, Short_Name,Yes,
+CJ16,CIF,Yes,
+CJ16,Nombre_Cliente,Yes,
+CJ16, Short_Name,Yes,
+CJ17,CIF,Yes,
+CJ17,Nombre_Cliente,Yes,
+CJ17, Short_Name,Yes,
+CJ18,CIF,Yes,
+CJ18,Nombre_Cliente,Yes,
+CJ18, Short_Name,Yes,
+CJ19,CIF,Yes,
+CJ19,Nombre_Cliente,Yes,
+CJ19, Short_Name,Yes,
+CJ20,CIF,Yes,
+CJ20,Nombre_Cliente,Yes,
+CJ20, Short_Name,Yes,
+CJ21,CIF,Yes,
+CJ21,Nombre_Cliente,Yes,
+CJ21, Short_Name,Yes,
+CJ21, Fvenc_Inicio,Yes,
+CJ21, Fvenc_Fin,Yes,
+CJ22,CIF,Yes,
+CJ22,Nombre_Cliente,Yes,
+CJ22, Short_Name,Yes,
+CJ22, Fvenc_Inicio,Yes,
+CJ22, Fvenc_Fin,Yes,
+CJ23,CIF,Yes,
+CJ23,Nombre_Cliente,Yes,
+CJ23, Short_Name,Yes,
+CJ23, Fvenc_Inicio,Yes,
+CJ23, Fvenc_Fin,Yes,
+CJ24,CIF,Yes,
+CJ24,Nombre_Cliente,Yes,
+CJ24, Short_Name,Yes,
+CJ25,CIF,Yes,
+CJ25,Nombre_Cliente,Yes,
+CJ25, Short_Name,Yes,
+CJ26,CIF,Yes,
+CJ26,Nombre_Cliente,Yes,
+CJ26, Short_Name,Yes,
+CJ27,CIF,Yes,
+CJ27,Nombre_Cliente,Yes,
+CJ27, Short_Name,Yes,
+CJ28,CIF,Yes,
+CJ28,Nombre_Cliente,Yes,
+CJ28, Short_Name,Yes,
+CJ29,CIF,Yes,
+CJ29,Nombre_Cliente,Yes,
+CJ29, Short_Name,Yes,
+CJ30,CIF,Yes,
+CJ30,Nombre_Cliente,Yes,
+CJ30, Short_Name,Yes,
+CJ31,CIF,Yes,
+CJ31,Nombre_Cliente,Yes,
+CJ31, Short_Name,Yes,
+CJ32,CIF,Yes,
+CJ32,Nombre_Cliente,Yes,
+CJ32, Short_Name,Yes,
+CJ33,CIF,Yes,
+CJ33,Nombre_Cliente,Yes,
+CJ33, Short_Name,Yes,
+CJ34,CIF,Yes,
+CJ34,Nombre_Cliente,Yes,
+CJ34, Short_Name,Yes,
+CJ35,CIF,Yes,
+CJ35,Nombre_Cliente,Yes,
+CJ35, Short_Name,Yes,
+CJ36,CIF,Yes,
+CJ36,Nombre_Cliente,Yes,
+CJ36, Short_Name,Yes,
+CJ37,CIF,Yes,
+CJ37,Nombre_Cliente,Yes,
+CJ37, Short_Name,Yes,
+CJ38,CIF,Yes,
+CJ38,Nombre_Cliente,Yes,
+CJ38, Short_Name,Yes,
+CJ39,CIF,Yes,
+CJ39,Nombre_Cliente,Yes,
+CJ39, Short_Name,Yes,
+CJ40,CIF,Yes,
+CJ40,Nombre_Cliente,Yes,
+CJ40, Short_Name,Yes,
+CJ41,CIF,Yes,
+CJ41,Nombre_Cliente,Yes,
+CJ41, Short_Name,Yes,
+CJ42,CIF,Yes,
+CJ42,Nombre_Cliente,Yes,
+CJ42, Short_Name,Yes,
+CJ42, Fecha,Yes,
+CJ43,CIF,Yes,
+CJ43,Nombre_Cliente,Yes,
+CJ43, Short_Name,Yes,
+CJ43, Fvenc_Inicio,Yes,
+CJ43, Fvenc_Fin,Yes,
+CJ44,CIF,Yes,
+CJ44,Nombre_Cliente,Yes,
+CJ44, Short_Name,Yes,
+CJ44, Fecha,Yes,
+CJ45,CIF,Yes,
+CJ45,Nombre_Cliente,Yes,
+CJ45, Short_Name,Yes,
+CJ45, Fecha,Yes,
+CJ46,CIF,Yes,
+CJ46,Nombre_Cliente,Yes,
+CJ46, Short_Name,Yes,
+CJ46, Fecha,Yes,
+CJ47,CIF,Yes,
+CJ47,Nombre_Cliente,Yes,
+CJ47, Short_Name,Yes,
+CJ47, Fecha,Yes,
+CJ48,CIF,Yes,
+CJ48,Nombre_Cliente,Yes,
+CJ48, Short_Name,Yes,
+CJ48, Fecha,Yes,
+PT01,CIF,Yes,
+PT01, NUM_PRESTAMO,Yes,
+PT01,Nombre_Cliente,Yes,
+PT01, Short_Name,Yes,
+PT02,CIF,Yes,
+PT02, NUM_PRESTAMO,Yes,
+PT02,Nombre_Cliente,Yes,
+PT02, Short_Name,Yes,
+PT03,CIF,Yes,
+PT03, NUM_PRESTAMO,Yes,
+PT03,Nombre_Cliente,Yes,
+PT03, Short_Name,Yes,
+PT04,CIF,Yes,
+PT04, NUM_PRESTAMO,Yes,
+PT04,Nombre_Cliente,Yes,
+PT04, Short_Name,Yes,
+PT05,CIF,Yes,
+PT05, NUM_PRESTAMO,Yes,
+PT05,Nombre_Cliente,Yes,
+PT05, Short_Name,Yes,
+PT06,CIF,Yes,
+PT06, NUM_PRESTAMO,Yes,
+PT06,Nombre_Cliente,Yes,
+PT06, Short_Name,Yes,
+PT07,CIF,Yes,
+PT07, NUM_PRESTAMO,Yes,
+PT07,Nombre_Cliente,Yes,
+PT07, Short_Name,Yes,
+PT08,CIF,Yes,
+PT08, NUM_PRESTAMO,Yes,
+PT08,Nombre_Cliente,Yes,
+PT08, Short_Name,Yes,
+PT09,CIF,Yes,
+PT09, NUM_PRESTAMO,Yes,
+PT09,Nombre_Cliente,Yes,
+PT09, Short_Name,Yes,
+PT10,CIF,Yes,
+PT10, NUM_PRESTAMO,Yes,
+PT10,Nombre_Cliente,Yes,
+PT10, Short_Name,Yes,
+PT11,CIF,Yes,
+PT11, NUM_PRESTAMO,Yes,
+PT11,Nombre_Cliente,Yes,
+PT11, Short_Name,Yes,
+PT12,CIF,Yes,
+PT12, NUM_PRESTAMO,Yes,
+PT12,Nombre_Cliente,Yes,
+PT12, Short_Name,Yes,
+PT13,CIF,Yes,
+PT13, NUM_PRESTAMO,Yes,
+PT13,Nombre_Cliente,Yes,
+PT13, Short_Name,Yes,
+PT14,CIF,Yes,
+PT14, NUM_PRESTAMO,Yes,
+PT14,Nombre_Cliente,Yes,
+PT14, Short_Name,Yes,
+PT15,CIF,Yes,
+PT15, NUM_PRESTAMO,Yes,
+PT15,Nombre_Cliente,Yes,
+PT15, Short_Name,Yes,
+PT15, F_Inicio,Yes,
+PT15, F_Fin,Yes,
+PT16,CIF,Yes,
+PT16, NUM_PRESTAMO,Yes,
+PT16,Nombre_Cliente,Yes,
+PT16, Short_Name,Yes,
+PT17,CIF,Yes,
+PT17, NUM_PRESTAMO,Yes,
+PT17,Nombre_Cliente,Yes,
+PT17, Short_Name,Yes,
+PT18,CIF,Yes,
+PT18, NUM_PRESTAMO,Yes,
+PT18,Nombre_Cliente,Yes,
+PT18, Short_Name,Yes,
+PT19,CIF,Yes,
+PT19, NUM_PRESTAMO,Yes,
+PT19,Nombre_Cliente,Yes,
+PT19, Short_Name,Yes,
+PT20,CIF,Yes,
+PT20, NUM_PRESTAMO,Yes,
+PT20,Nombre_Cliente,Yes,
+PT20, Short_Name,Yes,
+PT21,CIF,Yes,
+PT21, NUM_PRESTAMO,Yes,
+PT21,Nombre_Cliente,Yes,
+PT21, Short_Name,Yes,
+PT22,CIF,Yes,
+PT22, NUM_PRESTAMO,Yes,
+PT22,Nombre_Cliente,Yes,
+PT22, Short_Name,Yes,
+PT23,CIF,Yes,
+PT23, NUM_PRESTAMO,Yes,
+PT23,Nombre_Cliente,Yes,
+PT23, Short_Name,Yes,
+PT24,CIF,Yes,
+PT24, NUM_PRESTAMO,Yes,
+PT24,Nombre_Cliente,Yes,
+PT24, Short_Name,Yes,
+PT25,CIF,Yes,
+PT25, NUM_PRESTAMO,Yes,
+PT25,Nombre_Cliente,Yes,
+PT25, Short_Name,Yes,
+PT25, Fvenc_Inicio,Yes,
+PT25, Fvenc_Fin,Yes,
+PT26,CIF,Yes,
+PT26, NUM_PRESTAMO,Yes,
+PT26,Nombre_Cliente,Yes,
+PT26, Short_Name,Yes,
+PT27,CIF,Yes,
+PT27, NUM_PRESTAMO,Yes,
+PT27,Nombre_Cliente,Yes,
+PT27, Short_Name,Yes,
+PT28,CIF,Yes,
+PT28, NUM_PRESTAMO,Yes,
+PT28,Nombre_Cliente,Yes,
+PT28, Short_Name,Yes,
+PT29,CIF,Yes,
+PT29, NUM_PRESTAMO,Yes,
+PT29,Nombre_Cliente,Yes,
+PT29, Short_Name,Yes,
+PT30,CIF,Yes,
+PT30, NUM_PRESTAMO,Yes,
+PT30,Nombre_Cliente,Yes,
+PT30, Short_Name,Yes,
+PT31,CIF,Yes,
+PT31, NUM_PRESTAMO,Yes,
+PT31,Nombre_Cliente,Yes,
+PT31, Short_Name,Yes,
+PT32,CIF,Yes,
+PT32, NUM_PRESTAMO,Yes,
+PT32,Nombre_Cliente,Yes,
+PT32, Short_Name,Yes,
+PT33,CIF,Yes,
+PT33, NUM_PRESTAMO,Yes,
+PT33,Nombre_Cliente,Yes,
+PT33, Short_Name,Yes,
+PT34,CIF,Yes,
+PT34, NUM_PRESTAMO,Yes,
+PT34,Nombre_Cliente,Yes,
+PT34, Short_Name,Yes,
+PT35,CIF,Yes,
+PT35, NUM_PRESTAMO,Yes,
+PT35,Nombre_Cliente,Yes,
+PT35, Short_Name,Yes,
+PT36,CIF,Yes,
+PT36, NUM_PRESTAMO,Yes,
+PT36,Nombre_Cliente,Yes,
+PT36, Short_Name,Yes,
+PT37,CIF,Yes,
+PT37, NUM_PRESTAMO,Yes,
+PT37,Nombre_Cliente,Yes,
+PT37, Short_Name,Yes,
+PT38,CIF,Yes,
+PT38, NUM_PRESTAMO,Yes,
+PT38,Nombre_Cliente,Yes,
+PT38, Short_Name,Yes,
+PT39,CIF,Yes,
+PT39, NUM_PRESTAMO,Yes,
+PT39,Nombre_Cliente,Yes,
+PT39, Short_Name,Yes,
+PT40,CIF,Yes,
+PT40, NUM_PRESTAMO,Yes,
+PT40,Nombre_Cliente,Yes,
+PT40, Short_Name,Yes,
+PT41,CIF,Yes,
+PT41, NUM_PRESTAMO,Yes,
+PT41,Nombre_Cliente,Yes,
+PT41, Short_Name,Yes,
+PT42,CIF,Yes,
+PT42, NUM_PRESTAMO,Yes,
+PT42,Nombre_Cliente,Yes,
+PT42, Short_Name,Yes,
+PT43,CIF,Yes,
+PT43, NUM_PRESTAMO,Yes,
+PT43,Nombre_Cliente,Yes,
+PT43, Short_Name,Yes,
+PT44,CIF,Yes,
+PT44, NUM_PRESTAMO,Yes,
+PT44,Nombre_Cliente,Yes,
+PT44, Short_Name,Yes,
+PT44, F_Inicio,Yes,
+PT44, F_Fin,Yes,
+PT45,CIF,Yes,
+PT45, NUM_PRESTAMO,Yes,
+PT45,Nombre_Cliente,Yes,
+PT45, Short_Name,Yes,
+PT46,CIF,Yes,
+PT46, NUM_PRESTAMO,Yes,
+PT46,Nombre_Cliente,Yes,
+PT46, Short_Name,Yes,
+PT47,CIF,Yes,
+PT47, NUM_PRESTAMO,Yes,
+PT47,Nombre_Cliente,Yes,
+PT47, Short_Name,Yes,
+PT48,CIF,Yes,
+PT48, NUM_PRESTAMO,Yes,
+PT48,Nombre_Cliente,Yes,
+PT48, Short_Name,Yes,
+PT49,CIF,Yes,
+PT49, NUM_PRESTAMO,Yes,
+PT49,Nombre_Cliente,Yes,
+PT49, Short_Name,Yes,
+PT50,CIF,Yes,
+PT50, NUM_PRESTAMO,Yes,
+PT50,Nombre_Cliente,Yes,
+PT50, Short_Name,Yes,
+PT51,CIF,Yes,
+PT51, NUM_PRESTAMO,Yes,
+PT51,Nombre_Cliente,Yes,
+PT51, Short_Name,Yes,
+PT52,CIF,Yes,
+PT52, NUM_PRESTAMO,Yes,
+PT52,Nombre_Cliente,Yes,
+PT52, Short_Name,Yes,
+PT53,CIF,Yes,
+PT53, NUM_PRESTAMO,Yes,
+PT53,Nombre_Cliente,Yes,
+PT53, Short_Name,Yes,
+PT54,CIF,Yes,
+PT54, NUM_PRESTAMO,Yes,
+PT54,Nombre_Cliente,Yes,
+PT54, Short_Name,Yes,
+PT55,CIF,Yes,
+PT55, NUM_PRESTAMO,Yes,
+PT55,Nombre_Cliente,Yes,
+PT55, Short_Name,Yes,
+PT56,CIF,Yes,
+PT56, NUM_PRESTAMO,Yes,
+PT56,Nombre_Cliente,Yes,
+PT56, Short_Name,Yes,
+HP01,CIF,Yes,
+HP01, NUM_PRESTAMO,Yes,
+HP01,Nombre_Cliente,Yes,
+HP01, Short_Name,Yes,
+HF02,CIF,Yes,
+HF02, NUM_PRESTAMO,Yes,
+HF02,Nombre_Cliente,Yes,
+HF02, Short_Name,Yes,
+HP03,CIF,Yes,
+HP03, NUM_PRESTAMO,Yes,
+HP03,Nombre_Cliente,Yes,
+HP03, Short_Name,Yes,
+HP04,CIF,Yes,
+HP04, NUM_PRESTAMO,Yes,
+HP04,Nombre_Cliente,Yes,
+HP04, Short_Name,Yes,
+HP05,CIF,Yes,
+HP05, NUM_PRESTAMO,Yes,
+HP05,Nombre_Cliente,Yes,
+HP05, Short_Name,Yes,
+HP06,CIF,Yes,
+HP06, NUM_PRESTAMO,Yes,
+HP06,Nombre_Cliente,Yes,
+HP06, Short_Name,Yes,
+HP07,CIF,Yes,
+HP07, NUM_PRESTAMO,Yes,
+HP07,Nombre_Cliente,Yes,
+HP07, Short_Name,Yes,
+HP08,CIF,Yes,
+HP08, NUM_PRESTAMO,Yes,
+HP08,Nombre_Cliente,Yes,
+HP08, Short_Name,Yes,
+HP09,CIF,Yes,
+HP09, NUM_PRESTAMO,Yes,
+HP09,Nombre_Cliente,Yes,
+HP09, Short_Name,Yes,
+HP10,CIF,Yes,
+HP10, NUM_PRESTAMO,Yes,
+HP10,Nombre_Cliente,Yes,
+HP10, Short_Name,Yes,
+HP11,CIF,Yes,
+HP11, NUM_PRESTAMO,Yes,
+HP11,Nombre_Cliente,Yes,
+HP11, Short_Name,Yes,
+HP12,CIF,Yes,
+HP12, NUM_PRESTAMO,Yes,
+HP12,Nombre_Cliente,Yes,
+HP12, Short_Name,Yes,
+HP13,CIF,Yes,
+HP13, NUM_PRESTAMO,Yes,
+HP13,Nombre_Cliente,Yes,
+HP13, Short_Name,Yes,
+HP14,CIF,Yes,
+HP14, NUM_PRESTAMO,Yes,
+HP14,Nombre_Cliente,Yes,
+HP14, Short_Name,Yes,
+HP15,CIF,Yes,
+HP15, NUM_PRESTAMO,Yes,
+HP15,Nombre_Cliente,Yes,
+HP15, Short_Name,Yes,
+HP16,CIF,Yes,
+HP16, NUM_PRESTAMO,Yes,
+HP16,Nombre_Cliente,Yes,
+HP16, Short_Name,Yes,
+HP17,CIF,Yes,
+HP17, NUM_PRESTAMO,Yes,
+HP17,Nombre_Cliente,Yes,
+HP17, Short_Name,Yes,
+HP18,CIF,Yes,
+HP18, NUM_PRESTAMO,Yes,
+HP18,Nombre_Cliente,Yes,
+HP18, Short_Name,Yes,
+HP19,CIF,Yes,
+HP19, NUM_PRESTAMO,Yes,
+HP19,Nombre_Cliente,Yes,
+HP19, Short_Name,Yes,
+HP20,CIF,Yes,
+HP20, NUM_PRESTAMO,Yes,
+HP20,Nombre_Cliente,Yes,
+HP20, Short_Name,Yes,
+HP21,CIF,Yes,
+HP21, NUM_PRESTAMO,Yes,
+HP21,Nombre_Cliente,Yes,
+HP21, Short_Name,Yes,
+HP22,CIF,Yes,
+HP22, NUM_PRESTAMO,Yes,
+HP22,Nombre_Cliente,Yes,
+HP22, Short_Name,Yes,
+CO01,CIF,Yes,
+CO01, NUM_PRESTAMO,Yes,
+CO01,Nombre_Cliente,Yes,
+CO01, Short_Name,Yes,
+CO02,CIF,Yes,
+CO02, NUM_PRESTAMO,Yes,
+CO02,Nombre_Cliente,Yes,
+CO02, Short_Name,Yes,
+CO03,CIF,Yes,
+CO03, NUM_PRESTAMO,Yes,
+CO03,Nombre_Cliente,Yes,
+CO03, Short_Name,Yes,
+CO04,CIF,Yes,
+CO04, NUM_PRESTAMO,Yes,
+CO04,Nombre_Cliente,Yes,
+CO04, Short_Name,Yes,
+CO05,CIF,Yes,
+CO05, NUM_PRESTAMO,Yes,
+CO05,Nombre_Cliente,Yes,
+CO05, Short_Name,Yes,
+CO06,CIF,Yes,
+CO06, NUM_PRESTAMO,Yes,
+CO06,Nombre_Cliente,Yes,
+CO06, Short_Name,Yes,
+CO07,CIF,Yes,
+CO07, NUM_PRESTAMO,Yes,
+CO07,Nombre_Cliente,Yes,
+CO07, Short_Name,Yes,
+CO08,CIF,Yes,
+CO08, NUM_PRESTAMO,Yes,
+CO08,Nombre_Cliente,Yes,
+CO08, Short_Name,Yes,
+CO09,CIF,Yes,
+CO09, NUM_PRESTAMO,Yes,
+CO09,Nombre_Cliente,Yes,
+CO09, Short_Name,Yes,
+CO10,CIF,Yes,
+CO10, NUM_PRESTAMO,Yes,
+CO10,Nombre_Cliente,Yes,
+CO10, Short_Name,Yes,
+CO11,CIF,Yes,
+CO11, NUM_PRESTAMO,Yes,
+CO11,Nombre_Cliente,Yes,
+CO11, Short_Name,Yes,
+CO12,CIF,Yes,
+CO12, NUM_PRESTAMO,Yes,
+CO12,Nombre_Cliente,Yes,
+CO12, Short_Name,Yes,
+CO13,CIF,Yes,
+CO13, NUM_PRESTAMO,Yes,
+CO13,Nombre_Cliente,Yes,
+CO13, Short_Name,Yes,
+CO14,CIF,Yes,
+CO14, NUM_PRESTAMO,Yes,
+CO14,Nombre_Cliente,Yes,
+CO14, Short_Name,Yes,
+CO15,CIF,Yes,
+CO15, NUM_PRESTAMO,Yes,
+CO15,Nombre_Cliente,Yes,
+CO15, Short_Name,Yes,
+CO16,CIF,Yes,
+CO16, NUM_PRESTAMO,Yes,
+CO16,Nombre_Cliente,Yes,
+CO16, Short_Name,Yes,
+CO17,CIF,Yes,
+CO17, NUM_PRESTAMO,Yes,
+CO17,Nombre_Cliente,Yes,
+CO17, Short_Name,Yes,
+CO18,CIF,Yes,
+CO18, NUM_PRESTAMO,Yes,
+CO18,Nombre_Cliente,Yes,
+CO18, Short_Name,Yes,
+CO18, F_Inicio,Yes,
+CO18, F_Fin,Yes,
+CO19,CIF,Yes,
+CO19, NUM_PRESTAMO,Yes,
+CO19,Nombre_Cliente,Yes,
+CO19, Short_Name,Yes,
+CO20,CIF,Yes,
+CO20, NUM_PRESTAMO,Yes,
+CO20,Nombre_Cliente,Yes,
+CO20, Short_Name,Yes,
+CO21,CIF,Yes,
+CO21, NUM_PRESTAMO,Yes,
+CO21,Nombre_Cliente,Yes,
+CO21, Short_Name,Yes,
+CO22,CIF,Yes,
+CO22, NUM_PRESTAMO,Yes,
+CO22,Nombre_Cliente,Yes,
+CO22, Short_Name,Yes,
+CO23,CIF,Yes,
+CO23, NUM_PRESTAMO,Yes,
+CO23,Nombre_Cliente,Yes,
+CO23, Short_Name,Yes,
+CO24,CIF,Yes,
+CO24, NUM_PRESTAMO,Yes,
+CO24,Nombre_Cliente,Yes,
+CO24, Short_Name,Yes,
+CO25,CIF,Yes,
+CO25, NUM_PRESTAMO,Yes,
+CO25,Nombre_Cliente,Yes,
+CO25, Short_Name,Yes,
+CO26,CIF,Yes,
+CO26, NUM_PRESTAMO,Yes,
+CO26,Nombre_Cliente,Yes,
+CO26, Short_Name,Yes,
+CO27,CIF,Yes,
+CO27, NUM_PRESTAMO,Yes,
+CO27,Nombre_Cliente,Yes,
+CO27, Short_Name,Yes,
+CO28,CIF,Yes,
+CO28, NUM_PRESTAMO,Yes,
+CO28,Nombre_Cliente,Yes,
+CO28, Short_Name,Yes,
+CO29,CIF,Yes,
+CO29, NUM_PRESTAMO,Yes,
+CO29,Nombre_Cliente,Yes,
+CO29, Short_Name,Yes,
+CO30,CIF,Yes,
+CO30, NUM_PRESTAMO,Yes,
+CO30,Nombre_Cliente,Yes,
+CO30, Short_Name,Yes,
+CO31,CIF,Yes,
+CO31, NUM_PRESTAMO,Yes,
+CO31,Nombre_Cliente,Yes,
+CO31, Short_Name,Yes,
+CO32,CIF,Yes,
+CO32, NUM_PRESTAMO,Yes,
+CO32,Nombre_Cliente,Yes,
+CO32, Short_Name,Yes,
+CO33,CIF,Yes,
+CO33, NUM_PRESTAMO,Yes,
+CO33,Nombre_Cliente,Yes,
+CO33, Short_Name,Yes,
+CO34,CIF,Yes,
+CO34, NUM_PRESTAMO,Yes,
+CO34,Nombre_Cliente,Yes,
+CO34, Short_Name,Yes,
+CO35,CIF,Yes,
+CO35, NUM_PRESTAMO,Yes,
+CO35,Nombre_Cliente,Yes,
+CO35, Short_Name,Yes,
+CO36,CIF,Yes,
+CO36, NUM_PRESTAMO,Yes,
+CO36,Nombre_Cliente,Yes,
+CO36, Short_Name,Yes,
+CO37,CIF,Yes,
+CO37, NUM_PRESTAMO,Yes,
+CO37,Nombre_Cliente,Yes,
+CO37, Short_Name,Yes,
+CO38,CIF,Yes,
+CO38, NUM_PRESTAMO,Yes,
+CO38,Nombre_Cliente,Yes,
+CO38, Short_Name,Yes,
+PT57,CIF,Yes,
+PT57, NUM_CUENTA_TARJETA,Yes,
+PT57,Nombre_Cliente,Yes,
+PT57, Short_Name,Yes,
+PT58,CIF,Yes,
+PT58, NUM_CUENTA_TARJETA,Yes,
+PT58,Nombre_Cliente,Yes,
+PT58, Short_Name,Yes,
+PT59,CIF,Yes,
+PT59, NUM_CUENTA_TARJETA,Yes,
+PT59,Nombre_Cliente,Yes,
+PT59, Short_Name,Yes,
+PT60,CIF,Yes,
+PT60, NUM_CUENTA_TARJETA,Yes,
+PT60,Nombre_Cliente,Yes,
+PT60, Short_Name,Yes,
+PT61,CIF,Yes,
+PT61, NUM_CUENTA_TARJETA,Yes,
+PT61,Nombre_Cliente,Yes,
+PT61, Short_Name,Yes,
+PT62,CIF,Yes,
+PT62, NUM_CUENTA_TARJETA,Yes,
+PT62,Nombre_Cliente,Yes,
+PT62, Short_Name,Yes,
+PT63,CIF,Yes,
+PT63, NUM_CUENTA_TARJETA,Yes,
+PT63,Nombre_Cliente,Yes,
+PT63, Short_Name,Yes,
+PT64,CIF,Yes,
+PT64, NUM_CUENTA_TARJETA,Yes,
+PT64,Nombre_Cliente,Yes,
+PT64, Short_Name,Yes,
+PT65,CIF,Yes,
+PT65, NUM_CUENTA_TARJETA,Yes,
+PT65,Nombre_Cliente,Yes,
+PT65, Short_Name,Yes,
+PT66,CIF,Yes,
+PT66, NUM_CUENTA_TARJETA,Yes,
+PT66,Nombre_Cliente,Yes,
+PT66, Short_Name,Yes,
+PT67,CIF,Yes,
+PT67, NUM_CUENTA_TARJETA,Yes,
+PT67,Nombre_Cliente,Yes,
+PT67, Short_Name,Yes,
+PT68,CIF,Yes,
+PT68, NUM_CUENTA_TARJETA,Yes,
+PT68,Nombre_Cliente,Yes,
+PT68, Short_Name,Yes,
+PT69,CIF,Yes,
+PT69, NUM_CUENTA_TARJETA,Yes,
+PT69,Nombre_Cliente,Yes,
+PT69, Short_Name,Yes,
+PT70,CIF,Yes,
+PT70, NUM_CUENTA_TARJETA,Yes,
+PT70,Nombre_Cliente,Yes,
+PT70, Short_Name,Yes,
+PT71,CIF,Yes,
+PT71, NUM_CUENTA_TARJETA,Yes,
+PT71,Nombre_Cliente,Yes,
+PT71, Short_Name,Yes,
+PT71, F_Inicio,Yes,
+PT71, F_Fin,Yes,
+PT72,CIF,Yes,
+PT72, NUM_CUENTA_TARJETA,Yes,
+PT72,Nombre_Cliente,Yes,
+PT72, Short_Name,Yes,
+PT73,CIF,Yes,
+PT73, NUM_CUENTA_TARJETA,Yes,
+PT73,Nombre_Cliente,Yes,
+PT73, Short_Name,Yes,
+PT74,CIF,Yes,
+PT74, NUM_CUENTA_TARJETA,Yes,
+PT74,Nombre_Cliente,Yes,
+PT74, Short_Name,Yes,
+PT75,CIF,Yes,
+PT75, NUM_CUENTA_TARJETA,Yes,
+PT75,Nombre_Cliente,Yes,
+PT75, Short_Name,Yes,
+PT76,CIF,Yes,
+PT76, NUM_CUENTA_TARJETA,Yes,
+PT76,Nombre_Cliente,Yes,
+PT76, Short_Name,Yes,
+PT77,CIF,Yes,
+PT77, NUM_CUENTA_TARJETA,Yes,
+PT77,Nombre_Cliente,Yes,
+PT77, Short_Name,Yes,
+PT78,CIF,Yes,
+PT78, NUM_CUENTA_TARJETA,Yes,
+PT78,Nombre_Cliente,Yes,
+PT78, Short_Name,Yes,
+PT79,CIF,Yes,
+PT79, NUM_CUENTA_TARJETA,Yes,
+PT79,Nombre_Cliente,Yes,
+PT79, Short_Name,Yes,
+PT80,CIF,Yes,
+PT80, NUM_CUENTA_TARJETA,Yes,
+PT80,Nombre_Cliente,Yes,
+PT80, Short_Name,Yes,
+PT81,CIF,Yes,
+PT81, NUM_CUENTA_TARJETA,Yes,
+PT81,Nombre_Cliente,Yes,
+PT81, Short_Name,Yes,
+PT82,CIF,Yes,
+PT82, NUM_CUENTA_TARJETA,Yes,
+PT82,Nombre_Cliente,Yes,
+PT82, Short_Name,Yes,
+PT83,CIF,Yes,
+PT83, NUM_CUENTA_TARJETA,Yes,
+PT83,Nombre_Cliente,Yes,
+PT83, Short_Name,Yes,
+PT84,CIF,Yes,
+PT84, NUM_CUENTA_TARJETA,Yes,
+PT84,Nombre_Cliente,Yes,
+PT84, Short_Name,Yes,
+PT85,CIF,Yes,
+PT85, NUM_CUENTA_TARJETA,Yes,
+PT85,Nombre_Cliente,Yes,
+PT85, Short_Name,Yes,
+PT86,CIF,Yes,
+PT86, NUM_CUENTA_TARJETA,Yes,
+PT86,Nombre_Cliente,Yes,
+PT86, Short_Name,Yes,
+PT87,CIF,Yes,
+PT87, NUM_CUENTA_TARJETA,Yes,
+PT87,Nombre_Cliente,Yes,
+PT87, Short_Name,Yes,
+PT88,CIF,Yes,
+PT88, NUM_CUENTA_TARJETA,Yes,
+PT88,Nombre_Cliente,Yes,
+PT88, Short_Name,Yes,
+PT89,CIF,Yes,
+PT89, NUM_CUENTA_TARJETA,Yes,
+PT89,Nombre_Cliente,Yes,
+PT89, Short_Name,Yes,
+BN01,CIF,Yes,
+BN01, NUM_CTA,Yes,
+BN01,Nombre_Cliente,Yes,
+BN01, Short_Name,Yes,
+BN01, Fecha_Firma,Yes,
+BN02,CIF,Yes,
+BN02, NUM_CTA,Yes,
+BN02,Nombre_Cliente,Yes,
+BN02, Short_Name,Yes,
+BN02, Fecha_Firma,Yes,
+BN03,CIF,Yes,
+BN03, NUM_CTA,Yes,
+BN03,Nombre_Cliente,Yes,
+BN03, Short_Name,Yes,
+BN04,CIF,Yes,
+BN04, NUM_CTA,Yes,
+BN04,Nombre_Cliente,Yes,
+BN04, Short_Name,Yes,
+BN05,CIF,Yes,
+BN05, NUM_CTA,Yes,
+BN05,Nombre_Cliente,Yes,
+BN05, Short_Name,Yes,
+BN06,CIF,Yes,
+BN06, NUM_CTA,Yes,
+BN06,Nombre_Cliente,Yes,
+BN06, Short_Name,Yes,
+BN07,CIF,Yes,
+BN07, NUM_CTA,Yes,
+BN07,Nombre_Cliente,Yes,
+BN07, Short_Name,Yes,
+BN08,CIF,Yes,
+BN08, NUM_CTA,Yes,
+BN08,Nombre_Cliente,Yes,
+BN08, Short_Name,Yes,
+BN10,CIF,Yes,
+BN10, NUM_CTA,Yes,
+BN10,Nombre_Cliente,Yes,
+BN10, Short_Name,Yes,
+BN11,CIF,Yes,
+BN11, NUM_CTA,Yes,
+BN11,Nombre_Cliente,Yes,
+BN11, Short_Name,Yes,
+BN12,CIF,Yes,
+BN12, NUM_CTA,Yes,
+BN12,Nombre_Cliente,Yes,
+BN12, Short_Name,Yes,
+BN13,CIF,Yes,
+BN13, NUM_CTA,Yes,
+BN13,Nombre_Cliente,Yes,
+BN13, Short_Name,Yes,
+BN15,CIF,Yes,
+BN15, NUM_CTA,Yes,
+BN15,Nombre_Cliente,Yes,
+BN15, Short_Name,Yes,
+BN16,CIF,Yes,
+BN16, NUM_CTA,Yes,
+BN16,Nombre_Cliente,Yes,
+BN16, Short_Name,Yes,
+BN17,CIF,Yes,
+BN17, NUM_CTA,Yes,
+BN17,Nombre_Cliente,Yes,
+BN17, Short_Name,Yes,
+BN18,CIF,Yes,
+BN18, NUM_CTA,Yes,
+BN18,Nombre_Cliente,Yes,
+BN18, Short_Name,Yes,
+BN18, F_Inicio,Yes,
+BN18, F_Fin,Yes,
+BN19,CIF,Yes,
+BN19, NUM_CTA,Yes,
+BN19,Nombre_Cliente,Yes,
+BN19, Short_Name,Yes,
+BN20,CIF,Yes,
+BN20, NUM_CTA,Yes,
+BN20,Nombre_Cliente,Yes,
+BN20, Short_Name,Yes,
+BN21,CIF,Yes,
+BN21, NUM_CTA,Yes,
+BN21,Nombre_Cliente,Yes,
+BN21, Short_Name,Yes,
+BN22,CIF,Yes,
+BN22, NUM_CTA,Yes,
+BN22,Nombre_Cliente,Yes,
+BN22, Short_Name,Yes,
+BN23,CIF,Yes,
+BN23, NUM_CTA,Yes,
+BN23,Nombre_Cliente,Yes,
+BN23, Short_Name,Yes,
+BN24,CIF,Yes,
+BN24, NUM_CTA,Yes,
+BN24,Nombre_Cliente,Yes,
+BN24, Short_Name,Yes,
+BN25,CIF,Yes,
+BN25, NUM_CTA,Yes,
+BN25,Nombre_Cliente,Yes,
+BN25, Short_Name,Yes,
+BN26,CIF,Yes,
+BN26, NUM_CTA,Yes,
+BN26,Nombre_Cliente,Yes,
+BN26, Short_Name,Yes,
+BN27,CIF,Yes,
+BN27, NUM_CTA,Yes,
+BN27,Nombre_Cliente,Yes,
+BN27, Short_Name,Yes,
+BN28,CIF,Yes,
+BN28, NUM_CTA,Yes,
+BN28,Nombre_Cliente,Yes,
+BN28, Short_Name,Yes,
+BN29,CIF,Yes,
+BN29, NUM_CTA,Yes,
+BN29,Nombre_Cliente,Yes,
+BN29, Short_Name,Yes,
+BN30,CIF,Yes,
+BN30, NUM_CTA,Yes,
+BN30,Nombre_Cliente,Yes,
+BN30, Short_Name,Yes,
+BN31,CIF,Yes,
+BN31, NUM_CTA,Yes,
+BN31,Nombre_Cliente,Yes,
+BN31, Short_Name,Yes,
+BN32,CIF,Yes,
+BN32, NUM_CTA,Yes,
+BN32,Nombre_Cliente,Yes,
+BN32, Short_Name,Yes,
+AF01,CIF,Yes,
+AF01, NUM_AFILIADO,Yes,
+AF01,SUCURSAL,Yes,
+AF01,Nombre_Cliente,Yes,
+AF01, Short_Name,Yes,
+AF02,CIF,Yes,
+AF02, NUM_AFILIADO,Yes,
+AF02,SUCURSAL,Yes,
+AF02,Nombre_Cliente,Yes,
+AF02, Short_Name,Yes,
+AF03,CIF,Yes,
+AF03, NUM_AFILIADO,Yes,
+AF03,SUCURSAL,Yes,
+AF03,Nombre_Cliente,Yes,
+AF03, Short_Name,Yes,
+AF04,CIF,Yes,
+AF04, NUM_AFILIADO,Yes,
+AF04,SUCURSAL,Yes,
+AF04,Nombre_Cliente,Yes,
+AF04, Short_Name,Yes,
+AF05,CIF,Yes,
+AF05, NUM_AFILIADO,Yes,
+AF05,SUCURSAL,Yes,
+AF05,Nombre_Cliente,Yes,
+AF05, Short_Name,Yes,
+AF06,CIF,Yes,
+AF06, NUM_AFILIADO,Yes,
+AF06,SUCURSAL,Yes,
+AF06,Nombre_Cliente,Yes,
+AF06, Short_Name,Yes,
+AF07,CIF,Yes,
+AF07, NUM_AFILIADO,Yes,
+AF07,SUCURSAL,Yes,
+AF07,Nombre_Cliente,Yes,
+AF07, Short_Name,Yes,
+AF08,CIF,Yes,
+AF08, NUM_AFILIADO,Yes,
+AF08,SUCURSAL,Yes,
+AF08,Nombre_Cliente,Yes,
+AF08, Short_Name,Yes,
+AF09,CIF,Yes,
+AF09, NUM_AFILIADO,Yes,
+AF09,SUCURSAL,Yes,
+AF09,Nombre_Cliente,Yes,
+AF09, Short_Name,Yes,
+AF10,CIF,Yes,
+AF10, NUM_AFILIADO,Yes,
+AF10,SUCURSAL,Yes,
+AF10,Nombre_Cliente,Yes,
+AF10, Short_Name,Yes,
+AF11,CIF,Yes,
+AF11, NUM_AFILIADO,Yes,
+AF11,SUCURSAL,Yes,
+AF11,Nombre_Cliente,Yes,
+AF11, Short_Name,Yes,
+AF12,CIF,Yes,
+AF12, NUM_AFILIADO,Yes,
+AF12,SUCURSAL,Yes,
+AF12,Nombre_Cliente,Yes,
+AF12, Short_Name,Yes,
+AF13,CIF,Yes,
+AF13, NUM_AFILIADO,Yes,
+AF13,SUCURSAL,Yes,
+AF13,Nombre_Cliente,Yes,
+AF13, Short_Name,Yes,
+AF14,CIF,Yes,
+AF14, NUM_AFILIADO,Yes,
+AF14,SUCURSAL,Yes,
+AF14,Nombre_Cliente,Yes,
+AF14, Short_Name,Yes,
+AF15,CIF,Yes,
+AF15, NUM_AFILIADO,Yes,
+AF15,SUCURSAL,Yes,
+AF15,Nombre_Cliente,Yes,
+AF15, Short_Name,Yes,
+AF16,CIF,Yes,
+AF16, NUM_AFILIADO,Yes,
+AF16,SUCURSAL,Yes,
+AF16,Nombre_Cliente,Yes,
+AF16, Short_Name,Yes,
+AF17,CIF,Yes,
+AF17, NUM_AFILIADO,Yes,
+AF17,SUCURSAL,Yes,
+AF17,Nombre_Cliente,Yes,
+AF17, Short_Name,Yes,
+AF18,CIF,Yes,
+AF18, NUM_AFILIADO,Yes,
+AF18,SUCURSAL,Yes,
+AF18,Nombre_Cliente,Yes,
+AF18, Short_Name,Yes,
+AF19,CIF,Yes,
+AF19, NUM_AFILIADO,Yes,
+AF19,SUCURSAL,Yes,
+AF19,Nombre_Cliente,Yes,
+AF19, Short_Name,Yes,
+AF20,CIF,Yes,
+AF20, NUM_AFILIADO,Yes,
+AF20,SUCURSAL,Yes,
+AF20,Nombre_Cliente,Yes,
+AF20, Short_Name,Yes,
+AF21,CIF,Yes,
+AF21, NUM_AFILIADO,Yes,
+AF21,SUCURSAL,Yes,
+AF21,Nombre_Cliente,Yes,
+AF21, Short_Name,Yes,
+AF22,CIF,Yes,
+AF22, NUM_AFILIADO,Yes,
+AF22,SUCURSAL,Yes,
+AF22,Nombre_Cliente,Yes,
+AF22, Short_Name,Yes,
+AF23,CIF,Yes,
+AF23, NUM_AFILIADO,Yes,
+AF23,SUCURSAL,Yes,
+AF23,Nombre_Cliente,Yes,
+AF23, Short_Name,Yes,
+AF24,CIF,Yes,
+AF24, NUM_AFILIADO,Yes,
+AF24,SUCURSAL,Yes,
+AF24,Nombre_Cliente,Yes,
+AF24, Short_Name,Yes,
+AF25,CIF,Yes,
+AF25, NUM_AFILIADO,Yes,
+AF25,SUCURSAL,Yes,
+AF25,Nombre_Cliente,Yes,
+AF25, Short_Name,Yes,
+AF26,CIF,Yes,
+AF26, NUM_AFILIADO,Yes,
+AF26,SUCURSAL,Yes,
+AF26,Nombre_Cliente,Yes,
+AF26, Short_Name,Yes,
+AF27,CIF,Yes,
+AF27, NUM_AFILIADO,Yes,
+AF27,SUCURSAL,Yes,
+AF27,Nombre_Cliente,Yes,
+AF27, Short_Name,Yes,
+AF28,CIF,Yes,
+AF28, NUM_AFILIADO,Yes,
+AF28,SUCURSAL,Yes,
+AF28,Nombre_Cliente,Yes,
+AF28, Short_Name,Yes,
+AF29,CIF,Yes,
+AF29, NUM_AFILIADO,Yes,
+AF29,SUCURSAL,Yes,
+AF29,Nombre_Cliente,Yes,
+AF29, Short_Name,Yes,
+AF30,CIF,Yes,
+AF30, NUM_AFILIADO,Yes,
+AF30,SUCURSAL,Yes,
+AF30,Nombre_Cliente,Yes,
+AF30, Short_Name,Yes,
+AF31,CIF,Yes,
+AF31, NUM_AFILIADO,Yes,
+AF31,SUCURSAL,Yes,
+AF31,Nombre_Cliente,Yes,
+AF31, Short_Name,Yes,
+AF32,CIF,Yes,
+AF32, NUM_AFILIADO,Yes,
+AF32,SUCURSAL,Yes,
+AF32,Nombre_Cliente,Yes,
+AF32, Short_Name,Yes,
+AF33,CIF,Yes,
+AF33, NUM_AFILIADO,Yes,
+AF33,SUCURSAL,Yes,
+AF33,Nombre_Cliente,Yes,
+AF33, Short_Name,Yes,
+AF33, F_Inicio,Yes,
+AF33, F_Fin,Yes,
+AF34,CIF,Yes,
+AF34, NUM_AFILIADO,Yes,
+AF34,SUCURSAL,Yes,
+AF34,Nombre_Cliente,Yes,
+AF34, Short_Name,Yes,
+AF35,CIF,Yes,
+AF35, NUM_AFILIADO,Yes,
+AF35,SUCURSAL,Yes,
+AF35,Nombre_Cliente,Yes,
+AF35, Short_Name,Yes,
+AF36,CIF,Yes,
+AF36, NUM_AFILIADO,Yes,
+AF36,SUCURSAL,Yes,
+AF36,Nombre_Cliente,Yes,
+AF36, Short_Name,Yes,
+AF37,CIF,Yes,
+AF37, NUM_AFILIADO,Yes,
+AF37,SUCURSAL,Yes,
+AF37,Nombre_Cliente,Yes,
+AF37, Short_Name,Yes,
+AF38,CIF,Yes,
+AF38, NUM_AFILIADO,Yes,
+AF38,SUCURSAL,Yes,
+AF38,Nombre_Cliente,Yes,
+AF38, Short_Name,Yes,
+AF39,CIF,Yes,
+AF39, NUM_AFILIADO,Yes,
+AF39,SUCURSAL,Yes,
+AF39,Nombre_Cliente,Yes,
+AF39, Short_Name,Yes,
+AF40,CIF,Yes,
+AF40, NUM_AFILIADO,Yes,
+AF40,SUCURSAL,Yes,
+AF40,Nombre_Cliente,Yes,
+AF40, Short_Name,Yes,
+AF41,CIF,Yes,
+AF41, NUM_AFILIADO,Yes,
+AF41,SUCURSAL,Yes,
+AF41,Nombre_Cliente,Yes,
+AF41, Short_Name,Yes,
+AF42,CIF,Yes,
+AF42, NUM_AFILIADO,Yes,
+AF42,SUCURSAL,Yes,
+AF42,Nombre_Cliente,Yes,
+AF42, Short_Name,Yes,
+AF43,CIF,Yes,
+AF43, NUM_AFILIADO,Yes,
+AF43,SUCURSAL,Yes,
+AF43,Nombre_Cliente,Yes,
+AF43, Short_Name,Yes,
+AF44,CIF,Yes,
+AF44, NUM_AFILIADO,Yes,
+AF44,SUCURSAL,Yes,
+AF44,Nombre_Cliente,Yes,
+AF44, Short_Name,Yes,
+AF45,CIF,Yes,
+AF45, NUM_AFILIADO,Yes,
+AF45,SUCURSAL,Yes,
+AF45,Nombre_Cliente,Yes,
+AF45, Short_Name,Yes,
+AF46,CIF,Yes,
+AF46, NUM_AFILIADO,Yes,
+AF46,SUCURSAL,Yes,
+AF46,Nombre_Cliente,Yes,
+AF46, Short_Name,Yes,
+AF47,CIF,Yes,
+AF47, NUM_AFILIADO,Yes,
+AF47,SUCURSAL,Yes,
+AF47,Nombre_Cliente,Yes,
+AF47, Short_Name,Yes,
+AF48,CIF,Yes,
+AF48, NUM_AFILIADO,Yes,
+AF48,SUCURSAL,Yes,
+AF48,Nombre_Cliente,Yes,
+AF48, Short_Name,Yes,

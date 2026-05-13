@@ -368,9 +368,11 @@ def _mapping_columns_from_schema(model: MappingConfigModel) -> MappingColumnsCon
         col_rvi_cm_id_cm=model.rvi_cm_id_cm_column,
         col_rvi_cm_clase_id=model.rvi_cm_clase_id_column,
         col_rvi_cm_cmis_type=model.rvi_cm_cmis_type_column,
+        col_rvi_cm_cmis_folder=model.rvi_cm_cmis_folder_column,
         col_metadatos_id_corto=model.metadatos_id_corto_column,
         col_metadatos_metadata=model.metadatos_metadata_column,
         col_metadatos_required=model.metadatos_required_column,
+        col_metadatos_cmis_property_id=model.metadatos_cmis_property_id_column,
         required_marker=model.required_marker,
     )
 

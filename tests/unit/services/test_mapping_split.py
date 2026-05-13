@@ -230,3 +230,142 @@ class TestSplitModeColumnOverrides:
         cols = MappingColumnsConfig(required_marker="REQUIRED")
         svc = MappingService(rvi_cm, columns=cols, metadata_source=metadatos)  # type: ignore[arg-type]
         assert svc.get_mapping("FB01").required_metadata_fields == ("CIF",)
+
+
+# ---------------------------------------------------------------------------
+# 038 — CMISFolder + CMISPropertyId columns
+# ---------------------------------------------------------------------------
+
+
+class TestCmisFolderColumn:
+    def test_populated_carries_through(self) -> None:
+        rvi_cm = _FakeSource(
+            [
+                {
+                    "IDSistema": "",
+                    "IDRVI": "FB01",
+                    "IDCM": "CN01",
+                    "IDClaseDocumental": "01.01.01.01.01",
+                    "CMISType": "D:cmcourier:bacDoc",
+                    "CMISFolder": "/cmcourier-staging/CN01",
+                }
+            ]
+        )
+        metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        assert svc.get_mapping("FB01").cmis_folder == "/cmcourier-staging/CN01"
+
+    def test_blank_cell_yields_none(self) -> None:
+        rvi_cm = _FakeSource(
+            [
+                {
+                    "IDSistema": "",
+                    "IDRVI": "FB01",
+                    "IDCM": "CN01",
+                    "IDClaseDocumental": "01.01.01.01.01",
+                    "CMISType": "",
+                    "CMISFolder": "",
+                }
+            ]
+        )
+        metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        assert svc.get_mapping("FB01").cmis_folder is None
+
+    def test_column_absent_yields_none(self) -> None:
+        rvi_cm = _FakeSource(_rvi_cm_rows(("FB01", "CN01", "01.01.01.01.01", "")))
+        metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        assert svc.get_mapping("FB01").cmis_folder is None
+
+    def test_whitespace_stripped(self) -> None:
+        rvi_cm = _FakeSource(
+            [
+                {
+                    "IDSistema": "",
+                    "IDRVI": "FB01",
+                    "IDCM": "CN01",
+                    "IDClaseDocumental": "01.01.01.01.01",
+                    "CMISType": "",
+                    "CMISFolder": "  /foo/bar  ",
+                }
+            ]
+        )
+        metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        assert svc.get_mapping("FB01").cmis_folder == "/foo/bar"
+
+
+class TestCmisPropertyIdColumn:
+    def test_populated_builds_catalog(self) -> None:
+        rvi_cm = _FakeSource(_rvi_cm_rows(("FB01", "CN01", "01.01.01.01.01", "")))
+        metadatos = _FakeSource(
+            [
+                {
+                    "IDCorto": "CN01",
+                    "Metadato": "CIF",
+                    "Requerido": "Yes",
+                    "CMISPropertyId": "cmcourier:BAC_CIF",
+                },
+                {
+                    "IDCorto": "CN01",
+                    "Metadato": "Nombre_Cliente",
+                    "Requerido": "Yes",
+                    "CMISPropertyId": "cmcourier:Nombre_Cliente",
+                },
+            ]
+        )
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        m = svc.get_mapping("FB01")
+        assert m.cmis_property_ids is not None
+        assert m.cmis_property_ids["CIF"] == "cmcourier:BAC_CIF"
+        assert m.cmis_property_ids["Nombre_Cliente"] == "cmcourier:Nombre_Cliente"
+
+    def test_empty_cells_omitted_from_catalog(self) -> None:
+        rvi_cm = _FakeSource(_rvi_cm_rows(("FB01", "CN01", "01.01.01.01.01", "")))
+        metadatos = _FakeSource(
+            [
+                {
+                    "IDCorto": "CN01",
+                    "Metadato": "CIF",
+                    "Requerido": "Yes",
+                    "CMISPropertyId": "cmcourier:BAC_CIF",
+                },
+                {
+                    "IDCorto": "CN01",
+                    "Metadato": "Short_Name",
+                    "Requerido": "Yes",
+                    "CMISPropertyId": "",
+                },
+            ]
+        )
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        m = svc.get_mapping("FB01")
+        assert m.cmis_property_ids is not None
+        assert m.cmis_property_ids.get("CIF") == "cmcourier:BAC_CIF"
+        assert "Short_Name" not in m.cmis_property_ids
+        assert m.required_metadata_fields == ("CIF", "Short_Name")
+
+    def test_column_absent_yields_none_catalog(self) -> None:
+        rvi_cm = _FakeSource(_rvi_cm_rows(("FB01", "CN01", "01.01.01.01.01", "")))
+        metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        assert svc.get_mapping("FB01").cmis_property_ids is None
+
+    def test_catalog_is_immutable(self) -> None:
+        rvi_cm = _FakeSource(_rvi_cm_rows(("FB01", "CN01", "01.01.01.01.01", "")))
+        metadatos = _FakeSource(
+            [
+                {
+                    "IDCorto": "CN01",
+                    "Metadato": "CIF",
+                    "Requerido": "Yes",
+                    "CMISPropertyId": "cmcourier:BAC_CIF",
+                }
+            ]
+        )
+        svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
+        m = svc.get_mapping("FB01")
+        assert m.cmis_property_ids is not None
+        with pytest.raises(TypeError):
+            m.cmis_property_ids["X"] = "Y"  # type: ignore[index]

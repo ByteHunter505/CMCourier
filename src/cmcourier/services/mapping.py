@@ -19,6 +19,7 @@ __all__ = ["MappingColumnsConfig", "MappingService"]
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from cmcourier.domain.exceptions import ConfigurationError, IDRViNotMappedError
 from cmcourier.domain.models import CMMapping
@@ -47,9 +48,11 @@ class MappingColumnsConfig:
     col_rvi_cm_id_cm: str = "IDCM"
     col_rvi_cm_clase_id: str = "IDClaseDocumental"
     col_rvi_cm_cmis_type: str = "CMISType"
+    col_rvi_cm_cmis_folder: str = "CMISFolder"
     col_metadatos_id_corto: str = "IDCorto"
     col_metadatos_metadata: str = "Metadato"
     col_metadatos_required: str = "Requerido"
+    col_metadatos_cmis_property_id: str = "CMISPropertyId"
     required_marker: str = "Yes"
 
     def required_columns(self) -> tuple[str, ...]:
@@ -145,7 +148,7 @@ class MappingService:
 
     def _load_split(self, rvi_cm: IDataSource, metadatos: IDataSource) -> None:
         """Split-mode loader (035): join MapeoRVI_CM with MetadatosCM by IDCM↔IDCorto."""
-        required_index = self._build_required_index(metadatos)
+        required_index, cmis_property_id_index = self._build_metadatos_index(metadatos)
         skipped = 0
         validated = False
         for row in rvi_cm.get_all():
@@ -166,7 +169,9 @@ class MappingService:
                 )
                 continue
 
-            self._cache[id_rvi] = self._row_to_mapping_split(row, id_rvi, required_index)
+            self._cache[id_rvi] = self._row_to_mapping_split(
+                row, id_rvi, required_index, cmis_property_id_index
+            )
 
         if skipped:
             _logger.info(
@@ -174,13 +179,22 @@ class MappingService:
                 skipped,
             )
 
-    def _build_required_index(self, metadatos: IDataSource) -> dict[str, tuple[str, ...]]:
-        """Return ``id_corto -> tuple[required_field, ...]`` from MetadatosCM rows.
+    def _build_metadatos_index(
+        self, metadatos: IDataSource
+    ) -> tuple[dict[str, tuple[str, ...]], dict[str, dict[str, str]]]:
+        """Return ``(required_fields_by_id_corto, cmis_property_ids_by_id_corto)``.
 
-        Rows whose ``Requerido`` does not parse as truthy are dropped.
-        Field names are whitespace-stripped. Order is preserved.
+        Required fields: rows whose ``Requerido`` parses truthy. Field
+        names are whitespace-stripped, order preserved.
+
+        CMIS property ids (038): ``{id_corto: {field: cmis_property_id}}``
+        for rows whose ``CMISPropertyId`` column is non-blank. Friendly
+        field name is the key. When the column is absent from the source
+        or every cell is blank, the per-id_corto dict is omitted, which
+        signals "no catalog" to the metadata service.
         """
-        index: dict[str, list[str]] = {}
+        fields_index: dict[str, list[str]] = {}
+        cmis_ids_index: dict[str, dict[str, str]] = {}
         validated = False
         for row in metadatos.get_all():
             if not validated:
@@ -199,8 +213,14 @@ class MappingService:
             if _is_blank(field_raw):
                 continue
             field = str(field_raw).strip()
-            index.setdefault(id_corto, []).append(field)
-        return {k: tuple(v) for k, v in index.items()}
+            fields_index.setdefault(id_corto, []).append(field)
+            cmis_prop_raw = row.get(self._columns.col_metadatos_cmis_property_id)
+            if not _is_blank(cmis_prop_raw):
+                cmis_ids_index.setdefault(id_corto, {})[field] = str(cmis_prop_raw).strip()
+        return (
+            {k: tuple(v) for k, v in fields_index.items()},
+            cmis_ids_index,
+        )
 
     def _validate_rvi_cm_columns(self, row: dict[str, object]) -> None:
         for col in self._columns.required_columns_rvi_cm():
@@ -223,11 +243,20 @@ class MappingService:
         row: dict[str, object],
         id_rvi: str,
         required_index: dict[str, tuple[str, ...]],
+        cmis_property_id_index: dict[str, dict[str, str]],
     ) -> CMMapping:
         clase_id = str(row[self._columns.col_rvi_cm_clase_id]).strip()
         id_corto = str(row[self._columns.col_rvi_cm_id_cm]).strip()
         cmis_type_raw = row.get(self._columns.col_rvi_cm_cmis_type)
         cmis_type = "" if cmis_type_raw is None else str(cmis_type_raw).strip()
+        cmis_folder_raw = row.get(self._columns.col_rvi_cm_cmis_folder)
+        cmis_folder: str | None = (
+            None if _is_blank(cmis_folder_raw) else str(cmis_folder_raw).strip()
+        )
+        cmis_property_ids_dict = cmis_property_id_index.get(id_corto)
+        cmis_property_ids: MappingProxyType[str, str] | None = (
+            MappingProxyType(cmis_property_ids_dict) if cmis_property_ids_dict else None
+        )
         return CMMapping(
             clase_id=clase_id,
             id_rvi=id_rvi,
@@ -235,6 +264,8 @@ class MappingService:
             clase_name=clase_id,
             required_metadata_fields=required_index.get(id_corto, ()),
             cmis_type=cmis_type,
+            cmis_folder=cmis_folder,
+            cmis_property_ids=cmis_property_ids,
         )
 
     def _load(self, source: IDataSource) -> None:

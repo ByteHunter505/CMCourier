@@ -205,9 +205,11 @@ class MappingConfig(BaseModel):
     rvi_cm_id_cm_column: str = "IDCM"
     rvi_cm_clase_id_column: str = "IDClaseDocumental"
     rvi_cm_cmis_type_column: str = "CMISType"
+    rvi_cm_cmis_folder_column: str = "CMISFolder"
     metadatos_id_corto_column: str = "IDCorto"
     metadatos_metadata_column: str = "Metadato"
     metadatos_required_column: str = "Requerido"
+    metadatos_cmis_property_id_column: str = "CMISPropertyId"
     required_marker: str = "Yes"
 
     @model_validator(mode="after")

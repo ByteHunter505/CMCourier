@@ -172,7 +172,9 @@ class MetadataService:
         mapping: CMMapping,
     ) -> MetadataResolution:
         """Resolve every required metadata field per REBIRTH §6 rules."""
-        canonical_fields = self._normalize_fields(mapping.required_metadata_fields)
+        canonical_fields, canonical_to_friendly = self._normalize_fields_with_friendly(
+            mapping.required_metadata_fields
+        )
         resolved: dict[str, str] = {}
 
         # CIF self-healing FIRST so subsequent CSV lookups can use trigger.cif.
@@ -189,6 +191,18 @@ class MetadataService:
             if f in resolved:
                 continue
             resolved[f] = self._resolve_one(f, trigger, document)
+
+        # 038: translate property keys to CMIS property IDs when the
+        # mapping carries a catalog (``MetadatosCM.CMISPropertyId``).
+        # Keys not in the catalog (or all keys when the catalog is
+        # absent / None) pass through unchanged — backward-compat.
+        if mapping.cmis_property_ids:
+            translated: dict[str, str] = {}
+            for canonical, value in resolved.items():
+                friendly = canonical_to_friendly.get(canonical, canonical)
+                cmis_id = mapping.cmis_property_ids.get(friendly)
+                translated[cmis_id if cmis_id else canonical] = value
+            resolved = translated
 
         return MetadataResolution(
             metadata=ResolvedMetadata.from_dict(resolved),
@@ -241,21 +255,39 @@ class MetadataService:
     # --- field name normalization --------------------------------------
 
     def _normalize_fields(self, raw_fields: tuple[str, ...]) -> list[str]:
+        canonical, _ = self._normalize_fields_with_friendly(raw_fields)
+        return canonical
+
+    def _normalize_fields_with_friendly(
+        self, raw_fields: tuple[str, ...]
+    ) -> tuple[list[str], dict[str, str]]:
+        """Like :meth:`_normalize_fields` but also returns the inverse
+        ``canonical -> raw_friendly`` map (038).
+
+        The friendly name is the operator-facing name as written in
+        ``MetadatosCM.Metadato`` (preserved verbatim, not stripped). The
+        map lets :meth:`resolve` look up ``cmis_property_ids`` — which
+        is keyed by friendly name — after resolution has produced
+        canonical-keyed values.
+        """
         aliases_lower = {k.lower(): v for k, v in self._config.field_aliases.items()}
         canonical: list[str] = []
+        canonical_to_friendly: dict[str, str] = {}
         for raw in raw_fields:
             if raw in self._config.field_sources:
                 canonical.append(raw)  # already canonical
+                canonical_to_friendly[raw] = raw
                 continue
             canonical_match = aliases_lower.get(raw.lower())
             if canonical_match is not None:
                 canonical.append(canonical_match)
+                canonical_to_friendly[canonical_match] = raw
                 continue
             raise ConfigurationError(
                 "unknown field (no alias and no field_sources entry)",
                 field=raw,
             )
-        return canonical
+        return canonical, canonical_to_friendly
 
     # --- source dispatch ------------------------------------------------
 

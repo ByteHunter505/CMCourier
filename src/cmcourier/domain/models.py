@@ -185,6 +185,17 @@ class CMMapping:
     ``NIARVILOG.TIPIDN``. Defaults to ``""`` until change 035
     splits the mapping CSV into ``MapeoRVI_CM.csv`` +
     ``MetadatosCM.csv`` with an explicit ``CMISType`` column.
+
+    ``cmis_folder`` (038) is the explicit CMIS folder path. When set,
+    overrides the derived ``cm_folder`` property at upload time. When
+    ``None`` (column blank or absent), pipelines fall back to
+    ``cm_folder``.
+
+    ``cmis_property_ids`` (038) maps friendly metadata field names
+    (as found in ``MetadatosCM.Metadato``) to their wire-level CMIS
+    property identifiers (``MetadatosCM.CMISPropertyId``). ``None``
+    means "no catalog" — the metadata service keeps friendly /
+    canonical names as the property keys, preserving pre-038 behavior.
     """
 
     clase_id: str
@@ -193,6 +204,8 @@ class CMMapping:
     clase_name: str
     required_metadata_fields: tuple[str, ...]
     cmis_type: str = ""
+    cmis_folder: str | None = None
+    cmis_property_ids: Mapping[str, str] | None = None
 
     @property
     def cm_folder(self) -> str:
