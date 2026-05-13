@@ -631,6 +631,44 @@ class TestDoctorCheckFilter:
 
 
 # ---------------------------------------------------------------------------
+# 038 — unmask_pii startup warning
+# ---------------------------------------------------------------------------
+
+
+class TestUnmaskPiiWarning:
+    @responses.activate
+    def test_warning_emitted_when_unmask_pii_true(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        yaml_path = _write_yaml(tmp_path)
+        # Append the unmask flag to the YAML.
+        yaml_path.write_text(
+            yaml_path.read_text()
+            + "observability:\n  log_dir: "
+            + str(tmp_path / "logs")
+            + "\n"
+            + "  unmask_pii: true\n"
+        )
+        config = load_config(yaml_path)
+        report = run_doctor(config, _secrets())
+        warning = next(
+            (r for r in report.results if r.name == "unmask_pii_active"),
+            None,
+        )
+        assert warning is not None
+        assert warning.status == CheckStatus.WARN
+
+    @responses.activate
+    def test_no_warning_when_default(self, tmp_path: Path) -> None:
+        _stub_warmup_ok()
+        _stub_type_definitions_ok()
+        config = load_config(_write_yaml(tmp_path))
+        report = run_doctor(config, _secrets())
+        names = [r.name for r in report.results]
+        assert "unmask_pii_active" not in names
+
+
+# ---------------------------------------------------------------------------
 # 038 — cmis_folders_exist (cm-targets group)
 # ---------------------------------------------------------------------------
 

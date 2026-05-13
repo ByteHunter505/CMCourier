@@ -13,9 +13,17 @@ verified post-hoc without leaking content.
 
 from __future__ import annotations
 
-__all__ = ["DENYLIST", "MASK", "PII_PREFIX", "PiiMaskingFilter"]
+__all__ = [
+    "DENYLIST",
+    "MASK",
+    "PII_PREFIX",
+    "PiiMaskingFilter",
+    "is_pii_name",
+    "mask_dict",
+]
 
 import logging
+from collections.abc import Mapping
 
 MASK: str = "***"
 PII_PREFIX: str = "pii_"
@@ -69,7 +77,44 @@ class PiiMaskingFilter(logging.Filter):
 
     @staticmethod
     def _is_pii(field_name: str) -> bool:
-        lower = field_name.lower()
-        if lower in DENYLIST:
-            return True
-        return lower.startswith(PII_PREFIX)
+        return is_pii_name(field_name)
+
+
+def is_pii_name(field_name: str) -> bool:
+    """Return ``True`` when *field_name* names a PII-bearing field.
+
+    Matches case-insensitively against :data:`DENYLIST` OR any prefix
+    starting with :data:`PII_PREFIX`. CMIS property ids carry their
+    domain in the suffix after the last ``:`` or ``.`` separator
+    (e.g. ``clbNonGroup.BAC_CIF`` -> ``bac_cif``; ``cmcourier:Nombre_Cliente``
+    -> ``nombre_cliente``). The suffix is checked against ``DENYLIST``
+    after the same normalization the legacy filter uses, so wire-level
+    property names map to the same redaction set as ``extra={"cif": ...}``.
+    """
+    lower = field_name.lower()
+    if lower in DENYLIST or lower.startswith(PII_PREFIX):
+        return True
+    suffix = lower
+    for sep in (".", ":"):
+        if sep in suffix:
+            suffix = suffix.rsplit(sep, 1)[1]
+    # Strip a leading bank prefix (e.g. ``bac_cif`` -> ``cif``) so the
+    # denylist's friendly names cover wire-level variants.
+    bare = suffix.removeprefix("bac_")
+    if suffix in DENYLIST or bare in DENYLIST:
+        return True
+    return any(token in DENYLIST for token in suffix.split("_") if token)
+
+
+def mask_dict(properties: Mapping[str, str], *, unmask: bool = False) -> dict[str, str]:
+    """Return a copy of *properties* with PII values redacted to :data:`MASK`.
+
+    Keys are preserved verbatim — the field names themselves are safe
+    to log (they identify what was redacted, not who). Values are
+    redacted when the key matches :func:`is_pii_name`. ``unmask=True``
+    returns the input verbatim (used by the
+    ``observability.unmask_pii`` debugging escape hatch).
+    """
+    if unmask:
+        return dict(properties)
+    return {k: (MASK if is_pii_name(k) else v) for k, v in properties.items()}

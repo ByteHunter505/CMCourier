@@ -161,6 +161,22 @@ def run_doctor(
     """Run pre-flight checks. ``selected`` filters by REBIRTH §11 group."""
     start = time.monotonic()
     results: list[CheckResult] = []
+    if config.observability.unmask_pii:
+        # 038: surface the unmasked-PII mode at startup so the operator
+        # never accidentally runs a PRD batch with raw values leaking
+        # into ``metrics.jsonl``. Status is WARN, not FAIL — debugging is
+        # a legitimate use of this knob, but it must never go unnoticed.
+        results.append(
+            CheckResult(
+                name="unmask_pii_active",
+                status=CheckStatus.WARN,
+                message=(
+                    "observability.unmask_pii=true — upload payload events "
+                    "will emit raw PII values. Turn this off before any PRD batch."
+                ),
+                details=_frozen({"unmask_pii": "true"}),
+            )
+        )
     if _selected("log_dir_writable", selected):
         results.append(_check_log_dir_writable(config))
     if _selected("cmis_connectivity", selected):

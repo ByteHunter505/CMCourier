@@ -33,6 +33,7 @@ from __future__ import annotations
 
 __all__ = ["BandwidthLimiter", "CmisConfig", "CmisUploader", "TokenBucket"]
 
+import json
 import logging
 import threading
 import time
@@ -53,6 +54,7 @@ from cmcourier.domain.exceptions import (
 )
 from cmcourier.domain.models import StagedFile
 from cmcourier.domain.ports import IUploader
+from cmcourier.observability.pii import mask_dict
 
 _network_log = logging.getLogger("cmcourier.metrics.network")
 
@@ -86,6 +88,10 @@ class CmisConfig:
     # full, discarding connection" and re-opens TCP every dispatch.
     # Size the pool to match expected concurrency.
     pool_size: int = 10
+    # 038: when True, ``s5_upload_attempt`` and ``s5_upload_failed``
+    # events emit raw property values instead of PII-masked ones.
+    # Toggled via ``ObservabilityConfig.unmask_pii``; never default-true.
+    unmask_pii: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +364,14 @@ class CmisUploader(IUploader):
         """
         normalized = folder_path.strip("/")
         url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{normalized}"
+        self._emit_upload_attempt(
+            url=url,
+            object_type_id=object_type_id,
+            document_name=document_name,
+            mime_type=mime_type,
+            properties=properties,
+            content_bytes=file.size_bytes,
+        )
         with file.path.open("rb") as fh:
             stream: IO[bytes] = (
                 BandwidthLimiter(fh, self._bandwidth_bucket)  # type: ignore[assignment]
@@ -367,14 +381,132 @@ class CmisUploader(IUploader):
             encoder = self._build_multipart_for_upload(
                 stream, document_name, mime_type, object_type_id, properties
             )
-            resp = self._post_with_retries(
-                url,
-                encoder,
-                {"Content-Type": encoder.content_type},
-                txn_num=document_name,
-                kind="cmis_upload",
-            )
+            try:
+                resp = self._post_with_retries(
+                    url,
+                    encoder,
+                    {"Content-Type": encoder.content_type},
+                    txn_num=document_name,
+                    kind="cmis_upload",
+                )
+            except (CMISClientError, CMISServerError) as exc:
+                self._emit_upload_failed(
+                    url=url,
+                    object_type_id=object_type_id,
+                    document_name=document_name,
+                    mime_type=mime_type,
+                    properties=properties,
+                    content_bytes=file.size_bytes,
+                    status_code=exc.status_code,
+                    response_body=str(getattr(exc, "response_body", "") or "")[
+                        :_RESPONSE_BODY_TRUNCATION
+                    ],
+                )
+                raise
         return self._parse_object_id(resp)
+
+    def _emit_upload_attempt(
+        self,
+        *,
+        url: str,
+        object_type_id: str,
+        document_name: str,
+        mime_type: str,
+        properties: Mapping[str, str],
+        content_bytes: int,
+    ) -> None:
+        """038: structured ``s5_upload_attempt`` event into metrics.jsonl."""
+        masked = mask_dict(
+            {
+                "cmis:name": document_name,
+                "cmis:contentStreamMimeType": mime_type,
+                **dict(properties),
+            },
+            unmask=self._cfg.unmask_pii,
+        )
+        _network_log.info(
+            "s5_upload_attempt",
+            extra={
+                "event": "s5_upload_attempt",
+                "kind": "cmis_upload_attempt",
+                "url": url[:200],
+                "object_type_id": object_type_id,
+                "document_name": document_name,
+                "mime_type": mime_type,
+                "properties_json": json.dumps(masked, ensure_ascii=False, sort_keys=True),
+                "content_bytes": content_bytes,
+                "worker": threading.current_thread().name,
+            },
+        )
+
+    def _emit_upload_failed(
+        self,
+        *,
+        url: str,
+        object_type_id: str,
+        document_name: str,
+        mime_type: str,
+        properties: Mapping[str, str],
+        content_bytes: int,
+        status_code: int,
+        response_body: str,
+    ) -> None:
+        """038: structured ``s5_upload_failed`` event with curl-equivalent."""
+        masked = mask_dict(
+            {
+                "cmis:name": document_name,
+                "cmis:contentStreamMimeType": mime_type,
+                **dict(properties),
+            },
+            unmask=self._cfg.unmask_pii,
+        )
+        curl = self._build_curl_equivalent(
+            url=url, object_type_id=object_type_id, masked_properties=masked
+        )
+        _network_log.info(
+            "s5_upload_failed",
+            extra={
+                "event": "s5_upload_failed",
+                "kind": "cmis_upload_failed",
+                "url": url[:200],
+                "object_type_id": object_type_id,
+                "document_name": document_name,
+                "mime_type": mime_type,
+                "properties_json": json.dumps(masked, ensure_ascii=False, sort_keys=True),
+                "content_bytes": content_bytes,
+                "status_code": status_code,
+                "response_body": response_body,
+                "curl_equivalent": curl,
+                "worker": threading.current_thread().name,
+            },
+        )
+
+    def _build_curl_equivalent(
+        self, *, url: str, object_type_id: str, masked_properties: Mapping[str, str]
+    ) -> str:
+        """Render a runnable curl that reproduces the failing POST.
+
+        Auth is rendered as ``-u admin:***`` regardless of unmask_pii —
+        credentials never leak into structured logs (Principle VIII).
+        """
+        parts = [
+            "curl -u admin:***",
+            "-X POST",
+            "-F 'cmisaction=createDocument'",
+            f"-F 'propertyId[0]=cmis:objectTypeId' -F 'propertyValue[0]={object_type_id}'",
+        ]
+        idx = 1
+        for k, v in masked_properties.items():
+            if k in ("cmis:contentStreamMimeType",):
+                # already in the form; skip duplicate (the encoder always
+                # carries mime via `cmis:contentStreamMimeType`).
+                pass
+            safe_v = v.replace("'", "'\\''")
+            parts.append(f"-F 'propertyId[{idx}]={k}' -F 'propertyValue[{idx}]={safe_v}'")
+            idx += 1
+        parts.append("-F 'content=@<staged_pdf_path>'")
+        parts.append(f"'{url}'")
+        return " ".join(parts)
 
     # ----------------------------------------------------------- internals
 

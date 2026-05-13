@@ -118,6 +118,7 @@ def build_pipeline(
             retry_max_attempts=config.cmis.retry_max_attempts,
             retry_base_delay_s=config.cmis.retry_base_delay_s,
             pool_size=cmis_pool_size,
+            unmask_pii=config.observability.unmask_pii,
         )
     )
     tracking_store = SQLiteTrackingStore(config.tracking.db_path)

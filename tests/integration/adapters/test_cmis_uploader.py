@@ -843,3 +843,108 @@ class TestPortConformance:
 
         uploader = CmisUploader(_make_config())
         assert isinstance(uploader, IUploader)
+
+
+# ---------------------------------------------------------------------------
+# 038 — s5_upload_attempt + s5_upload_failed events
+# ---------------------------------------------------------------------------
+
+
+class TestUploadPayloadTraceEvents:
+    @responses.activate
+    def test_attempt_event_emitted_on_success(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"succinctProperties": {"cmis:objectId": "abc"}},
+            status=201,
+        )
+        uploader = CmisUploader(_make_config())
+        with caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"):
+            uploader.upload(
+                file=_make_staged(tmp_path),
+                folder_path="/BAC_X",
+                object_type_id="D:cmcourier:bacDoc",
+                document_name="TXN1.pdf",
+                mime_type="application/pdf",
+                properties={"clbNonGroup.BAC_CIF": "00123456"},
+            )
+        attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
+        assert len(attempts) == 1
+        rec = attempts[0]
+        assert rec.object_type_id == "D:cmcourier:bacDoc"
+        assert rec.document_name == "TXN1.pdf"
+        # PII masked by default: CIF value should not appear.
+        assert "00123456" not in rec.properties_json
+        # cmis:name and mime are safe — appear raw.
+        assert "TXN1.pdf" in rec.properties_json
+        assert "application/pdf" in rec.properties_json
+
+    @responses.activate
+    def test_failed_event_emitted_with_curl_equivalent(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _stub_warmup()
+        _skip_sleep(monkeypatch)
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"error": "constraint", "message": "property unknown"},
+            status=400,
+        )
+        uploader = CmisUploader(_make_config())
+        with (
+            caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"),
+            pytest.raises(CMISClientError),
+        ):
+            uploader.upload(
+                file=_make_staged(tmp_path),
+                folder_path="/BAC_X",
+                object_type_id="D:cmcourier:bacDoc",
+                document_name="TXN2.pdf",
+                mime_type="application/pdf",
+                properties={"clbNonGroup.BAC_CIF": "00123456"},
+            )
+        attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
+        failures = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_failed"]
+        assert len(attempts) == 1
+        assert len(failures) == 1
+        fail = failures[0]
+        assert fail.status_code == 400
+        assert "createDocument" in fail.curl_equivalent
+        assert "D:cmcourier:bacDoc" in fail.curl_equivalent
+        # PII masked: the raw CIF must not be in either the JSON
+        # properties or the curl-equivalent dump.
+        assert "00123456" not in fail.properties_json
+        assert "00123456" not in fail.curl_equivalent
+
+    @responses.activate
+    def test_unmask_pii_emits_raw_values(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"succinctProperties": {"cmis:objectId": "abc"}},
+            status=201,
+        )
+        uploader = CmisUploader(_make_config(unmask_pii=True))
+        with caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"):
+            uploader.upload(
+                file=_make_staged(tmp_path),
+                folder_path="/BAC_X",
+                object_type_id="D:cmcourier:bacDoc",
+                document_name="TXN3.pdf",
+                mime_type="application/pdf",
+                properties={"clbNonGroup.BAC_CIF": "00123456"},
+            )
+        attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
+        assert len(attempts) == 1
+        assert "00123456" in attempts[0].properties_json

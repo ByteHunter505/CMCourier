@@ -499,6 +499,13 @@ class ObservabilityConfig(BaseModel):
     retention_days: int = Field(default=30, ge=1)
     slow_op_threshold_ms: int = Field(default=5000, ge=0)
     slow_op_top_n: int = Field(default=20, ge=1)
+    # 038: when True, the upload payload trace events
+    # (``s5_upload_attempt`` / ``s5_upload_failed``) emit raw property
+    # values instead of PII-masked ones. NEVER default-true; surfaced
+    # only via the config file (no CLI flag) to avoid accidental
+    # enables in PRD batches. The doctor emits a WARNING when this is
+    # set so the operator sees the deviation at startup.
+    unmask_pii: bool = False
 
     @field_validator("system_metrics", mode="before")
     @classmethod
