@@ -25,10 +25,19 @@
 
 services:
   alfresco:
-    image: alfresco/alfresco-content-repository-community:23.4.0
+    image: alfresco/alfresco-content-repository-community:23.4.1
     container_name: cmcourier-staging-alfresco
+    restart: unless-stopped
     mem_limit: 4500m
     environment:
+      # IMPORTANT: Alfresco 23.x Community does NOT ship a keystore embedded in
+      # the WAR. The metadata keystore must exist as a real filesystem file at
+      # the path below BEFORE this container starts, otherwise the WAR crashes
+      # during Spring context init (FileNotFoundException -> Context [/alfresco]
+      # startup failed -> Tomcat serves 404 forever).
+      #
+      # Generate it once on first install:
+      #   bash scripts/staging/generate-keystore.sh
       JAVA_TOOL_OPTIONS: >-
         -Dencryption.keystore.type=JCEKS
         -Dencryption.cipherAlgorithm=DESede/CBC/PKCS5Padding
@@ -74,6 +83,7 @@ services:
   postgres:
     image: postgres:14
     container_name: cmcourier-staging-postgres
+    restart: unless-stopped
     mem_limit: 512m
     environment:
       POSTGRES_PASSWORD: alfresco
@@ -86,6 +96,7 @@ services:
   solr6:
     image: alfresco/alfresco-search-services:2.0.10
     container_name: cmcourier-staging-solr6
+    restart: unless-stopped
     mem_limit: 2g
     environment:
       SOLR_ALFRESCO_HOST: alfresco
@@ -102,6 +113,7 @@ services:
   activemq:
     image: alfresco/alfresco-activemq:5.18-jre17-rockylinux8
     container_name: cmcourier-staging-activemq
+    restart: unless-stopped
     mem_limit: 1g
 
 volumes:

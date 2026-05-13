@@ -46,8 +46,7 @@ dmypy.json
 # Operational artifacts (created at runtime by CMCourier)
 logs/
 tmp/
-staging/
-!scripts/staging/    # 039: scaffolding for the dry-run simulation is tracked
+/staging/    # ignore runtime ./staging only — anchored to root so scripts/staging/ scaffolding stays tracked (039)
 data/migration_tracking.db
 data/*.db
 data/*.db-journal
