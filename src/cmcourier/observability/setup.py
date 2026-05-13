@@ -45,6 +45,7 @@ def configure(
     log_level: str = "INFO",
     *,
     stderr_only: bool = False,
+    tui_active: bool = False,
 ) -> None:
     """Install loggers, handlers, formatter, and PII filter.
 
@@ -60,6 +61,12 @@ def configure(
     stderr_only:
         Force the legacy path — no file handlers. Used by doctor
         early-load failure handling.
+    tui_active:
+        When ``True`` (041), the stderr StreamHandler is NOT attached
+        to ``cmcourier`` so Textual's frame is not stomped on by
+        ``log.info(...)`` calls during the run. Only the rotating
+        FileHandler receives records. Ignored when ``stderr_only=True``
+        (the doctor early-fail path still needs stderr no matter what).
     """
     _reset_all_handlers()
 
@@ -68,17 +75,23 @@ def configure(
     text_formatter = logging.Formatter(_TEXT_FORMAT)
     json_formatter = JsonFormatter()
 
-    # ``cmcourier`` package logger: stderr handler always; file handler when
-    # enabled. Propagation stays at the default (True) so pytest's ``caplog``
-    # (which attaches at the root logger) keeps capturing records.
+    # ``cmcourier`` package logger: stderr handler unless the TUI is up;
+    # file handler when enabled. Propagation stays at the default (True)
+    # so pytest's ``caplog`` (which attaches at the root logger) keeps
+    # capturing records.
     root = logging.getLogger("cmcourier")
     root.setLevel(min(level, logging.INFO))
 
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(text_formatter)
-    stderr_handler.setLevel(level)
-    stderr_handler.addFilter(pii_filter)
-    root.addHandler(stderr_handler)
+    # 041: skip the stderr handler when a Textual TUI is rendering the
+    # terminal — every emitted line would otherwise tear the frame.
+    # ``stderr_only=True`` overrides because that path is the doctor's
+    # early-fail diagnostic, which needs to print SOMEWHERE regardless.
+    if stderr_only or not tui_active:
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setFormatter(text_formatter)
+        stderr_handler.setLevel(level)
+        stderr_handler.addFilter(pii_filter)
+        root.addHandler(stderr_handler)
 
     if stderr_only or config is None or not config.enabled:
         # Metrics loggers exist but with no handlers attached → emissions

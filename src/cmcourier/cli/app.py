@@ -474,6 +474,7 @@ def single_doc_run_command(
         config=config,
         pipeline_kwargs=pipeline_kwargs,
         tui=tui,
+        log_level=log_level,
     )
     _emit_outcome(
         report=report,
@@ -599,6 +600,7 @@ def _run_pipeline_command(
         config=config,
         pipeline_kwargs=pipeline_kwargs,
         tui=tui,
+        log_level=log_level,
     )
     _emit_outcome(
         report=report,
@@ -634,6 +636,7 @@ def _run_with_optional_tui(
     config: PipelineConfig,
     pipeline_kwargs: dict[str, Any],
     tui: bool,
+    log_level: str,
 ) -> MultiBatchRunReport:
     """Route the run through the multi-batch orchestrator (028 + 030).
 
@@ -693,6 +696,13 @@ def _run_with_optional_tui(
         except Exception:
             _log.exception("pipeline run failed unexpectedly")
             sys.exit(3)
+
+    # 041: once we're committed to launching the Textual TUI, re-install
+    # observability handlers WITHOUT a stderr StreamHandler so the dashboard
+    # frame is not torn by log lines. configure() is idempotent — it resets
+    # all handlers before re-attaching, so the rotating FileHandler keeps
+    # logging every event to disk.
+    configure_observability(config.observability, log_level, tui_active=True)
 
     data_provider = TUIDataProvider(
         pipeline_name=pipeline.pipeline_name,
