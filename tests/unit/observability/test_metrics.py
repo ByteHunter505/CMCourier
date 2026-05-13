@@ -417,3 +417,52 @@ class TestConcurrentBatchIsolation:
             net_log.propagate = prev_propagate
         assert rec.bandwidth.cumulative_bytes() == 1024 + 2048 + 4096
         rec.close_batch(pipeline="p", batch_id="A", total_docs=0, elapsed_s=0.0)
+
+
+# ---------------------------------------------------------------------------
+# 042 — per-recorder live S5 outcome counters
+# ---------------------------------------------------------------------------
+
+
+class TestUploadOutcomeCounters042:
+    """The counters added in 042 Phase 2 let the data_provider surface live
+    s5_done / s5_failed on the CHUNKS row mid-flight, instead of waiting
+    for the DONE transition to write them."""
+
+    def test_initial_counts_are_zero(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        assert rec.upload_done_count() == 0
+        assert rec.upload_failed_count() == 0
+        assert rec.upload_skipped_count() == 0  # 041 parity
+
+    def test_record_upload_done_increments(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        for _ in range(7):
+            rec.record_upload_done()
+        assert rec.upload_done_count() == 7
+        assert rec.upload_failed_count() == 0
+
+    def test_record_upload_failed_increments(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        for _ in range(3):
+            rec.record_upload_failed()
+        assert rec.upload_failed_count() == 3
+        assert rec.upload_done_count() == 0
+
+    def test_done_counter_thread_safe(self, tmp_path: Path) -> None:
+        import threading as _t
+
+        rec = _make_recorder(tmp_path)
+        n_workers = 32
+        per_worker = 100
+
+        def _hammer() -> None:
+            for _ in range(per_worker):
+                rec.record_upload_done()
+
+        threads = [_t.Thread(target=_hammer) for _ in range(n_workers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert rec.upload_done_count() == n_workers * per_worker

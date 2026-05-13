@@ -366,6 +366,14 @@ class MetricsRecorder:
         # idempotency hits per chunk. Per-chunk recorder ⇒ per-chunk count.
         self._s5_skipped: int = 0
         self._s5_skipped_lock = threading.Lock()
+        # 042: live done/failed counters so the CHUNKS tab can show s5_done
+        # while UPLOAD is in flight (pre-042 the orchestrator only persisted
+        # the totals on the DONE transition, leaving the row at 0/0/0 for the
+        # whole upload phase).
+        self._s5_done: int = 0
+        self._s5_failed: int = 0
+        self._s5_done_lock = threading.Lock()
+        self._s5_failed_lock = threading.Lock()
 
     def start_batch(self, *, pipeline: str, batch_id: str) -> None:
         self._stage_buckets = {}
@@ -509,6 +517,24 @@ class MetricsRecorder:
     def upload_skipped_count(self) -> int:
         with self._s5_skipped_lock:
             return self._s5_skipped
+
+    def record_upload_done(self) -> None:
+        """042: tally an S5 outcome of ``"done"`` (real upload completed)."""
+        with self._s5_done_lock:
+            self._s5_done += 1
+
+    def upload_done_count(self) -> int:
+        with self._s5_done_lock:
+            return self._s5_done
+
+    def record_upload_failed(self) -> None:
+        """042: tally an S5 outcome of ``"failed"`` (upload errored out)."""
+        with self._s5_failed_lock:
+            self._s5_failed += 1
+
+    def upload_failed_count(self) -> int:
+        with self._s5_failed_lock:
+            return self._s5_failed
 
 
 # ---------------------------------------------------------------------------

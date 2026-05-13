@@ -717,8 +717,10 @@ class StagedPipeline:
                 outcome = fut.result()
                 if outcome == "done":
                     s5_done += 1
+                    rec.record_upload_done()
                 elif outcome == "failed":
                     failed += 1
+                    rec.record_upload_failed()
                 elif outcome == "skipped":
                     rec.record_upload_skipped()
                 self._pool_stats.set_queue_depth(self._pool_stats.snapshot().queue_depth - 1)
@@ -791,8 +793,10 @@ class StagedPipeline:
                     outcome = fut.result()
                     if outcome == "done":
                         s5_done += 1
+                        rec.record_upload_done()
                     elif outcome == "failed":
                         failed += 1
+                        rec.record_upload_failed()
                     elif outcome == "skipped":
                         rec.record_upload_skipped()
                     depths[lane] = max(0, depths[lane] - 1)
