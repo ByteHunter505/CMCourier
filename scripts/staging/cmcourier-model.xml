@@ -5,27 +5,43 @@
     Declares one type ``cmcourier:bacDoc`` that extends ``cm:content``
     and adds the metadata properties CMCourier's MetadataService
     typically emits during S3. Lets Alfresco accept upload requests
-    where ``object_type_id = cmcourier:bacDoc`` carrying these custom
-    properties without rejecting them as undeclared.
+    where ``cmis:objectTypeId = D:cmcourier:bacDoc`` carrying these
+    custom properties without rejecting them as undeclared.
 
-    Deployment (Compu B):
-      1. Drop this file into the Alfresco extension volume mount
-         (``./alfresco-extension/alfresco/extension/`` per
-         ``alfresco-compose.yml``).
-      2. Restart the alfresco container.
-      3. Verify the type:
-         curl -u admin:admin "http://<host>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser?cmisselector=typeDefinition&typeId=cmcourier:bacDoc"
+    Deployment:
+      Run ``bash scripts/staging/register-model.sh`` on the staging host
+      after Alfresco is healthy. It zips this XML and POSTs it to
+      ``/alfresco/service/api/cmm/upload``, then activates the model
+      via the CMM v1 REST API. Idempotent.
 
-    This model is NOT a faithful copy of the bank's production CMIS
-    type definitions (those use IBM CM's ``$t!-N_BAC_…v-1`` ID format
-    that Alfresco rejects on syntax). It's a single working stand-in
-    so the end-to-end pipeline runs without per-property validation
-    rejections.
+      Do NOT copy this file into the Alfresco extension volume mount —
+      in Alfresco 23.x Community that path is no longer scanned for
+      Spring bootstrap, and worse, the classpath pre-scan reserves
+      the namespace prefix from any model XML it finds there, blocking
+      a subsequent CMM upload with HTTP 409.
+
+    CMIS view of the type:
+      The model name and the type both live under the ``cmcourier``
+      namespace prefix. After activation CMIS clients see the type as
+      ``D:cmcourier:bacDoc`` (the ``D:`` marks it as a ``cmis:document``
+      subtype). Plain ``cmcourier:bacDoc`` works inside CMIS-SQL
+      ``FROM`` clauses; everywhere else use the ``D:`` form.
+
+    Why ``name="cmcourier:cmcourierBacModel"`` and not ``contentModel``:
+      The CMM upload validator checks the part after the prefix for
+      global uniqueness — ``contentModel`` collides with the built-in
+      ``cm:contentModel`` and the upload is rejected with HTTP 409.
+
+    Not faithful to production:
+      This model is NOT a copy of the bank's IBM CM type definitions
+      (those use the ``$t!-N_BAC_…v-1`` ID format Alfresco rejects on
+      syntax). It's a single working stand-in so the end-to-end pipeline
+      runs without per-property validation rejections.
 
     Add or rename properties to match the metadata fields your
     MapeoRVI_CM / MetadatosCM sample actually emits.
 -->
-<model name="cmcourier:contentModel"
+<model name="cmcourier:cmcourierBacModel"
        xmlns="http://www.alfresco.org/model/dictionary/1.0">
 
     <description>Staging-only content model for CMCourier dry-runs.</description>
