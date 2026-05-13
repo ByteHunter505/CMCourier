@@ -5,8 +5,10 @@ CMIS staging. Run cmcourier on your dev machine, point it at a local
 Alfresco Community 23.x running in Docker on a second host, feed it
 synthetic data. **No bank credentials needed**.
 
-The runbook in `staging-dry-run.md` is generic; **this one is
-specific to the simulation setup**.
+> Last updated for `[0.42.0]`. Incorporates the 037 cross-batch cache,
+> 038 cm-targets pre-flight + payload trace, and 039 RVABREP synthetic
+> generator. The generic runbook in `staging-dry-run.md` covers the
+> non-simulation case (real bank staging or anything not docker-based).
 
 ## Architecture
 
@@ -15,187 +17,345 @@ specific to the simulation setup**.
 │   Compu A (dev)         │         │   Compu B (LAN host)      │
 │                         │         │                           │
 │  cmcourier              │  HTTP   │  Docker                   │
-│   ├── reads CSVs        │ ──────► │   └── Alfresco Community  │
-│   │     locally         │  :8080  │        23.x               │
-│   ├── reads mock files  │         │        (admin/admin)      │
-│   │     locally         │         │                           │
-│   └── uploads to CMIS   │         │  Custom Content Model:    │
-│                         │         │   cmcourier-model.xml     │
+│   ├── mock rvabrep      │ ──────► │   └── Alfresco Community  │
+│   ├── mock generate     │  :8080  │        23.4.1             │
+│   ├── doctor cm-targets │         │        (admin/admin)      │
+│   └── pipeline run      │         │                           │
+│                         │         │  Custom Content Model:    │
+│                         │         │   cmcourierBacModel       │
 └─────────────────────────┘         └───────────────────────────┘
 ```
 
-Everything else (triggers, RVABREP rows, mapping CSVs, source files)
-lives on Compu A.
+Everything on Compu A: source files, RVABREP CSV, mapping CSVs,
+tracking DB, logs. Compu B runs only Alfresco + its sidecars
+(Postgres, Solr, ActiveMQ).
 
 ## Prerequisites
 
 **Compu A**:
 - CMCourier installed (`uv sync`).
-- A directory for synthetic data (~500 MB to a few GB depending on
-  sample size).
+- A directory for synthetic data — sized per the dataset (50k rows
+  + tiny files ≈ 1-2 GB; with 2 MB-mean files ≈ 25 GB).
 - Network reachability to Compu B on port 8080.
 
 **Compu B**:
-- Docker + Docker Compose.
-- ≥6 GB free RAM (Alfresco minimum), ≥10 GB disk for the image +
-  data volume.
-- LAN IP known to Compu A (set as `<compu-b-ip>` below).
+- Linux (the scripts under `scripts/staging/` are bash-only).
+- Docker + Docker Compose v2.
+- ≥6 GB free RAM (Alfresco minimum), ≥15 GB free disk for image +
+  contentstore.
+- LAN IP / Tailscale hostname known to Compu A (referenced below as
+  `<compu-b>`).
+
+---
 
 ## Step 1 — Bring up Alfresco on Compu B
 
-Copy `scripts/staging/alfresco-compose.yml` to Compu B, then:
+Copy the contents of `scripts/staging/` to Compu B (rsync, scp,
+`git clone`). On Compu B, from inside that directory:
 
 ```bash
-cd /wherever/you/dropped/it
-docker compose up -d
+# 1a. Generate the JCEKS metadata keystore once. Alfresco 23.x
+#     Community does NOT ship one in the WAR — without this the
+#     repo crashes on bootstrap and the CMIS endpoint returns 404
+#     forever. Idempotent — safe to re-run.
+bash generate-keystore.sh
+
+# 1b. Pull images + start the stack. First boot: ~3-5 min pulling
+#     (~3 GB total), then ~1-2 min Alfresco bootstrap.
+docker compose -f alfresco-compose.yml up -d
+
+# 1c. Poll the repositoryInfo endpoint until it returns 200. The
+#     dictionary takes 60-120s post-startup to be queryable.
+until curl -fsS -u admin:admin \
+  "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser?cmisselector=repositoryInfo" \
+  > /dev/null; do
+  echo "waiting for Alfresco..."; sleep 15
+done
 ```
 
-First boot pulls ~3 GB of images and takes 3-5 minutes. Watch the
-logs until you see `Startup ... completed`:
+Note the `repositoryId` from the JSON — typically `-default-`. You
+plug it into `cmis.repo_id` in Step 4.
+
+## Step 2 — Register the custom content model
+
+Alfresco rejects upload requests carrying properties that the type
+does not declare. We ship a minimal model that declares
+`cmcourier:bacDoc` plus the staging metadata properties.
 
 ```bash
-docker compose logs -f alfresco | grep "completed"
+# 2a. Idempotent — uploads the XML zipped via /alfresco/service/api/cmm/upload,
+#     then activates the model. No-ops if the model is already ACTIVE.
+#     The Alfresco container must be reachable on localhost:8080.
+bash register-model.sh
 ```
 
-Verify the CMIS endpoint:
-
-```bash
-curl -u admin:admin \
-  "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser?cmisselector=repositoryInfo"
-```
-
-Expect a JSON blob with `productName: Alfresco`. Note the
-`repositoryId` — you'll plug it into config.
-
-## Step 2 — Deploy the Content Model
-
-Alfresco rejects upload requests with properties that are not
-declared in its content model. We ship a minimal one at
-`scripts/staging/cmcourier-model.xml` that declares the type
-`cmcourier:bacDoc` plus the metadata properties CMCourier emits.
-
-Two ways to deploy:
-
-**Quick (volume mount)**: drop the XML into the
-`./alfresco-extension/alfresco/extension/` directory on Compu B (the
-compose file mounts it). Restart Alfresco:
-
-```bash
-docker compose restart alfresco
-```
-
-**Full (Admin Console)**: log in to
-`http://<compu-b-ip>:8080/share` as `admin/admin`, go to Admin Tools
-→ Model Manager → Import. Upload `cmcourier-model.xml`. Activate the
-model.
-
-Verify the type registered:
+Verify the type is registered (mind the `D:` prefix — Alfresco
+exposes document types under that namespace):
 
 ```bash
 curl -u admin:admin \
-  "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser?cmisselector=typeDefinition&typeId=cmcourier:bacDoc" \
-  | python -m json.tool
+  "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser?cmisselector=typeDefinition&typeId=D:cmcourier:bacDoc" \
+  | python3 -m json.tool | head -20
 ```
 
-Expect a JSON definition with the properties listed.
+Expect a JSON definition listing the six `cmcourier:*` properties.
 
-## Step 3 — Synthetic dataset on Compu A
+### Pre-create the CMIS folders
 
-You generate the sample yourself (your call on size and shape). The
-shape you need:
+CMCourier (038) does **not** create folders on demand any more —
+operators own the folder hierarchy. For the staging exemplar:
 
-**Triggers** (`/sample/triggers.csv`):
-```csv
-ShortName,CIF,SystemID
-CLIENT001,123456,1
-CLIENT002,234567,1
-...
+```bash
+# Create /cmcourier-staging/CN01 — the folder MapeoRVI_CM points
+# CN01 at by default. Repeat for every additional CMISFolder you
+# plan to use.
+curl -u admin:admin -X POST \
+  -F "cmisaction=createFolder" \
+  -F "propertyId[0]=cmis:objectTypeId" -F "propertyValue[0]=cmis:folder" \
+  -F "propertyId[1]=cmis:name" -F "propertyValue[1]=cmcourier-staging" \
+  "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser/root"
+
+curl -u admin:admin -X POST \
+  -F "cmisaction=createFolder" \
+  -F "propertyId[0]=cmis:objectTypeId" -F "propertyValue[0]=cmis:folder" \
+  -F "propertyId[1]=cmis:name" -F "propertyValue[1]=CN01" \
+  "http://localhost:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser/root/cmcourier-staging"
 ```
 
-**RVABREP rows** (`/sample/rvabrep.csv`): columns are
-`shortname`, `system_id`, `txn_num`, `index1..index7`, `image_type`,
-`image_path`, `file_name`, `creation_date`, `last_view_date`,
-`total_pages`, `delete_code`. The
-`tests/fixtures/pipeline/rvabrep.csv` is a good template.
+## Step 3 — Generate the synthetic dataset (Compu A)
 
-**MapeoRVI_CM** (`/sample/MapeoRVI_CM.csv`): standard 035 split format.
-**For staging, set `CMISType=cmcourier:bacDoc` on every row** so the
-039 override targets the type we just declared.
+```bash
+# 3a. Synthetic RVABREP CSV (50k rows, ~4 MB, ~3-5s). Seed is
+#     deterministic — same seed = byte-identical output.
+cmcourier mock rvabrep \
+  --rows 50000 \
+  --output sample/rvabrep-50k.csv \
+  --seed 50000 \
+  --idrvi-top 20
 
-**MetadatosCM** (`/sample/MetadatosCM.csv`): same format as
-`docs/samples/csv/MetadatosCM.csv`. Use the property names declared
-in the Content Model.
+# 3b. Materialize the 50k physical files. Time + disk depend on the
+#     size bounds. Conservative choice for a first run:
+#     pdf 10kb-100kb, img 5kb-50kb → ~1.5 GB total, ~3-5 min.
+cmcourier mock generate \
+  --rvabrep-csv sample/rvabrep-50k.csv \
+  --root sample/files \
+  --pdf-min 10kb --pdf-max 100kb \
+  --img-min 5kb --img-max 50kb \
+  --seed 1
+```
 
-**Source files**: generate with `cmcourier mock generate` (031). It
-produces deterministic PDFs/TIFFs/JPEGs sized to your config.
+### Mapping CSVs
+
+Two CSVs the pipeline needs are already shipped in the repo:
+- `docs/samples/csv/MapeoRVI_CM.csv` — the bank's MapeoRVI with 282
+  IDRVIs. The `CN01` row carries the staging exemplar
+  (`CMISType=D:cmcourier:bacDoc`, `CMISFolder=/cmcourier-staging/CN01`).
+- `docs/samples/csv/MetadatosCM.csv` — corresponding metadata. The
+  five `CN01` rows carry the `cmcourier:*` property catalog.
+
+For your synthetic batch you'll most likely **need to point every
+IDRVI in the generated CSV at the same `D:cmcourier:bacDoc` type**,
+otherwise the `cm-targets` pre-flight in Step 5 fails for the other
+19 types. Either:
+
+- (a) Drop `--idrvi-top 1` in Step 3a so only one IDRVI is used.
+- (b) Copy `docs/samples/csv/MapeoRVI_CM.csv` to
+  `sample/MapeoRVI_CM.csv` and set
+  `CMISType=D:cmcourier:bacDoc` +
+  `CMISFolder=/cmcourier-staging/<idrvi>` on every row your
+  RVABREP touches (use the IDRVI distribution from
+  `cmcourier mock rvabrep`'s output to know which 20 you need).
+
+### Trigger CSV
+
+Triggers are NOT auto-generated by 039 yet — derive them from the
+RVABREP. Quick shell:
+
+```bash
+echo "ShortName,CIF,SystemID" > sample/triggers.csv
+tail -n +2 sample/rvabrep-50k.csv \
+  | awk -F, -v OFS=, '!seen[$1]++{print $1, $5, $2}' \
+  >> sample/triggers.csv
+```
 
 ## Step 4 — Wire the config
 
 Copy `scripts/staging/config-staging.yaml.template` to
-`config-staging.yaml`. Edit the paths to match your `/sample/...`
-layout and the CMIS section:
+`sample/config-staging.yaml`. Edit:
 
 ```yaml
+trigger:
+  csv_path: sample/triggers.csv
+
+indexing:
+  csv_path: sample/rvabrep-50k.csv
+
+mapping:
+  rvi_cm_csv_path: sample/MapeoRVI_CM.csv      # or docs/samples/csv/...
+  metadatos_csv_path: sample/MetadatosCM.csv   # or docs/samples/csv/...
+
+assembly:
+  source_root: sample/files
+  temp_dir:    sample/tmp
+
+tracking:
+  db_path: sample/tracking.db
+
 cmis:
-  base_url: "http://<compu-b-ip>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser"
-  repo_id: "-default-"        # use the id from Step 1's curl
-  workers: 4                   # start conservative
-  max_bandwidth_mbps: 20.0     # LAN, can go higher
+  base_url: "http://<compu-b>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser"
+  repo_id: "-default-"
+  workers: 4
+  max_bandwidth_mbps: 20.0   # LAN; remove the cap on Tailscale.
+
+observability:
+  log_dir: sample/logs
+  unmask_pii: false          # 038 — keep false outside active debugging.
 ```
 
-Set env vars:
+Env vars (Constitution V — credentials only via env):
 
 ```bash
 export CMIS_USERNAME=admin
 export CMIS_PASSWORD=admin
 ```
 
-## Step 5 — Run the dry-run
+## Step 5 — Pre-flight against Alfresco
 
-Now follow `docs/how-to/staging-dry-run.md` from Step 0 (`cmcourier
-doctor`) through Step 7. **Every check** should pass against
-Alfresco. If a check fails:
+Two gates, in order. Stop and fix on any FAIL.
 
-- `cm_type_alignment` fails on `cmcourier:bacDoc` → the model didn't
-  load. Recheck Step 2.
-- `cm_type_alignment` fails on the IBM CM `$t!...` pattern → you
-  forgot to set `CMISType` on the mapping CSV.
-- Upload 400 "property not declared" → a metadata property your
-  pipeline emits is missing from the Content Model. Either add it to
-  `cmcourier-model.xml` and redeploy, or strip it from the mapping.
+```bash
+# 5a. Connections + types + dry-run on the first doc.
+cmcourier doctor -c sample/config-staging.yaml
 
-## Step 6 — Tear down
+# 5b. cm-targets group (038) — verifies every distinct CMISType has
+#     a typeDefinition, every distinct CMISFolder exists, and every
+#     (CMISType, CMISPropertyId) pair aligns with the type's
+#     propertyDefinitions.
+cmcourier doctor -c sample/config-staging.yaml --check cm-targets
+```
 
-When the dry-run is done:
+Common failures and fixes:
+
+| Check | Failure | Fix |
+| --- | --- | --- |
+| `cm_type_alignment` | type `D:cmcourier:bacDoc` unknown | rerun `register-model.sh` on Compu B |
+| `cm_type_alignment` | type `$t!-...v-1` unknown | you forgot to set `CMISType=D:cmcourier:bacDoc` on the mapping row |
+| `cmis_folders_exist` | folder missing | Step 2 — pre-create it in CMIS |
+| `cmis_properties_alignment` | property missing on type | typo in `MetadatosCM.CMISPropertyId` |
+
+## Step 6 — Run the pipeline
+
+Conservative first run — small batch with TUI off so you can read
+the metrics:
+
+```bash
+cmcourier csv-trigger-pipeline run \
+  -c sample/config-staging.yaml \
+  --total 100 \
+  --no-tui
+```
+
+What to watch:
+
+- Exit code 0; tracking DB shows 100 `S5_DONE`.
+- `sample/logs/<batch_id>/metrics.jsonl` contains 100
+  `s5_upload_attempt` events (038). Run:
+  ```bash
+  jq -c 'select(.event=="s5_upload_attempt") | {txn_num, object_type_id}' \
+    sample/logs/<batch_id>/metrics.jsonl | head -5
+  ```
+- No `s5_upload_failed` events. If any appear, the structured event
+  carries `status_code`, truncated `response_body`, and a runnable
+  `curl_equivalent` you can paste into a terminal to reproduce.
+
+Scale up once the smoke is green:
+
+```bash
+cmcourier csv-trigger-pipeline run \
+  -c sample/config-staging.yaml \
+  --total 50000           # the full synthetic batch
+```
+
+## Step 7 — Verify in Alfresco
+
+```bash
+# 7a. Count docs of the custom type on the server.
+curl -s -u admin:admin -G \
+  --data-urlencode "q=SELECT COUNT(*) AS n FROM cmcourier:bacDoc" \
+  --data "cmisselector=query" \
+  "http://<compu-b>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser" \
+  | python3 -m json.tool
+
+# 7b. Sample 3 docs with their custom properties (raw values appear
+#     in the CMIS query response — this is direct CMIS, not the
+#     cmcourier event stream).
+curl -s -u admin:admin -G \
+  --data-urlencode "q=SELECT cmis:objectId, cmis:name, cmcourier:BAC_CIF, cmcourier:Nombre_Cliente FROM cmcourier:bacDoc" \
+  --data "cmisselector=query" \
+  "http://<compu-b>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser" \
+  | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+for row in d.get('results', [])[:3]:
+    props = row.get('properties', {})
+    print({k: v.get('value') for k, v in props.items()})
+"
+```
+
+## Step 8 — Tear down
 
 ```bash
 # Compu A
-rm -rf /sample /path/to/logs /path/to/tracking.db
+rm -rf sample/
 
 # Compu B
-docker compose down -v   # -v wipes the alfresco data volume
+docker compose -f alfresco-compose.yml down -v   # -v wipes Postgres + contentstore
 ```
 
-The Alfresco image stays cached (3 GB) so the next setup is faster.
+The Alfresco image stays cached (~3 GB) so the next setup runs Step 1
+in ~30s. The keystore at `alfresco-extension/keystore/keystore` is
+preserved across `down -v` — re-generation isn't needed.
+
+The custom content model lives in Postgres — `down -v` drops it.
+Re-run `register-model.sh` in Step 2 after a wipe.
 
 ## Caveats
 
-- **Alfresco is not IBM CM**. The protocol is the same (CMIS 1.1
-  Browser Binding) but auth schemes, error response bodies, and edge
-  cases differ. The simulation validates *workflow* fidelity, not
-  exact IBM-CM-isms.
-- **The Content Model is a fixture**, not a faithful copy of the
+- **Alfresco is not IBM CM.** Browser binding 1.1 is the same protocol
+  but auth schemes, error response bodies, type id syntax, and
+  `cmisselector` support differ. Notably, Alfresco 23.4.1 does NOT
+  support `cmisselector=object` or `cmisselector=properties` —
+  fetching a specific document needs `cmisselector=query` with a
+  CMIS-SQL `WHERE cmis:objectId = '...'` clause.
+- **The content model is a fixture**, not a faithful copy of the
   bank's. If the bank declares 200 types in production, this
-  simulation runs with 1. That gap is intentional — declaring 200
-  Alfresco types is a separate exercise that buys little for the
-  end-to-end dry-run.
+  simulation runs with 1. The 039 generator's `--idrvi-top 20` will
+  generate 20 distinct IDRVIs, all of which need to point at the
+  one staging type via `CMISType=D:cmcourier:bacDoc` in the
+  mapping (see Step 3 (b)).
+- **PII masking default is ON.** The `s5_upload_attempt` /
+  `s5_upload_failed` events in `metrics.jsonl` will not carry raw
+  CIF / Nombre_Cliente / NUM_CUENTA values. To unmask for active
+  debugging set `observability.unmask_pii: true` in the config —
+  the doctor emits an `unmask_pii_active` WARN at startup so you
+  cannot forget to flip it back.
 - **Memory budget**: Alfresco 23.x defaults to 4 GB JVM. If Compu B
   has 8 GB total, leave 2 GB headroom. Edit `JAVA_OPTS` in
-  `alfresco-compose.yml` to tighten.
+  `alfresco-compose.yml` to tighten if needed.
+- **Synthetic shortname cardinality**: the 039 generator's lexicon
+  is 15 names × 100 numeric suffixes = 1500 unique shortnames. With
+  `--clients 5000` and 50k rows you actually see ≈1500 distinct
+  clients (avg ~33 docs/client). This is realistic enough for
+  staging — power-users in real data look similar.
 
 ## Cross-references
 
 - Generic runbook: `docs/how-to/staging-dry-run.md`.
-- Mock file generator: `docs/how-to/` (TODO; see 031 spec).
-- Doctor command: `cmcourier doctor --help`.
-- CMIS type override (039): release notes in `CHANGELOG.md [0.40.0]`.
+- Synthetic RVABREP generator (039): `docs/how-to/mock-rvabrep-generator.md`.
+- CMIS target pre-flight (038): `docs/how-to/cmis-target-preflight.md`.
+- Doctor: `cmcourier doctor --help`.
+- Cross-batch metadata cache (037): `docs/how-to/document-cache.md`.
+- Heavy/light lanes (036): `docs/how-to/heavy-light-lanes.md`.
+- Multi-batch orchestrator (028): `docs/how-to/multi-batch.md`.
+- Offline log analyzer: `docs/how-to/log-analysis.md`.
+- Staging scaffolding scripts: `scripts/staging/README.md`.

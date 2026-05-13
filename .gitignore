@@ -47,6 +47,7 @@ dmypy.json
 logs/
 tmp/
 /staging/    # ignore runtime ./staging only — anchored to root so scripts/staging/ scaffolding stays tracked (039)
+/sample/     # synthetic dry-run data (rvabrep CSVs, materialized files, tracking DBs) — never commit
 data/migration_tracking.db
 data/*.db
 data/*.db-journal
