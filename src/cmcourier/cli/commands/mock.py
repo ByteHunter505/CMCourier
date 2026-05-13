@@ -20,6 +20,7 @@ __all__ = ["mock_group"]
 import logging
 import sys
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import click
@@ -39,6 +40,11 @@ from cmcourier.services.mock.planner import (
     PlannerFilters,
     SizeBounds,
     plan_files,
+)
+from cmcourier.services.mock.rvabrep_generator import (
+    ImageMix,
+    RvabrepGenSpec,
+    generate_rvabrep,
 )
 from cmcourier.services.mock.sizing import parse_size
 from cmcourier.services.mock.types import FilePlan
@@ -299,3 +305,215 @@ def _materialize(
         created += len(written)
         total_bytes += sum(p.stat().st_size for p in written)
     return created, skipped, total_bytes
+
+
+# ---------------------------------------------------------------------------
+# 039 — cmcourier mock rvabrep (synthetic RVABREP CSV generator)
+# ---------------------------------------------------------------------------
+
+
+_DEFAULT_IDRVI_SOURCE = Path("docs/samples/csv/MapeoRVI_CM.csv")
+
+
+@mock_group.command(name="rvabrep")
+@click.option(
+    "--rows",
+    type=click.IntRange(min=1),
+    default=50000,
+    show_default=True,
+    help="Number of RVABREP rows to generate.",
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    required=True,
+    help="Destination CSV path. Parent directory is created if needed.",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=None,
+    help="PRNG seed. Defaults to --rows for easy reproducibility.",
+)
+@click.option(
+    "--idrvi-source",
+    "idrvi_source",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help=(
+        "CSV with an IDRVI column (default: docs/samples/csv/MapeoRVI_CM.csv). "
+        "Used as the population for the index7 / IDRVI column."
+    ),
+)
+@click.option(
+    "--idrvi-top",
+    "idrvi_top",
+    type=click.IntRange(min=1),
+    default=20,
+    show_default=True,
+    help="Take the top-N distinct IDRVIs from the source, sorted lexicographically.",
+)
+@click.option(
+    "--image-mix",
+    "image_mix_text",
+    default="tiff:60,pdf:20,jpeg:20",
+    show_default=True,
+    help="Image-type proportions. Format: tiff:N,pdf:N,jpeg:N (weights, renormalized).",
+)
+@click.option(
+    "--date-from",
+    "date_from_text",
+    default="2024-01-01",
+    show_default=True,
+    help="Earliest creation_date (ISO YYYY-MM-DD).",
+)
+@click.option(
+    "--date-to",
+    "date_to_text",
+    default="2025-12-31",
+    show_default=True,
+    help="Latest creation_date (ISO YYYY-MM-DD).",
+)
+@click.option(
+    "--clients",
+    type=click.IntRange(min=1),
+    default=5000,
+    show_default=True,
+    help="Cardinality of the shortname pool. Average docs/client = rows/clients.",
+)
+@click.option(
+    "--delete-rate",
+    "delete_rate",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=0.05,
+    show_default=True,
+    help="Fraction of rows marked deleted (delete_code='D').",
+)
+@click.option(
+    "--cif-rate",
+    "cif_rate",
+    type=click.FloatRange(min=0.0, max=1.0),
+    default=0.95,
+    show_default=True,
+    help="Fraction of rows that carry a CIF (6-digit index2).",
+)
+def rvabrep_command(  # noqa: PLR0913 — Click options dictate the signature
+    rows: int,
+    output_path: Path,
+    seed: int | None,
+    idrvi_source: Path | None,
+    idrvi_top: int,
+    image_mix_text: str,
+    date_from_text: str,
+    date_to_text: str,
+    clients: int,
+    delete_rate: float,
+    cif_rate: float,
+) -> None:
+    """Stream a synthetic RVABREP CSV consumable by ``mock generate``."""
+    try:
+        image_mix = _parse_image_mix(image_mix_text)
+        date_from = _parse_iso_date(date_from_text, flag="--date-from")
+        date_to = _parse_iso_date(date_to_text, flag="--date-to")
+        source = idrvi_source if idrvi_source is not None else _DEFAULT_IDRVI_SOURCE
+        pool = _load_idrvi_pool(source, idrvi_top)
+        spec = RvabrepGenSpec(
+            rows=rows,
+            seed=seed if seed is not None else rows,
+            idrvi_pool=pool,
+            image_mix=image_mix,
+            date_from=date_from,
+            date_to=date_to,
+            clients=clients,
+            delete_rate=delete_rate,
+            cif_rate=cif_rate,
+        )
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+
+    try:
+        written = generate_rvabrep(spec, output_path)
+    except ConfigurationError as exc:
+        click.echo(f"ConfigurationError: {exc}", err=True)
+        sys.exit(2)
+    except Exception:  # noqa: BLE001 — top-level CLI handler
+        _log.exception("mock rvabrep failed")
+        sys.exit(3)
+    click.echo(
+        f"wrote {written} rows to {output_path} "
+        f"(image_mix={image_mix_text}, idrvis={len(pool)}, seed={spec.seed})"
+    )
+
+
+def _parse_image_mix(text: str) -> ImageMix:
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    weights: dict[str, float] = {"tiff": 0.0, "pdf": 0.0, "jpeg": 0.0}
+    seen: set[str] = set()
+    for part in parts:
+        if ":" not in part:
+            raise ConfigurationError(
+                "--image-mix entries must be kind:weight",
+                entry=part,
+            )
+        kind, _, weight_text = part.partition(":")
+        kind_norm = kind.strip().lower()
+        if kind_norm not in weights:
+            raise ConfigurationError(
+                "--image-mix kind must be one of tiff / pdf / jpeg",
+                kind=kind_norm,
+            )
+        if kind_norm in seen:
+            raise ConfigurationError("--image-mix has duplicate kind", kind=kind_norm)
+        seen.add(kind_norm)
+        try:
+            weights[kind_norm] = float(weight_text.strip())
+        except ValueError as exc:
+            raise ConfigurationError(
+                "--image-mix weight must be a number",
+                kind=kind_norm,
+                weight=weight_text,
+            ) from exc
+    return ImageMix(tiff=weights["tiff"], pdf=weights["pdf"], jpeg=weights["jpeg"])
+
+
+def _parse_iso_date(text: str, *, flag: str) -> date:
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ConfigurationError(f"{flag} must be ISO YYYY-MM-DD", value=text) from exc
+
+
+def _load_idrvi_pool(source_path: Path, top_n: int) -> tuple[str, ...]:
+    """Read the IDRVI column from *source_path*, dedupe, sort, take top-N."""
+    if not source_path.exists():
+        raise ConfigurationError(
+            "--idrvi-source path does not exist",
+            path=str(source_path),
+        )
+    source = TabularDataSource(source_path)
+    try:
+        seen: set[str] = set()
+        for row in source.get_all():
+            raw = row.get("IDRVI")
+            if raw is None:
+                continue
+            cleaned = str(raw).strip()
+            if cleaned:
+                seen.add(cleaned)
+    finally:
+        source.close()
+    if not seen:
+        raise ConfigurationError(
+            "--idrvi-source has no usable IDRVI values",
+            path=str(source_path),
+        )
+    ordered = tuple(sorted(seen))
+    if top_n > len(ordered):
+        raise ConfigurationError(
+            "--idrvi-top exceeds the distinct IDRVI count in the source",
+            top_n=top_n,
+            distinct=len(ordered),
+        )
+    return ordered[:top_n]
