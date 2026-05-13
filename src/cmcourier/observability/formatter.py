@@ -47,6 +47,17 @@ ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
         "timeout_before_s",
         "timeout_after_s",
         "action",
+        # 038: s5_upload_attempt / s5_upload_failed payload trace events.
+        "event",
+        "url",
+        "object_type_id",
+        "document_name",
+        "mime_type",
+        "content_bytes",
+        "properties_json",
+        "status_code",
+        "response_body",
+        "curl_equivalent",
     }
 )
 

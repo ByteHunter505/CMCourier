@@ -520,7 +520,10 @@ def _check_metadata_sources(config: PipelineConfig, secrets: Secrets) -> CheckRe
 def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckResult:
     try:
         mapping = build_mapping_service(config.mapping)
-        unique_types = sorted({m.cm_object_type for m in mapping.get_all()})
+        # 040: respect the ``cmis_type`` override (035) — the upload uses
+        # ``m.cmis_type or m.cm_object_type``, so the pre-flight must
+        # check the same effective type the wire request will carry.
+        unique_types = sorted({(m.cmis_type or m.cm_object_type) for m in mapping.get_all()})
         uploader = _build_uploader(config, secrets)
     except Exception as exc:  # noqa: BLE001
         return _fail("cm_type_alignment", exc)

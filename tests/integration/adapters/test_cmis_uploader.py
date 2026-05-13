@@ -948,3 +948,110 @@ class TestUploadPayloadTraceEvents:
         attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
         assert len(attempts) == 1
         assert "00123456" in attempts[0].properties_json
+
+
+# ---------------------------------------------------------------------------
+# 040 — Alfresco URL compatibility (repo_id="" semantics)
+# ---------------------------------------------------------------------------
+
+
+class TestServiceUrl:
+    """Unit-level — exercise the ``_service_url`` helper directly."""
+
+    def test_empty_repo_id_no_suffix(self) -> None:
+        uploader = CmisUploader(_make_config(repo_id=""))
+        assert uploader._service_url() == _BASE_URL
+
+    def test_set_repo_id_no_suffix(self) -> None:
+        uploader = CmisUploader(_make_config(repo_id="$x!something"))
+        assert uploader._service_url() == f"{_BASE_URL}/$x!something"
+
+    def test_empty_repo_id_with_suffix(self) -> None:
+        uploader = CmisUploader(_make_config(repo_id=""))
+        assert uploader._service_url("root/A/B") == f"{_BASE_URL}/root/A/B"
+
+    def test_set_repo_id_with_suffix(self) -> None:
+        uploader = CmisUploader(_make_config(repo_id="$x!something"))
+        expected = f"{_BASE_URL}/$x!something/root/A/B"
+        assert uploader._service_url("root/A/B") == expected
+
+
+class TestAlfrescoStyleUrls:
+    """Wire-level — when ``repo_id=""`` the adapter must NOT emit
+    ``.../base//root/...`` (Alfresco rejects with HTTP 405).
+    """
+
+    @responses.activate
+    def test_verify_folder_exists_emits_no_repo_id_segment(self, tmp_path: Path) -> None:
+        _stub_warmup_alfresco_style()
+        responses.add(
+            responses.GET,
+            f"{_BASE_URL}/root/X",
+            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
+            status=200,
+            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        )
+        uploader = CmisUploader(_make_config(repo_id=""))
+        assert uploader.verify_folder_exists("/X") is True
+        # The GET URL must not contain a doubled slash anywhere after the host.
+        for call in responses.calls:
+            path = call.request.url.split(f"{_BASE_URL}", 1)[1]
+            assert "//" not in path, call.request.url
+
+    @responses.activate
+    def test_upload_emits_no_repo_id_segment(self, tmp_path: Path) -> None:
+        _stub_warmup_alfresco_style()
+        responses.add(
+            responses.POST,
+            f"{_BASE_URL}/root/X",
+            json={"succinctProperties": {"cmis:objectId": "id"}},
+            status=201,
+        )
+        uploader = CmisUploader(_make_config(repo_id=""))
+        result = uploader.upload(
+            file=_make_staged(tmp_path),
+            folder_path="/X",
+            object_type_id="D:cmcourier:bacDoc",
+            document_name="TXN.pdf",
+            mime_type="application/pdf",
+            properties={},
+        )
+        assert result == "id"
+        # The POST URL must not contain a doubled slash.
+        post = [c for c in responses.calls if c.request.method == "POST"][0]
+        path = post.request.url.split(_BASE_URL, 1)[1]
+        assert "//" not in path
+
+    @responses.activate
+    def test_get_type_definition_no_repo_id_segment(self) -> None:
+        _stub_warmup_alfresco_style()
+        responses.add(
+            responses.GET,
+            _BASE_URL,
+            json={"id": "D:cmcourier:bacDoc"},
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "typeDefinition", "typeId": "D:cmcourier:bacDoc"}
+                )
+            ],
+        )
+        uploader = CmisUploader(_make_config(repo_id=""))
+        result = uploader.get_type_definition("D:cmcourier:bacDoc")
+        assert result["id"] == "D:cmcourier:bacDoc"
+
+
+def _stub_warmup_alfresco_style() -> None:
+    """Same as ``_stub_warmup`` but matches the Alfresco URL (no repo_id segment)."""
+    responses.add(
+        responses.GET,
+        _BASE_URL,
+        json={
+            "repositoryId": "-default-",
+            "productName": "Alfresco Community",
+            "productVersion": "23.4.1",
+            "vendorName": "Alfresco",
+        },
+        status=200,
+        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    )

@@ -211,8 +211,17 @@ class CmisUploader(IUploader):
     # ----------------------------------------------------------- public API
 
     def test_connection(self) -> Mapping[str, str]:
-        """GET repositoryInfo, return a small diagnostics dict."""
+        """GET repositoryInfo, return a small diagnostics dict.
+
+        IBM CM returns the fields flat under the top-level JSON object.
+        Alfresco wraps them: ``{"<repo_id>": {"repositoryId": ...}}``.
+        We unwrap when the top-level lacks ``repositoryId`` (040).
+        """
         data = self._warmup_session()
+        if isinstance(data, dict) and "repositoryId" not in data:
+            nested = [v for v in data.values() if isinstance(v, dict) and "repositoryId" in v]
+            if nested:
+                data = nested[0]
         return {
             "repository_id": str(data.get("repositoryId", "")),
             "product_name": str(data.get("productName", "")),
@@ -264,7 +273,7 @@ class CmisUploader(IUploader):
             need_warmup = not self._warm
         if need_warmup:
             self._warmup_session()
-        url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
+        url = self._service_url()
         t0 = time.monotonic()
         resp = self._session.get(
             url,
@@ -307,7 +316,7 @@ class CmisUploader(IUploader):
         configuration errors loudly.
         """
         normalized = folder_path.strip("/")
-        url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{normalized}"
+        url = self._service_url(f"root/{normalized}")
         t0 = time.monotonic()
         resp = self._session.get(
             url,
@@ -363,7 +372,7 @@ class CmisUploader(IUploader):
         existing retry / metrics path.
         """
         normalized = folder_path.strip("/")
-        url = f"{self._cfg.base_url}/{self._cfg.repo_id}/root/{normalized}"
+        url = self._service_url(f"root/{normalized}")
         self._emit_upload_attempt(
             url=url,
             object_type_id=object_type_id,
@@ -510,8 +519,29 @@ class CmisUploader(IUploader):
 
     # ----------------------------------------------------------- internals
 
+    def _service_url(self, suffix: str = "") -> str:
+        """Build a CMIS Browser Binding service URL respecting Alfresco vs IBM CM.
+
+        IBM Content Manager exposes its repository id INSIDE the URL path
+        (``.../cmis-browser/<repo_id>/root/<folder>``). Alfresco's browser
+        binding does NOT — the repository id is read from the
+        ``repositoryInfo`` response, and the ``base_url`` already includes
+        everything up to ``.../browser`` (040). Distinguish the two via
+        the ``repo_id`` config:
+
+        - ``repo_id`` set (any non-empty string): IBM CM convention,
+          emit ``f"{base}/{repo_id}/{suffix}"``.
+        - ``repo_id == ""``: Alfresco convention, emit
+          ``f"{base}/{suffix}"`` (no doubled slash).
+        """
+        if self._cfg.repo_id:
+            url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
+        else:
+            url = self._cfg.base_url
+        return f"{url}/{suffix}" if suffix else url
+
     def _warmup_session(self) -> dict[str, Any]:
-        url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
+        url = self._service_url()
         t0 = time.monotonic()
         resp = self._session.get(
             url,
@@ -630,26 +660,38 @@ class CmisUploader(IUploader):
             delay *= 2
         time.sleep(min(delay, _MAX_BACKOFF_S))
 
-    @staticmethod
     def _build_multipart_for_upload(
+        self,
         stream: IO[bytes],
         document_name: str,
         mime_type: str,
         object_type_id: str,
         properties: Mapping[str, str],
     ) -> MultipartEncoder:
+        # 040: IBM CM requires ``cmis:contentStreamMimeType`` as an
+        # explicit property (per the legacy cmis_services.py — "Mime
+        # Type (explicitly required by IBM CMIS)"). Alfresco rejects
+        # that same property with 400 "is read-only!" because it
+        # infers the mime type from the multipart Content-Type. The
+        # convention follows the same Alfresco-vs-IBM-CM heuristic as
+        # the URL builder: empty ``repo_id`` means Alfresco mode →
+        # omit the explicit property; the multipart part still carries
+        # the right Content-Type.
         fields: dict[str, Any] = {
             "cmisaction": "createDocument",
             "propertyId[0]": "cmis:objectTypeId",
             "propertyValue[0]": object_type_id,
             "propertyId[1]": "cmis:name",
             "propertyValue[1]": document_name,
-            "propertyId[2]": "cmis:contentStreamMimeType",
-            "propertyValue[2]": mime_type,
         }
+        next_idx = 2
+        if self._cfg.repo_id:
+            fields[f"propertyId[{next_idx}]"] = "cmis:contentStreamMimeType"
+            fields[f"propertyValue[{next_idx}]"] = mime_type
+            next_idx += 1
         for i, (key, value) in enumerate(properties.items()):
-            fields[f"propertyId[{i + 3}]"] = key
-            fields[f"propertyValue[{i + 3}]"] = value
+            fields[f"propertyId[{next_idx + i}]"] = key
+            fields[f"propertyValue[{next_idx + i}]"] = value
         fields["content"] = (document_name, stream, mime_type)
         return MultipartEncoder(fields=fields)
 
