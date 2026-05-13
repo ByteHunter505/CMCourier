@@ -81,3 +81,107 @@ class TestRenderChunks:
         # First 14 chars present; full ID is not.
         assert "a" * 14 in out
         assert long_id not in out
+
+
+class TestRenderChunksBreakdown041:
+    """041: per-stage breakdown columns + aggregate TOTAL row."""
+
+    def test_done_chunk_shows_full_breakdown(self) -> None:
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "AAA",
+                "status": "DONE",
+                "s5_done": 95,
+                "s5_failed": 0,
+                "doc_count": 95,
+                "total_bytes": 42 * 1_048_576,  # 42.0 MB
+                "prep_done": 95,
+                "prep_skipped": 0,
+                "prep_failed": 0,
+                "prep_elapsed_s": 12.4,
+                "upload_skipped": 0,
+                "upload_elapsed_s": 8.9,
+            },
+        )
+        out = render_chunks(_snap(chunks))
+        assert "95/0/0   (12.4s)" in out
+        assert "95/0/0   (8.9s)" in out
+        assert "42.0" in out  # MB column
+
+    def test_queued_chunk_dashes_in_both_stages(self) -> None:
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "",
+                "status": "QUEUED",
+                "doc_count": 93,
+                "total_bytes": 41 * 1_048_576,
+            },
+        )
+        out = render_chunks(_snap(chunks))
+        # QUEUED rows have placeholders, not bogus zeros.
+        assert "—/—/—" in out
+        assert "0/0/0" not in out
+
+    def test_total_row_aggregates_across_chunks(self) -> None:
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "AAA",
+                "status": "DONE",
+                "s5_done": 95,
+                "s5_failed": 0,
+                "doc_count": 95,
+                "total_bytes": 42 * 1_048_576,
+                "prep_done": 95,
+                "prep_elapsed_s": 12.4,
+                "upload_skipped": 0,
+                "upload_elapsed_s": 8.9,
+            },
+            {
+                "chunk_idx": 1,
+                "batch_id": "BBB",
+                "status": "UPLOAD",
+                "s5_done": 87,
+                "s5_failed": 4,
+                "doc_count": 91,
+                "total_bytes": 40 * 1_048_576,
+                "prep_done": 91,
+                "prep_elapsed_s": 12.1,
+                "upload_skipped": 0,
+                "upload_elapsed_s": 9.4,
+            },
+        )
+        out = render_chunks(_snap(chunks))
+        assert "TOTAL (2 chunks)" in out
+        assert "186" in out  # docs aggregate
+        assert "82.0" in out  # MB aggregate
+        # prep done = 95 + 91 = 186
+        assert "186/0/0" in out
+        # upload done = 95 + 87 = 182 / failed = 0 + 4 = 4
+        assert "182/0/4" in out
+
+    def test_upload_in_flight_uses_live_elapsed_value(self) -> None:
+        """When status==UPLOAD the data provider freezes prep_elapsed and
+        keeps upload_elapsed live; render just trusts the field.
+        """
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "AAA",
+                "status": "UPLOAD",
+                "s5_done": 4,
+                "s5_failed": 0,
+                "doc_count": 10,
+                "total_bytes": 5 * 1_048_576,
+                "prep_done": 10,
+                "prep_elapsed_s": 3.2,
+                "upload_skipped": 0,
+                "upload_elapsed_s": 1.5,
+            },
+        )
+        out = render_chunks(_snap(chunks))
+        assert "(3.2s)" in out
+        assert "(1.5s)" in out
+        assert "UPLOAD" in out

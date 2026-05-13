@@ -220,17 +220,36 @@ class TUIDataProvider:
         )
 
     def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:
-        """Render the orchestrator's chunk-state machine for the TUI."""
+        """Render the orchestrator's chunk-state machine for the TUI.
+
+        041 expands every row with per-stage stats and live elapsed values
+        (so a PREP-in-flight chunk shows its growing wall-clock without
+        the orchestrator having to mutate the dataclass each tick).
+        """
         if self._chunks_provider is None:
             return ()
         chunks = self._chunks_provider()
+        now = time.monotonic()
         out: list[dict[str, object]] = []
         for chunk in chunks:
+            status = str(getattr(chunk, "status", "?"))
+            prep_started = getattr(chunk, "prep_started_monotonic", None)
+            upload_started = getattr(chunk, "upload_started_monotonic", None)
+            prep_elapsed = float(getattr(chunk, "prep_elapsed_s", 0.0) or 0.0)
+            upload_elapsed = float(getattr(chunk, "upload_elapsed_s", 0.0) or 0.0)
+            # Live elapsed for in-flight stages: read the start timestamp
+            # and subtract NOW. The orchestrator freezes the value when the
+            # chunk leaves the stage, so terminal states keep their frozen
+            # number.
+            if status == "PREP" and isinstance(prep_started, (int, float)):
+                prep_elapsed = max(prep_elapsed, now - float(prep_started))
+            if status == "UPLOAD" and isinstance(upload_started, (int, float)):
+                upload_elapsed = max(upload_elapsed, now - float(upload_started))
             out.append(
                 {
                     "chunk_idx": getattr(chunk, "chunk_idx", -1),
                     "batch_id": getattr(chunk, "batch_id", ""),
-                    "status": getattr(chunk, "status", "?"),
+                    "status": status,
                     "s5_done": getattr(chunk, "s5_done", 0),
                     "s5_failed": getattr(chunk, "s5_failed", 0),
                     # 041 — per-chunk plan + per-stage breakdown
@@ -240,10 +259,10 @@ class TUIDataProvider:
                     "prep_skipped": getattr(chunk, "prep_skipped", 0),
                     "prep_failed": getattr(chunk, "prep_failed", 0),
                     "upload_skipped": getattr(chunk, "upload_skipped", 0),
-                    "prep_started_monotonic": getattr(chunk, "prep_started_monotonic", None),
-                    "prep_elapsed_s": float(getattr(chunk, "prep_elapsed_s", 0.0) or 0.0),
-                    "upload_started_monotonic": getattr(chunk, "upload_started_monotonic", None),
-                    "upload_elapsed_s": float(getattr(chunk, "upload_elapsed_s", 0.0) or 0.0),
+                    "prep_started_monotonic": prep_started,
+                    "prep_elapsed_s": prep_elapsed,
+                    "upload_started_monotonic": upload_started,
+                    "upload_elapsed_s": upload_elapsed,
                 }
             )
         return tuple(out)
