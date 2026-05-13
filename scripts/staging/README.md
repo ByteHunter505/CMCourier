@@ -42,6 +42,9 @@ bash register-model.sh
 cp config-staging.yaml.template config-staging.yaml
 $EDITOR config-staging.yaml
 export CMIS_USERNAME=admin CMIS_PASSWORD=admin
+# 038: pre-flight every CMIS target (type + folder + property id) BEFORE
+# running the pipeline. Exits non-zero if anything is missing on Alfresco.
+cmcourier doctor -c config-staging.yaml --check cm-targets
 cmcourier doctor -c config-staging.yaml
 ```
 

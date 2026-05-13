@@ -51,6 +51,86 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.41.0] — 2026-05-13 — **CMIS target pre-flight + upload payload trace**
+
+Closes three gaps that previously surfaced as mid-batch S5 failures:
+
+1. **Pre-flight gate on the CMIS target.** Two new doctor checks
+   join the existing ``cm_type_alignment`` under a new
+   ``cm-targets`` group — ``cmis_folders_exist`` verifies every
+   ``CMISFolder`` declared in MapeoRVI_CM is a ``cmis:folder`` on
+   the server, ``cmis_properties_alignment`` cross-references
+   every ``(CMISType, CMISPropertyId)`` pair against the type's
+   ``propertyDefinitions``.
+2. **Folder-creation surface removed from the upload path.** The
+   bank's CMIS administrators own the folder tree; CMCourier
+   deposits documents only. ``IUploader.ensure_folder`` is
+   replaced by ``IUploader.verify_folder_exists`` (read-only).
+3. **Wire-level visibility on every upload attempt.** Every S5
+   POST now writes an ``s5_upload_attempt`` event into
+   ``metrics.jsonl`` (PII-masked). Failures add an
+   ``s5_upload_failed`` event carrying the status code, truncated
+   response body, and a runnable ``curl_equivalent``.
+
+### Added
+
+- Two optional columns of the split mapping CSVs are now consumed:
+  - ``MapeoRVI_CM.CMISFolder`` → ``CMMapping.cmis_folder``. When
+    set, overrides the derived ``cm_folder`` in S5's upload URL.
+  - ``MetadatosCM.CMISPropertyId`` → ``CMMapping.cmis_property_ids``,
+    a friendly-name → wire-level CMIS-id catalog. ``MetadataService.resolve``
+    translates keys at emission, falling back to canonical for
+    uncatalogued keys.
+- ``cm-targets`` doctor group with three checks (existing
+  ``cm_type_alignment`` + new ``cmis_folders_exist`` +
+  ``cmis_properties_alignment``).
+- ``s5_upload_attempt`` / ``s5_upload_failed`` structured events
+  emitted by the uploader into ``cmcourier.metrics.network``.
+- ``ObservabilityConfig.unmask_pii: bool = False`` — when ``true``,
+  payload events emit raw values. Doctor emits a
+  ``unmask_pii_active`` WARN at the top of every report while the
+  flag is set.
+- ``observability/pii.py`` gains ``is_pii_name`` and ``mask_dict``
+  helpers covering wire-level CMIS property ids
+  (``clbNonGroup.BAC_CIF``, ``cmcourier:Nombre_Cliente``).
+- ``docs/how-to/cmis-target-preflight.md`` — operator runbook.
+
+### Changed
+
+- **BREAKING (port contract):** ``IUploader.ensure_folder(path) → None``
+  is replaced by ``IUploader.verify_folder_exists(path) → bool``.
+  Read-only — never creates a folder.
+- ``CmisUploader.upload`` no longer calls ``ensure_folder``. S5
+  trusts ``doctor --check cm-targets``; missing folders now surface
+  through the 4xx + ``s5_upload_failed`` path.
+- ``orchestrators/staged.py`` S5 URL builder consumes
+  ``mapping.cmis_folder`` when set, ``mapping.cm_folder`` otherwise.
+
+### Removed
+
+- ``CmisUploader._create_folder_segment`` — folder creation was the
+  only consumer and is now out of scope.
+- ``CmisUploader._folder_cache`` / ``_folder_lock`` — no longer
+  needed without on-demand creation.
+
+### Sample fixtures
+
+- ``docs/samples/csv/MapeoRVI_CM.csv`` gains a ``CMISFolder``
+  column; the ``CN01`` row is populated with
+  ``D:cmcourier:bacDoc`` + ``/cmcourier-staging/CN01`` as the
+  staging exemplar.
+- ``docs/samples/csv/MetadatosCM.csv`` gains a ``CMISPropertyId``
+  column; the five ``CN01`` rows are populated with
+  ``cmcourier:*`` property ids matching the custom Alfresco model.
+
+### Tests
+
+- 1053 unit + integration tests pass. mypy + ruff clean.
+
+See ``specs/038-cmis-target-preflight/`` for the full proposal.
+
+---
+
 ## [0.40.0] — 2026-05-11 — **CMIS object_type_id override + staging dry-run scaffolding**
 
 S5 now uses ``mapping.cmis_type`` as the upload's

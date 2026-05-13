@@ -233,6 +233,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Thirty-seventh change: cross-batch `document_cache` table (POST-MVP §9 — default off, SQLite-backed, TTL-aware, `cmcourier cache stats|clear` CLI)
 - [x] Thirty-eighth change: CMIS connection pool sizing + eager warm-up (POST-MVP §10.2 — `HTTPAdapter pool_maxsize`, `warm_connection_pool(n)` pre-S5)
 - [x] Thirty-ninth change: CMIS `object_type_id` override (via `mapping.cmis_type`) + staging dry-run scaffolding (Alfresco-in-Docker + runbooks)
+- [x] Fortieth change (038): CMIS target pre-flight + upload payload trace — `CMISFolder` + `CMISPropertyId` columns; `doctor --check cm-targets` (folders + properties); `IUploader.verify_folder_exists` (read-only); `s5_upload_attempt` / `s5_upload_failed` events with PII masking + `observability.unmask_pii` toggle
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
