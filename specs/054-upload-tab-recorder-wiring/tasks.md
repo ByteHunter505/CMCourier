@@ -2,20 +2,21 @@
 
 ## Phase 1 — Fix the wiring + regression tests
 
-- [ ] 1.1 `data_provider.py` `snapshot()`: `bandwidth_current_mbps`,
+- [x] 1.1 `data_provider.py` `snapshot()`: `bandwidth_current_mbps`,
       `bandwidth_peak_mbps`, `bandwidth_series`, `slow_ops_all` read
       from `self._upload_metrics`.
-- [ ] 1.2 `data_provider.py` `_current_chunk_progress`: resolve
+- [x] 1.2 `data_provider.py` `_current_chunk_progress`: resolve
       `elapsed_s` by active-chunk status — UPLOAD → from
       `upload_started_monotonic`; DONE → frozen `upload_elapsed_s`;
       PREP → 0.0; no active chunk → `global_elapsed_s` (unchanged).
-- [ ] 1.3 Tests: bandwidth + slow-ops read the UPLOAD recorder, not
+- [x] 1.3 Tests: bandwidth + slow-ops read the UPLOAD recorder, not
       PREP — provider wired with two divergent recorders.
-- [ ] 1.4 Tests: per-chunk timer — UPLOAD measures from S5 start,
+- [x] 1.4 Tests: per-chunk timer — UPLOAD measures from S5 start,
       DONE uses frozen `upload_elapsed_s`, PREP is 0.0; avg_mbps uses
       the upload window.
-- [ ] 1.5 Full unit + integration suite green; mypy + ruff clean.
-- [ ] 1.6 Commit
+- [x] 1.5 Full unit + integration suite green (1206 passed); mypy +
+      ruff clean.
+- [x] 1.6 Commit
       `fix(tui): UPLOAD-tab reads the upload recorder for bandwidth/slow-ops + per-chunk timer measures from S5 start (054 Phase 1)`.
 
 ## Phase 2 — CHANGELOG 0.57.0 + version bump + README + FF

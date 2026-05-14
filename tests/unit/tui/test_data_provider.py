@@ -10,6 +10,7 @@ import pytest
 
 from cmcourier.config.schema import AutoTuneConfig, CmisConfigModel
 from cmcourier.observability.metrics import MetricsRecorder
+from cmcourier.orchestrators.multi_batch import ChunkState
 from cmcourier.services.worker_pool_stats import ResizableSemaphore, WorkerPoolStats
 from cmcourier.tui.data_provider import PREP_STAGES, UPLOAD_STAGE, TUIDataProvider
 
@@ -200,3 +201,152 @@ class TestTUIDataProvider:
         finally:
             net_log.setLevel(prev_level)
             recorder.close_batch(pipeline="csv-trigger", batch_id="b1", total_docs=0, elapsed_s=1.0)
+
+
+# ---------------------------------------------------------------------------
+# 054: UPLOAD-tab recorder wiring — the multi-batch shape where the PREP-side
+# and UPLOAD-side recorders DIVERGE. Pre-054 the single-recorder helper above
+# could never exercise this, so two wiring bugs shipped (042 fallout).
+# ---------------------------------------------------------------------------
+
+
+def _make_dual_provider(
+    tmp_path: Path,
+    *,
+    chunks: list[object] | None = None,
+) -> tuple[TUIDataProvider, MetricsRecorder, MetricsRecorder]:
+    """Provider wired with a PREP recorder (`recorder_provider`) and a
+    distinct UPLOAD recorder (`upload_recorder_provider`) — the N=2 shape."""
+
+    def _rec(name: str) -> MetricsRecorder:
+        return MetricsRecorder(
+            log_dir=tmp_path / f"logs-{name}",
+            slow_op_threshold_ms=0.0,
+            slow_op_top_n=10,
+            enabled=True,
+            pipeline_metrics_enabled=True,
+        )
+
+    prep_rec = _rec("prep")
+    upload_rec = _rec("upload")
+    cmis = CmisConfigModel(
+        base_url="http://cmis.bank.test:9080/cmis",
+        repo_id="$x!t",
+        workers=4,
+        max_bandwidth_mbps=50.0,
+    )
+    uploader = MagicMock()
+    uploader._timeout_s = 300.0
+    provider = TUIDataProvider(
+        pipeline_name="csv-trigger",
+        metrics_recorder=prep_rec,
+        pool_stats=WorkerPoolStats(),
+        concurrency_limit=ResizableSemaphore(4),
+        cmis_config=cmis,
+        uploader=uploader,
+        recorder_provider=lambda: prep_rec,
+        upload_recorder_provider=lambda: upload_rec,
+        chunks_provider=(lambda: list(chunks)) if chunks is not None else None,
+    )
+    return provider, prep_rec, upload_rec
+
+
+class TestUploadRecorderWiring054:
+    def test_bandwidth_reads_upload_recorder_not_prep(self, tmp_path: Path) -> None:
+        # Bytes land in the UPLOAD recorder's sampler; the PREP recorder stays
+        # empty. Pre-054 the snapshot read the PREP recorder → 0 / blank.
+        provider, _prep, upload_rec = _make_dual_provider(tmp_path)
+        now = int(time.time())
+        for bucket in (now - 2, now - 1, now):
+            upload_rec.bandwidth.record_upload(8_000_000, float(bucket))
+        snap = provider.snapshot()
+        assert snap.bandwidth_peak_mbps > 0.0
+        assert snap.bandwidth_current_mbps > 0.0
+        assert any(v > 0.0 for _, v in snap.bandwidth_series)
+
+    def test_slow_ops_read_upload_recorder_not_prep(self, tmp_path: Path) -> None:
+        provider, _prep, upload_rec = _make_dual_provider(tmp_path)
+        upload_rec.start_batch(pipeline="csv-trigger", batch_id="UB")
+        import logging as _logging
+
+        net_log = _logging.getLogger("cmcourier.metrics.network")
+        prev = net_log.level
+        net_log.setLevel(_logging.INFO)
+        try:
+            net_log.info(
+                "cmis_upload",
+                extra={
+                    "batch_id": "UB",
+                    "kind": "cmis_upload",
+                    "duration_ms": 9999.0,
+                    "txn_num": "TXN_UP",
+                    "worker": "cmcourier-s5_1",
+                    "size_bytes": 4096,
+                },
+            )
+            snap = provider.snapshot()
+            assert any(op.get("txn_num") == "TXN_UP" for op in snap.slow_ops_all)
+        finally:
+            net_log.setLevel(prev)
+            upload_rec.close_batch(
+                pipeline="csv-trigger", batch_id="UB", total_docs=0, elapsed_s=1.0
+            )
+
+    def test_current_chunk_elapsed_measures_from_upload_start(self, tmp_path: Path) -> None:
+        # PREP began 10 min ago, S5 began 5 s ago. The timer must show the
+        # S5 window, not prep+upload.
+        now = time.monotonic()
+        chunk = ChunkState(
+            chunk_idx=0,
+            batch_id="B0",
+            status="UPLOAD",
+            total_bytes=10_000_000,
+            prep_started_monotonic=now - 600.0,
+            upload_started_monotonic=now - 5.0,
+        )
+        provider, _prep, _upload = _make_dual_provider(tmp_path, chunks=[chunk])
+        snap = provider.snapshot()
+        assert 5.0 <= snap.current_chunk_elapsed_s < 60.0  # the S5 window, not 600 s
+
+    def test_current_chunk_elapsed_done_uses_frozen_upload_elapsed(self, tmp_path: Path) -> None:
+        chunk = ChunkState(
+            chunk_idx=0,
+            batch_id="B0",
+            status="DONE",
+            total_bytes=10_000_000,
+            prep_started_monotonic=time.monotonic() - 600.0,
+            upload_started_monotonic=time.monotonic() - 500.0,
+            upload_elapsed_s=42.0,
+        )
+        provider, _prep, _upload = _make_dual_provider(tmp_path, chunks=[chunk])
+        snap = provider.snapshot()
+        assert snap.current_chunk_elapsed_s == 42.0  # the frozen S5 duration
+
+    def test_current_chunk_elapsed_prep_is_zero(self, tmp_path: Path) -> None:
+        chunk = ChunkState(
+            chunk_idx=0,
+            batch_id="B0",
+            status="PREP",
+            total_bytes=10_000_000,
+            prep_started_monotonic=time.monotonic() - 30.0,
+        )
+        provider, _prep, _upload = _make_dual_provider(tmp_path, chunks=[chunk])
+        snap = provider.snapshot()
+        assert snap.current_chunk_elapsed_s == 0.0  # S5 hasn't started yet
+
+    def test_current_chunk_avg_mbps_uses_upload_window(self, tmp_path: Path) -> None:
+        # 10 MB uploaded over a ~5 s S5 window → ~2 MB/s. If the timer still
+        # used the 600 s prep window the average would be a tiny fraction.
+        now = time.monotonic()
+        chunk = ChunkState(
+            chunk_idx=0,
+            batch_id="B0",
+            status="UPLOAD",
+            total_bytes=20_000_000,
+            prep_started_monotonic=now - 600.0,
+            upload_started_monotonic=now - 5.0,
+        )
+        provider, _prep, upload_rec = _make_dual_provider(tmp_path, chunks=[chunk])
+        upload_rec.bandwidth.record_upload(10 * 1_048_576, time.time())
+        snap = provider.snapshot()
+        assert snap.current_chunk_avg_mbps > 0.5  # ~2 MB/s, not 10MB/600s

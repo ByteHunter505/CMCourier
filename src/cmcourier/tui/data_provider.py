@@ -262,11 +262,18 @@ class TUIDataProvider:
                 self._auto_tune.seconds_since_last_decision if self._auto_tune else None
             ),
             cmis_endpoint=self._cmis_config.base_url,
-            bandwidth_current_mbps=self._metrics.bandwidth.current_mbps(),
-            bandwidth_peak_mbps=self._metrics.bandwidth.peak_mbps(),
+            # 054: bandwidth + slow ops are S5-shaped — they must read the
+            # UPLOAD-side recorder. The PREP-aware ``self._metrics`` flips to
+            # chunk N+1 the moment it enters PREP, and N+1's per-batch
+            # _BandwidthHandler / _SlowOpHandler filter out batch N's
+            # cmis_upload events, so reading it here showed 0 bandwidth /
+            # blank sparkline / no slow ops mid-upload. ``_upload_metrics``
+            # falls back to ``_metrics`` for single-batch runs.
+            bandwidth_current_mbps=self._upload_metrics.bandwidth.current_mbps(),
+            bandwidth_peak_mbps=self._upload_metrics.bandwidth.peak_mbps(),
             bandwidth_ceiling_mbps=self._cmis_config.max_bandwidth_mbps,
-            bandwidth_series=tuple(self._metrics.bandwidth.series(60)),
-            slow_ops_all=tuple(self._metrics.aggregator_snapshot()),
+            bandwidth_series=tuple(self._upload_metrics.bandwidth.series(60)),
+            slow_ops_all=tuple(self._upload_metrics.aggregator_snapshot()),
             chunks_state=chunks_snapshot,
             # 051: total docs filtered at S1 across every chunk seen so far.
             # ``prep_filtered`` is an ``int`` on ``ChunkState`` — the dict
@@ -380,9 +387,24 @@ class TUIDataProvider:
             bt = active.get("total_bytes")
             if isinstance(bt, int):
                 bytes_total = bt
-            mono = active.get("prep_started_monotonic")
-            if isinstance(mono, (int, float)):
-                elapsed_s = max(0.0, time.monotonic() - float(mono))
+            # 054: the UPLOAD-tab timer must measure the S5 window, not
+            # prep+upload. Pre-054 this read ``prep_started_monotonic`` — so
+            # for chunk 0 the "chunk elapsed" counted from ~program launch
+            # and ``avg_mbps`` was diluted by the whole PREP phase.
+            status = str(active.get("status", ""))
+            if status == "UPLOAD":
+                mono = active.get("upload_started_monotonic")
+                elapsed_s = (
+                    max(0.0, time.monotonic() - float(mono))
+                    if isinstance(mono, (int, float))
+                    else 0.0
+                )
+            elif status == "DONE":
+                frozen = active.get("upload_elapsed_s")
+                elapsed_s = float(frozen) if isinstance(frozen, (int, float)) else 0.0
+            else:
+                # PREP (or unknown) — S5 hasn't started; no upload elapsed yet.
+                elapsed_s = 0.0
         if elapsed_s > 0 and bytes_uploaded > 0:
             avg_mbps = (bytes_uploaded / 1_048_576.0) / elapsed_s
         else:
