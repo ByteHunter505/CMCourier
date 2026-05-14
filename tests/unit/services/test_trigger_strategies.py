@@ -14,6 +14,7 @@ import pytest
 
 from cmcourier.adapters.sources import TabularDataSource
 from cmcourier.domain.exceptions import ConfigurationError
+from cmcourier.domain.models import LocalScanTrigger, RvabrepRowTrigger
 from cmcourier.domain.ports import S0Strategy
 from cmcourier.services.triggers import (
     CsvTriggerColumnsConfig,
@@ -112,70 +113,94 @@ class TestDirectRvabrepTriggerStrategy:
         yield src
         src.close()
 
-    def test_no_filters_yields_unique_pairs(self, source: TabularDataSource) -> None:
+    def test_yields_one_trigger_per_row_no_dedup(self, source: TabularDataSource) -> None:
+        """046: the strategy no longer deduplicates by (shortname, system_id).
+
+        The pre-046 model collapsed N rows of a client into one ``TriggerRecord``
+        and then S1 re-expanded — wasted work and the wrong semantic for
+        "process THIS RVABREP row". Now: 8 fixture rows minus 1 blank = 7
+        ``RvabrepRowTrigger`` instances, one per surviving row.
+        """
         strategy = DirectRvabrepTriggerStrategy(source)
         records = list(strategy.acquire())
-        # 8 rows total → 1 blank skipped → 7 valid → 4 unique pairs.
-        assert len(records) == 4
-        keys = {(r.shortname, r.system_id) for r in records}
-        assert keys == {
-            ("JUANPEREZ01", "1"),
-            ("MARIAGOMEZ02", "5"),
-            ("PEPELOPEZ03", "1"),
-            ("EMPRESA04", "2"),
-        }
+        assert len(records) == 7
+        assert all(isinstance(r, RvabrepRowTrigger) for r in records)
+
+    def test_row_carries_full_rvabrep_payload(self, source: TabularDataSource) -> None:
+        """Downstream S1 reads from the row directly, so every column must
+        survive — not just the audit triple."""
+        strategy = DirectRvabrepTriggerStrategy(source)
+        records = list(strategy.acquire())
+        first = records[0]
+        assert isinstance(first, RvabrepRowTrigger)
+        assert first.row["ABABCD"] == "JUANPEREZ01"
+        assert first.row["ABACCD"] == "123456"
+        assert first.row["ABAACD"] == "1"
+        assert first.row["ABAHCD"] == "FF17"  # id_rvi column survived
 
     def test_filter_by_systems(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(source, filters=RvabrepFilters(systems=("1",)))
         records = list(strategy.acquire())
-        assert all(r.system_id == "1" for r in records)
-        assert {r.shortname for r in records} == {"JUANPEREZ01", "PEPELOPEZ03"}
+        assert all(r.row["ABAACD"] == "1" for r in records if isinstance(r, RvabrepRowTrigger))
+        shortnames = {r.row["ABABCD"] for r in records if isinstance(r, RvabrepRowTrigger)}
+        assert shortnames == {"JUANPEREZ01", "PEPELOPEZ03"}
 
     def test_filter_by_document_types(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(
             source, filters=RvabrepFilters(document_types=("FF17",))
         )
-        records = list(strategy.acquire())
-        # FF17 rows: JUANPEREZ01/1, MARIAGOMEZ02/5, EMPRESA04/2 (and the blank
-        # row also FF17 but skipped because blank shortname).
-        keys = {(r.shortname, r.system_id) for r in records}
-        assert keys == {
-            ("JUANPEREZ01", "1"),
-            ("MARIAGOMEZ02", "5"),
-            ("EMPRESA04", "2"),
-        }
+        records = [r for r in strategy.acquire() if isinstance(r, RvabrepRowTrigger)]
+        # FF17 rows: JUANPEREZ01/1 (×2 — no dedup), MARIAGOMEZ02/5,
+        # EMPRESA04/2 (blank shortname dropped).
+        keys = [(r.row["ABABCD"], r.row["ABAACD"]) for r in records]
+        assert sorted(keys) == sorted(
+            [
+                ("JUANPEREZ01", "1"),
+                ("JUANPEREZ01", "1"),  # duplicate row preserved post-046
+                ("MARIAGOMEZ02", "5"),
+                ("EMPRESA04", "2"),
+            ]
+        )
 
     def test_filter_by_both(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(
             source, filters=RvabrepFilters(systems=("1",), document_types=("FF17",))
         )
-        records = list(strategy.acquire())
-        assert len(records) == 1
-        assert records[0].shortname == "JUANPEREZ01"
-        assert records[0].system_id == "1"
+        records = [r for r in strategy.acquire() if isinstance(r, RvabrepRowTrigger)]
+        # JUANPEREZ01/1/FF17 appears twice in the fixture (rows 1 and 6),
+        # both survive post-046.
+        assert len(records) == 2
+        for r in records:
+            assert r.row["ABABCD"] == "JUANPEREZ01"
+            assert r.row["ABAACD"] == "1"
+            assert r.row["ABAHCD"] == "FF17"
 
     def test_blank_rows_skipped(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(source)
         for r in strategy.acquire():
-            assert r.shortname  # non-empty
-            assert r.system_id
+            assert isinstance(r, RvabrepRowTrigger)
+            # No row with blank shortname or system_id reaches downstream.
+            assert r.row["ABABCD"]
+            assert r.row["ABAACD"]
 
     def test_cif_extracted_when_present(self, source: TabularDataSource) -> None:
+        """audit_row() projects from RVABREP cols; this is the shortcut for
+        the migration_log trigger_cif column."""
         strategy = DirectRvabrepTriggerStrategy(source)
-        records = list(strategy.acquire())
-        juan = next(r for r in records if r.shortname == "JUANPEREZ01")
-        assert juan.cif == "123456"
+        records = [r for r in strategy.acquire() if isinstance(r, RvabrepRowTrigger)]
+        juan = next(r for r in records if r.row["ABABCD"] == "JUANPEREZ01")
+        assert juan.audit_row()["cif"] == "123456"
 
     def test_cif_none_when_blank(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(source)
-        records = list(strategy.acquire())
-        pepe = next(r for r in records if r.shortname == "PEPELOPEZ03")
-        assert pepe.cif is None
+        records = [r for r in strategy.acquire() if isinstance(r, RvabrepRowTrigger)]
+        pepe = next(r for r in records if r.row["ABABCD"] == "PEPELOPEZ03")
+        assert pepe.audit_row()["cif"] is None
 
     def test_source_descriptor_ignored(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(source)
         records = list(strategy.acquire("any-descriptor"))
-        assert len(records) == 4
+        assert len(records) == 7
 
     def test_is_s0strategy(self, source: TabularDataSource) -> None:
         strategy = DirectRvabrepTriggerStrategy(source)
@@ -204,6 +229,8 @@ def _friendly_columns() -> RvabrepColumnsConfig:  # noqa: F821 — forward ref
 
 class TestLocalScanStrategy:
     def test_yields_trigger_per_matched_file(self, tmp_path: Path) -> None:
+        """046: each trigger carries the scanned file path + matched RVABREP row.
+        The shortname comes from the row, not from a direct trigger field."""
         # rvabrep.csv has TESTCLIENT01 with file_name=DAAAH9X4.001.
         (tmp_path / "DAAAH9X4.001").touch()
         src = TabularDataSource(_RVABREP_FIXTURE)
@@ -212,8 +239,14 @@ class TestLocalScanStrategy:
             triggers = list(strategy.acquire())
         finally:
             src.close()
-        shortnames = {t.shortname for t in triggers}
+        assert all(isinstance(t, LocalScanTrigger) for t in triggers)
+        shortnames = {
+            t.audit_row()["shortname"] for t in triggers if isinstance(t, LocalScanTrigger)
+        }
         assert "TESTCLIENT01" in shortnames
+        # File path is preserved on the trigger for downstream tracking.
+        paths = {t.file_path for t in triggers if isinstance(t, LocalScanTrigger)}
+        assert tmp_path / "DAAAH9X4.001" in paths
 
     def test_filters_non_trigger_files(self, tmp_path: Path) -> None:
         # Build a focused rvabrep with exactly one .001 match so the count
@@ -233,7 +266,13 @@ class TestLocalScanStrategy:
         finally:
             src.close()
         # Exactly one trigger from the one matching row.
-        assert [t.shortname for t in triggers] == ["FOCUSED"]
+        assert len(triggers) == 1
+        first = triggers[0]
+        assert isinstance(first, LocalScanTrigger)
+        # The "friendly" rvabrep csv uses ``shortname`` column name (not the
+        # AS400 physical ``ABABCD``); audit_row() projects from the
+        # configured RVABREP columns but here we hand-validate via row.
+        assert first.row["shortname"] == "FOCUSED"
 
     def test_unmatched_file_logs_warning(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -285,7 +324,8 @@ class TestLocalScanStrategy:
             )
         finally:
             src.close()
-        shortnames = {t.shortname for t in triggers}
+        assert all(isinstance(t, LocalScanTrigger) for t in triggers)
+        shortnames = {t.row["shortname"] for t in triggers if isinstance(t, LocalScanTrigger)}
         assert shortnames == {"TESTOK"}
 
     @pytest.mark.skipif(
@@ -317,7 +357,7 @@ class TestLocalScanStrategy:
         # Both files match (case-insensitive on .PDF extension).
         # Each filesystem entry is queried; the CSV match is exact so each
         # filesystem name finds its own row.
-        shortnames = {t.shortname for t in triggers}
+        shortnames = {t.row["shortname"] for t in triggers if isinstance(t, LocalScanTrigger)}
         assert shortnames == {"PDFCLIENT1", "PDFCLIENT2"}
 
     def test_empty_directory(self, tmp_path: Path) -> None:
@@ -330,7 +370,10 @@ class TestLocalScanStrategy:
             src.close()
         assert triggers == []
 
-    def test_empty_cif_becomes_none(self, tmp_path: Path) -> None:
+    def test_empty_cif_remains_blank_in_row(self, tmp_path: Path) -> None:
+        """The blank CIF survives as ``""`` in the row dict; S3 self-healing
+        (via ``_trigger_cif`` helper added in 046 Phase 3) treats whitespace
+        as None and resolves via BAC_CIF lookup."""
         # Build a tiny rvabrep where one row has empty index2.
         rvabrep = tmp_path / "rvabrep_cif_blank.csv"
         rvabrep.write_text(
@@ -345,7 +388,13 @@ class TestLocalScanStrategy:
         finally:
             src.close()
         assert len(triggers) == 1
-        assert triggers[0].cif is None
+        first = triggers[0]
+        assert isinstance(first, LocalScanTrigger)
+        # TabularDataSource normalizes empty cells to None at read time, so
+        # the row dict carries None for the empty index2 column. The S3
+        # self-heal helper added in 046 Phase 3 treats both None and
+        # whitespace as "no CIF" and resolves via BAC_CIF lookup.
+        assert first.row["index2"] is None
 
     def test_is_s0strategy(self, tmp_path: Path) -> None:
         src = TabularDataSource(_RVABREP_FIXTURE)

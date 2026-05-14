@@ -12,7 +12,7 @@ import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from cmcourier.domain.models import TriggerRecord
+from cmcourier.domain.models import RvabrepRowTrigger, Trigger
 from cmcourier.domain.ports import IDataSource, S0Strategy
 
 _logger = logging.getLogger(__name__)
@@ -44,10 +44,12 @@ def _is_blank(v: object) -> bool:
 class DirectRvabrepTriggerStrategy(S0Strategy):
     """Discovers triggers by scanning RVABREP itself, optionally filtered.
 
-    Each RVABREP row may map to a trigger; the strategy deduplicates by
-    ``(shortname, system_id)`` so a client with N documents yields exactly
-    one TriggerRecord (later expanded back to N by stage S1). First-occurrence
-    wins, matching REBIRTH §4.3 / MappingService precedent.
+    046: yields one :class:`RvabrepRowTrigger` per non-deleted matched row.
+    Pre-046 the strategy deduplicated by ``(shortname, system_id)`` and
+    yielded a ``TriggerRecord``; that forced S1 to re-query RVABREP and
+    re-expand back to N docs per client — wasted work and the wrong
+    semantic for "process THIS row, not the whole client". The
+    enrichment now stays trivial in S1 because the row is already known.
 
     When both ``systems`` and ``document_types`` filters are set, the
     strategy picks the smaller filter for the IN-list query and rejects the
@@ -64,10 +66,14 @@ class DirectRvabrepTriggerStrategy(S0Strategy):
         self._filters = filters or RvabrepFilters()
         self._columns = columns or RvabrepColumnsConfig()
 
-    def acquire(self, source_descriptor: str = "") -> Iterator[TriggerRecord]:
-        """Yield deduplicated TriggerRecord. ``source_descriptor`` ignored."""
+    def acquire(self, source_descriptor: str = "") -> Iterator[Trigger]:
+        """Yield one ``RvabrepRowTrigger`` per matched RVABREP row.
+
+        Rows with blank shortname OR system_id are dropped with a single
+        INFO summary log line (rare — they indicate malformed RVABREP
+        rows that wouldn't survive S1 anyway).
+        """
         del source_descriptor
-        seen: set[tuple[str, str]] = set()
         skipped = 0
         for row in self._iter_filtered_rows():
             shortname_raw = row.get(self._columns.col_shortname)
@@ -75,17 +81,11 @@ class DirectRvabrepTriggerStrategy(S0Strategy):
             if _is_blank(shortname_raw) or _is_blank(system_raw):
                 skipped += 1
                 continue
-            shortname = str(shortname_raw).strip()
-            system_id = str(system_raw).strip()
-            key = (shortname, system_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            cif_raw = row.get(self._columns.col_cif)
-            yield TriggerRecord(
-                shortname=shortname,
-                cif=None if _is_blank(cif_raw) else str(cif_raw).strip(),
-                system_id=system_id,
+            yield RvabrepRowTrigger(
+                row=row,
+                col_shortname=self._columns.col_shortname,
+                col_cif=self._columns.col_cif,
+                col_system_id=self._columns.col_system_id,
             )
         if skipped:
             _logger.info("skipped %d malformed RVABREP row(s)", skipped)

@@ -36,7 +36,7 @@ from cmcourier.domain.models import (
     RVABREPDocument,
     StagedFile,
     StageStatus,
-    TriggerRecord,
+    Trigger,
 )
 
 # ---------------------------------------------------------------------------
@@ -310,9 +310,16 @@ class S0Strategy(ABC):
     """
 
     @abstractmethod
-    def acquire(self, source_descriptor: str) -> Iterator[TriggerRecord]:
+    def acquire(self, source_descriptor: str) -> Iterator[Trigger]:
         """Yield trigger records lazily. Trigger lists may be huge (200k+);
-        callers iterate, never materialize."""
+        callers iterate, never materialize.
+
+        046: the return type is the polymorphic ``Trigger`` ABC. Each
+        concrete strategy emits the subtype that matches its source
+        semantics (``ClientTrigger`` for csv/single-doc,
+        ``RvabrepRowTrigger`` for rvabrep-direct/as400, ``LocalScanTrigger``
+        for local-scan). S1 enrichment dispatches per subtype.
+        """
 
 
 # ---------------------------------------------------------------------------

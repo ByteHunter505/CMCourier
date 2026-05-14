@@ -162,30 +162,38 @@ class Trigger(ABC):
         """Best-effort projection to {shortname, cif, system_id} for tracking."""
 
 
-# RVABREP physical column names used by row-based triggers to surface the
-# operator-readable client tuple. Matches ``RvabrepColumnsConfig`` defaults
-# (REBIRTH §3.2). Hard-coded here because the trigger module sits below the
-# services/triggers package in the dependency graph and the migration_log
-# audit columns track these exact field names.
-_RVABREP_COL_SHORTNAME = "ABABCD"
-_RVABREP_COL_CIF = "ABACCD"
-_RVABREP_COL_SYSTEM_ID = "ABAACD"
+# RVABREP physical column names — used as ``RvabrepRowTrigger`` /
+# ``LocalScanTrigger`` defaults so the production AS400 path "just works".
+# Strategies that read CSVs with friendly column names (typical for tests +
+# the integration fixtures) override the defaults at construction time.
+# Matches ``RvabrepColumnsConfig`` defaults (REBIRTH §3.2). Lives in domain
+# (not services) because the audit-row projection is a domain concern;
+# strategies pass their column names in but don't own the lookup.
+_DEFAULT_COL_SHORTNAME = "ABABCD"
+_DEFAULT_COL_CIF = "ABACCD"
+_DEFAULT_COL_SYSTEM_ID = "ABAACD"
 
 
-def _project_audit_from_row(row: Mapping[str, Any]) -> dict[str, str | None]:
-    """Pull the audit triple from an RVABREP row, normalizing blanks to None."""
+def _read_normalized(row: Mapping[str, Any], key: str) -> str | None:
+    v = row.get(key)
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
 
-    def _read(key: str) -> str | None:
-        v = row.get(key)
-        if v is None:
-            return None
-        s = str(v).strip()
-        return s or None
 
+def _project_audit_from_row(
+    row: Mapping[str, Any],
+    *,
+    col_shortname: str,
+    col_cif: str,
+    col_system_id: str,
+) -> dict[str, str | None]:
+    """Pull the audit triple from a row, normalizing blanks to None."""
     return {
-        "shortname": _read(_RVABREP_COL_SHORTNAME),
-        "cif": _read(_RVABREP_COL_CIF),
-        "system_id": _read(_RVABREP_COL_SYSTEM_ID),
+        "shortname": _read_normalized(row, col_shortname),
+        "cif": _read_normalized(row, col_cif),
+        "system_id": _read_normalized(row, col_system_id),
     }
 
 
@@ -217,13 +225,24 @@ class RvabrepRowTrigger(Trigger):
     """An already-known RVABREP row (rvabrep-direct + as400-trigger).
 
     The row carries every column the downstream stages need; S1 wraps it
-    into a single ``RVABREPDocument`` without re-querying RVABREP.
+    into a single ``RVABREPDocument`` without re-querying RVABREP. The
+    ``col_*`` fields tell ``audit_row()`` which row keys hold the audit
+    triple — defaults are the physical AS400 names, strategies that read
+    CSVs with friendly column names override at construction.
     """
 
     row: Mapping[str, Any]
+    col_shortname: str = _DEFAULT_COL_SHORTNAME
+    col_cif: str = _DEFAULT_COL_CIF
+    col_system_id: str = _DEFAULT_COL_SYSTEM_ID
 
     def audit_row(self) -> dict[str, str | None]:
-        return _project_audit_from_row(self.row)
+        return _project_audit_from_row(
+            self.row,
+            col_shortname=self.col_shortname,
+            col_cif=self.col_cif,
+            col_system_id=self.col_system_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,14 +253,23 @@ class LocalScanTrigger(Trigger):
     scanned file's name. S1 produces exactly one ``RVABREPDocument`` for
     this file, regardless of how many other docs the same client has —
     the operator who dropped the file into ``scan_path`` wanted THAT file
-    migrated, not every doc of its client.
+    migrated, not every doc of its client. ``col_*`` fields carry the
+    column-name map for ``audit_row()`` (see ``RvabrepRowTrigger``).
     """
 
     file_path: Path
     row: Mapping[str, Any]
+    col_shortname: str = _DEFAULT_COL_SHORTNAME
+    col_cif: str = _DEFAULT_COL_CIF
+    col_system_id: str = _DEFAULT_COL_SYSTEM_ID
 
     def audit_row(self) -> dict[str, str | None]:
-        return _project_audit_from_row(self.row)
+        return _project_audit_from_row(
+            self.row,
+            col_shortname=self.col_shortname,
+            col_cif=self.col_cif,
+            col_system_id=self.col_system_id,
+        )
 
 
 # 046 — backward-compat alias. Every pre-046 import of ``TriggerRecord``

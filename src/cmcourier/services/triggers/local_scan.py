@@ -31,7 +31,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from cmcourier.domain.exceptions import ConfigurationError
-from cmcourier.domain.models import TriggerRecord
+from cmcourier.domain.models import LocalScanTrigger, Trigger
 from cmcourier.domain.ports import IDataSource, S0Strategy
 from cmcourier.services.triggers.direct_rvabrep import RvabrepColumnsConfig
 
@@ -65,7 +65,15 @@ class LocalScanTriggerStrategy(S0Strategy):
         self._rvabrep = rvabrep_source
         self._columns = columns or RvabrepColumnsConfig()
 
-    def acquire(self, source_descriptor: str = "") -> Iterator[TriggerRecord]:
+    def acquire(self, source_descriptor: str = "") -> Iterator[Trigger]:
+        """Yield one ``LocalScanTrigger`` per scanned file (046).
+
+        Pre-046 the strategy collapsed each file to a ``ClientTrigger`` and
+        S1 then re-expanded that to **every** doc of the file's owning
+        client. Operationally this meant "drop 100 files into scan_path,
+        upload 1800 docs" — the wrong semantic. Now S1 processes exactly
+        the file the operator scanned.
+        """
         del source_descriptor  # vestigial port parameter
         if not self._scan_path.is_dir():
             raise ConfigurationError(
@@ -85,14 +93,17 @@ class LocalScanTriggerStrategy(S0Strategy):
                     },
                 )
                 continue
+            # If a filename collides across multiple RVABREP rows (rare —
+            # different systems with the same filename), we emit one
+            # trigger per matched row so each gets its own audit trail.
+            # In practice 1 file == 1 row.
             for row in rows:
-                shortname = _clean(row.get(self._columns.col_shortname))
-                if shortname is None:
+                if _clean(row.get(self._columns.col_shortname)) is None:
                     continue
-                system_id = _clean(row.get(self._columns.col_system_id)) or ""
-                cif = _clean(row.get(self._columns.col_cif))
-                yield TriggerRecord(
-                    shortname=shortname,
-                    cif=cif,
-                    system_id=system_id,
+                yield LocalScanTrigger(
+                    file_path=entry,
+                    row=row,
+                    col_shortname=self._columns.col_shortname,
+                    col_cif=self._columns.col_cif,
+                    col_system_id=self._columns.col_system_id,
                 )

@@ -56,7 +56,8 @@ class TestClientTrigger:
 
 
 class TestRvabrepRowTrigger:
-    def test_audit_row_projects_from_rvabrep_columns(self) -> None:
+    def test_audit_row_projects_from_default_rvabrep_columns(self) -> None:
+        """Default column names are the AS400 physical schema (REBIRTH §3.2)."""
         row = {
             "ABABCD": "ACME-001",  # shortname
             "ABACCD": "987654",  # cif
@@ -71,6 +72,18 @@ class TestRvabrepRowTrigger:
             "system_id": "PROD",
         }
 
+    def test_audit_row_uses_overridden_columns(self) -> None:
+        """Strategies that read CSVs with friendly column names pass their
+        own column map at construction."""
+        row = {"shortname": "X", "index2": "42", "system_id": "PROD"}
+        t = RvabrepRowTrigger(
+            row=row,
+            col_shortname="shortname",
+            col_cif="index2",
+            col_system_id="system_id",
+        )
+        assert t.audit_row() == {"shortname": "X", "cif": "42", "system_id": "PROD"}
+
     def test_audit_row_normalizes_blank_cif_to_none(self) -> None:
         """RVABREP rows often have whitespace-only CIF for clients whose CIF
         is later self-healed by S3. The audit row should report None, not
@@ -79,14 +92,13 @@ class TestRvabrepRowTrigger:
         assert t.audit_row()["cif"] is None
 
     def test_audit_row_handles_missing_columns(self) -> None:
-        # A row that doesn't even have the column key (e.g. AS400 SQL projection
-        # over a different table) returns None for missing slots.
+        # A row that doesn't even have the column key returns None for missing slots.
         t = RvabrepRowTrigger(row={"ABABCD": "X"})
         assert t.audit_row() == {"shortname": "X", "cif": None, "system_id": None}
 
 
 class TestLocalScanTrigger:
-    def test_audit_row_projects_from_row(self) -> None:
+    def test_audit_row_projects_from_default_columns(self) -> None:
         row = {"ABABCD": "PEDRO99", "ABACCD": "555111", "ABAACD": "3"}
         t = LocalScanTrigger(file_path=Path("/tmp/scan/foo.001"), row=row)
         assert t.audit_row() == {
@@ -94,6 +106,17 @@ class TestLocalScanTrigger:
             "cif": "555111",
             "system_id": "3",
         }
+
+    def test_audit_row_with_overridden_columns(self) -> None:
+        row = {"shortname": "PEDRO99", "index2": "555111", "system_id": "3"}
+        t = LocalScanTrigger(
+            file_path=Path("/tmp/scan/foo.001"),
+            row=row,
+            col_shortname="shortname",
+            col_cif="index2",
+            col_system_id="system_id",
+        )
+        assert t.audit_row()["shortname"] == "PEDRO99"
 
     def test_file_path_preserved(self) -> None:
         p = Path("/tmp/scan/AAA.PDF")

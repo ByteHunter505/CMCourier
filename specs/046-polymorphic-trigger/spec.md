@@ -138,8 +138,12 @@ because their row is already known.
   file. When the file matches multiple RVABREP rows (rare —
   filename collision across systems), emit one
   ``LocalScanTrigger`` per matched row.
-- ``As400TriggerStrategy`` → ``RvabrepRowTrigger`` per SQL row
-  (same semantic as rvabrep-direct: one work-item = one doc).
+- ``As400TriggerStrategy`` → ``ClientTrigger`` (unchanged). The
+  operator-defined SQL may project from any table with any column
+  aliases (typically NIARVILOG with SHORTNAME/CIF/SYSTEMID
+  semantics), so the row IS a client tuple by convention. A future
+  spec could introduce a per-doc as400 mode if the production
+  upstream calls for it.
 - ``SingleDocTriggerStrategy`` → ``ClientTrigger`` (no change).
 
 ### 4. Downstream code
