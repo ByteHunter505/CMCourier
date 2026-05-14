@@ -127,8 +127,22 @@ class ITrackingStore(ABC):
         """Insert / update the row for *record* at ``Sn_PENDING``."""
 
     @abstractmethod
-    def mark_stage_done(self, txn_num: str, batch_id: str, stage: StageStatus) -> None:
-        """Transition the row for *txn_num* in *batch_id* to ``Sn_DONE``."""
+    def mark_stage_done(
+        self,
+        txn_num: str,
+        batch_id: str,
+        stage: StageStatus,
+        *,
+        cm_object_id: str | None = None,
+    ) -> None:
+        """Transition the row for *txn_num* in *batch_id* to ``Sn_DONE``.
+
+        047: ``cm_object_id`` is the CMIS objectId returned by the
+        uploader. Only the S5_DONE transition carries it; S1..S4
+        callers pass nothing and the column is left untouched. When
+        ``None`` the implementation MUST NOT write the column (so a
+        prior value, if any, survives).
+        """
 
     @abstractmethod
     def mark_stage_failed(

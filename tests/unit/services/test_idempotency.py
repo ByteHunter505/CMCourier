@@ -147,7 +147,11 @@ class TestCoordinatorAs400Disabled:
             trigger=trigger,
             cm_object_id="cmis-abc",
         )
-        sqlite.mark_stage_done.assert_called_once_with("0000001", "B1", StageStatus.S5_DONE)
+        # 047: the coordinator forwards cm_object_id into the SQLite store
+        # so migration_log.cm_object_id is populated on the S5_DONE row.
+        sqlite.mark_stage_done.assert_called_once_with(
+            "0000001", "B1", StageStatus.S5_DONE, cm_object_id="cmis-abc"
+        )
 
     def test_mark_failed_writes_only_to_sqlite(self) -> None:
         sqlite = MagicMock()
@@ -234,7 +238,9 @@ class TestCoordinatorAs400Enabled:
             trigger=trigger,
             cm_object_id="cmis-abc",
         )
-        sqlite.mark_stage_done.assert_called_once_with("0000001", "B1", StageStatus.S5_DONE)
+        sqlite.mark_stage_done.assert_called_once_with(
+            "0000001", "B1", StageStatus.S5_DONE, cm_object_id="cmis-abc"
+        )
         as400.mark_uploaded.assert_called_once()
 
     def test_mark_failed_dual_writes(self) -> None:

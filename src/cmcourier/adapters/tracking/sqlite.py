@@ -341,13 +341,34 @@ class SQLiteTrackingStore(ITrackingStore):
         )
         self._enqueue(sql, _record_to_params(record, stage))
 
-    def mark_stage_done(self, txn_num: str, batch_id: str, stage: StageStatus) -> None:
+    def mark_stage_done(
+        self,
+        txn_num: str,
+        batch_id: str,
+        stage: StageStatus,
+        *,
+        cm_object_id: str | None = None,
+    ) -> None:
         _require_state(stage, "DONE")
-        self._enqueue(
-            "UPDATE migration_log SET status = ?, completed_at = ? "
-            "WHERE rvabrep_txn_num = ? AND batch_id = ?",
-            (stage.value, datetime.now().isoformat(), txn_num, batch_id),
-        )
+        completed_at = datetime.now().isoformat()
+        if cm_object_id is None:
+            # 047: None path is byte-identical to pre-047 — status +
+            # completed_at only, the cm_object_id column is untouched so
+            # any prior value survives (S1..S4 transitions never carry it).
+            self._enqueue(
+                "UPDATE migration_log SET status = ?, completed_at = ? "
+                "WHERE rvabrep_txn_num = ? AND batch_id = ?",
+                (stage.value, completed_at, txn_num, batch_id),
+            )
+        else:
+            # 047: S5_DONE carries the CMIS objectId — persist it so the
+            # tracking DB can answer "what's the objectId of doc X?"
+            # without a children-walk against the CMIS server.
+            self._enqueue(
+                "UPDATE migration_log SET status = ?, completed_at = ?, cm_object_id = ? "
+                "WHERE rvabrep_txn_num = ? AND batch_id = ?",
+                (stage.value, completed_at, cm_object_id, txn_num, batch_id),
+            )
 
     def mark_stage_failed(
         self, txn_num: str, batch_id: str, stage: StageStatus, error: str

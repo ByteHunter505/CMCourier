@@ -152,7 +152,12 @@ class IdempotencyCoordinator:
         active. The order matters: SQLite is the in-process source of
         truth for resume, so it must commit before any AS400 write
         (which could fail and trigger retry)."""
-        self._sqlite.mark_stage_done(record.rvabrep_txn_num, record.batch_id, StageStatus.S5_DONE)
+        self._sqlite.mark_stage_done(
+            record.rvabrep_txn_num,
+            record.batch_id,
+            StageStatus.S5_DONE,
+            cm_object_id=cm_object_id,
+        )
         if self._as400 is None:
             return
         self._as400.mark_uploaded(

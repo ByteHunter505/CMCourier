@@ -926,7 +926,9 @@ class StagedPipeline:
                     cm_object_id=cm_object_id,
                 )
             else:
-                self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)
+                self._tracking_store.mark_stage_done(
+                    txn, batch_id, StageStatus.S5_DONE, cm_object_id=cm_object_id
+                )
             item.cm_object_id = cm_object_id
             self._mark_completed(lane)
             return "done"

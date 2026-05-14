@@ -202,6 +202,56 @@ class TestPerStageState:
         assert store.is_stage_done("TXN003", batch_id, StageStatus.S1_DONE) is True
         store.close()
 
+    def test_mark_stage_done_persists_cm_object_id(
+        self, store: SQLiteTrackingStore, tmp_path: Path
+    ) -> None:
+        """047: the S5_DONE transition carries the CMIS objectId so the
+        tracking DB can answer "what's the objectId of doc X?" without a
+        children-walk against the CMIS server (§L.3 of the checklist)."""
+        batch_id = store.start_batch(total_records=1)
+        record = _make_record(batch_id, "TXN_OID")
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        store.mark_stage_done(
+            "TXN_OID", batch_id, StageStatus.S5_DONE, cm_object_id="cm-workspace://abc-123"
+        )
+        store.flush()
+        conn = sqlite3.connect(tmp_path / "tracking.db")
+        row = conn.execute(
+            "SELECT status, cm_object_id FROM migration_log "
+            "WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            ("TXN_OID", batch_id),
+        ).fetchone()
+        conn.close()
+        store.close()
+        assert row is not None
+        assert row[0] == "S5_DONE"
+        assert row[1] == "cm-workspace://abc-123"
+
+    def test_mark_stage_done_without_oid_leaves_column(
+        self, store: SQLiteTrackingStore, tmp_path: Path
+    ) -> None:
+        """047: the S1..S4 path passes no cm_object_id — the UPDATE must
+        NOT touch the column, so a value set earlier survives. We set it
+        via an S5_DONE call, then a stray S1_DONE call on the same row
+        must not wipe it."""
+        batch_id = store.start_batch(total_records=1)
+        record = _make_record(batch_id, "TXN_KEEP")
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        store.mark_stage_done("TXN_KEEP", batch_id, StageStatus.S5_DONE, cm_object_id="cm-keepme")
+        # A later transition without the kwarg (the S1..S4 shape) must
+        # leave cm_object_id intact.
+        store.mark_stage_done("TXN_KEEP", batch_id, StageStatus.S1_DONE)
+        store.flush()
+        conn = sqlite3.connect(tmp_path / "tracking.db")
+        row = conn.execute(
+            "SELECT cm_object_id FROM migration_log WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            ("TXN_KEEP", batch_id),
+        ).fetchone()
+        conn.close()
+        store.close()
+        assert row is not None
+        assert row[0] == "cm-keepme"
+
     def test_mark_stage_failed_stores_error_and_bumps_retry(
         self, store: SQLiteTrackingStore, tmp_path: Path
     ) -> None:
