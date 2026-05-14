@@ -666,6 +666,8 @@ def _run_with_optional_tui(
         chunks_provider=orchestrator.chunks_snapshot,
         # 036: surface heavy/light lane stats when dual mode is enabled.
         lane_controller=pipeline.lane_controller,
+        # 052: tracking store for the DETAIL tab's per-chunk drill-down.
+        tracking_store=pipeline.tracking_store,
     )
     outcome = run_orchestrator_with_tui(
         orchestrator=orchestrator,

@@ -18,6 +18,8 @@ pytestmark = pytest.mark.unit
 
 def _make_provider(
     tmp_path: Path,
+    *,
+    tracking_store: object | None = None,
 ) -> tuple[
     TUIDataProvider,
     MetricsRecorder,
@@ -50,6 +52,7 @@ def _make_provider(
         cmis_config=cmis,
         uploader=uploader,
         auto_tune=None,
+        tracking_store=tracking_store,  # type: ignore[arg-type]
     )
     return provider, recorder, pool_stats, sem
 
@@ -143,6 +146,31 @@ class TestTUIDataProvider:
         time.sleep(0.05)
         e2 = provider.snapshot().elapsed_s
         assert e1 == e2
+
+    def test_docs_for_batch_delegates_to_tracking_store(self, tmp_path: Path) -> None:
+        # 052: the DETAIL drill-down reads per-doc detail from the store.
+        from cmcourier.domain.models import DocDetail
+
+        store = MagicMock()
+        store.list_docs_for_batch.return_value = [
+            DocDetail(
+                txn_num="T1",
+                file_name="f.001",
+                status="S5_DONE",
+                error_message="",
+                file_size_bytes=10,
+            )
+        ]
+        provider, _r, _p, _s = _make_provider(tmp_path, tracking_store=store)
+        docs = provider.docs_for_batch("B1")
+        assert [d.txn_num for d in docs] == ["T1"]
+        store.list_docs_for_batch.assert_called_once_with("B1")
+
+    def test_docs_for_batch_empty_without_store(self, tmp_path: Path) -> None:
+        # No store wired (e.g. monolithic resume path) → empty, never crashes.
+        provider, _r, _p, _s = _make_provider(tmp_path)
+        assert provider.docs_for_batch("B1") == []
+        assert provider.docs_for_batch("") == []
 
     def test_slow_ops_passes_through_aggregator(self, tmp_path: Path) -> None:
         provider, recorder, _p, _s = _make_provider(tmp_path)

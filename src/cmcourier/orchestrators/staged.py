@@ -241,6 +241,11 @@ class StagedPipeline:
         """036: read-only handle for TUI / tests. ``None`` when dual mode is off."""
         return self._lane_controller
 
+    @property
+    def tracking_store(self) -> ITrackingStore:
+        """052: read-only handle for the TUI's per-chunk drill-down."""
+        return self._tracking_store
+
     # --------------------------------------------------- auto-tune wiring
 
     def _build_auto_tune_controller(self) -> AutoTuneController | None:

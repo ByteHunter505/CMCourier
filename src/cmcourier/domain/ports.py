@@ -32,6 +32,7 @@ from typing import Any, Literal
 from cmcourier.domain.models import (
     BatchDetails,
     BatchInfo,
+    DocDetail,
     MigrationRecord,
     RVABREPDocument,
     StagedFile,
@@ -207,6 +208,19 @@ class ITrackingStore(ABC):
 
         Returns ``None`` for unknown ``batch_id``. Used by
         ``cmcourier batch show``.
+        """
+
+    @abstractmethod
+    def list_docs_for_batch(self, batch_id: str) -> list[DocDetail]:
+        """Per-doc detail for one batch — one :class:`DocDetail` per
+        ``migration_log`` row, ordered by ``rvabrep_txn_num``.
+
+        Powers the TUI's per-chunk drill-down (052): the operator
+        selects a chunk and sees every doc's name, size, status, and
+        fail/skip reason. Reading from the store keeps memory bounded —
+        the detail is never held in RAM for every chunk.
+
+        Unknown ``batch_id`` MUST return an empty list, NOT raise.
         """
 
     @abstractmethod

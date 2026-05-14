@@ -28,6 +28,8 @@ from typing import Any
 
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
 from cmcourier.config.schema import CmisConfigModel
+from cmcourier.domain.models import DocDetail
+from cmcourier.domain.ports import ITrackingStore
 from cmcourier.observability.metrics import MetricsRecorder
 from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.lane_controller import LaneController, LaneSnapshot
@@ -122,6 +124,7 @@ class TUIDataProvider:
         upload_recorder_provider: Callable[[], MetricsRecorder | None] | None = None,
         chunks_provider: Callable[[], list[Any]] | None = None,
         lane_controller: LaneController | None = None,
+        tracking_store: ITrackingStore | None = None,
     ) -> None:
         self._pipeline_name = pipeline_name
         self._fallback_recorder = metrics_recorder
@@ -138,6 +141,8 @@ class TUIDataProvider:
             upload_recorder_provider
         )
         self._chunks_provider: Callable[[], list[Any]] | None = chunks_provider
+        # 052: tracking store for the per-chunk drill-down (DETAIL pane).
+        self._tracking_store = tracking_store
         self._pool_stats = pool_stats
         self._concurrency_limit = concurrency_limit
         self._cmis_config = cmis_config
@@ -185,6 +190,18 @@ class TUIDataProvider:
         self._is_complete = True
         # 052: freeze the run clock at completion.
         self._batch_completed_monotonic = time.monotonic()
+
+    # ------------------------------------------------------- drill-down (052)
+
+    def docs_for_batch(self, batch_id: str) -> list[DocDetail]:
+        """Per-doc detail for one chunk's batch — for the DETAIL pane.
+
+        Reads from the tracking store on demand (bounded memory). Returns
+        an empty list when no store is wired or ``batch_id`` is blank.
+        """
+        if self._tracking_store is None or not batch_id:
+            return []
+        return self._tracking_store.list_docs_for_batch(batch_id)
 
     # ------------------------------------------------------- snapshot
 

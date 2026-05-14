@@ -548,6 +548,41 @@ class TestGetBatchDetails:
         assert result.failed_records[0].error_message == "mapping not found"
 
 
+class TestListDocsForBatch052:
+    """052: per-doc detail for the TUI's per-chunk drill-down."""
+
+    def test_unknown_batch_returns_empty_list(self, store: SQLiteTrackingStore) -> None:
+        result = store.list_docs_for_batch("ghost-456")
+        store.close()
+        assert result == []
+
+    def test_returns_one_docdetail_per_row_with_status_and_reason(
+        self, store: SQLiteTrackingStore
+    ) -> None:
+        batch_id = store.start_batch(total_records=2)
+        store.mark_stage_pending(
+            _make_record(batch_id, "TXN_OK", rvabrep_file_name="OK.001"),
+            StageStatus.S5_PENDING,
+        )
+        store.mark_stage_done("TXN_OK", batch_id, StageStatus.S5_DONE)
+        store.mark_stage_pending(
+            _make_record(batch_id, "TXN_BAD", rvabrep_file_name="BAD.001"),
+            StageStatus.S5_PENDING,
+        )
+        store.mark_stage_failed("TXN_BAD", batch_id, StageStatus.S5_FAILED, "cmis 500")
+        store.flush()
+        docs = store.list_docs_for_batch(batch_id)
+        store.close()
+
+        assert [d.txn_num for d in docs] == ["TXN_BAD", "TXN_OK"]  # ordered by txn_num
+        by_txn = {d.txn_num: d for d in docs}
+        assert by_txn["TXN_OK"].status == "S5_DONE"
+        assert by_txn["TXN_OK"].error_message == ""
+        assert by_txn["TXN_OK"].file_name == "OK.001"
+        assert by_txn["TXN_BAD"].status == "S5_FAILED"
+        assert by_txn["TXN_BAD"].error_message == "cmis 500"
+
+
 class TestRetryFailed:
     def test_no_failures_returns_zero(self, store: SQLiteTrackingStore) -> None:
         batch_id = store.start_batch(total_records=1)

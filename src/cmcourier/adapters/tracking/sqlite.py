@@ -36,6 +36,7 @@ from cmcourier.domain.exceptions import TrackingError
 from cmcourier.domain.models import (
     BatchDetails,
     BatchInfo,
+    DocDetail,
     FailedRecord,
     MigrationRecord,
     StageStatus,
@@ -468,6 +469,29 @@ class SQLiteTrackingStore(ITrackingStore):
                 FailedRecord(txn_num=r[0], status=r[1], error_message=r[2]) for r in failed_rows
             ),
         )
+
+    def list_docs_for_batch(self, batch_id: str) -> list[DocDetail]:
+        """052: per-doc detail for the TUI's per-chunk drill-down."""
+        try:
+            with self._reader_lock:
+                rows = self._reader.execute(
+                    "SELECT rvabrep_txn_num, COALESCE(rvabrep_file_name, ''), status, "
+                    "COALESCE(error_message, ''), COALESCE(file_size_bytes, 0) "
+                    "FROM migration_log WHERE batch_id = ? ORDER BY rvabrep_txn_num",
+                    (batch_id,),
+                ).fetchall()
+        except sqlite3.Error as exc:
+            raise TrackingError("list_docs_for_batch failed", batch_id=batch_id) from exc
+        return [
+            DocDetail(
+                txn_num=str(r[0]),
+                file_name=str(r[1]),
+                status=str(r[2]),
+                error_message=str(r[3]),
+                file_size_bytes=int(r[4] or 0),
+            )
+            for r in rows
+        ]
 
     def retry_failed(
         self,

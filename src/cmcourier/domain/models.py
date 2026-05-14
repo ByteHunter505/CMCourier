@@ -16,6 +16,7 @@ __all__ = [
     "BatchInfo",
     "CMMapping",
     "ClientTrigger",
+    "DocDetail",
     "FailedRecord",
     "LocalScanTrigger",
     "MigrationRecord",
@@ -479,3 +480,21 @@ class BatchDetails:
     info: BatchInfo
     stage_counts: Mapping[str, Mapping[str, int]]
     failed_records: tuple[FailedRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DocDetail:
+    """One ``migration_log`` row, projected for the TUI's per-chunk
+    drill-down (052).
+
+    ``status`` is the raw ``Sn_DONE / Sn_FAILED / Sn_PENDING`` value.
+    ``error_message`` is the fail/skip reason ("" when there is none).
+    Read from the tracking store on demand — never held in memory for
+    every chunk (that would undo spec 050's bounded-memory guarantee).
+    """
+
+    txn_num: str
+    file_name: str
+    status: str
+    error_message: str
+    file_size_bytes: int

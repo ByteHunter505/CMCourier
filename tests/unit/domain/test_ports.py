@@ -63,6 +63,7 @@ class TestITrackingStoreContract:
                 "start_batch",
                 "complete_batch",
                 "list_txn_nums_for_batch",
+                "list_docs_for_batch",
                 "flush",
                 "close",
             }
