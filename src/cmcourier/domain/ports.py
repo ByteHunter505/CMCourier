@@ -307,20 +307,18 @@ class IUploader(ABC):
 
 
 class S0Strategy(ABC):
-    """Stage S0 strategy: turn a source descriptor into a stream of TriggerRecords.
+    """Stage S0 strategy: turn a source descriptor into a stream of triggers.
 
-    The four trigger source modes from REBIRTH §5.1 each map to a concrete
-    subclass:
+    The trigger kinds from REBIRTH §5.1 each map to a concrete subclass:
 
-    * ``CsvTriggerStrategy`` — reads a CSV file
-    * ``As400TriggerStrategy`` — runs a custom AS400 query
-    * ``DirectRvabrepStrategy`` — discovers triggers by querying RVABREP
-      directly with filters
-    * ``LocalScanStrategy`` — scans a folder for files, cross-references
-      RVABREP for metadata
-
-    Concrete strategies live in ``cmcourier.adapters.sources`` and land in
-    later changes; this interface is the only contract this change ships.
+    * ``CsvTriggerStrategy`` — reads a trigger-list CSV (client tuples).
+    * ``DirectRvabrepTriggerStrategy`` — discovers triggers by scanning the
+      RVABREP source directly (one trigger per row). The RVABREP source is
+      pluggable (CSV ↔ AS400, 048) — "AS400" is a source choice, not a
+      separate trigger kind.
+    * ``LocalScanTriggerStrategy`` — scans a folder for files, cross-references
+      RVABREP for the matching row.
+    * ``SingleDocTriggerStrategy`` — yields one trigger from CLI args.
     """
 
     @abstractmethod

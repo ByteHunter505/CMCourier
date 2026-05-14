@@ -29,7 +29,7 @@ from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.config.loader import load_config, load_secrets
 from cmcourier.config.schema import (
     As400ConnectionConfig,
-    As400TriggerConfig,
+    As400RvabrepSource,
     IndexingColumnsModel,
     PipelineConfig,
 )
@@ -266,12 +266,15 @@ def _build_source(
 
 
 def _extract_as400_connection(config: PipelineConfig) -> As400ConnectionConfig:
-    trigger = config.trigger
-    if isinstance(trigger, As400TriggerConfig):
-        return trigger.as400_connection
+    # 048: the AS400 connection for the RVABREP source lives under
+    # ``indexing.source`` now, not under the trigger config.
+    source = config.indexing.source
+    if isinstance(source, As400RvabrepSource):
+        return source.connection
     raise ConfigurationError(
-        "config does not define an AS400 connection for the indexing source",
-        trigger_kind=getattr(trigger, "kind", "<unknown>"),
+        "config does not define an AS400 indexing source — set "
+        "indexing.source.kind: as400 with a connection block",
+        source_kind=getattr(source, "kind", "<unknown>"),
     )
 
 

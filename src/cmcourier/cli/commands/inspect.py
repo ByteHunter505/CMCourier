@@ -30,6 +30,7 @@ from cmcourier.cli.commands._source_descriptor import (
 from cmcourier.config.loader import Secrets, load_config, load_secrets
 from cmcourier.config.schema import PipelineConfig
 from cmcourier.config.wiring import (
+    _build_rvabrep_source,
     _build_trigger_strategy,
     _indexing_columns_from_schema,
     build_mapping_service,
@@ -69,7 +70,11 @@ def inspect_rvabrep_command(config_path: Path, shortname: str, system_id: str) -
     """Print RVABREP rows that S1 would produce for the trigger."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
-    rvabrep_src = TabularDataSource(config.indexing.csv_path)
+    try:
+        secrets = load_secrets()
+    except ConfigurationError:
+        secrets = Secrets(cmis_username="", cmis_password="")
+    rvabrep_src = _build_rvabrep_source(config.indexing, secrets)
     try:
         indexing = IndexingService(
             rvabrep_src,
@@ -277,7 +282,7 @@ def _strategy_from_config(
         secrets = load_secrets()
     except ConfigurationError:
         secrets = Secrets(cmis_username="", cmis_password="")
-    rvabrep_src = TabularDataSource(config.indexing.csv_path)
+    rvabrep_src = _build_rvabrep_source(config.indexing, secrets)
     indexing = IndexingService(
         rvabrep_src,
         _indexing_columns_from_schema(config.indexing.columns),

@@ -1,7 +1,7 @@
 """CMCourier CLI entry point.
 
 Root Click group ``cmcourier`` with three pipeline sub-groups
-(``csv-trigger-pipeline``, ``rvabrep-pipeline``, ``as400-trigger-pipeline``)
+(``csv-trigger-pipeline``, ``rvabrep-pipeline``, ``local-scan-pipeline``)
 plus the top-level ``doctor`` pre-flight command. Each pipeline command
 expects a config whose ``trigger.kind`` matches; mismatches exit 2.
 
@@ -217,72 +217,6 @@ def rvabrep_run_command(
     _run_pipeline_command(
         config_path,
         expected_kind="rvabrep",
-        batch_id=batch_id,
-        from_stage=from_stage,
-        batch_size=batch_size,
-        triggers_override=None,
-        skip_doctor=skip_doctor,
-        resume=resume,
-        log_level=log_level,
-        tui=tui,
-        batches_in_flight=batches_in_flight,
-        total=total,
-    )
-
-
-# ---------------------------------------------------------------------------
-# as400-trigger-pipeline
-# ---------------------------------------------------------------------------
-
-
-@main.group(name="as400-trigger-pipeline")
-def as400_trigger_pipeline_group() -> None:
-    """as400-trigger-pipeline subcommands (REBIRTH §10.2)."""
-
-
-@as400_trigger_pipeline_group.command(name="run")
-@click.option(
-    "--config",
-    "config_path",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    required=True,
-)
-@click.option("--batch-id", type=str, default=None)
-@click.option("--from-stage", type=click.IntRange(1, 5), default=1)
-@click.option("--batch-size", type=click.IntRange(min=1), default=None)
-@click.option("--skip-doctor", is_flag=True, default=False)
-@click.option("--resume", is_flag=True, default=False)
-@click.option("--tui/--no-tui", "tui", default=True)
-@click.option(
-    "--batches-in-flight",
-    "batches_in_flight",
-    type=click.IntRange(1, 2),
-    default=None,
-)
-@click.option(
-    "--total",
-    "total",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Process at most N triggers from the source (for validation runs).",
-)
-@click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
-def as400_run_command(
-    config_path: Path,
-    batch_id: str | None,
-    from_stage: int,
-    batch_size: int | None,
-    skip_doctor: bool,
-    resume: bool,
-    tui: bool,
-    batches_in_flight: int | None,
-    total: int | None,
-    log_level: str,
-) -> None:
-    """Run the as400-trigger-pipeline end-to-end."""
-    _run_pipeline_command(
-        config_path,
-        expected_kind="as400",
         batch_id=batch_id,
         from_stage=from_stage,
         batch_size=batch_size,

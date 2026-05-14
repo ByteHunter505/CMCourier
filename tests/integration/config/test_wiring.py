@@ -38,7 +38,9 @@ def _write_yaml(tmp_path: Path, *, triggers_path: Path | None = None) -> Path:
               cif_column: CIF
               system_id_column: SystemID
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id
@@ -317,3 +319,84 @@ class TestBuildMappingService:
         m2 = svc.get_mapping("FB23")
         assert m2.cmis_type == "DocCN02"
         assert m2.required_metadata_fields == ("CIF",)
+
+
+# ---------------------------------------------------------------------------
+# 048 — pluggable RVABREP source (_build_rvabrep_source)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildRvabrepSource048:
+    """The RVABREP source is built once and feeds both S0 and S1.
+    ``csv`` → TabularDataSource; ``as400`` → As400DataSource (query mode)."""
+
+    def test_csv_source_builds_tabular(self, tmp_path: Path) -> None:
+        from cmcourier.adapters.sources import TabularDataSource
+        from cmcourier.config.wiring import _build_rvabrep_source
+
+        yaml_path = _write_yaml(tmp_path)
+        config = load_config(yaml_path)
+        src = _build_rvabrep_source(config.indexing, _secrets())
+        try:
+            assert isinstance(src, TabularDataSource)
+        finally:
+            src.close()
+
+    def test_as400_source_builds_as400_datasource(self, tmp_path: Path) -> None:
+        """AS400 RVABREP source: the operator's query feeds As400DataSource
+        in query mode. No live server — As400DataSource construction does
+        not connect; the driver-level fake in test_as400.py covers I/O."""
+        from cmcourier.adapters.sources import As400DataSource
+        from cmcourier.config.wiring import _build_rvabrep_source
+
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "indexing:\n"
+            "  source:\n"
+            "    kind: csv\n"
+            f"    csv_path: {_PIPELINE_FIXTURES / 'rvabrep.csv'}\n",
+            "indexing:\n"
+            "  source:\n"
+            "    kind: as400\n"
+            "    connection:\n"
+            "      host: as400.bank.test\n"
+            '    query: "SELECT * FROM RVILIB.RVABREP"\n',
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        secrets = Secrets(
+            cmis_username="t",
+            cmis_password="x",
+            as400_username="a400",
+            as400_password="a400pw",
+        )
+        src = _build_rvabrep_source(config.indexing, secrets)
+        try:
+            assert isinstance(src, As400DataSource)
+        finally:
+            src.close()
+
+    def test_as400_source_missing_secrets_raises(self, tmp_path: Path) -> None:
+        from cmcourier.config.wiring import _build_rvabrep_source
+
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        text = text.replace(
+            "indexing:\n"
+            "  source:\n"
+            "    kind: csv\n"
+            f"    csv_path: {_PIPELINE_FIXTURES / 'rvabrep.csv'}\n",
+            "indexing:\n"
+            "  source:\n"
+            "    kind: as400\n"
+            "    connection:\n"
+            "      host: as400.bank.test\n"
+            '    query: "SELECT * FROM RVILIB.RVABREP"\n',
+        )
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        # _secrets() carries no AS400 creds.
+        with pytest.raises(ConfigurationError) as ei:
+            _build_rvabrep_source(config.indexing, _secrets())
+        assert "AS400_USERNAME" in ei.value.context["missing_vars"]

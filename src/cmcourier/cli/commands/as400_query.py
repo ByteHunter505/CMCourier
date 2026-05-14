@@ -26,7 +26,7 @@ from cmcourier.config.loader import load_config, load_secrets
 from cmcourier.config.schema import (
     As400ConnectionConfig,
     As400MetadataSourceConfig,
-    As400TriggerConfig,
+    As400RvabrepSource,
     PipelineConfig,
 )
 from cmcourier.domain.exceptions import ConfigurationError, IndexingError
@@ -104,8 +104,10 @@ def as400_query_command(config_path: Path, sql: str) -> None:
 def _select_as400_connection(
     config: PipelineConfig,
 ) -> As400ConnectionConfig | None:
-    if isinstance(config.trigger, As400TriggerConfig):
-        return config.trigger.as400_connection
+    # 048: the RVABREP source can be AS400 (``indexing.source.kind: as400``).
+    # That's the first place to look for a connection to debug-query.
+    if isinstance(config.indexing.source, As400RvabrepSource):
+        return config.indexing.source.connection
     for source in config.metadata.sources:
         if isinstance(source, As400MetadataSourceConfig):
             return source.as400_connection

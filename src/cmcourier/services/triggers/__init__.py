@@ -8,7 +8,6 @@ diagnostic strategy (single-doc, REBIRTH §10.2).
 from __future__ import annotations
 
 __all__ = [
-    "As400TriggerStrategy",
     "CsvTriggerColumnsConfig",
     "CsvTriggerStrategy",
     "DirectRvabrepTriggerStrategy",
@@ -18,7 +17,6 @@ __all__ = [
     "SingleDocTriggerStrategy",
 ]
 
-from cmcourier.services.triggers.as400 import As400TriggerStrategy
 from cmcourier.services.triggers.csv import (
     CsvTriggerColumnsConfig,
     CsvTriggerStrategy,

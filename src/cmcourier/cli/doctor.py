@@ -46,7 +46,7 @@ from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
 from cmcourier.config.schema import (
     As400MetadataSourceConfig,
-    As400TriggerConfig,
+    As400RvabrepSource,
     CsvMetadataSourceConfig,
     CsvTriggerConfig,
     MetadataSourceConfig,
@@ -351,25 +351,27 @@ def _check_cmis_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckR
 
 
 def _check_as400_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckResult:
-    trigger = config.trigger
-    if not isinstance(trigger, As400TriggerConfig):
-        return _skip("as400_connectivity", "trigger_kind_not_as400")
+    # 048: the AS400 RVABREP source lives under ``indexing.source`` now.
+    source = config.indexing.source
+    if not isinstance(source, As400RvabrepSource):
+        return _skip("as400_connectivity", "indexing_source_not_as400")
+    conn = source.connection
     if not secrets.as400_username or not secrets.as400_password:
         return CheckResult(
             name="as400_connectivity",
             status=CheckStatus.FAIL,
             message="AS400 credentials missing in environment",
-            details=_frozen({"host": trigger.as400_connection.host}),
+            details=_frozen({"host": conn.host}),
         )
     try:
         src = As400DataSource(
-            host=trigger.as400_connection.host,
-            port=trigger.as400_connection.port,
-            database=trigger.as400_connection.database,
-            driver=trigger.as400_connection.driver,
+            host=conn.host,
+            port=conn.port,
+            database=conn.database,
+            driver=conn.driver,
             username=secrets.as400_username,
             password=secrets.as400_password,
-            table=trigger.as400_connection.table or "",
+            query=source.query,
         )
         try:
             src.query("SELECT 1", [])
@@ -379,13 +381,13 @@ def _check_as400_connectivity(config: PipelineConfig, secrets: Secrets) -> Check
         return _fail(
             "as400_connectivity",
             exc,
-            {"host": trigger.as400_connection.host},
+            {"host": conn.host},
         )
     return CheckResult(
         name="as400_connectivity",
         status=CheckStatus.PASS,
-        message=f"AS400 reachable at {trigger.as400_connection.host}",
-        details=_frozen({"host": trigger.as400_connection.host}),
+        message=f"AS400 reachable at {conn.host}",
+        details=_frozen({"host": conn.host}),
     )
 
 

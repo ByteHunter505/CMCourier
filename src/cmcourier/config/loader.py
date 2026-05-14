@@ -49,6 +49,7 @@ def load_config(path: Path) -> PipelineConfig:
             actual_type=type(data).__name__,
         )
     _inject_default_kinds(data)
+    _reject_removed_kinds(data)
     try:
         return PipelineConfig.model_validate(data)
     except ValidationError as exc:
@@ -56,6 +57,25 @@ def load_config(path: Path) -> PipelineConfig:
             "config validation failed",
             errors=exc.errors(),
         ) from exc
+
+
+def _reject_removed_kinds(data: dict[str, object]) -> None:
+    """048: ``trigger.kind: as400`` was removed.
+
+    "AS400" is now a *source* choice, not a trigger kind — the RVABREP
+    pipeline is the same pipeline regardless of where its RVABREP table
+    lives. Pydantic's discriminated-union error for an unknown ``kind``
+    is cryptic; surface a directive one that points at the new shape.
+    """
+    trigger = data.get("trigger")
+    if isinstance(trigger, dict) and trigger.get("kind") == "as400":
+        raise ConfigurationError(
+            "trigger.kind 'as400' was removed in 0.51.0 — AS400 is now a "
+            "source choice, not a trigger kind. Use trigger.kind: rvabrep "
+            "and set indexing.source.kind: as400 with connection + query.",
+            removed_kind="as400",
+            migrate_to="trigger.kind: rvabrep + indexing.source.kind: as400",
+        )
 
 
 def _inject_default_kinds(data: dict[str, object]) -> None:

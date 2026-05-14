@@ -17,10 +17,12 @@ from cmcourier.adapters.tracking.as400_niarvilog import As400NiarvilogStore
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
 from cmcourier.config.schema import (
-    As400TriggerConfig,
+    As400RvabrepSource,
     CsvMetadataSourceConfig,
+    CsvRvabrepSource,
     CsvTriggerConfig,
     IndexingColumnsModel,
+    IndexingConfig,
     LocalScanTriggerConfig,
     MetadataConfigModel,
     MetadataSourceConfig,
@@ -49,7 +51,6 @@ from cmcourier.services.metadata import (
     SourceConfig,
     ValidationConfig,
 )
-from cmcourier.services.triggers.as400 import As400TriggerStrategy
 from cmcourier.services.triggers.csv import (
     CsvTriggerColumnsConfig,
     CsvTriggerStrategy,
@@ -75,7 +76,11 @@ def build_pipeline(
     dispatch — used by the single-doc CLI to inject a strategy built
     from CLI args (REBIRTH §10.2).
     """
-    rvabrep_src = TabularDataSource(config.indexing.csv_path)
+    # 048: the RVABREP source is pluggable (CSV ↔ AS400). Built once here
+    # and shared by S0 (DirectRvabrepTriggerStrategy / LocalScanTriggerStrategy)
+    # AND S1 (IndexingService) — the RVABREP table is the same data
+    # regardless of where it lives.
+    rvabrep_src = _build_rvabrep_source(config.indexing, secrets)
     metadata_sources = _build_metadata_sources(config.metadata.sources, secrets)
 
     indexing_service = IndexingService(
@@ -205,6 +210,51 @@ def _build_idempotency_coordinator(
 
 
 # ---------------------------------------------------------------------------
+# RVABREP source dispatch (048)
+# ---------------------------------------------------------------------------
+
+
+def _build_rvabrep_source(indexing_cfg: IndexingConfig, secrets: Secrets) -> IDataSource:
+    """Build the RVABREP ``IDataSource`` from ``indexing.source`` (048).
+
+    ``csv`` → ``TabularDataSource`` over the CSV file.
+    ``as400`` → ``As400DataSource`` in query mode — the operator's SELECT
+    (JOINs / filters allowed) is wrapped as ``(query) AS T`` so the full
+    IDataSource contract works transparently. The single returned source
+    feeds both S0 (trigger discovery) and S1 (doc lookup).
+    """
+    source = indexing_cfg.source
+    if isinstance(source, CsvRvabrepSource):
+        return TabularDataSource(source.csv_path)
+    if isinstance(source, As400RvabrepSource):
+        if not secrets.as400_username or not secrets.as400_password:
+            raise ConfigurationError(
+                "indexing.source.kind 'as400' requires AS400_USERNAME and AS400_PASSWORD env vars",
+                missing_vars=[
+                    name
+                    for name, value in (
+                        ("AS400_USERNAME", secrets.as400_username),
+                        ("AS400_PASSWORD", secrets.as400_password),
+                    )
+                    if not value
+                ],
+            )
+        return As400DataSource(
+            host=source.connection.host,
+            port=source.connection.port,
+            database=source.connection.database,
+            driver=source.connection.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            query=source.query,
+        )
+    raise ConfigurationError(
+        "unknown indexing.source.kind",
+        kind=getattr(source, "kind", "<missing>"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Trigger strategy dispatch
 # ---------------------------------------------------------------------------
 
@@ -212,7 +262,7 @@ def _build_idempotency_coordinator(
 def _build_trigger_strategy(
     config: PipelineConfig,
     secrets: Secrets,
-    rvabrep_src: TabularDataSource,
+    rvabrep_src: IDataSource,
     indexing_service: IndexingService,
 ) -> S0Strategy:
     trigger_cfg = config.trigger
@@ -259,29 +309,9 @@ def _build_trigger_strategy(
             "and trigger_strategy_override",
             kind="single_doc",
         )
-    if isinstance(trigger_cfg, As400TriggerConfig):
-        if not secrets.as400_username or not secrets.as400_password:
-            raise ConfigurationError(
-                "as400 trigger requires AS400_USERNAME and AS400_PASSWORD env vars",
-                missing_vars=[
-                    name
-                    for name, value in (
-                        ("AS400_USERNAME", secrets.as400_username),
-                        ("AS400_PASSWORD", secrets.as400_password),
-                    )
-                    if not value
-                ],
-            )
-        as400_src = As400DataSource(
-            host=trigger_cfg.as400_connection.host,
-            port=trigger_cfg.as400_connection.port,
-            database=trigger_cfg.as400_connection.database,
-            driver=trigger_cfg.as400_connection.driver,
-            username=secrets.as400_username,
-            password=secrets.as400_password,
-            table=trigger_cfg.as400_connection.table or "",
-        )
-        return As400TriggerStrategy(as400_src, trigger_cfg.query)
+    # 048: ``trigger.kind: as400`` was removed — "AS400" is a source choice
+    # (``indexing.source.kind: as400``), not a trigger kind. The loader
+    # rejects it with a directive error before we ever reach here.
     raise ConfigurationError(
         "unknown trigger.kind",
         kind=getattr(trigger_cfg, "kind", "<unknown>"),

@@ -16,15 +16,16 @@ from pydantic import ValidationError
 from cmcourier.config.schema import (
     As400ConnectionConfig,
     As400MetadataSourceConfig,
-    As400TriggerConfig,
+    As400RvabrepSource,
     AssemblyConfig,
     CmisConfigModel,
     CsvMetadataSourceConfig,
+    CsvRvabrepSource,
     CsvTriggerConfig,
     FieldConfig,
     FieldSourceItem,
     HeavyLightLanesConfig,
-    IndexingSourceConfig,
+    IndexingConfig,
     MappingConfig,
     MetadataCacheConfig,
     MetadataConfigModel,
@@ -53,7 +54,7 @@ def _build_full_data(
 ) -> dict[str, Any]:
     return {
         "trigger": {"kind": "csv", "csv_path": str(trigger_csv)},
-        "indexing": {"csv_path": str(rvabrep_csv)},
+        "indexing": {"source": {"kind": "csv", "csv_path": str(rvabrep_csv)}},
         "mapping": {"csv_path": str(modelo_csv)},
         "metadata": {
             "field_aliases": {"CIF": "BAC_CIF"},
@@ -240,10 +241,27 @@ class TestSubmodelDefaults:
         assert cfg.system_id_column == "SystemID"
 
     def test_indexing_columns_defaults_match_as400(self, fixture_paths: dict[str, Path]) -> None:
-        cfg = IndexingSourceConfig(csv_path=fixture_paths["rvabrep"])
+        cfg = IndexingConfig(source=CsvRvabrepSource(csv_path=fixture_paths["rvabrep"]))
         assert cfg.columns.shortname_column == "ABABCD"
         assert cfg.columns.txn_num_column == "ABAANB"
         assert cfg.columns.index7_column == "ABAHCD"
+
+    def test_indexing_source_csv_variant(self, fixture_paths: dict[str, Path]) -> None:
+        cfg = IndexingConfig(source=CsvRvabrepSource(csv_path=fixture_paths["rvabrep"]))
+        assert isinstance(cfg.source, CsvRvabrepSource)
+        assert cfg.source.kind == "csv"
+
+    def test_indexing_source_as400_variant(self) -> None:
+        cfg = IndexingConfig(
+            source=As400RvabrepSource(
+                kind="as400",
+                connection=As400ConnectionConfig(host="as400.test"),
+                query="SELECT * FROM RVILIB.RVABREP",
+            )
+        )
+        assert isinstance(cfg.source, As400RvabrepSource)
+        assert cfg.source.connection.host == "as400.test"
+        assert "RVABREP" in cfg.source.query
 
     def test_mapping_column_defaults(self, fixture_paths: dict[str, Path]) -> None:
         cfg = MappingConfig(csv_path=fixture_paths["modelo"])
@@ -334,7 +352,13 @@ class TestTriggerDiscriminatedUnion:
         with pytest.raises(ValidationError):
             PipelineConfig.model_validate(data)
 
-    def test_as400_kind_loads(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
+    def test_trigger_kind_as400_no_longer_a_trigger_kind(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        """048 — ``as400`` was removed from ``TriggerConfigUnion``. It's a
+        *source* choice now (``indexing.source.kind: as400``). The
+        discriminated union rejects it at validation time; the loader
+        adds a friendlier directive error on top (see test_loader.py)."""
         data = _build_full_data(
             fixture_paths["trigger"],
             fixture_paths["rvabrep"],
@@ -343,19 +367,34 @@ class TestTriggerDiscriminatedUnion:
             fixture_paths["assembly_root"],
             tmp_path,
         )
-        data["trigger"] = {
-            "kind": "as400",
-            "query": "SELECT SHORTNAME, CIF, SYSTEMID FROM TRIGGERS",
-            "as400_connection": {
-                "host": "10.0.0.1",
-                "database": "RVILIB",
-                "driver": "iSeries Access ODBC Driver",
-            },
+        data["trigger"] = {"kind": "as400", "query": "SELECT 1"}
+        with pytest.raises(ValidationError):
+            PipelineConfig.model_validate(data)
+
+    def test_indexing_source_as400_loads_via_full_config(
+        self, fixture_paths: dict[str, Path], tmp_path: Path
+    ) -> None:
+        """The AS400 RVABREP source lives under ``indexing.source`` now —
+        same pipeline, different data source."""
+        data = _build_full_data(
+            fixture_paths["trigger"],
+            fixture_paths["rvabrep"],
+            fixture_paths["modelo"],
+            fixture_paths["clients"],
+            fixture_paths["assembly_root"],
+            tmp_path,
+        )
+        data["indexing"] = {
+            "source": {
+                "kind": "as400",
+                "connection": {"host": "10.0.0.1", "database": "RVILIB"},
+                "query": "SELECT * FROM RVILIB.RVABREP r WHERE r.ABAACD = '3'",
+            }
         }
         config = PipelineConfig.model_validate(data)
-        assert isinstance(config.trigger, As400TriggerConfig)
-        assert config.trigger.query.startswith("SELECT")
-        assert config.trigger.as400_connection.host == "10.0.0.1"
+        assert isinstance(config.indexing.source, As400RvabrepSource)
+        assert config.indexing.source.connection.host == "10.0.0.1"
+        assert "RVABREP" in config.indexing.source.query
 
     def test_unknown_kind_rejected(self, fixture_paths: dict[str, Path], tmp_path: Path) -> None:
         data = _build_full_data(

@@ -8,7 +8,6 @@ Principle III).
 from __future__ import annotations
 
 __all__ = [
-    "As400TriggerStrategy",
     "CsvTriggerColumnsConfig",
     "CsvTriggerStrategy",
     "DirectRvabrepTriggerStrategy",
@@ -38,7 +37,6 @@ from cmcourier.services.metadata import (
     ValidationConfig,
 )
 from cmcourier.services.triggers import (
-    As400TriggerStrategy,
     CsvTriggerColumnsConfig,
     CsvTriggerStrategy,
     DirectRvabrepTriggerStrategy,

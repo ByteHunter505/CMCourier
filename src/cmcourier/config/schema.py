@@ -22,16 +22,18 @@ from __future__ import annotations
 __all__ = [
     "As400ConnectionConfig",
     "As400MetadataSourceConfig",
-    "As400TriggerConfig",
+    "As400RvabrepSource",
     "AssemblyConfig",
     "AutoTuneConfig",
     "CmisConfigModel",
     "CsvMetadataSourceConfig",
+    "CsvRvabrepSource",
     "CsvTriggerConfig",
     "FieldConfig",
     "FieldSourceItem",
     "HeavyLightLanesConfig",
     "IndexingColumnsModel",
+    "IndexingConfig",
     "IndexingSourceConfig",
     "LocalScanTriggerConfig",
     "MappingConfig",
@@ -42,6 +44,7 @@ __all__ = [
     "ObservabilityConfig",
     "PipelineConfig",
     "RvabrepFiltersModel",
+    "RvabrepSourceUnion",
     "RvabrepTriggerConfig",
     "TrackingConfig",
     "TriggerConfigUnion",
@@ -66,7 +69,7 @@ _STRICT = ConfigDict(frozen=True, extra="forbid")
 
 
 # ---------------------------------------------------------------------------
-# AS400 connection (used by rvabrep and as400 trigger kinds)
+# AS400 connection (shared: RVABREP source variant + NIARVILOG sync)
 # ---------------------------------------------------------------------------
 
 
@@ -107,13 +110,6 @@ class RvabrepTriggerConfig(BaseModel):
     filters: RvabrepFiltersModel = Field(default_factory=RvabrepFiltersModel)
 
 
-class As400TriggerConfig(BaseModel):
-    model_config = _STRICT
-    kind: Literal["as400"]
-    query: str
-    as400_connection: As400ConnectionConfig
-
-
 class LocalScanTriggerConfig(BaseModel):
     """REBIRTH §5.1 mode ``local_scan``."""
 
@@ -134,13 +130,13 @@ class SingleDocTriggerConfig(BaseModel):
 
 
 TriggerConfigUnion = Annotated[
-    CsvTriggerConfig
-    | RvabrepTriggerConfig
-    | As400TriggerConfig
-    | LocalScanTriggerConfig
-    | SingleDocTriggerConfig,
+    CsvTriggerConfig | RvabrepTriggerConfig | LocalScanTriggerConfig | SingleDocTriggerConfig,
     Field(discriminator="kind"),
 ]
+# 048: ``trigger.kind: as400`` was removed. "AS400" is now a *source*
+# choice (``indexing.source.kind: as400``), not a trigger kind — the
+# RVABREP pipeline is the same pipeline regardless of where its RVABREP
+# table lives. See ``RvabrepSourceUnion`` below.
 
 
 # Backwards-compatible alias: existing code that imports TriggerCsvConfig
@@ -170,11 +166,62 @@ class IndexingColumnsModel(BaseModel):
     total_pages_column: str = "ABABUN"
 
 
-class IndexingSourceConfig(BaseModel):
+# ---------------------------------------------------------------------------
+# RVABREP source (048 — discriminated union by `kind`)
+#
+# The RVABREP table is the same data whether it lives in a CSV (testing /
+# staging / small banks that export RVABREP to a file) or in DB2 on the
+# AS400 (production, reached by a SELECT returning RVABREP-shaped columns).
+# This one source feeds BOTH S0 (DirectRvabrepTriggerStrategy) and S1
+# (IndexingService) — composed once in the wiring layer.
+# ---------------------------------------------------------------------------
+
+
+class CsvRvabrepSource(BaseModel):
+    """RVABREP table simulated as a CSV file."""
+
     model_config = _STRICT
+    kind: Literal["csv"] = "csv"
     csv_path: FilePath
+
+
+class As400RvabrepSource(BaseModel):
+    """RVABREP table on DB2/AS400, reached by an operator-defined SELECT.
+
+    The ``query`` may carry JOINs / WHERE filters, but its **output
+    columns must be RVABREP-shaped** — the ``IndexingColumnsModel`` map
+    is applied to the result set exactly as it would be to a CSV.
+    Credentials come from ``AS400_USERNAME`` / ``AS400_PASSWORD`` env
+    vars (never the YAML).
+    """
+
+    model_config = _STRICT
+    kind: Literal["as400"]
+    connection: As400ConnectionConfig
+    query: str
+
+
+RvabrepSourceUnion = Annotated[
+    CsvRvabrepSource | As400RvabrepSource,
+    Field(discriminator="kind"),
+]
+
+
+class IndexingConfig(BaseModel):
+    """S1 indexing config + the RVABREP source it (and S0) reads from.
+
+    048 renamed this from ``IndexingSourceConfig`` and replaced the bare
+    ``csv_path`` field with the ``source`` discriminated union.
+    """
+
+    model_config = _STRICT
+    source: RvabrepSourceUnion
     columns: IndexingColumnsModel = Field(default_factory=IndexingColumnsModel)
     batch_size: int = Field(default=50, ge=1)
+
+
+# 048: backward-compat alias so in-flight imports of the old name resolve.
+IndexingSourceConfig = IndexingConfig
 
 
 class MappingConfig(BaseModel):
@@ -522,7 +569,7 @@ class PipelineConfig(BaseModel):
 
     model_config = _STRICT
     trigger: TriggerConfigUnion
-    indexing: IndexingSourceConfig
+    indexing: IndexingConfig
     mapping: MappingConfig
     metadata: MetadataConfigModel
     assembly: AssemblyConfig
