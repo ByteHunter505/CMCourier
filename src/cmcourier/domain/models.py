@@ -15,12 +15,16 @@ __all__ = [
     "BatchDetails",
     "BatchInfo",
     "CMMapping",
+    "ClientTrigger",
     "FailedRecord",
+    "LocalScanTrigger",
     "MigrationRecord",
     "ResolvedMetadata",
     "RVABREPDocument",
+    "RvabrepRowTrigger",
     "StageStatus",
     "StagedFile",
+    "Trigger",
     "TriggerRecord",
     "compute_cm_folder",
     "compute_cm_object_type",
@@ -28,12 +32,14 @@ __all__ = [
     "parse_cymmdd",
 ]
 
+from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Helpers (REBIRTH §3.3, §3.4, §4.2)
@@ -125,9 +131,67 @@ class StageStatus(StrEnum):
 # ---------------------------------------------------------------------------
 
 
+class Trigger(ABC):
+    """Polymorphic base for everything that disparas a doc through the pipeline (046).
+
+    A trigger's shape depends on what disparates a doc, which depends on the
+    pipeline kind:
+
+    * ``ClientTrigger`` — a client tuple (shortname, cif, system_id). S1
+      expands it to every RVABREP doc owned by that client. Used by
+      csv-trigger and single-doc pipelines (REBIRTH §5.1 csv mode).
+    * ``RvabrepRowTrigger`` — a single RVABREP row, already-known. S1 wraps
+      it into one ``RVABREPDocument`` without re-querying. Used by
+      rvabrep-direct and as400-trigger pipelines (the SQL/scan already
+      delivered the row).
+    * ``LocalScanTrigger`` — a file on disk + the RVABREP row that
+      describes it. S1 emits one ``RVABREPDocument`` for that exact file.
+      Used by local-scan pipeline (REBIRTH §5.1 local_scan mode).
+
+    Every concrete subtype implements ``audit_row()`` to produce best-effort
+    ``{shortname, cif, system_id}`` strings for the migration_log trigger_*
+    columns — those columns are operator-readable audit only; the canonical
+    per-doc identity is ``rvabrep_txn_num`` on the resulting
+    ``RVABREPDocument``.
+    """
+
+    __slots__ = ()
+
+    @abstractmethod
+    def audit_row(self) -> dict[str, str | None]:
+        """Best-effort projection to {shortname, cif, system_id} for tracking."""
+
+
+# RVABREP physical column names used by row-based triggers to surface the
+# operator-readable client tuple. Matches ``RvabrepColumnsConfig`` defaults
+# (REBIRTH §3.2). Hard-coded here because the trigger module sits below the
+# services/triggers package in the dependency graph and the migration_log
+# audit columns track these exact field names.
+_RVABREP_COL_SHORTNAME = "ABABCD"
+_RVABREP_COL_CIF = "ABACCD"
+_RVABREP_COL_SYSTEM_ID = "ABAACD"
+
+
+def _project_audit_from_row(row: Mapping[str, Any]) -> dict[str, str | None]:
+    """Pull the audit triple from an RVABREP row, normalizing blanks to None."""
+
+    def _read(key: str) -> str | None:
+        v = row.get(key)
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    return {
+        "shortname": _read(_RVABREP_COL_SHORTNAME),
+        "cif": _read(_RVABREP_COL_CIF),
+        "system_id": _read(_RVABREP_COL_SYSTEM_ID),
+    }
+
+
 @dataclass(frozen=True, slots=True)
-class TriggerRecord:
-    """One row of the trigger list (REBIRTH §5).
+class ClientTrigger(Trigger):
+    """One row of a client trigger list (REBIRTH §5, pre-046 ``TriggerRecord``).
 
     ``cif`` may be ``None`` to support the CIF self-healing rule (REBIRTH §6.5):
     in modes where the trigger source does not provide a CIF, the metadata
@@ -140,9 +204,51 @@ class TriggerRecord:
 
     def __post_init__(self) -> None:
         if not self.shortname:
-            raise ValueError("TriggerRecord.shortname must be non-empty")
+            raise ValueError("ClientTrigger.shortname must be non-empty")
         if not self.system_id:
-            raise ValueError("TriggerRecord.system_id must be non-empty")
+            raise ValueError("ClientTrigger.system_id must be non-empty")
+
+    def audit_row(self) -> dict[str, str | None]:
+        return {"shortname": self.shortname, "cif": self.cif, "system_id": self.system_id}
+
+
+@dataclass(frozen=True, slots=True)
+class RvabrepRowTrigger(Trigger):
+    """An already-known RVABREP row (rvabrep-direct + as400-trigger).
+
+    The row carries every column the downstream stages need; S1 wraps it
+    into a single ``RVABREPDocument`` without re-querying RVABREP.
+    """
+
+    row: Mapping[str, Any]
+
+    def audit_row(self) -> dict[str, str | None]:
+        return _project_audit_from_row(self.row)
+
+
+@dataclass(frozen=True, slots=True)
+class LocalScanTrigger(Trigger):
+    """One scanned file + the RVABREP row that describes it (local_scan).
+
+    Crucially: ``row`` is the RVABREP entry whose ``ABAJCD`` matched the
+    scanned file's name. S1 produces exactly one ``RVABREPDocument`` for
+    this file, regardless of how many other docs the same client has —
+    the operator who dropped the file into ``scan_path`` wanted THAT file
+    migrated, not every doc of its client.
+    """
+
+    file_path: Path
+    row: Mapping[str, Any]
+
+    def audit_row(self) -> dict[str, str | None]:
+        return _project_audit_from_row(self.row)
+
+
+# 046 — backward-compat alias. Every pre-046 import of ``TriggerRecord``
+# (csv-trigger strategy, single-doc CLI, tests, tracking adapter, …) keeps
+# resolving to the same concrete dataclass — now named ``ClientTrigger`` to
+# reflect its semantic shape but type-identical for ``isinstance`` checks.
+TriggerRecord = ClientTrigger
 
 
 @dataclass(frozen=True, slots=True)
