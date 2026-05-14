@@ -58,6 +58,9 @@ ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
         "status_code",
         "response_body",
         "curl_equivalent",
+        # 045: s5_upload_409_recovery audit fields.
+        "recovered_object_id",
+        "detail",
     }
 )
 

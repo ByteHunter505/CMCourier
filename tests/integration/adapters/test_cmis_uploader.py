@@ -1055,3 +1055,118 @@ def _stub_warmup_alfresco_style() -> None:
         status=200,
         match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
     )
+
+
+# ---------------------------------------------------------------------------
+# 045 — idempotent 409 recovery (kill-race between CMIS POST 200 and our
+# SQLite commit leaves orphans whose names collide on resume; recovery
+# looks them up and treats the upload as already-done).
+# ---------------------------------------------------------------------------
+
+
+class TestUpload409Recovery045:
+    @responses.activate
+    def test_409_recovered_returns_existing_object_id(self, tmp_path: Path) -> None:
+        _stub_warmup()
+        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
+        # Document POST collides on cmis:name → 409 from Alfresco.
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"exception": "contentAlreadyExists"},
+            status=409,
+        )
+        # Children lookup of the same folder returns the prior orphan.
+        responses.add(
+            responses.GET,
+            _root_url("BAC_X"),
+            json={
+                "objects": [
+                    {
+                        "object": {
+                            "properties": {
+                                "cmis:name": "TXN0000050.pdf",
+                                "cmis:objectId": "recovered-xyz",
+                            }
+                        }
+                    }
+                ]
+            },
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "children", "maxItems": "5000"}
+                )
+            ],
+        )
+        uploader = CmisUploader(_make_config())
+        result = uploader.upload(
+            file=_make_staged(tmp_path),
+            folder_path="/BAC_X",
+            object_type_id="t",
+            document_name="TXN0000050.pdf",
+            mime_type="application/pdf",
+            properties={"clbNonGroup.BAC_CIF": "000000"},
+        )
+        assert result == "recovered-xyz"
+
+    @responses.activate
+    def test_409_with_no_matching_child_reraises(self, tmp_path: Path) -> None:
+        _stub_warmup()
+        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"exception": "contentAlreadyExists"},
+            status=409,
+        )
+        # Children lookup returns NO match — the 409 was for some other reason
+        # (different name collision, permission constraint, etc.).
+        responses.add(
+            responses.GET,
+            _root_url("BAC_X"),
+            json={"objects": []},
+            status=200,
+            match=[
+                responses.matchers.query_param_matcher(
+                    {"cmisselector": "children", "maxItems": "5000"}
+                )
+            ],
+        )
+        from cmcourier.domain.exceptions import CMISClientError
+
+        uploader = CmisUploader(_make_config())
+        with pytest.raises(CMISClientError) as exc:
+            uploader.upload(
+                file=_make_staged(tmp_path),
+                folder_path="/BAC_X",
+                object_type_id="t",
+                document_name="TXN0000051.pdf",
+                mime_type="application/pdf",
+                properties={},
+            )
+        assert exc.value.status_code == 409
+
+    @responses.activate
+    def test_200_does_not_trigger_lookup(self, tmp_path: Path) -> None:
+        """Happy path must NOT call the recovery lookup (no behavior drift)."""
+        _stub_warmup()
+        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"succinctProperties": {"cmis:objectId": "fresh-abc"}},
+            status=201,
+        )
+        # No children-lookup response registered. If the uploader called it,
+        # ``responses`` would raise ConnectionError for the unmatched GET.
+        uploader = CmisUploader(_make_config())
+        result = uploader.upload(
+            file=_make_staged(tmp_path),
+            folder_path="/BAC_X",
+            object_type_id="t",
+            document_name="TXN0000052.pdf",
+            mime_type="application/pdf",
+            properties={},
+        )
+        assert result == "fresh-abc"

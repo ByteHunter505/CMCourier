@@ -399,6 +399,23 @@ class CmisUploader(IUploader):
                     kind="cmis_upload",
                 )
             except (CMISClientError, CMISServerError) as exc:
+                # 045: a 409 conflict typically means a prior run (or a
+                # kill-race between a successful CMIS POST and our SQLite
+                # commit) already created this object. Look it up by
+                # cmis:name; if found, treat the upload as idempotently
+                # successful and return that objectId.
+                if isinstance(exc, CMISClientError) and exc.status_code == 409:
+                    recovered = self._try_recover_409(
+                        folder_url=url,
+                        document_name=document_name,
+                        object_type_id=object_type_id,
+                        mime_type=mime_type,
+                        properties=properties,
+                        content_bytes=file.size_bytes,
+                        exc=exc,
+                    )
+                    if recovered is not None:
+                        return recovered
                 self._emit_upload_failed(
                     url=url,
                     object_type_id=object_type_id,
@@ -413,6 +430,156 @@ class CmisUploader(IUploader):
                 )
                 raise
         return self._parse_object_id(resp)
+
+    def _try_recover_409(
+        self,
+        *,
+        folder_url: str,
+        document_name: str,
+        object_type_id: str,
+        mime_type: str,
+        properties: Mapping[str, str],
+        content_bytes: int,
+        exc: CMISClientError,
+    ) -> str | None:
+        """045 — recover a 409 conflict via children lookup.
+
+        Returns the existing ``cmis:objectId`` when a child of ``folder_url``
+        already has ``cmis:name == document_name``; returns ``None`` when
+        nothing matches (true 409 — propagate as failure). Emits structured
+        audit events so the operator can grep recoveries in
+        ``network-YYYY-MM-DD.jsonl``.
+        """
+        self._emit_409_event(
+            event="s5_upload_409_recovery_attempt",
+            url=folder_url,
+            object_type_id=object_type_id,
+            document_name=document_name,
+            mime_type=mime_type,
+            properties=properties,
+            content_bytes=content_bytes,
+        )
+        try:
+            existing_id = self._lookup_existing_object_id(folder_url, document_name)
+        except (CMISClientError, CMISServerError, RequestsConnectionError):
+            # Lookup itself failed — fall through to the original failure
+            # path so the operator sees the underlying upload error.
+            self._emit_409_event(
+                event="s5_upload_409_recovery_failed",
+                url=folder_url,
+                object_type_id=object_type_id,
+                document_name=document_name,
+                mime_type=mime_type,
+                properties=properties,
+                content_bytes=content_bytes,
+                detail="lookup-transport-error",
+            )
+            return None
+        if existing_id is None:
+            self._emit_409_event(
+                event="s5_upload_409_recovery_failed",
+                url=folder_url,
+                object_type_id=object_type_id,
+                document_name=document_name,
+                mime_type=mime_type,
+                properties=properties,
+                content_bytes=content_bytes,
+                detail="no-matching-child",
+            )
+            return None
+        self._emit_409_event(
+            event="s5_upload_409_recovered",
+            url=folder_url,
+            object_type_id=object_type_id,
+            document_name=document_name,
+            mime_type=mime_type,
+            properties=properties,
+            content_bytes=content_bytes,
+            recovered_object_id=existing_id,
+        )
+        del exc  # the original 409 is consumed — recovery is the answer now.
+        return existing_id
+
+    def _lookup_existing_object_id(self, folder_url: str, document_name: str) -> str | None:
+        """List ``folder_url``'s children, return the matching cmis:objectId."""
+        t0 = time.monotonic()
+        resp = self._session.get(
+            folder_url,
+            params={"cmisselector": "children", "maxItems": "5000"},
+            timeout=self._timeout_s,
+        )
+        _network_log.info(
+            "cmis_get",
+            extra={
+                "kind": "cmis_409_lookup",
+                "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
+                "status": resp.status_code,
+                "url_prefix": folder_url[:80],
+                "worker": threading.current_thread().name,
+            },
+        )
+        body = _truncate(resp.text)
+        if resp.status_code >= 500:
+            raise CMISServerError(status_code=resp.status_code, response_body=body)
+        if resp.status_code >= 400:
+            raise CMISClientError(status_code=resp.status_code, response_body=body)
+        try:
+            data = resp.json()
+        except ValueError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        objects = data.get("objects") or []
+        if not isinstance(objects, list):
+            return None
+        for entry in objects:
+            obj = entry.get("object") if isinstance(entry, dict) else None
+            if not isinstance(obj, dict):
+                continue
+            props = obj.get("properties") or obj.get("succinctProperties") or {}
+            if not isinstance(props, dict):
+                continue
+            name = props.get("cmis:name")
+            if isinstance(name, dict):
+                name = name.get("value")
+            if name != document_name:
+                continue
+            obj_id = props.get("cmis:objectId")
+            if isinstance(obj_id, dict):
+                obj_id = obj_id.get("value")
+            if isinstance(obj_id, str) and obj_id:
+                return obj_id
+        return None
+
+    def _emit_409_event(
+        self,
+        *,
+        event: str,
+        url: str,
+        object_type_id: str,
+        document_name: str,
+        mime_type: str,
+        properties: Mapping[str, str],
+        content_bytes: int,
+        recovered_object_id: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        masked = mask_dict(dict(properties), unmask=self._cfg.unmask_pii)
+        extra: dict[str, Any] = {
+            "event": event,
+            "kind": "cmis_409_recovery",
+            "url": url,
+            "object_type_id": object_type_id,
+            "document_name": document_name,
+            "mime_type": mime_type,
+            "content_bytes": content_bytes,
+            "properties_json": json.dumps(masked, sort_keys=True),
+        }
+        if recovered_object_id is not None:
+            extra["recovered_object_id"] = recovered_object_id
+        if detail is not None:
+            extra["detail"] = detail
+        _network_log.info(event, extra=extra)
 
     def _emit_upload_attempt(
         self,
