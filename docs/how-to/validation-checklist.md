@@ -476,6 +476,16 @@ cmcourier rvabrep-pipeline run --config config-staging.yaml --total 10 --no-tui
 **Espera**: similar a E.1 pero S0 reporta "scanner-driven" en vez de
 "csv-driven".
 
+> **`s1_filtered` en el resumen (054)**: la línea final del run incluye
+> `s1_filtered=N`. Esos son los documentos cuya fila RVABREP está
+> marcada como **borrada en origen** (delete code) — el pipeline los
+> excluye correctamente en S1. NO son un fallo ni un skip: son una
+> categoría propia, "filtrado en S1". Si `s1_done + s1_filtered` no
+> suma el total de triggers, ahí sí hay algo que mirar. En el TUI
+> aparecen en la pestaña PREP (línea `FILTERED`) y en CHUNKS (la
+> columna `PREP d/s/f/x`, donde `x` = filtrados). Cada doc filtrado
+> deja un log INFO con `reason="deleted_at_source"`.
+
 ### E.3 — `rvabrep-pipeline` con fuente AS400 (048)
 
 A partir de 0.51.0 **no hay** un `as400-trigger-pipeline` aparte: es la

@@ -51,6 +51,55 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.54.0] — 2026-05-14 — **"Filtered at S1" is a first-class outcome**
+
+A `--total 2000` staging run showed S1 processing 1000 triggers per
+chunk but only ~943 reaching S2–S5 — ~57 docs per chunk **vanished
+with zero traceability**. Operator: *"necesito mirar qué pasa, no
+simplemente que desaparezca."*
+
+Root cause: `IndexingService._enrich_known_row` returned `[]`
+**silently** when a `RvabrepRowTrigger` / `LocalScanTrigger` carried a
+delete-coded RVABREP row — no count, no log, no surface. The doc was
+neither `done`, nor `skipped` (cross-batch), nor `failed`: a fourth
+outcome the pipeline had no name for.
+
+### Fixed
+
+- **Delete-coded RVABREP rows are no longer dropped silently at S1.**
+  `_enrich_known_row` now raises `RVABREPDeletedError` (consistent
+  with `find_documents`, the `ClientTrigger` path). `_stage_s0_s1`
+  counts it as **filtered** — a first-class outcome — and emits one
+  structured INFO log per doc with `reason="deleted_at_source"`.
+
+### Changed
+
+- **`RVABREPDeletedError` is now a *filter*, not a *failure*** — for
+  **both** trigger paths. A doc deleted at source is correctly
+  excluded; it is not a pipeline failure. (Pre-054 the `ClientTrigger`
+  path counted it as an S1 failure.) `RVABREPNotFoundError` — a
+  trigger pointing at a non-existent RVABREP row — stays an S1
+  failure.
+- **`s1_filtered` threads through the report types.** `RunReport`,
+  `MultiBatchRunReport` (aggregate), and `ChunkState.prep_filtered`
+  all carry the count. `prep_chunk` returns a 7-tuple
+  `(items, skipped, s1_done, s1_filtered, s2_failed, s3_failed,
+  s4_failed)`.
+- **Surfaced everywhere the operator looks.** The headless run
+  summary line gains `s1_filtered=N`; the TUI PREP tab gains a
+  `FILTERED (S1, deleted at source)` line; the CHUNKS tab's per-chunk
+  `PREP d/s/f` breakdown becomes `d/s/f/x` (x = filtered).
+
+### Notes
+
+- Out of scope: `DirectRvabrepTriggerStrategy.acquire`'s blank-row
+  filter (it drops malformed rows in S0 *before* they become
+  triggers — not the observed gap; it already logs a summary), and
+  the interactive per-chunk file drill-down in the TUI (a larger
+  feature). 054 delivers the counts + per-doc log.
+
+---
+
 ## [0.53.0] — 2026-05-14 — **Streaming trigger pipeline (bounded memory)**
 
 The bank's real RVABREP table is ~20 million rows. The pipeline
