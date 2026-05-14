@@ -362,8 +362,15 @@ class CmisUploader(IUploader):
         document_name: str,
         mime_type: str,
         properties: Mapping[str, str],
+        *,
+        batch_id: str,
     ) -> str:
         """Stream the staged file and return the resulting cmis:objectId.
+
+        ``batch_id`` tags every network event emitted here so the
+        per-batch ``_BandwidthHandler`` / ``_SlowOpHandler`` attribute
+        the bytes + slow ops to the right chunk. Without it the handlers
+        drop the events (their ``batch_id`` filter never matches).
 
         The target folder is NOT verified or created here — the operator
         is expected to have run ``doctor --check cm-targets`` (038) before
@@ -380,6 +387,7 @@ class CmisUploader(IUploader):
             mime_type=mime_type,
             properties=properties,
             content_bytes=file.size_bytes,
+            batch_id=batch_id,
         )
         with file.path.open("rb") as fh:
             stream: IO[bytes] = (
@@ -397,6 +405,7 @@ class CmisUploader(IUploader):
                     {"Content-Type": encoder.content_type},
                     txn_num=document_name,
                     kind="cmis_upload",
+                    batch_id=batch_id,
                 )
             except (CMISClientError, CMISServerError) as exc:
                 # 045: a 409 conflict typically means a prior run (or a
@@ -423,6 +432,7 @@ class CmisUploader(IUploader):
                     mime_type=mime_type,
                     properties=properties,
                     content_bytes=file.size_bytes,
+                    batch_id=batch_id,
                     status_code=exc.status_code,
                     response_body=str(getattr(exc, "response_body", "") or "")[
                         :_RESPONSE_BODY_TRUNCATION
@@ -590,6 +600,7 @@ class CmisUploader(IUploader):
         mime_type: str,
         properties: Mapping[str, str],
         content_bytes: int,
+        batch_id: str,
     ) -> None:
         """038: structured ``s5_upload_attempt`` event into metrics.jsonl."""
         masked = mask_dict(
@@ -605,6 +616,7 @@ class CmisUploader(IUploader):
             extra={
                 "event": "s5_upload_attempt",
                 "kind": "cmis_upload_attempt",
+                "batch_id": batch_id,
                 "url": url[:200],
                 "object_type_id": object_type_id,
                 "document_name": document_name,
@@ -624,6 +636,7 @@ class CmisUploader(IUploader):
         mime_type: str,
         properties: Mapping[str, str],
         content_bytes: int,
+        batch_id: str,
         status_code: int,
         response_body: str,
     ) -> None:
@@ -644,6 +657,7 @@ class CmisUploader(IUploader):
             extra={
                 "event": "s5_upload_failed",
                 "kind": "cmis_upload_failed",
+                "batch_id": batch_id,
                 "url": url[:200],
                 "object_type_id": object_type_id,
                 "document_name": document_name,
@@ -742,6 +756,8 @@ class CmisUploader(IUploader):
         headers: dict[str, str],
         txn_num: str,
         kind: str = "cmis_post",
+        *,
+        batch_id: str,
     ) -> requests.Response:
         auth_retried = False
         last_exc: Exception | None = None
@@ -773,10 +789,10 @@ class CmisUploader(IUploader):
                     self._warm = False
                 continue
             if 200 <= resp.status_code < 400:
-                self._emit_network(kind, t0, resp.status_code, size_bytes, url)
+                self._emit_network(kind, t0, resp.status_code, size_bytes, url, batch_id)
                 return resp
             if 400 <= resp.status_code < 500:
-                self._emit_network(kind, t0, resp.status_code, size_bytes, url)
+                self._emit_network(kind, t0, resp.status_code, size_bytes, url, batch_id)
                 raise CMISClientError(
                     status_code=resp.status_code, response_body=_truncate(resp.text)
                 )
@@ -796,7 +812,7 @@ class CmisUploader(IUploader):
                 self._backoff_sleep(real_attempts, doubled=False)
         assert last_exc is not None
         last_status = getattr(last_exc, "status_code", None)
-        self._emit_network(kind, t0, last_status, size_bytes, url)
+        self._emit_network(kind, t0, last_status, size_bytes, url, batch_id)
         raise RetriesExhaustedError(
             txn_num=txn_num, attempts=self._cfg.retry_max_attempts
         ) from last_exc
@@ -808,9 +824,14 @@ class CmisUploader(IUploader):
         status: int | None,
         size_bytes: int | None,
         url: str,
+        batch_id: str,
     ) -> None:
+        # ``batch_id`` is mandatory: the per-batch _BandwidthHandler /
+        # _SlowOpHandler drop any record whose batch_id doesn't match,
+        # so an event without it is silently discarded by every recorder.
         extra: dict[str, object] = {
             "kind": kind,
+            "batch_id": batch_id,
             "duration_ms": round((time.monotonic() - t0) * 1000.0, 3),
             "url_prefix": url[:80],
             "worker": threading.current_thread().name,

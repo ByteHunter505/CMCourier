@@ -2,26 +2,28 @@
 
 ## Phase 1 — Thread batch_id through the upload path + tests
 
-- [ ] 1.1 `domain/ports.py`: `IUploader.upload` adds `*, batch_id: str`
+- [x] 1.1 `domain/ports.py`: `IUploader.upload` adds `*, batch_id: str`
       (keyword-only, required).
-- [ ] 1.2 `cmis_uploader.py`: `CmisUploader.upload` adds `batch_id`,
+- [x] 1.2 `cmis_uploader.py`: `CmisUploader.upload` adds `batch_id`,
       forwards to `_emit_upload_attempt`, `_post_with_retries`,
       `_emit_upload_failed`.
-- [ ] 1.3 `cmis_uploader.py`: `_post_with_retries` takes `batch_id`,
+- [x] 1.3 `cmis_uploader.py`: `_post_with_retries` takes `batch_id`,
       forwards to all three `_emit_network` calls.
-- [ ] 1.4 `cmis_uploader.py`: `_emit_network` adds
+- [x] 1.4 `cmis_uploader.py`: `_emit_network` adds
       `extra["batch_id"]`; `_emit_upload_attempt` /
       `_emit_upload_failed` add `extra["batch_id"]`.
-- [ ] 1.5 `orchestrators/staged.py`: S5 call site passes
+- [x] 1.5 `orchestrators/staged.py`: S5 call site passes
       `batch_id=batch_id`.
-- [ ] 1.6 Tests: 10 `uploader.upload(...)` call sites in
-      `test_cmis_uploader.py` get `batch_id=...`.
-- [ ] 1.7 Tests: regression — real `CmisUploader.upload()` under a
+- [x] 1.6 Tests: all 17 `uploader.upload(...)` call sites in
+      `test_cmis_uploader.py` get `batch_id=...` (the original count
+      of 10 was wrong — a `head` truncated the grep).
+- [x] 1.7 Tests: regression — real `CmisUploader.upload()` under a
       live `MetricsRecorder.start_batch()` → bandwidth sampler +
       slow-op aggregator actually receive the bytes; and the
       `cmis_upload` record carries `batch_id`.
-- [ ] 1.8 Full unit + integration suite green; mypy + ruff clean.
-- [ ] 1.9 Commit
+- [x] 1.8 Full unit + integration suite green (1208 passed); mypy +
+      ruff clean.
+- [x] 1.9 Commit
       `fix(s5): thread batch_id through the upload path so network events reach the bandwidth + slow-op handlers (055 Phase 1)`.
 
 ## Phase 2 — CHANGELOG 0.58.0 + version bump + README + FF

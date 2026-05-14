@@ -288,8 +288,15 @@ class IUploader(ABC):
         document_name: str,
         mime_type: str,
         properties: Mapping[str, str],
+        *,
+        batch_id: str,
     ) -> str:
         """Upload *file* and return the resulting CMIS ``cmis:objectId``.
+
+        ``batch_id`` tags every network event emitted during the upload
+        so the per-batch bandwidth + slow-op handlers attribute it to
+        the right chunk. Required — a shared uploader serves multiple
+        chunks concurrently, so the id must travel with the call.
 
         Raises ``CMISClientError`` for HTTP 4xx (do not retry) and
         ``CMISServerError`` for HTTP 5xx (caller may retry).

@@ -34,6 +34,7 @@ from cmcourier.domain.exceptions import (
     RetriesExhaustedError,
 )
 from cmcourier.domain.models import StagedFile
+from cmcourier.observability.metrics import MetricsRecorder
 
 pytestmark = pytest.mark.integration
 
@@ -397,6 +398,7 @@ class TestUploadHappyPath:
             document_name="TXN0000001.pdf",
             mime_type="application/pdf",
             properties={"clbNonGroup.BAC_CIF": "000000"},
+            batch_id="B-succinct",
         )
         assert result == "abc-123"
 
@@ -418,6 +420,7 @@ class TestUploadHappyPath:
             document_name="TXN0000002.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-standard",
         )
         assert result == "def-456"
 
@@ -439,6 +442,7 @@ class TestUploadHappyPath:
             document_name="TXN0000003.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-idfield",
         )
         assert result == "ghi-789"
 
@@ -460,6 +464,7 @@ class TestUploadHappyPath:
             document_name="TXN0000004.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-multipart",
         )
         upload_call = responses.calls[-1]
         assert upload_call.request.headers["Content-Type"].startswith(
@@ -494,6 +499,7 @@ class TestUploadRetry:
             document_name="TXN0000010.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-5xx-then-201",
         )
         assert result == "ok"
         upload_attempts = [c for c in responses.calls if c.request.url.endswith("/BAC_R")]
@@ -513,6 +519,7 @@ class TestUploadRetry:
                 document_name="TXN0000011.pdf",
                 mime_type="application/pdf",
                 properties={},
+                batch_id="B-4xx-fail-fast",
             )
         assert ei.value.status_code == 400
         upload_attempts = [c for c in responses.calls if c.request.url.endswith("/BAC_F")]
@@ -541,6 +548,7 @@ class TestUploadRetry:
             document_name="TXN0000012.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-401-rewarm",
         )
         assert result == "ok"
         warmup_calls = [c for c in responses.calls if c.request.method == "GET"]
@@ -562,6 +570,7 @@ class TestUploadRetry:
                 document_name="TXN0000013.pdf",
                 mime_type="application/pdf",
                 properties={},
+                batch_id="B-retries-exhausted",
             )
         assert ei.value.attempts == 3
         assert isinstance(ei.value.__cause__, CMISServerError)
@@ -609,6 +618,7 @@ class TestUploadWindows10053:
                     document_name="TXN0000020.pdf",
                     mime_type="application/pdf",
                     properties={},
+                    batch_id="B-win10053",
                 )
 
         result = _run()
@@ -759,6 +769,7 @@ class TestLoggingDiscipline:
                 document_name="TXN0000030.pdf",
                 mime_type="application/pdf",
                 properties={"clbNonGroup.BAC_CIF": sensitive},
+                batch_id="B-pii-mask",
             )
         for record in caplog.records:
             assert sensitive not in record.getMessage()
@@ -871,6 +882,7 @@ class TestUploadPayloadTraceEvents:
                 document_name="TXN1.pdf",
                 mime_type="application/pdf",
                 properties={"clbNonGroup.BAC_CIF": "00123456"},
+                batch_id="B-attempt-event",
             )
         attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
         assert len(attempts) == 1
@@ -910,6 +922,7 @@ class TestUploadPayloadTraceEvents:
                 document_name="TXN2.pdf",
                 mime_type="application/pdf",
                 properties={"clbNonGroup.BAC_CIF": "00123456"},
+                batch_id="B-failed-event",
             )
         attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
         failures = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_failed"]
@@ -944,6 +957,7 @@ class TestUploadPayloadTraceEvents:
                 document_name="TXN3.pdf",
                 mime_type="application/pdf",
                 properties={"clbNonGroup.BAC_CIF": "00123456"},
+                batch_id="B-unmask-pii",
             )
         attempts = [r for r in caplog.records if getattr(r, "event", "") == "s5_upload_attempt"]
         assert len(attempts) == 1
@@ -1015,6 +1029,7 @@ class TestAlfrescoStyleUrls:
             document_name="TXN.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-no-repo-id",
         )
         assert result == "id"
         # The POST URL must not contain a doubled slash.
@@ -1107,6 +1122,7 @@ class TestUpload409Recovery045:
             document_name="TXN0000050.pdf",
             mime_type="application/pdf",
             properties={"clbNonGroup.BAC_CIF": "000000"},
+            batch_id="B-409-recovered",
         )
         assert result == "recovered-xyz"
 
@@ -1144,6 +1160,7 @@ class TestUpload409Recovery045:
                 document_name="TXN0000051.pdf",
                 mime_type="application/pdf",
                 properties={},
+                batch_id="B-409-no-match",
             )
         assert exc.value.status_code == 409
 
@@ -1168,5 +1185,83 @@ class TestUpload409Recovery045:
             document_name="TXN0000052.pdf",
             mime_type="application/pdf",
             properties={},
+            batch_id="B-200-no-lookup",
         )
         assert result == "fresh-abc"
+
+
+# ---------------------------------------------------------------------------
+# 055 — network events carry the batch_id so the per-batch bandwidth +
+# slow-op handlers actually receive them. Pre-055 ``_emit_network`` never
+# set ``batch_id``, so every ``cmis_upload`` event was silently dropped by
+# both handlers (their ``record.batch_id != self._batch_id`` short-circuit).
+# ---------------------------------------------------------------------------
+
+
+class TestNetworkEventBatchId055:
+    @responses.activate
+    def test_upload_event_reaches_bandwidth_and_slowop_handlers(self, tmp_path: Path) -> None:
+        # The test that would have caught the bug: it exercises the REAL
+        # ``_emit_network`` under a REAL ``MetricsRecorder.start_batch()`` —
+        # not a hand-built ``extra`` dict with ``batch_id`` already in it.
+        _stub_warmup()
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"succinctProperties": {"cmis:objectId": "id"}},
+            status=201,
+        )
+        recorder = MetricsRecorder(
+            log_dir=tmp_path / "logs",
+            slow_op_threshold_ms=0.0,
+            slow_op_top_n=10,
+            enabled=True,
+            pipeline_metrics_enabled=True,
+        )
+        net_log = logging.getLogger("cmcourier.metrics.network")
+        prev_level = net_log.level
+        net_log.setLevel(logging.INFO)
+        recorder.start_batch(pipeline="csv-trigger", batch_id="B1")
+        try:
+            CmisUploader(_make_config()).upload(
+                file=_make_staged(tmp_path, size_bytes=64_000),
+                folder_path="/BAC_X",
+                object_type_id="t",
+                document_name="TXN0000060.pdf",
+                mime_type="application/pdf",
+                properties={},
+                batch_id="B1",
+            )
+            # The bandwidth sampler received the uploaded bytes...
+            assert recorder.bandwidth.cumulative_bytes() > 0
+            assert recorder.bandwidth.peak_mbps() > 0.0
+            # ...and the slow-op aggregator saw the cmis_upload op.
+            assert any(op.get("kind") == "cmis_upload" for op in recorder.aggregator_snapshot())
+        finally:
+            net_log.setLevel(prev_level)
+            recorder.close_batch(pipeline="csv-trigger", batch_id="B1", total_docs=1, elapsed_s=1.0)
+
+    @responses.activate
+    def test_emit_network_record_carries_batch_id(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _stub_warmup()
+        responses.add(
+            responses.POST,
+            _root_url("BAC_X"),
+            json={"succinctProperties": {"cmis:objectId": "id"}},
+            status=201,
+        )
+        with caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"):
+            CmisUploader(_make_config()).upload(
+                file=_make_staged(tmp_path),
+                folder_path="/BAC_X",
+                object_type_id="t",
+                document_name="TXN0000061.pdf",
+                mime_type="application/pdf",
+                properties={},
+                batch_id="B-carries",
+            )
+        uploads = [r for r in caplog.records if getattr(r, "kind", "") == "cmis_upload"]
+        assert len(uploads) == 1
+        assert uploads[0].batch_id == "B-carries"

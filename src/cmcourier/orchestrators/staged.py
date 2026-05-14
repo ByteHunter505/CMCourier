@@ -920,6 +920,7 @@ class StagedPipeline:
                         document_name=f"{txn}.pdf",
                         mime_type="application/pdf",
                         properties=dict(item.metadata.properties),
+                        batch_id=batch_id,
                     )
                 except (CMISClientError, CMISServerError, RetriesExhaustedError) as exc:
                     timer.mark_failed()
