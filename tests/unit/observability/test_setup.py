@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Iterator
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -28,11 +29,37 @@ def obs_config(tmp_path: Path) -> ObservabilityConfig:
 
 
 @pytest.fixture(autouse=True)
-def _reset_cmcourier_logger() -> None:
-    root = logging.getLogger("cmcourier")
-    for h in list(root.handlers):
-        root.removeHandler(h)
-    root.setLevel(logging.NOTSET)
+def _reset_cmcourier_logger() -> Iterator[None]:
+    """Reset every ``cmcourier*`` logger pre-and-post test.
+
+    ``configure()`` sets ``propagate=False`` on ``cmcourier.metrics.pipeline
+    / network / slow_ops`` (so child handlers don't double-emit). Without
+    explicitly resetting that flag after each unit test, integration tests
+    that run later in the same pytest invocation can't capture network
+    events via ``caplog`` — propagate stays off, the events never reach
+    the root logger that caplog hooks. Pre-fix this manifested as flaky
+    failures in ``TestUploadPayloadTraceEvents`` whenever
+    ``tests/unit/observability`` ran in the same session.
+    """
+    targets = (
+        "cmcourier",
+        "cmcourier.metrics.pipeline",
+        "cmcourier.metrics.network",
+        "cmcourier.metrics.slow_ops",
+    )
+    for name in targets:
+        logger = logging.getLogger(name)
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        logger.setLevel(logging.NOTSET)
+        logger.propagate = True
+    yield
+    for name in targets:
+        logger = logging.getLogger(name)
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        logger.setLevel(logging.NOTSET)
+        logger.propagate = True
 
 
 def _stderr_handlers(logger: logging.Logger) -> list[logging.Handler]:

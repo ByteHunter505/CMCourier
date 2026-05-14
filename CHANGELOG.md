@@ -105,15 +105,15 @@ crash, grep for ``s5_upload_409_recovered`` in
 ``network-YYYY-MM-DD.jsonl``; the event carries ``document_name``
 and ``recovered_object_id``.
 
-### Known test issue (unrelated to 045)
+### Housekeeping
 
-Running the full suite ``pytest tests/unit tests/integration``
-in one invocation triggers cross-test logger-state contamination
-between ``tests/unit/observability/test_setup.py`` (added in 041)
-and ``tests/integration/adapters/test_cmis_uploader.py::
-TestUploadPayloadTraceEvents``. Each suite passes cleanly when
-run alone. Pre-existing, not introduced by 045. Tracked for a
-follow-up housekeeping spec.
+The autouse fixture in ``tests/unit/observability/test_setup.py``
+(added in 041) was extended to also reset ``propagate=True`` on
+``cmcourier.metrics.*`` child loggers after each test, eliminating
+cross-test logger-state bleed that previously caused intermittent
+``TestUploadPayloadTraceEvents`` failures when the full suite ran
+in one ``pytest`` invocation. ``pytest tests/unit tests/integration``
+is now 1114/1114 green.
 
 ---
 
