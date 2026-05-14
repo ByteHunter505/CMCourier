@@ -989,17 +989,17 @@ curl.exe -s -u admin:admin `
 
 ### L.3 — GET por objectId
 
-⚠️ Conocido: el orchestrator hoy NO persiste el `cm:objectId` en
-`migration_log` tras un upload exitoso (la asignación `item.cm_object_id`
-sólo vive en memoria). Para obtener un OID válido, walkear una carpeta
-del staging via children — es lo que el verifier post-run usa en
-producción de todos modos (sin dependencia de Solr lag).
+Sacá el `cm_object_id` del tracking DB (0.50.0+ lo persiste en cada
+fila `S5_DONE`):
 
 ```bash
-curl -s -u admin:admin \
-  "http://<HOST>:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser/root/cmcourier-staging/CA00?cmisselector=children&maxItems=1" \
-  | python -c "import json,sys; d=json.load(sys.stdin); print(d['objects'][0]['object']['properties']['cmis:objectId'])"
+python -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute(\"SELECT cm_object_id FROM migration_log WHERE status='S5_DONE' AND cm_object_id IS NOT NULL LIMIT 1\").fetchone()[0])" sample/staging-tracking.db
 ```
+
+(Si el query devuelve `None` para todas las filas, el batch se subió
+con una versión < 0.50.0 — esos rows no se back-fillean. Fallback:
+walkear una carpeta del staging via `cmisselector=children` y sacar
+el `cmis:objectId` de cualquier doc.)
 
 Después, traelo de Alfresco (reemplazá `<OID>` con el valor):
 

@@ -242,6 +242,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Forty-sixth change (044): robust resume after kill -9 mid-S5 — `_apply_resume` detects `S{N}_DONE → S{N+1}` stage gaps (workers paused mid-batch no longer abandon as "clean"), `--batch-id` always threads through (operator-named batches honored without `--resume`), explicit `--from-stage` wins over auto-detection
 - [x] Forty-seventh change (045): idempotent S5 upload on 409 conflict — `CmisUploader.upload` recovers from kill-race orphans (doc in Alfresco, missing from migration_log) by looking up the existing `cmis:objectId` via the folder-children endpoint; closes the last `S5_FAILED` window after a real `kill -9`
 - [x] Forty-eighth change (046): polymorphic `Trigger` model — each pipeline emits its natural trigger shape (`ClientTrigger` for csv / single-doc / as400, `RvabrepRowTrigger` for rvabrep-direct, `LocalScanTrigger` for local-scan); S1 dispatches per subtype, so local-scan now uploads exactly the files in the scan pool (no more "1 file → all client docs" over-expansion)
+- [x] Forty-ninth change (047): persist `cm_object_id` on `S5_DONE` — `mark_stage_done` now writes the CMIS objectId into `migration_log` so the tracking DB can answer "what's the objectId of doc X?" without a children-walk against CMIS
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

@@ -51,6 +51,44 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.50.0] — 2026-05-14 — **Persist cm_object_id on S5_DONE**
+
+The §L.3 step of the validation checklist ("GET a doc by objectId,
+pulling the OID from the tracking DB") was non-functional:
+``migration_log.cm_object_id`` was ``NULL`` for every row even after
+a successful upload.
+
+### Fixed
+
+- **``cm_object_id`` never reached SQLite.** The orchestrator's S5
+  path assigned the CMIS objectId onto the in-memory ``_StageItem``
+  (``item.cm_object_id = cm_object_id``) but ``mark_stage_done`` —
+  the call that actually writes to ``migration_log`` — only updated
+  ``status`` + ``completed_at``. The ``cm_object_id`` column existed
+  in the schema and was written by ``mark_stage_pending`` (as
+  ``None`` at S1_PENDING time), but nothing ever back-filled it.
+  ``mark_stage_done`` now accepts a keyword-only ``cm_object_id``
+  and persists it on the S5_DONE transition. The AS400 path was
+  already correct (``IdempotencyCoordinator.mark_uploaded`` forwarded
+  the OID to ``As400NiarvilogStore.OBJIDN``); 047 brings the SQLite
+  ``migration_log`` to parity.
+
+### Changed
+
+- ``ITrackingStore.mark_stage_done`` signature gains keyword-only
+  ``cm_object_id: str | None = None``. S1..S4 callers pass nothing
+  and the column is left untouched (the ``None`` path is
+  byte-identical to pre-047). ``IdempotencyCoordinator.mark_uploaded``
+  and the orchestrator's S5_DONE call thread the real OID through.
+
+### Notes
+
+- Historical batches uploaded before 0.50.0 keep ``NULL``
+  ``cm_object_id`` — not back-filled. The value is recoverable from
+  Alfresco via a children-walk if ever needed.
+
+---
+
 ## [0.49.0] — 2026-05-13 — **Polymorphic Trigger model**
 
 Closes the deepest architectural mismatch caught during the validation
