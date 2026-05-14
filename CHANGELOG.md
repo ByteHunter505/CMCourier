@@ -51,6 +51,77 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.47.0] — 2026-05-13 — **Robust resume after kill -9 mid-S5**
+
+Live §H.1 verification against staging caught a class of bugs in
+``_apply_resume`` that made the documented resume flow non-functional
+after a real crash:
+
+- After ``kill -9`` during S5 uploads, the bulk of in-flight docs
+  sat at status ``S4_DONE`` (waiting for a worker pool slot) rather
+  than ``S5_PENDING``. The resume detector only scanned for
+  ``FAILED`` and ``PENDING`` rows so it reported the batch as
+  "clean" and exited 0, silently abandoning the second half of the
+  batch.
+- ``--batch-id`` was silently dropped from the orchestrator's
+  kwargs whenever ``--resume`` was absent, so the documented
+  ``--from-stage N --batch-id X`` replay path failed with the
+  cryptic ``ValueError("from_stage > 1 requires batch_id")``.
+- When ``--resume`` was paired with an explicit ``--from-stage``,
+  the "is clean" early-exit fired BEFORE the explicit-override
+  check, so an operator could not force a replay of an outwardly-
+  complete batch.
+
+### Fixed
+
+- **Resume now detects ``S{N}_DONE → S{N+1}`` gaps.** For each
+  stage N<5, if any doc is at ``S{N}_DONE`` with no failure or
+  pending marker upstream, the resolved ``from_stage`` is ``N+1``.
+  The §H.1 staging scenario (kill mid-S5 leaving 543 docs at
+  S4_DONE + 281 at S5_DONE) now correctly resolves to
+  ``from_stage=5`` and uploads the remaining 543 docs.
+- **``--batch-id`` always threads to the orchestrator.** The
+  ``if resume_flag else None`` conditional in
+  ``cli/app.py:711`` is dropped — any operator-named batch_id is
+  the literal batch_id this run operates on. When set, the run is
+  routed through the single-batch path so the orchestrator does not
+  override it with auto-generated per-chunk ids.
+- **Explicit ``--from-stage`` always wins.** ``_apply_resume`` now
+  honors a non-default ``--from-stage`` BEFORE attempting auto-
+  detection or emitting the "is clean" exit. The operator gets the
+  replay they asked for.
+
+### Changed
+
+- ``_apply_resume`` algorithm order: validate inputs → honor
+  explicit ``--from-stage`` → auto-detect (FAILED/PENDING priority
+  → ``DONE`` gap fallback) → clean exit. Previously: detect-first,
+  override-second, which lost the override on clean batches.
+
+### Test additions
+
+- ``tests/unit/cli/test_apply_resume.py`` covers every branch of
+  the rewritten ``_apply_resume`` (failed/pending priority,
+  ``S{N}_DONE`` gap detection at every stage, explicit override
+  beating clean, unknown batch handling, quiet suppression).
+- ``tests/integration/cli/test_pipeline_kinds.py``'s
+  ``_seed_resume_batch`` helper gains a
+  ``completed_through_stage`` parameter so tests can stage truly-
+  complete batches when the new gap detection would otherwise
+  classify a partial seed as "needs resume".
+
+### Operational note
+
+If a previously-killed batch was abandoned as "clean" pre-0.47 and
+the operator wants to recover it, simply re-run with the same
+``--batch-id`` and ``--resume``. The gap detector picks up where
+the kill left off. The kill-race window where Alfresco received a
+doc but the migration_log commit was lost (4-10 docs in our
+staging test) still produces 409 conflicts on resume — that fix
+is tracked separately.
+
+---
+
 ## [0.46.0] — 2026-05-13 — **AIMD auto-tune sees real p95 in multi-batch mode**
 
 Live verification of 0.45.0 against staging
