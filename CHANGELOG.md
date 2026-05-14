@@ -51,6 +51,81 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.49.0] — 2026-05-13 — **Polymorphic Trigger model**
+
+Closes the deepest architectural mismatch caught during the validation
+checklist sweep: the pre-046 ``TriggerRecord`` was a fixed 3-tuple
+``(shortname, cif, system_id)`` that every S0 strategy had to produce,
+forcing S1 to re-query RVABREP and re-expand to all docs of the
+trigger's client — the wrong granularity for every pipeline kind
+except csv-trigger.
+
+The §E.4 finding ("local-scan pool of 100 files produced 1860 uploaded
+docs") was originally diagnosed as a missing-dedup bug. It wasn't —
+it was the trigger shape forcing semantic over-broad expansion. 046
+brings each pipeline its natural trigger shape and S1 dispatches per
+subtype.
+
+### Added
+
+- ``cmcourier.domain.models.Trigger`` abstract base + three concrete
+  subtypes:
+  - ``ClientTrigger(shortname, cif, system_id)`` — csv-trigger,
+    single-doc, as400-trigger. S1 expands by RVABREP lookup.
+  - ``RvabrepRowTrigger(row, col_*)`` — rvabrep-direct. The row is
+    already known; S1 wraps it in one ``RVABREPDocument`` without a
+    query.
+  - ``LocalScanTrigger(file_path, row, col_*)`` — local-scan. The
+    matched RVABREP row attaches at S0 acquire time; S1 emits exactly
+    one ``RVABREPDocument`` per scanned file (no over-broad expansion).
+- ``Trigger.audit_row()`` projection used by ``_build_record`` to fill
+  the ``migration_log`` ``trigger_*`` columns best-effort, regardless
+  of trigger shape.
+- ``IndexingService.enrich(trigger)`` polymorphic dispatcher that
+  pattern-matches on the trigger subtype.
+- ``MetadataResolution.healed_cif: str | None`` — captured explicitly
+  so the document_cache persists CIF without inspecting the trigger
+  subtype.
+
+### Changed
+
+- **local-scan semantics**: a scan pool of N files now uploads exactly
+  N docs (one per file). Pre-046 each file was inflated to "all docs
+  of this file's client". Operators dropping files into ``scan_path``
+  finally get the obvious behavior.
+- **rvabrep-direct semantics**: yields one trigger per non-deleted
+  RVABREP row. Pre-046 the strategy deduplicated by
+  ``(shortname, system_id)`` and S1 re-expanded — wasted work and
+  the wrong granularity for "process THIS row".
+- ``TriggerRecord = ClientTrigger`` backward-compat alias. Every
+  pre-046 import keeps compiling unchanged. csv-trigger + single-doc
+  flows are byte-identical to pre-046.
+- ``MetadataService.resolve`` accepts ``Trigger`` (was ``TriggerRecord``).
+  CIF self-healing now centralizes through ``_trigger_cif(trigger)``
+  helper.
+- ``StagedPipeline._stage_s0_s1`` calls ``enrich`` instead of
+  ``find_documents``.
+- ``As400NiarvilogStore`` signatures accept ``Trigger`` and project
+  the audit triple via ``audit_row()``. Behavior identical for
+  ``ClientTrigger`` inputs (the only ones the coordinator sees in
+  production today).
+
+### Fixed
+
+- §E.4 "over-broad upload expansion" in local-scan
+  (catalogued as a doc finding during the checklist sweep). The fix
+  is architectural — local-scan now uploads exactly the files in
+  the scan pool.
+
+### Out of scope (deferred)
+
+- ``single-doc --txn-num`` for per-doc CLI runs. Future spec.
+- ``as400-trigger`` shape change. The operator-defined SQL may project
+  any column aliases, so the strategy stays as ``ClientTrigger``
+  until production calls for a per-doc as400 mode.
+
+---
+
 ## [0.48.0] — 2026-05-13 — **Idempotent S5 upload on 409 conflict**
 
 Closes the last gap surfaced by §H.1's kill-mid-S5 verification.

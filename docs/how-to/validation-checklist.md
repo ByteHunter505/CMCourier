@@ -489,14 +489,23 @@ Sino, salteá esto.
 
 ### E.4 — `local-scan-pipeline`
 
-Pipeline alternativa para escenarios donde los archivos vienen de un
-file-system local (no estructura RVABREP).
+Pipeline para escenarios donde los archivos ya fueron extraídos a un
+directorio local. El trigger ES el archivo: cada `.PDF` / `.001` en
+`scan_path` se cross-referencia contra RVABREP por nombre de archivo
+y produce **exactamente un doc** (modelo polimórfico de trigger, 046).
 
 ```bash
 cmcourier local-scan-pipeline run --config config-staging-localscan.yaml --total 5 --no-tui
 ```
 
-(Necesita una sección `local_scan:` en el YAML — ver `config/`.)
+(Necesita una sección `trigger.kind: local_scan` + `trigger.scan_path`
+en el YAML.)
+
+**Espera (0.49.0+)**: `total_triggers == total_docs == N` donde N es
+la cantidad de archivos escaneados (capada por `--total`). Pre-046 el
+modelo de trigger expandía cada archivo a TODOS los docs del cliente
+dueño — un pool de 100 archivos subía ~1800 docs. Post-046: 100
+archivos → 100 docs, uno por archivo.
 
 ### E.5 — `single-doc run` (un doc a mano)
 
