@@ -51,6 +51,56 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.58.0] — 2026-05-14 — **Network events carry the batch_id: unbreak the bandwidth + slow-op handlers**
+
+The root cause behind the dead UPLOAD tab. Spec 054 fixed *which
+recorder* the snapshot reads — but the operator re-ran and it was
+still empty, because **no recorder was receiving the events at all**.
+
+### Fixed
+
+- **Every `cmis_upload` network event was silently dropped.**
+  `CmisUploader._emit_network` built the log record's `extra` with
+  `kind`, `duration_ms`, `size_bytes`, `worker`, `url_prefix` — but
+  **never `batch_id`**, and `upload()` never even received one. Both
+  metrics handlers filter on it: `_BandwidthHandler.emit` and
+  `_SlowOpHandler.emit` short-circuit on
+  `record.batch_id != self._batch_id`. With `record.batch_id` always
+  `None`, **100% of upload bandwidth + slow-op events were discarded**
+  — in every recorder, on every run, since spec 042 added the filter
+  to `_BandwidthHandler` (and 028 to `_SlowOpHandler`) assuming the
+  events carried an id they never did. So the UPLOAD tab showed
+  `0.00 MB/s`, peak `0.00`, a blank sparkline, and "(none yet)" slow
+  ops. Proven with a repro: the *same* event with vs. without a
+  `batch_id` field → `peak_mbps` `8.0` vs `0.0`.
+- The fix threads the chunk's `batch_id` down the upload path —
+  `IUploader.upload(..., *, batch_id)` (required keyword) →
+  `CmisUploader.upload` → `_post_with_retries` → `_emit_network`,
+  which now sets `extra["batch_id"]`. `_emit_upload_attempt` /
+  `_emit_upload_failed` carry it too, so the `s5_upload_attempt` /
+  `s5_upload_failed` diagnostic events in `network-*.jsonl` become
+  batch-attributable as well.
+
+### Notes
+
+- This is also the omission that left `network-*.jsonl` records
+  without a `batch_id` — the gap spec 053 worked around by associating
+  the network/system tiers via time window. With the id restored at
+  the source, a follow-up could let `analyze` go back to an exact
+  `batch_id` filter; that simplification is out of scope here (053's
+  time-window path keeps working unchanged).
+- 055 + 054 together fix the tab: 055 delivers the events to the
+  per-chunk recorders, 054 makes the snapshot read the right one.
+- The test gap that let this ship: `test_cmis_uploader.py` mocked HTTP
+  but never attached a live `MetricsRecorder`, and the data-provider
+  slow-op test hand-built an `extra` *with* `batch_id` — a shape the
+  real uploader never produced. 055 adds a regression test that runs
+  the real `CmisUploader.upload()` under a real
+  `MetricsRecorder.start_batch()` and asserts the sampler + aggregator
+  actually receive the bytes.
+
+---
+
 ## [0.57.0] — 2026-05-14 — **UPLOAD-tab recorder wiring: finish the 042 split**
 
 On an N=2 staging run the UPLOAD tab was dead: bandwidth `0.00 MB/s`,
