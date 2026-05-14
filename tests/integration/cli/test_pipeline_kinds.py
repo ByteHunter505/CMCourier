@@ -477,8 +477,19 @@ class TestSingleDocPipeline:
 # ---------------------------------------------------------------------------
 
 
-def _seed_resume_batch(db_path: Path, *, failed_at_stage: int | None = None) -> str:
-    """Create a synthetic batch in the tracking store with optional FAILED row."""
+def _seed_resume_batch(
+    db_path: Path,
+    *,
+    failed_at_stage: int | None = None,
+    completed_through_stage: int = 1,
+) -> str:
+    """Create a synthetic batch in the tracking store.
+
+    Defaults to a batch advanced through S1_DONE (post-044 this is detected
+    as "needs resume from S2" — gap closed). Pass
+    ``completed_through_stage=5`` for a fully-complete batch that
+    ``_apply_resume`` should treat as "clean".
+    """
     from datetime import datetime
 
     from cmcourier.adapters.tracking import SQLiteTrackingStore
@@ -498,7 +509,10 @@ def _seed_resume_batch(db_path: Path, *, failed_at_stage: int | None = None) -> 
             created_at=datetime(2026, 1, 1, 0, 0),
         )
         store.mark_stage_pending(record, StageStatus.S1_PENDING)
-        store.mark_stage_done("TXN_PIPE_001", batch_id, StageStatus.S1_DONE)
+        # Advance through the requested stages so the gap-detection in
+        # _apply_resume sees the right "highest completed stage" per doc.
+        for n in range(1, completed_through_stage + 1):
+            store.mark_stage_done("TXN_PIPE_001", batch_id, StageStatus(f"S{n}_DONE"))
         if failed_at_stage is not None:
             failed_status = StageStatus(f"S{failed_at_stage}_FAILED")
             store.mark_stage_failed("TXN_PIPE_001", batch_id, failed_status, "synthetic")
@@ -572,10 +586,13 @@ class TestResumeFlag:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """044 — a batch fully completed through S5_DONE is "clean": resume
+        exits 0. Pre-044 the threshold was S1_DONE (the seed default) but
+        044's gap detection correctly classifies S1_DONE as "S2..S5 work
+        pending"."""
         _set_cmis_env(monkeypatch)
         yaml_path = _write_csv_yaml_with_db(tmp_path)
-        # Seed a batch with only S1_DONE (no failed/pending after that).
-        batch_id = _seed_resume_batch(tmp_path / "tracking.db")
+        batch_id = _seed_resume_batch(tmp_path / "tracking.db", completed_through_stage=5)
         result = cli_runner.invoke(
             main,
             [

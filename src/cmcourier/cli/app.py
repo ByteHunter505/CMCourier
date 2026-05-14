@@ -674,7 +674,19 @@ def _run_with_optional_tui(
         # Resume is inherently single-batch — the operator named a specific
         # batch_id; orchestrator chunking doesn't apply.
         batches_in_flight = 1
-    resume_batch_id = pipeline_kwargs.get("batch_id") if resume_flag else None
+    # 044: any operator-provided ``--batch-id`` is the batch_id this run
+    # operates on (resume OR fresh-named OR ``--from-stage`` replay). The
+    # orchestrator routes through ``_run_single`` whenever batch_id is set
+    # and the pipeline validates existence. Pre-044 this assignment only
+    # honored batch_id when ``--resume`` was also passed, which dropped the
+    # flag silently on ``--from-stage`` replay paths and produced the
+    # ``ValueError("from_stage > 1 requires batch_id")`` further down.
+    resume_batch_id = pipeline_kwargs.get("batch_id")
+    if resume_batch_id is not None:
+        # Operator-named batches go through the single-batch path so the
+        # batch_id is honored verbatim (multi-batch overlap auto-generates
+        # per-chunk ids and would ignore the user's name).
+        batches_in_flight = 1
 
     orchestrator = MultiBatchOrchestrator(
         pipeline=pipeline,
