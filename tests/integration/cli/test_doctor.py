@@ -61,7 +61,9 @@ def _write_yaml(
             trigger:
               csv_path: {triggers_csv}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id
@@ -188,7 +190,9 @@ def _write_split_yaml(
             trigger:
               csv_path: {triggers_csv}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id
@@ -424,14 +428,14 @@ class TestLogDirWritable:
 
 class TestAs400Connectivity:
     @responses.activate
-    def test_skips_when_kind_is_csv(self, tmp_path: Path) -> None:
+    def test_skips_when_source_is_csv(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
         config = load_config(_write_yaml(tmp_path))
         report = run_doctor(config, _secrets())
         check = next(r for r in report.results if r.name == "as400_connectivity")
         assert check.status == CheckStatus.SKIP
-        assert check.details["reason"] == "trigger_kind_not_as400"
+        assert check.details["reason"] == "indexing_source_not_as400"
 
 
 class TestAs400Sync:

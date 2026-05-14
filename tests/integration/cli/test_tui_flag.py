@@ -69,7 +69,9 @@ def _write_csv_yaml(tmp_path: Path) -> Path:
             trigger:
               csv_path: {triggers}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id
@@ -187,7 +189,6 @@ class TestNoTuiHeadless:
         for group in (
             "csv-trigger-pipeline",
             "rvabrep-pipeline",
-            "as400-trigger-pipeline",
             "local-scan-pipeline",
             "single-doc",
         ):

@@ -71,7 +71,9 @@ def _write_csv_yaml(tmp_path: Path, *, system_metrics_interval_s: float = 1.0) -
             trigger:
               csv_path: {triggers}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id

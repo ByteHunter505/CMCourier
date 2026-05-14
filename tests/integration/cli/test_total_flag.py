@@ -63,7 +63,9 @@ def _write_yaml(tmp_path: Path, *, batches_in_flight: int = 2) -> Path:
             trigger:
               csv_path: {tmp_path / "triggers.csv"}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id
@@ -239,7 +241,6 @@ class TestTotalFlag:
         for group in (
             "csv-trigger-pipeline",
             "rvabrep-pipeline",
-            "as400-trigger-pipeline",
             "local-scan-pipeline",
         ):
             result = CliRunner().invoke(main, [group, "run", "--help"])

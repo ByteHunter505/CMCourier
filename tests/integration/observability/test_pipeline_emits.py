@@ -65,7 +65,9 @@ def _write_yaml(tmp_path: Path, *, slow_op_threshold_ms: int = 0) -> Path:
             trigger:
               csv_path: {triggers}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id

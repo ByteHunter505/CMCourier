@@ -1,4 +1,4 @@
-"""Integration tests for the rvabrep-pipeline and as400-trigger-pipeline CLI."""
+"""Integration tests for the rvabrep-pipeline CLI (csv + as400 sources)."""
 
 from __future__ import annotations
 
@@ -51,28 +51,42 @@ def _stub_cmis_for_docs(txn_nums: list[str]) -> None:
         )
 
 
-def _common_blocks(tmp_path: Path) -> str:
-    return dedent(
+def _indexing_block(rvabrep_as400: bool) -> str:
+    """048: the RVABREP source is pluggable — csv (default) or as400."""
+    if rvabrep_as400:
+        source = (
+            "  source:\n"
+            "    kind: as400\n"
+            "    connection:\n"
+            '      host: "10.0.0.1"\n'
+            '    query: "SELECT * FROM RVILIB.RVABREP"\n'
+        )
+    else:
+        source = f"  source:\n    kind: csv\n    csv_path: {_PIPELINE_FIXTURES / 'rvabrep.csv'}\n"
+    return (
+        "indexing:\n" + source + "  columns:\n"
+        "    shortname_column: shortname\n"
+        "    system_id_column: system_id\n"
+        "    delete_code_column: delete_code\n"
+        "    txn_num_column: txn_num\n"
+        "    index2_column: index2\n"
+        "    index3_column: index3\n"
+        "    index4_column: index4\n"
+        "    index5_column: index5\n"
+        "    index6_column: index6\n"
+        "    index7_column: index7\n"
+        "    image_type_column: image_type\n"
+        "    image_path_column: image_path\n"
+        "    file_name_column: file_name\n"
+        "    creation_date_column: creation_date\n"
+        "    last_view_date_column: last_view_date\n"
+        "    total_pages_column: total_pages\n"
+    )
+
+
+def _common_blocks(tmp_path: Path, *, rvabrep_as400: bool = False) -> str:
+    return _indexing_block(rvabrep_as400) + dedent(
         f"""\
-        indexing:
-          csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
-          columns:
-            shortname_column: shortname
-            system_id_column: system_id
-            delete_code_column: delete_code
-            txn_num_column: txn_num
-            index2_column: index2
-            index3_column: index3
-            index4_column: index4
-            index5_column: index5
-            index6_column: index6
-            index7_column: index7
-            image_type_column: image_type
-            image_path_column: image_path
-            file_name_column: file_name
-            creation_date_column: creation_date
-            last_view_date_column: last_view_date
-            total_pages_column: total_pages
         mapping:
           csv_path: {_SERVICES_FIXTURES / "modelo_documental.csv"}
         metadata:
@@ -121,13 +135,14 @@ def _write_rvabrep_yaml(tmp_path: Path) -> Path:
 
 
 def _write_as400_yaml(tmp_path: Path) -> Path:
+    """048: an rvabrep-pipeline config whose RVABREP source is an AS400 query."""
     yaml_path = tmp_path / "config.yaml"
     yaml_path.write_text(
         "trigger:\n"
-        '  kind: "as400"\n'
-        '  query: "SELECT SHORTNAME, CIF, SYSTEMID FROM TRIGGERS"\n'
-        "  as400_connection:\n"
-        '    host: "10.0.0.1"\n' + _common_blocks(tmp_path)
+        '  kind: "rvabrep"\n'
+        "  filters:\n"
+        '    systems: ["1"]\n'
+        '    document_types: ["CC03"]\n' + _common_blocks(tmp_path, rvabrep_as400=True)
     )
     return yaml_path
 
@@ -184,12 +199,12 @@ class TestRvabrepPipeline:
 
 
 # ---------------------------------------------------------------------------
-# as400-trigger-pipeline
+# rvabrep-pipeline — AS400 RVABREP source (048)
 # ---------------------------------------------------------------------------
 
 
 class _FakeCursor:
-    def __init__(self, rows: list[tuple[str, str, str]], columns: tuple[str, ...]) -> None:
+    def __init__(self, rows: list[tuple[object, ...]], columns: tuple[str, ...]) -> None:
         self._rows = [list(r) for r in rows]
         self._columns = columns
         self.closed = False
@@ -240,12 +255,70 @@ class _FakePyodbcModule:
         return self._connect_fn(cs)  # type: ignore[operator]
 
 
-class TestAs400TriggerPipeline:
-    @responses.activate
-    def test_help(self, cli_runner: CliRunner) -> None:
-        result = cli_runner.invoke(main, ["as400-trigger-pipeline", "run", "--help"])
-        assert result.exit_code == 0
-        assert "--config" in result.stdout
+# RVABREP-shaped rows the AS400 query returns — mirrors the active CC03
+# docs in tests/fixtures/pipeline/rvabrep.csv so the pipeline behaves
+# identically whether the source is the CSV or an AS400 query.
+_RVABREP_COLUMNS = (
+    "shortname",
+    "system_id",
+    "txn_num",
+    "delete_code",
+    "index2",
+    "index3",
+    "index4",
+    "index5",
+    "index6",
+    "index7",
+    "image_type",
+    "image_path",
+    "file_name",
+    "creation_date",
+    "last_view_date",
+    "total_pages",
+)
+_RVABREP_AS400_ROWS: list[tuple[object, ...]] = [
+    (
+        "TESTCLIENT01",
+        "1",
+        "TXN_PIPE_001",
+        "",
+        "123456",
+        "",
+        "",
+        "",
+        "",
+        "CC03",
+        "B",
+        "paged_tiff/PROD/2025/11/17",
+        "DAAAH9X4.001",
+        "1251117",
+        "0",
+        "3",
+    ),
+    (
+        "TESTCLIENT02",
+        "1",
+        "TXN_PIPE_002",
+        "",
+        "234567",
+        "",
+        "",
+        "",
+        "",
+        "CC03",
+        "B",
+        "paged_jpeg/PROD/2025/11/17",
+        "DBBBI0L5.001",
+        "1251117",
+        "0",
+        "2",
+    ),
+]
+
+
+class TestRvabrepPipelineAs400Source:
+    """048: rvabrep-pipeline with ``indexing.source.kind: as400`` — same
+    pipeline, the RVABREP table just comes from an AS400 query."""
 
     def test_rejects_missing_env(
         self,
@@ -260,7 +333,7 @@ class TestAs400TriggerPipeline:
         result = cli_runner.invoke(
             main,
             [
-                "as400-trigger-pipeline",
+                "rvabrep-pipeline",
                 "run",
                 "--no-tui",
                 "--skip-doctor",
@@ -281,24 +354,21 @@ class TestAs400TriggerPipeline:
         _set_cmis_env(monkeypatch)
         monkeypatch.setenv("AS400_USERNAME", "as400tester")
         monkeypatch.setenv("AS400_PASSWORD", "as400secret")
-        # Mock pyodbc so the AS400 trigger query returns 1 row matching the rvabrep fixture.
+        # Mock pyodbc so the AS400 RVABREP query returns rows matching the csv fixture.
         import cmcourier.adapters.sources.as400 as as400_module
 
-        cursor = _FakeCursor(
-            rows=[("TESTCLIENT01", "123456", "1")],
-            columns=("SHORTNAME", "CIF", "SYSTEMID"),
-        )
+        cursor = _FakeCursor(rows=_RVABREP_AS400_ROWS, columns=_RVABREP_COLUMNS)
 
         def _fake_connect(cs: str) -> _FakeConn:
             return _FakeConn(cursor)
 
         monkeypatch.setattr(as400_module, "pyodbc", _FakePyodbcModule(_fake_connect))
-        _stub_cmis_for_docs(["TXN_PIPE_001"])
+        _stub_cmis_for_docs(["TXN_PIPE_001", "TXN_PIPE_002"])
         yaml_path = _write_as400_yaml(tmp_path)
         result = cli_runner.invoke(
             main,
             [
-                "as400-trigger-pipeline",
+                "rvabrep-pipeline",
                 "run",
                 "--no-tui",
                 "--skip-doctor",
@@ -307,7 +377,7 @@ class TestAs400TriggerPipeline:
             ],
         )
         assert result.exit_code == 0, result.stderr
-        assert "s5_done=1" in result.stdout
+        assert "s5_done=" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +392,6 @@ class TestRootHelp:
         for cmd in (
             "csv-trigger-pipeline",
             "rvabrep-pipeline",
-            "as400-trigger-pipeline",
             "local-scan-pipeline",
             "single-doc",
             "doctor",

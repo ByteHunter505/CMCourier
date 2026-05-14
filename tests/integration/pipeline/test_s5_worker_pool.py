@@ -60,7 +60,9 @@ def _write_yaml(tmp_path: Path, *, workers: int) -> Path:
 trigger:
   csv_path: {triggers}
 indexing:
-  csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+  source:
+    kind: csv
+    csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
   columns:
     shortname_column: shortname
     system_id_column: system_id
@@ -189,7 +191,9 @@ class TestS5WorkerPool:
 trigger:
   csv_path: {triggers}
 indexing:
-  csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+  source:
+    kind: csv
+    csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
 mapping:
   csv_path: {_SERVICES_FIXTURES / "modelo_documental.csv"}
 metadata:
@@ -270,7 +274,9 @@ class TestAutoTuneIntegration:
 trigger:
   csv_path: {triggers}
 indexing:
-  csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+  source:
+    kind: csv
+    csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
   columns:
     shortname_column: shortname
     system_id_column: system_id

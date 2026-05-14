@@ -38,7 +38,9 @@ def _write_config_yaml(tmp_path: Path, triggers_csv: Path | None = None) -> Path
             trigger:
               csv_path: {triggers_csv}
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: csv
+                csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
               columns:
                 shortname_column: shortname
                 system_id_column: system_id

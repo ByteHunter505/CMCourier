@@ -90,7 +90,7 @@ def _patch_pyodbc(monkeypatch: pytest.MonkeyPatch, cursor: _FakeCursor) -> None:
 
 
 # ---------------------------------------------------------------------------
-# YAML builder — uses kind=as400 trigger so trigger.as400_connection exists
+# YAML builder — 048: the AS400 connection lives on indexing.source (kind=as400)
 # ---------------------------------------------------------------------------
 
 
@@ -106,12 +106,13 @@ def _write_yaml(tmp_path: Path) -> Path:
         dedent(
             f"""\
             trigger:
-              kind: "as400"
-              query: "SELECT SHORTNAME, CIF, SYSTEMID FROM RVILIB.TRIGGERS"
-              as400_connection:
-                host: "10.0.0.1"
+              kind: "rvabrep"
             indexing:
-              csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+              source:
+                kind: as400
+                connection:
+                  host: "10.0.0.1"
+                query: "SELECT * FROM RVILIB.RVABREP"
               columns:
                 shortname_column: shortname
                 system_id_column: system_id
@@ -222,7 +223,9 @@ class TestAs400Query:
                 trigger:
                   csv_path: {triggers}
                 indexing:
-                  csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
+                  source:
+                    kind: csv
+                    csv_path: {_PIPELINE_FIXTURES / "rvabrep.csv"}
                 mapping:
                   csv_path: {_SERVICES_FIXTURES / "modelo_documental.csv"}
                 metadata:
