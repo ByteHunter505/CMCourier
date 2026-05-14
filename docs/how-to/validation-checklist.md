@@ -561,6 +561,15 @@ cmcourier rvabrep-pipeline run --config config-staging.yaml --total 50 --batches
 
 **Comparar tiempos**: ver §K.2 (`analyze compare`).
 
+> **Memoria acotada (050)**: los triggers se procesan en chunks de
+> `indexing.batch_size` — NO se cargan todos a RAM de una. El pico de
+> memoria es ~`batch_size × batches_in_flight` documentos, independiente
+> del total. Por eso la migración productiva del RVABREP real (~20M
+> filas) no revienta la RAM. Esa corrida usa `indexing.source.kind:
+> as400` (la tabla AS400 en vivo, consultada por lookup) — la fuente CSV
+> es in-memory por diseño y queda como herramienta de testing /
+> simulación.
+
 ### F.3 — Heavy/light lanes
 
 En `config-staging.yaml`:

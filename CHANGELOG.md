@@ -51,6 +51,66 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.53.0] — 2026-05-14 — **Streaming trigger pipeline (bounded memory)**
+
+The bank's real RVABREP table is ~20 million rows. The pipeline
+materialized the **entire** trigger set in RAM before doing any work
+— it would OOM long before the first upload. The trigger strategies
+are all generators (lazy by construction); that laziness was
+**defeated downstream** at four points. 053 lets it flow through:
+triggers stream in `batch_size` chunks, each chunk runs S0→S5, its
+memory is released before the next chunk is pulled. Peak in-flight
+memory is now `O(batch_size × batches_in_flight)`, not
+`O(total triggers)`.
+
+### Fixed
+
+- **`MultiBatchOrchestrator._run_overlapped` (N=2)** —
+  `triggers = list(acquire(...))` + `chunk_list = list(chunked(...))`
+  + the upfront `range(len(chunk_list))` chunk-state seeding all
+  materialized the full set. Now the trigger **iterator** flows
+  straight into the (already-lazy) `chunked()` helper; each chunk's
+  state is seeded the moment it is pulled.
+- **`MultiBatchOrchestrator._run_single` → fresh N=1 runs** — the
+  `batches_in_flight=1` path called the monolithic
+  `StagedPipeline.run()`, which `list()`-ed the whole source. Fresh
+  N=1 runs now route through a new `_run_sequential` path that
+  streams chunk-by-chunk (the N=1 shape of `_run_overlapped`, no
+  producer-consumer overlap). **Resume / `--from-stage > 1`** still
+  use `StagedPipeline.run()` — that path operates on a
+  previously-created, already-bounded batch.
+- **`TabularDataSource.get_all`** — `to_dict(orient="records")` built
+  a full Python list of every row's dict before yielding anything.
+  Now iterates row by row via `itertuples` (lazy).
+- **`--total N`** — `triggers[:N]` sliced *after* the full list was
+  materialized. Now `itertools.islice` pulls exactly N from the
+  iterator.
+
+### Changed
+
+- The N=2 CHUNKS tab no longer shows the full chunk plan upfront —
+  chunks appear as they enter PREP. Knowing the total chunk count
+  *is* materializing the total trigger set, which 053 exists to
+  avoid.
+
+### Notes
+
+- **The 20M production migration runs against
+  `indexing.source.kind: as400`** — the live AS400 RVABREP table,
+  queried per-lookup. The AS400 source already streams
+  (`query_stream` / `fetchmany`); 053 makes the orchestrator stop
+  defeating that. The **CSV source (`TabularDataSource`) is
+  in-memory by design** (its random-access `get_by_fields` lookups
+  require the whole table indexed in RAM) — it stays the
+  testing / small-bank tool, bounded-memory by design, not by 053.
+- Known limitation: resume / `--from-stage > 1` still re-iterates
+  the full source in S0 to reconstruct the trigger set before
+  `resume_scope` filters it. Resume operates on a recovery batch
+  (≤ `batch_size`), not the 20M happy path — driving resume
+  triggers straight from the tracking DB is a follow-up.
+
+---
+
 ## [0.52.0] — 2026-05-14 — **Configurable NIARVILOG column names**
 
 The bank runs CMCourier against several AS400 environments whose

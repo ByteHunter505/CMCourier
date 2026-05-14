@@ -350,5 +350,14 @@ processing:
 # batch_size  (optional)  — TOP-LEVEL batch size: how many triggers go into
 # one migration batch. DISTINCT from `indexing.batch_size` (which is the
 # RVABREP fetch chunk size). Default differs on purpose.
+#
+# MEMORY CONTRACT (050): triggers stream in `batch_size`-sized chunks —
+# they are NOT all loaded at once. Peak in-flight memory is roughly
+# `batch_size × processing.batches_in_flight` documents, independent of
+# the total trigger count. This is what lets the ~20M-row production
+# RVABREP migration run without OOM. The 20M run uses
+# `indexing.source.kind: as400` (the live AS400 table, streamed per
+# lookup) — the CSV source is in-memory by design and stays a
+# testing / small-bank tool.
 # -----------------------------------------------------------------------------
 batch_size: 1000                           # (default: 1000)  >= 1

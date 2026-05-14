@@ -245,6 +245,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Forty-ninth change (047): persist `cm_object_id` on `S5_DONE` — `mark_stage_done` now writes the CMIS objectId into `migration_log` so the tracking DB can answer "what's the objectId of doc X?" without a children-walk against CMIS
 - [x] Fiftieth change (048): pluggable RVABREP source — `indexing.source` becomes a discriminated union (`kind: csv` ↔ `kind: as400`); `rvabrep-pipeline` serves both (CSV file vs. live AS400 query returning an RVABREP-shaped table), the standalone `as400-trigger-pipeline` command and `trigger.kind: as400` are removed (AS400 is a *source* choice, not a trigger kind)
 - [x] Fifty-first change (049): configurable NIARVILOG column names — `tracking.as400_sync.columns` maps the 15 logical NIARVILOG fields to per-environment physical names (symmetric to `indexing.columns`); all configurable identifiers (`columns.*`, `library`, `table`) are now validated as DB2 identifiers, closing the SQL-interpolation surface
+- [x] Fifty-second change (050): streaming trigger pipeline — triggers stream in `batch_size` chunks instead of being materialized whole; peak memory is `O(batch_size × batches_in_flight)` not `O(total)`, so the ~20M-row production RVABREP migration no longer OOMs (defeated four materialization points: `_run_overlapped`'s `list()`, the monolithic N=1 path, `TabularDataSource.get_all`, and `--total`)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration
