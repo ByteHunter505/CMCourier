@@ -36,6 +36,7 @@ __all__ = [
     "format_trends_terminal",
 ]
 
+import datetime as _dt
 import json
 import logging
 import statistics
@@ -55,6 +56,20 @@ _NETWORK_CEILING_FRACTION = 0.8
 _BOTTLENECK_SAMPLE_THRESHOLD = 0.5
 _WORKER_SAT_THRESHOLD = 0.8
 _UPLOAD_P95_HIGH_MS = 5000.0
+# 053: the per-stage breakdown is the PRIMARY bottleneck signal. A stage
+# holding at least this share of total stage time IS the bottleneck.
+_STAGE_DOMINANCE = 0.45
+# Each pipeline stage → (bottleneck class, locus). "outside" means the
+# CMIS server + network — the client can only push more concurrency;
+# "inside" means the program's own CPU work, which we can optimise.
+_STAGE_TO_CLASS: dict[str, tuple[str, str]] = {
+    "S0": ("trigger-bound", "inside"),
+    "S1": ("indexing-bound", "inside"),
+    "S2": ("mapping-bound", "inside"),
+    "S3": ("metadata-bound", "inside"),
+    "S4": ("assembly-bound", "inside"),
+    "S5": ("upload-bound", "outside"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -120,11 +135,33 @@ class BatchReport:
 # ---------------------------------------------------------------------------
 
 
+def _parse_iso(raw: object) -> _dt.datetime | None:
+    """Parse an ISO-8601 timestamp string. Naive timestamps are
+    assumed UTC so window comparisons never raise. Returns ``None``
+    for anything unparseable."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        ts = _dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=_dt.UTC)
+    return ts
+
+
 class LogReader:
     """Read the five log tiers for one batch.
 
-    The reader globs each tier's files in ``log_dir`` and filters
-    records by ``batch_id``. Cross-midnight runs are supported
+    The reader globs each tier's files in ``log_dir``. The pipeline
+    tier (``metrics-*.jsonl``) is batch-tagged and filtered by
+    ``batch_id``. The network and system tiers carry **no**
+    ``batch_id`` — only a timestamp — so they are associated with the
+    batch by *time window*: ``[ts − elapsed_s, ts]`` derived from the
+    batch_summary record. For overlapped (N=2) runs the windows of
+    two batches overlap and a record in the overlap may land in either
+    batch — a documented limitation; the batch-tagged stage breakdown
+    is the exact, primary signal. Cross-midnight runs are supported
     because the glob picks up rotated files transparently.
     """
 
@@ -132,10 +169,12 @@ class LogReader:
         self._log_dir = log_dir
 
     def read_batch(self, batch_id: str) -> dict[str, list[dict[str, Any]]]:
+        pipeline = self._read_filtered("metrics-*.jsonl", batch_id)
+        window = self._batch_window(pipeline)
         return {
-            "pipeline": self._read_filtered("metrics-*.jsonl", batch_id),
-            "network": self._read_filtered("network-*.jsonl", batch_id),
-            "system": self._read_filtered("system-*.jsonl", batch_id),
+            "pipeline": pipeline,
+            "network": self._read_windowed("network-*.jsonl", window, ts_field="ts"),
+            "system": self._read_windowed("system-*.jsonl", window, ts_field="ts_iso"),
             "slow_ops": self._read_jsonl(self._log_dir / f"slow-ops-{batch_id}.jsonl"),
         }
 
@@ -144,6 +183,47 @@ class LogReader:
         for path in sorted(self._log_dir.glob(glob)):
             for rec in self._read_jsonl(path):
                 if rec.get("batch_id") == batch_id:
+                    records.append(rec)
+        return records
+
+    @staticmethod
+    def _batch_window(
+        pipeline_records: list[dict[str, Any]],
+    ) -> tuple[_dt.datetime, _dt.datetime] | None:
+        """Derive ``[start, end]`` from the batch_summary record — its
+        ``ts`` is the close-batch wall time, ``elapsed_s`` the run
+        duration. ``None`` when no batch_summary is present (window
+        underivable): the network/system tiers then come back empty
+        rather than guessing."""
+        for rec in pipeline_records:
+            if rec.get("kind") != "batch_summary":
+                continue
+            ts = _parse_iso(rec.get("ts"))
+            if ts is None:
+                return None
+            elapsed = float(rec.get("elapsed_s", 0.0) or 0.0)
+            return ts - _dt.timedelta(seconds=elapsed), ts
+        return None
+
+    def _read_windowed(
+        self,
+        glob: str,
+        window: tuple[_dt.datetime, _dt.datetime] | None,
+        *,
+        ts_field: str,
+    ) -> list[dict[str, Any]]:
+        """Associate network/system records with the batch by
+        timestamp — they carry no ``batch_id``. Records whose
+        ``ts_field`` falls inside ``window`` (inclusive) are kept; a
+        ``None`` window yields no records."""
+        if window is None:
+            return []
+        start, end = window
+        records: list[dict[str, Any]] = []
+        for path in sorted(self._log_dir.glob(glob)):
+            for rec in self._read_jsonl(path):
+                ts = _parse_iso(rec.get(ts_field))
+                if ts is not None and start <= ts <= end:
                     records.append(rec)
         return records
 
@@ -285,98 +365,152 @@ def _build_system_summary(
 # ---------------------------------------------------------------------------
 
 
+def _stage_dominance(
+    stage_summary: dict[str, dict[str, float | int]],
+) -> tuple[str, float] | None:
+    """Return ``(dominant_stage, share)`` — the stage with the largest
+    ``sum_ms`` and its fraction of total stage time. ``None`` when there
+    is no stage timing data at all."""
+    sums = {stage: float(data.get("sum_ms", 0.0)) for stage, data in stage_summary.items()}
+    total = sum(sums.values())
+    if total <= 0.0:
+        return None
+    dominant = max(sums, key=lambda s: sums[s])
+    return dominant, sums[dominant] / total
+
+
+def _system_candidates(
+    system_summary: SystemSummary | None,
+) -> list[tuple[str, float, str]]:
+    """``(class, confidence, reason)`` for every system-metrics signal
+    that crossed its threshold. ``worker-saturated`` is reported as a
+    *symptom* — it never becomes the verdict when a stage dominates."""
+    out: list[tuple[str, float, str]] = []
+    if system_summary is None:
+        return out
+    s = system_summary
+    if s.worker_saturation_pct >= _WORKER_SAT_THRESHOLD:
+        out.append(
+            (
+                "worker-saturated",
+                s.worker_saturation_pct,
+                f"worker pool saturated — active_workers == pool_capacity in "
+                f"{int(s.worker_saturation_pct * 100)}% of samples "
+                f"(a symptom of a slow downstream, not a cause)",
+            )
+        )
+    if s.cpu_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
+        out.append(
+            (
+                "cpu-bound",
+                s.cpu_bound_sample_pct,
+                f"process_cpu_pct > {_CPU_PCT_HIGH:.0f}% in "
+                f"{int(s.cpu_bound_sample_pct * 100)}% of samples",
+            )
+        )
+    if s.memory_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
+        out.append(
+            (
+                "memory-bound",
+                s.memory_bound_sample_pct,
+                f"ram usage > {_RAM_PCT_HIGH * 100:.0f}% in "
+                f"{int(s.memory_bound_sample_pct * 100)}% of samples",
+            )
+        )
+    if s.disk_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
+        out.append(
+            (
+                "disk-bound",
+                s.disk_bound_sample_pct,
+                f"disk I/O > {_DISK_TOTAL_MBPS_HIGH:.0f} Mbps with low CPU in "
+                f"{int(s.disk_bound_sample_pct * 100)}% of samples",
+            )
+        )
+    if s.network_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
+        out.append(
+            (
+                "network-bound",
+                s.network_bound_sample_pct,
+                f"NIC > {int(_NETWORK_CEILING_FRACTION * 100)}% of configured max in "
+                f"{int(s.network_bound_sample_pct * 100)}% of samples",
+            )
+        )
+    return out
+
+
 def classify_bottleneck(
     system_summary: SystemSummary | None,
     network_summary: NetworkSummary,
-    stage_summary: dict[str, dict[str, float | int]],  # noqa: ARG001 — reserved for future heuristics
+    stage_summary: dict[str, dict[str, float | int]],
     *,
     cmis_max_bandwidth_mbps: int,  # noqa: ARG001 — bound at aggregation time
     pool_capacity: int,  # noqa: ARG001 — bound at aggregation time
 ) -> BottleneckClassification:
-    """Pure classifier — see docs/how-to/log-analysis.md for the rules."""
+    """Pure classifier — see docs/how-to/log-analysis.md for the rules.
 
-    candidates: list[tuple[str, float, str]] = []
+    053: the per-stage breakdown is the PRIMARY signal — it is always
+    present and batch-exact. When one stage dominates total stage time
+    it IS the bottleneck, and the verdict names whether that is the
+    program's own work ("inside") or the CMIS server + network the
+    client can't speed up ("outside"). System-metrics signals REFINE
+    the verdict with corroborating reasons; they only become the
+    classification when no stage dominates.
+    """
+    sys_candidates = _system_candidates(system_summary)
 
-    if system_summary is not None:
-        if system_summary.worker_saturation_pct >= _WORKER_SAT_THRESHOLD:
-            candidates.append(
-                (
-                    "worker-saturated",
-                    system_summary.worker_saturation_pct,
-                    f"active_workers == pool_capacity in "
-                    f"{int(system_summary.worker_saturation_pct * 100)}% of samples",
-                )
-            )
-        if system_summary.cpu_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
-            candidates.append(
-                (
-                    "cpu-bound",
-                    system_summary.cpu_bound_sample_pct,
-                    f"process_cpu_pct > {_CPU_PCT_HIGH:.0f}% in "
-                    f"{int(system_summary.cpu_bound_sample_pct * 100)}% of samples",
-                )
-            )
-        if system_summary.memory_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
-            candidates.append(
-                (
-                    "memory-bound",
-                    system_summary.memory_bound_sample_pct,
-                    f"ram usage > {_RAM_PCT_HIGH * 100:.0f}% in "
-                    f"{int(system_summary.memory_bound_sample_pct * 100)}% of samples",
-                )
-            )
-        if system_summary.disk_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
-            candidates.append(
-                (
-                    "disk-bound",
-                    system_summary.disk_bound_sample_pct,
-                    f"disk I/O > {_DISK_TOTAL_MBPS_HIGH:.0f} Mbps with low CPU "
-                    f"in {int(system_summary.disk_bound_sample_pct * 100)}% of samples",
-                )
-            )
-        if system_summary.network_bound_sample_pct >= _BOTTLENECK_SAMPLE_THRESHOLD:
-            candidates.append(
-                (
-                    "network-bound",
-                    system_summary.network_bound_sample_pct,
-                    f"NIC > {int(_NETWORK_CEILING_FRACTION * 100)}% of configured "
-                    f"max in {int(system_summary.network_bound_sample_pct * 100)}% "
-                    f"of samples",
-                )
-            )
-
-    # Fallback heuristic when system samples are absent or no class fired.
-    if not candidates:
-        upload = network_summary.per_kind.get("cmis_upload", {})
-        upload_p95 = float(upload.get("p95_ms", 0.0))
-        if upload_p95 > _UPLOAD_P95_HIGH_MS:
+    # PRIMARY: which stage dominates the per-doc time?
+    dominance = _stage_dominance(stage_summary)
+    if dominance is not None:
+        stage, share = dominance
+        if share >= _STAGE_DOMINANCE:
+            cls, locus = _STAGE_TO_CLASS.get(stage, (f"{stage.lower()}-bound", "inside"))
+            sd = stage_summary.get(stage, {})
+            reasons = [
+                f"{stage} dominates — {int(share * 100)}% of total stage time "
+                f"(p50 {float(sd.get('p50_ms', 0.0)):.0f} ms, "
+                f"p95 {float(sd.get('p95_ms', 0.0)):.0f} ms); "
+                f"bottleneck is {'OUTSIDE' if locus == 'outside' else 'INSIDE'} the program"
+            ]
+            # System metrics corroborate but never override the stage verdict.
+            reasons.extend(c[2] for c in sys_candidates)
             return BottleneckClassification(
-                classification="network-bound",
-                confidence=min(upload_p95 / 10000.0, 1.0),
-                reasons=(f"cmis_upload p95 = {upload_p95:.0f} ms (> 5000 ms)",),
+                classification=cls,
+                confidence=round(share, 4),
+                reasons=tuple(reasons),
             )
+
+    # SECONDARY: no stage dominates → fall back to the system signals.
+    # worker-saturation is a symptom — a real resource cause (cpu / mem /
+    # disk / network) outranks it; it only becomes the verdict when it is
+    # the *sole* signal. Tie-break the rest by (confidence desc, precedence).
+    if sys_candidates:
+        precedence = {"cpu-bound": 0, "memory-bound": 1, "disk-bound": 2, "network-bound": 3}
+        real_causes = [c for c in sys_candidates if c[0] != "worker-saturated"]
+        pool = real_causes or sys_candidates
+        pool.sort(key=lambda c: (-c[1], precedence.get(c[0], 9)))
+        cls, confidence, _reason = pool[0]
         return BottleneckClassification(
-            classification="under-utilized",
-            confidence=1.0,
-            reasons=("no bottleneck class crossed its threshold",),
+            classification=cls,
+            confidence=round(confidence, 4),
+            reasons=tuple(c[2] for c in sys_candidates),
         )
 
-    # Tie-break by (confidence desc, class precedence). Precedence:
-    # worker-saturated > cpu > memory > disk > network > under-utilized.
-    precedence = {
-        "worker-saturated": 0,
-        "cpu-bound": 1,
-        "memory-bound": 2,
-        "disk-bound": 3,
-        "network-bound": 4,
-        "under-utilized": 5,
-    }
-    candidates.sort(key=lambda c: (-c[1], precedence.get(c[0], 9)))
-    cls, confidence, reason = candidates[0]
+    # TERTIARY: no stage data, no system signal — last-resort network probe.
+    upload = network_summary.per_kind.get("cmis_upload", {})
+    upload_p95 = float(upload.get("p95_ms", 0.0))
+    if upload_p95 > _UPLOAD_P95_HIGH_MS:
+        return BottleneckClassification(
+            classification="upload-bound",
+            confidence=min(upload_p95 / 10000.0, 1.0),
+            reasons=(
+                f"cmis_upload p95 = {upload_p95:.0f} ms (> 5000 ms); "
+                f"bottleneck is OUTSIDE the program",
+            ),
+        )
     return BottleneckClassification(
-        classification=cls,
-        confidence=round(confidence, 4),
-        reasons=tuple(c[2] for c in candidates),
+        classification="under-utilized",
+        confidence=1.0,
+        reasons=("no stage dominates and no system signal crossed its threshold",),
     )
 
 

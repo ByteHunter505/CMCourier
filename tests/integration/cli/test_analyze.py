@@ -21,18 +21,27 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
 
 
 def _seed_logs(log_dir: Path, batch_id: str, *, pipeline: str = "csv-trigger") -> None:
+    # batch_summary closes at 12:00:12.34 after a 12.34 s run → the
+    # network/system tiers are associated by the window [12:00:00, 12:00:12.34].
     _write_jsonl(
         log_dir / "metrics-2026-05-11.jsonl",
         [
             {
                 "kind": "batch_summary",
                 "batch_id": batch_id,
+                "ts": "2026-05-11T12:00:12.340000+00:00",
                 "pipeline": pipeline,
                 "total_docs": 10,
                 "elapsed_s": 12.34,
                 "throughput_docs_per_s": 0.81,
                 "stages": {
-                    "S5": {"count": 10, "p50_ms": 100.0, "p95_ms": 500.0, "p99_ms": 800.0},
+                    "S5": {
+                        "count": 10,
+                        "p50_ms": 100.0,
+                        "p95_ms": 500.0,
+                        "p99_ms": 800.0,
+                        "sum_ms": 5000.0,
+                    },
                 },
             }
         ],
@@ -43,6 +52,7 @@ def _seed_logs(log_dir: Path, batch_id: str, *, pipeline: str = "csv-trigger") -
             {
                 "kind": "cmis_upload",
                 "batch_id": batch_id,
+                "ts": "2026-05-11T12:00:05+00:00",
                 "duration_ms": 200.0,
                 "size_bytes": 1024,
                 "worker": "w1",
@@ -134,6 +144,12 @@ class TestAnalyzeBatch:
             "memory-bound",
             "disk-bound",
             "worker-saturated",
+            "upload-bound",
+            "assembly-bound",
+            "metadata-bound",
+            "mapping-bound",
+            "indexing-bound",
+            "trigger-bound",
         }
 
     def test_batch_unknown_id_exits_nonzero(self, tmp_path: Path) -> None:

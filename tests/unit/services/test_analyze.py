@@ -1,4 +1,4 @@
-"""Unit tests for the offline log analyzer (027)."""
+"""Unit tests for the offline log analyzer (027, 053)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,11 @@ from cmcourier.services.analyze import (
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
+# The standard batch_summary closes at this wall time after a 12.34 s run,
+# so the derived window is [2026-05-11T12:00:00, 2026-05-11T12:00:12.34].
+_BATCH_TS = "2026-05-11T12:00:12.340000+00:00"
+_IN_WINDOW = "2026-05-11T12:00:05+00:00"
+
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -29,27 +34,40 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
             fh.write(json.dumps(r) + "\n")
 
 
+def _stage(count: int, p50: float, p95: float, sum_ms: float) -> dict:
+    return {"count": count, "p50_ms": p50, "p95_ms": p95, "p99_ms": p95 * 1.5, "sum_ms": sum_ms}
+
+
 def _batch_summary(batch_id: str, **overrides: object) -> dict:
     base = {
         "kind": "batch_summary",
         "batch_id": batch_id,
+        "ts": _BATCH_TS,
         "pipeline": "csv-trigger",
         "total_docs": 10,
         "elapsed_s": 12.34,
         "throughput_docs_per_s": 0.81,
         "stages": {
-            "S5": {"count": 10, "p50_ms": 100.0, "p95_ms": 500.0, "p99_ms": 800.0},
-            "S4": {"count": 10, "p50_ms": 50.0, "p95_ms": 90.0, "p99_ms": 110.0},
+            "S5": _stage(10, 100.0, 500.0, 1000.0),
+            "S4": _stage(10, 50.0, 90.0, 500.0),
         },
     }
     base.update(overrides)
     return base
 
 
-def _network_record(batch_id: str, kind: str, duration_ms: float, size: int = 0) -> dict:
+def _network_record(
+    batch_id: str,
+    kind: str,
+    duration_ms: float,
+    size: int = 0,
+    *,
+    ts: str = _IN_WINDOW,
+) -> dict:
     return {
         "kind": kind,
         "batch_id": batch_id,
+        "ts": ts,
         "duration_ms": duration_ms,
         "size_bytes": size,
         "worker": "w1",
@@ -90,7 +108,7 @@ def _slow_op(batch_id: str, **overrides: object) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# LogReader
+# LogReader — network/system are associated by TIME WINDOW (053), not batch_id
 # ---------------------------------------------------------------------------
 
 
@@ -100,8 +118,10 @@ class TestLogReader:
         _write_jsonl(
             tmp_path / "network-2026-05-11.jsonl",
             [
-                _network_record("B1", "cmis_upload", 200.0, 1024),
-                _network_record("B2", "cmis_upload", 400.0),  # different batch
+                _network_record("B1", "cmis_upload", 200.0, 1024),  # in-window
+                # An unrelated record OUTSIDE the batch window is excluded by
+                # timestamp — not by batch_id (these records carry none).
+                _network_record("B2", "cmis_upload", 400.0, ts="2026-05-11T13:00:00+00:00"),
             ],
         )
         _write_jsonl(tmp_path / "system-2026-05-11.jsonl", [_system_sample("B1")])
@@ -112,7 +132,7 @@ class TestLogReader:
 
         assert len(records["pipeline"]) == 1
         assert records["pipeline"][0]["batch_id"] == "B1"
-        assert len(records["network"]) == 1  # filtered by batch
+        assert len(records["network"]) == 1  # only the in-window record
         assert records["network"][0]["kind"] == "cmis_upload"
         assert len(records["system"]) == 1
         assert len(records["slow_ops"]) == 1
@@ -125,9 +145,9 @@ class TestLogReader:
         assert records["system"] == []
         assert records["slow_ops"] == []
 
-    def test_corrupted_line_is_skipped(self, tmp_path: Path, caplog) -> None:
+    def test_corrupted_line_is_skipped(self, tmp_path: Path) -> None:
+        _write_jsonl(tmp_path / "metrics-2026-05-11.jsonl", [_batch_summary("B1")])
         path = tmp_path / "network-2026-05-11.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as fh:
             fh.write(json.dumps(_network_record("B1", "cmis_upload", 1.0)) + "\n")
             fh.write("{not valid json\n")
@@ -137,13 +157,20 @@ class TestLogReader:
         assert len(records["network"]) == 2  # the broken line skipped
 
     def test_cross_midnight_merges_files(self, tmp_path: Path) -> None:
+        # A batch that started 23:59 and ended 00:01 — its network records
+        # land in two date-rotated files; the glob merges them and the
+        # window [23:59:00, 00:01:00] keeps both.
+        _write_jsonl(
+            tmp_path / "metrics-2026-05-11.jsonl",
+            [_batch_summary("B1", ts="2026-05-11T00:01:00+00:00", elapsed_s=120.0)],
+        )
         _write_jsonl(
             tmp_path / "network-2026-05-10.jsonl",
-            [_network_record("B1", "cmis_upload", 100.0)],
+            [_network_record("B1", "cmis_upload", 100.0, ts="2026-05-10T23:59:30+00:00")],
         )
         _write_jsonl(
             tmp_path / "network-2026-05-11.jsonl",
-            [_network_record("B1", "cmis_upload", 200.0)],
+            [_network_record("B1", "cmis_upload", 200.0, ts="2026-05-11T00:00:30+00:00")],
         )
         reader = LogReader(log_dir=tmp_path)
         records = reader.read_batch("B1")
@@ -153,6 +180,52 @@ class TestLogReader:
         _write_jsonl(tmp_path / "metrics-2026-05-11.jsonl", [_batch_summary("B1")])
         reader = LogReader(log_dir=tmp_path)
         records = reader.read_batch("B1")
+        assert records["system"] == []
+
+    def test_network_records_associated_by_time_window(self, tmp_path: Path) -> None:
+        # 053 regression: network records carry NO batch_id. Only the
+        # record inside the batch's time window must land in the report.
+        _write_jsonl(tmp_path / "metrics-2026-05-11.jsonl", [_batch_summary("B1")])
+        _write_jsonl(
+            tmp_path / "network-2026-05-11.jsonl",
+            [
+                _network_record("ignored", "cmis_upload", 100.0, ts="2026-05-11T11:59:59+00:00"),
+                _network_record("ignored", "cmis_upload", 200.0, ts="2026-05-11T12:00:05+00:00"),
+                _network_record("ignored", "cmis_upload", 300.0, ts="2026-05-11T12:00:30+00:00"),
+            ],
+        )
+        records = LogReader(log_dir=tmp_path).read_batch("B1")
+        assert len(records["network"]) == 1
+        assert records["network"][0]["duration_ms"] == 200.0
+
+    def test_system_records_associated_by_time_window(self, tmp_path: Path) -> None:
+        # 053 regression: system samples are filtered by ``ts_iso`` window.
+        _write_jsonl(tmp_path / "metrics-2026-05-11.jsonl", [_batch_summary("B1")])
+        _write_jsonl(
+            tmp_path / "system-2026-05-11.jsonl",
+            [
+                _system_sample("ignored", ts_iso="2026-05-11T11:59:00+00:00"),
+                _system_sample("ignored", ts_iso="2026-05-11T12:00:06+00:00"),
+                _system_sample("ignored", ts_iso="2026-05-11T12:01:00+00:00"),
+            ],
+        )
+        records = LogReader(log_dir=tmp_path).read_batch("B1")
+        assert len(records["system"]) == 1
+
+    def test_no_batch_summary_yields_empty_network_system(self, tmp_path: Path) -> None:
+        # Window underivable (no batch_summary record) → the non-tagged
+        # tiers come back empty rather than guessing.
+        _write_jsonl(
+            tmp_path / "metrics-2026-05-11.jsonl",
+            [{"kind": "stage", "batch_id": "B1", "stage": "S5"}],
+        )
+        _write_jsonl(
+            tmp_path / "network-2026-05-11.jsonl",
+            [_network_record("B1", "cmis_upload", 1.0)],
+        )
+        _write_jsonl(tmp_path / "system-2026-05-11.jsonl", [_system_sample("B1")])
+        records = LogReader(log_dir=tmp_path).read_batch("B1")
+        assert records["network"] == []
         assert records["system"] == []
 
 
@@ -214,7 +287,118 @@ def _network_summary(p95_upload_ms: float = 200.0) -> NetworkSummary:
     )
 
 
+# Stage breakdowns ----------------------------------------------------------
+
+# The real 95-doc staging run: S5 (upload) dominated total stage time ~26×
+# over the next stage. The old classifier ignored this and said
+# "under-utilized" — see specs/053.
+_STAGES_95_DOC_UPLOAD_BOUND = {
+    "S0": _stage(95, 1.0, 2.0, 120.0),
+    "S1": _stage(95, 8.0, 15.0, 900.0),
+    "S2": _stage(95, 3.0, 6.0, 350.0),
+    "S3": _stage(95, 5.0, 11.0, 600.0),
+    "S4": _stage(95, 24.0, 40.0, 2280.0),
+    "S5": _stage(95, 635.0, 1139.0, 60325.0),
+}
+
+_STAGES_ASSEMBLY_BOUND = {
+    "S0": _stage(10, 1.0, 2.0, 100.0),
+    "S1": _stage(10, 5.0, 9.0, 200.0),
+    "S2": _stage(10, 5.0, 9.0, 200.0),
+    "S3": _stage(10, 8.0, 14.0, 300.0),
+    "S4": _stage(10, 200.0, 380.0, 2000.0),
+    "S5": _stage(10, 50.0, 90.0, 500.0),
+}
+
+# No stage holds >= 45% of total stage time — a genuinely balanced run.
+_STAGES_BALANCED = {
+    "S3": _stage(10, 100.0, 180.0, 1000.0),
+    "S4": _stage(10, 100.0, 180.0, 1000.0),
+    "S5": _stage(10, 100.0, 180.0, 1000.0),
+}
+
+
 class TestClassifyBottleneck:
+    # --- stage breakdown is the PRIMARY signal (053) -----------------------
+
+    def test_classify_upload_bound_from_stage_dominance(self) -> None:
+        # Named regression for the "under-utilized" bug: S5 dominates the
+        # per-doc time → upload-bound, OUTSIDE the program.
+        cls = classify_bottleneck(
+            None,
+            _network_summary(),
+            _STAGES_95_DOC_UPLOAD_BOUND,
+            cmis_max_bandwidth_mbps=0,
+            pool_capacity=4,
+        )
+        assert cls.classification == "upload-bound"
+        assert cls.confidence > 0.9
+        assert any("S5" in r and "OUTSIDE" in r for r in cls.reasons)
+
+    def test_classify_assembly_bound(self) -> None:
+        cls = classify_bottleneck(
+            None,
+            _network_summary(),
+            _STAGES_ASSEMBLY_BOUND,
+            cmis_max_bandwidth_mbps=0,
+            pool_capacity=4,
+        )
+        assert cls.classification == "assembly-bound"
+        assert any("S4" in r and "INSIDE" in r for r in cls.reasons)
+
+    def test_classify_under_utilized_when_balanced(self) -> None:
+        # No dominant stage AND no system signal → genuinely idle.
+        cls = classify_bottleneck(
+            None,
+            _network_summary(),
+            _STAGES_BALANCED,
+            cmis_max_bandwidth_mbps=0,
+            pool_capacity=4,
+        )
+        assert cls.classification == "under-utilized"
+
+    def test_upload_bound_surfaces_with_zero_bandwidth_cap(self) -> None:
+        # The old regression: with cmis_max_bandwidth_mbps == 0 the
+        # classifier could only say "under-utilized". The stage signal
+        # carries the verdict now, cap or no cap.
+        cls = classify_bottleneck(
+            None,
+            _network_summary(),
+            _STAGES_95_DOC_UPLOAD_BOUND,
+            cmis_max_bandwidth_mbps=0,
+            pool_capacity=4,
+        )
+        assert cls.classification == "upload-bound"
+
+    def test_worker_saturation_is_a_reason_not_the_verdict(self) -> None:
+        # Worker-pool saturation is a SYMPTOM of a slow downstream. With an
+        # S5-dominant breakdown the verdict is upload-bound; saturation is
+        # appended as a corroborating reason, never the classification.
+        sysum = _system_summary(worker_saturation_pct=0.9)
+        cls = classify_bottleneck(
+            sysum,
+            _network_summary(),
+            _STAGES_95_DOC_UPLOAD_BOUND,
+            cmis_max_bandwidth_mbps=0,
+            pool_capacity=4,
+        )
+        assert cls.classification == "upload-bound"
+        assert any("saturat" in r.lower() for r in cls.reasons)
+
+    def test_stage_verdict_appends_system_corroboration(self) -> None:
+        sysum = _system_summary(cpu_bound_sample_pct=0.7, process_cpu_pct_avg=90.0)
+        cls = classify_bottleneck(
+            sysum,
+            _network_summary(),
+            _STAGES_ASSEMBLY_BOUND,
+            cmis_max_bandwidth_mbps=0,
+            pool_capacity=4,
+        )
+        assert cls.classification == "assembly-bound"  # stage wins
+        assert any("process_cpu_pct" in r for r in cls.reasons)  # cpu corroborates
+
+    # --- system metrics are the SECONDARY path (no dominant stage) ---------
+
     def test_cpu_bound_when_majority_samples_high_cpu(self) -> None:
         sysum = _system_summary(cpu_bound_sample_pct=0.6, process_cpu_pct_avg=85.0)
         cls = classify_bottleneck(
@@ -251,11 +435,21 @@ class TestClassifyBottleneck:
         )
         assert cls.classification == "network-bound"
 
-    def test_worker_saturated_takes_precedence(self) -> None:
+    def test_worker_saturation_yields_to_a_real_resource_cause(self) -> None:
+        # 053: with no dominant stage, a real resource cause (cpu) outranks
+        # worker-saturation — saturation is a symptom, not a cause.
         sysum = _system_summary(
             worker_saturation_pct=0.9,
-            cpu_bound_sample_pct=0.6,  # would also fire
+            cpu_bound_sample_pct=0.6,
         )
+        cls = classify_bottleneck(
+            sysum, _network_summary(), {}, cmis_max_bandwidth_mbps=0, pool_capacity=4
+        )
+        assert cls.classification == "cpu-bound"
+        assert any("saturat" in r.lower() for r in cls.reasons)
+
+    def test_worker_saturation_is_the_verdict_only_when_alone(self) -> None:
+        sysum = _system_summary(worker_saturation_pct=0.95)
         cls = classify_bottleneck(
             sysum, _network_summary(), {}, cmis_max_bandwidth_mbps=0, pool_capacity=4
         )
@@ -278,15 +472,17 @@ class TestClassifyBottleneck:
         )
         assert cls.classification == "under-utilized"
 
-    def test_no_system_samples_fallback_to_network_heuristic(self) -> None:
+    # --- tertiary fallback: no stage data, no system data ------------------
+
+    def test_no_system_no_stage_falls_back_to_upload_probe(self) -> None:
         cls = classify_bottleneck(
             None,
-            _network_summary(p95_upload_ms=8000.0),  # high p95 → network-bound fallback
+            _network_summary(p95_upload_ms=8000.0),  # high p95 → upload-bound probe
             {},
             cmis_max_bandwidth_mbps=0,
             pool_capacity=4,
         )
-        assert cls.classification == "network-bound"
+        assert cls.classification == "upload-bound"
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +544,9 @@ class TestBuildBatchReport:
             pool_capacity=4,
         )
         assert report.system_summary is None
-        # No high p95 → under-utilized
-        assert report.bottleneck.classification in {"under-utilized", "network-bound"}
+        # S5 holds 1000/1500 of total stage time → upload-bound via the
+        # stage-led path, no system data required.
+        assert report.bottleneck.classification == "upload-bound"
 
     def test_unknown_batch_returns_empty_report(self, tmp_path: Path) -> None:
         reader = LogReader(log_dir=tmp_path)
