@@ -51,6 +51,63 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.52.0] — 2026-05-14 — **Configurable NIARVILOG column names**
+
+The bank runs CMCourier against several AS400 environments whose
+`NIARVILOG` coordination table carries the **same 15 columns under
+different physical names** (and different library / table names).
+RVABREP column names were already per-environment configurable
+(`indexing.columns`, since 048's `IndexingColumnsModel`); NIARVILOG
+was not — its 15 names were hard-coded in every SQL statement of
+`as400_niarvilog.py`. 049 closes that gap.
+
+### Added
+
+- **`tracking.as400_sync.columns`** — a `NiarvilogColumnsModel`
+  logical→physical column map, symmetric to `indexing.columns`.
+  Defaults equal the canonical names (`SISCOD`, `TRNNUM`, `STSCOD`,
+  …), so a config that omits the block behaves exactly as pre-049.
+  Partial overrides are allowed — omitted fields keep the canonical
+  default.
+
+  ```yaml
+  tracking:
+    as400_sync:
+      enabled: true
+      library: MIBIB
+      table: MININARVILOG
+      connection: {host: 10.0.0.1}
+      columns:
+        status_column: ESTADO
+        txn_num_column: NUMTRX
+  ```
+
+### Changed
+
+- `As400NiarvilogStore` builds every `SELECT` / `UPDATE` / `INSERT`
+  from a `NiarvilogColumns` value object instead of hard-coded
+  identifiers. With default columns the emitted SQL is
+  byte-identical to pre-049.
+
+### Security
+
+- **Identifier validation.** NIARVILOG column / library / table
+  names are string-interpolated into SQL (a SQL identifier can never
+  be a `?` bind-param), so every configurable identifier is now
+  validated at config-load time against the DB2-for-i ordinary
+  identifier grammar (`^[A-Za-z@#$][A-Za-z0-9@#$_]{0,127}$`). This
+  also closes a pre-049 latent gap: `tracking.as400_sync.library` /
+  `.table` were interpolated into `_full_table()` **unvalidated**.
+
+### Notes
+
+- RVABREP column names are **not** affected — for the AS400 RVABREP
+  source the operator supplies the full `query` and
+  `IndexingColumnsModel` maps the *result-set* dict keys (pandas
+  level, no SQL interpolation, no injection surface).
+
+---
+
 ## [0.51.0] — 2026-05-14 — **Pluggable RVABREP source**
 
 The `rvabrep-pipeline` and the old `as400-trigger-pipeline` were never

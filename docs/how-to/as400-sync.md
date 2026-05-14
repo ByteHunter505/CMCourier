@@ -40,6 +40,10 @@ tracking:
       driver: "iSeries Access ODBC Driver"
     library: RVILIB                          # default
     table: NIARVILOG                         # default
+    columns:                                 # 049 — per-environment names
+      # omit entirely → canonical names; override only what differs
+      status_column: ESTADO
+      txn_num_column: NUMTRX
     stale_in_progress_minutes: 30            # cleanup STSCOD='I' rows
     retry_attempts: 3                        # transient OperationalError
     retry_base_delay_s: 5.0                  # exponential backoff
@@ -81,6 +85,45 @@ constraints — make sure your fixtures match:
 | ``PMRREI TIMESTAMP`` | ← | claim time | ``CURRENT_TIMESTAMP`` on INSERT |
 | ``FINREI TIMESTAMP`` | ← | DB2 auto-update | Implicit via ``ROW CHANGE TIMESTAMP`` |
 | ``EERRMSG VARCHAR(1024)`` | ← | ``record.error_message`` | Truncated to 1024 |
+
+### Per-environment column names (049)
+
+The table above lists the **canonical** physical column names. The
+bank runs CMCourier against several AS400 environments whose
+NIARVILOG table has the same 15 columns under **different physical
+names**. Map them with ``tracking.as400_sync.columns`` — one logical
+key per column, defaulting to the canonical name:
+
+| `columns.*` key | canonical default | logical meaning |
+|---|---|---|
+| ``system_id_column`` | ``SISCOD`` | trigger system id |
+| ``txn_num_column`` | ``TRNNUM`` | RVABREP txn number |
+| ``doc_format_column`` | ``DOCFRM`` | RVI doc type |
+| ``image_archive_column`` | ``IMGARC`` | first-page file name |
+| ``image_type_column`` | ``IMGTIP`` | image type |
+| ``client_cif_column`` | ``CTECIF`` | client shortname |
+| ``client_num_column`` | ``CTENUM`` | CIF as numeric |
+| ``status_column`` | ``STSCOD`` | N / I / O / F state |
+| ``idcm_column`` | ``IDNBAC`` | CM short id |
+| ``cm_type_column`` | ``TIPIDN`` | CMIS type |
+| ``cm_object_id_column`` | ``OBJIDN`` | CMIS object id |
+| ``retry_count_column`` | ``NUMREI`` | retry counter |
+| ``started_at_column`` | ``PMRREI`` | claim timestamp |
+| ``finished_at_column`` | ``FINREI`` | DB2 row-change timestamp |
+| ``error_message_column`` | ``EERRMSG`` | last error |
+
+Omit the ``columns`` block entirely and every name stays canonical —
+the emitted SQL is byte-identical to pre-049. Override only the keys
+that differ in your environment.
+
+**Identifier validation.** These names — plus ``library`` and
+``table`` — are interpolated directly into SQL (a SQL identifier can
+never be a ``?`` bind-param). Every one is validated at config-load
+time against the DB2-for-i ordinary identifier grammar
+(``letter / @ / # / $`` then ``letters / digits / _ / @ / # / $``,
+128 chars max). A name with a space, quote, semicolon, leading
+digit, or over-length raises a ``ConfigurationError`` before any
+connection is opened.
 
 ### Status transitions
 
@@ -235,8 +278,9 @@ as ``As400CoordinationError`` immediately.
 |---|---|---|
 | ``enabled`` | ``false`` | Master toggle. ``true`` activates everything below. |
 | ``connection`` | required when enabled | AS400 ODBC params (host, port, database, driver). |
-| ``library`` | ``RVILIB`` | DB2 schema name. |
-| ``table`` | ``NIARVILOG`` | Table name. Override if the bank renamed it. |
+| ``library`` | ``RVILIB`` | DB2 schema name. Validated as a DB2 identifier. |
+| ``table`` | ``NIARVILOG`` | Table name. Override if the bank renamed it. Validated as a DB2 identifier. |
+| ``columns`` | canonical names | Per-environment physical column-name map — see [Per-environment column names](#per-environment-column-names-049). Each value validated as a DB2 identifier. |
 | ``stale_in_progress_minutes`` | ``30`` | How long an ``I`` row can sit before pre-flight resets it. |
 | ``retry_attempts`` | ``3`` | Total attempts per write (incl. the first). Range: 1..10. |
 | ``retry_base_delay_s`` | ``5.0`` | Base for exponential backoff. Must be > 0. |
