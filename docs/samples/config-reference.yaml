@@ -1,0 +1,354 @@
+# =============================================================================
+# CMCourier — REFERENCE CONFIG (every configurable option, annotated)
+# =============================================================================
+#
+# This file documents the COMPLETE configurable surface of CMCourier as of
+# version 0.52.0. It is a *reference*, not a runnable config:
+#
+#   * Every path below is a PLACEHOLDER (`/path/to/...`). The schema uses
+#     pydantic FilePath / DirectoryPath for inputs that MUST already exist,
+#     so this file will NOT load as-is — copy it, then point the paths at
+#     your real files.
+#   * Several blocks are discriminated unions: only ONE variant may be
+#     active at a time (e.g. `trigger.kind`, `indexing.source.kind`,
+#     `mapping` consolidated-vs-split). The alternatives are shown as
+#     commented `# ---- OR ----` blocks.
+#   * Each field is annotated with its default and constraints. Fields
+#     marked (REQUIRED) have no default — omitting them is a load error.
+#   * Unknown keys are REJECTED (`extra="forbid"`) — a typo'd key fails
+#     fast at load time rather than being silently ignored.
+#
+# CREDENTIALS NEVER LIVE HERE. They are read from environment variables:
+#   * CMIS_USERNAME / CMIS_PASSWORD   — always required
+#   * AS400_USERNAME / AS400_PASSWORD — required only when an AS400 source
+#                                       or `tracking.as400_sync` is used
+#
+# Source of truth: src/cmcourier/config/schema.py
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# trigger  (REQUIRED)  — S0: how documents to migrate are discovered.
+# Discriminated union on `kind`: csv | rvabrep | local_scan | single_doc.
+# NOTE: `kind: as400` was REMOVED in 0.51.0 — AS400 is now a *source* choice
+#       on `indexing.source`, not a trigger kind.
+# -----------------------------------------------------------------------------
+trigger:
+  # --- kind: csv --- (the only kind where `kind:` may be omitted; the loader
+  # injects `kind: csv` for backward compatibility with pre-0.14 configs.)
+  kind: csv
+  csv_path: /path/to/triggers.csv          # (REQUIRED) CSV listing the docs to migrate
+  shortname_column: ShortName              # (default: "ShortName")
+  cif_column: CIF                          # (default: "CIF")
+  system_id_column: SystemID               # (default: "SystemID")
+
+  # ---- OR ---- kind: rvabrep — scan the RVABREP table directly (no CSV).
+  #   The RVABREP table comes from `indexing.source` below (CSV or AS400).
+  # kind: rvabrep
+  # filters:                               # (default: empty → scan everything)
+  #   systems: ["1", "3"]                  # (default: []) keep only these system ids
+  #   document_types: ["CC03", "FF17"]     # (default: []) keep only these RVI doc types
+
+  # ---- OR ---- kind: local_scan — files already extracted to a local dir.
+  #   Each file in `scan_path` is cross-referenced against RVABREP by name.
+  # kind: local_scan
+  # scan_path: /path/to/local-scan-pool    # (REQUIRED) directory; must exist
+
+  # ---- OR ---- kind: single_doc — one-shot diagnostic pipeline.
+  #   No extra fields: the trigger (shortname / cif / system_id) is passed
+  #   as CLI args at run time, not here.
+  # kind: single_doc
+
+
+# -----------------------------------------------------------------------------
+# indexing  (REQUIRED)  — S1: the RVABREP master table + how to read it.
+# `source` is a discriminated union on `kind`: csv | as400.
+# This one source feeds BOTH S0 (rvabrep-direct trigger) and S1 (enrichment).
+# -----------------------------------------------------------------------------
+indexing:
+  source:
+    # --- kind: csv --- RVABREP simulated as a CSV file (testing / staging /
+    # small banks that export RVABREP to a file).
+    kind: csv
+    csv_path: /path/to/rvabrep.csv         # (REQUIRED) the RVABREP-shaped CSV
+
+    # ---- OR ---- kind: as400 — the live RVABREP table on DB2/AS400, reached
+    # by an operator-defined SELECT. The query MAY carry JOINs / WHERE
+    # filters, but its OUTPUT COLUMNS must be RVABREP-shaped (the `columns`
+    # map below is applied to the result set exactly as to a CSV).
+    # kind: as400
+    # connection:
+    #   host: as400.bank.example           # (REQUIRED) AS400 host / system name
+    #   port: 446                          # (default: 446)  range 1..65535
+    #   database: RVILIB                   # (default: "RVILIB")
+    #   driver: "iSeries Access ODBC Driver"  # (default: "iSeries Access ODBC Driver")
+    #   table: null                        # (default: null) optional bare-table hint
+    # query: "SELECT * FROM RVILIB.RVABREP" # (REQUIRED) SELECT returning RVABREP shape
+
+  # columns — logical → physical column map for the RVABREP source.
+  # Defaults are the canonical AS400 field names. Override per environment.
+  columns:                                 # (default: all canonical names below)
+    shortname_column: ABABCD               # (default: "ABABCD")
+    system_id_column: ABAACD               # (default: "ABAACD")
+    delete_code_column: ABACST             # (default: "ABACST")
+    txn_num_column: ABAANB                 # (default: "ABAANB")
+    index2_column: ABACCD                  # (default: "ABACCD")
+    index3_column: ABADCD                  # (default: "ABADCD")
+    index4_column: ABAECD                  # (default: "ABAECD")
+    index5_column: ABAFCD                  # (default: "ABAFCD")
+    index6_column: ABAGCD                  # (default: "ABAGCD")
+    index7_column: ABAHCD                  # (default: "ABAHCD")
+    image_type_column: ABABST              # (default: "ABABST")
+    image_path_column: ABAICD              # (default: "ABAICD")
+    file_name_column: ABAJCD               # (default: "ABAJCD")
+    creation_date_column: ABAADT           # (default: "ABAADT")
+    last_view_date_column: ABABDT          # (default: "ABABDT")
+    total_pages_column: ABABUN             # (default: "ABABUN")
+
+  # batch_size — how many RVABREP rows S1 fetches per indexing batch.
+  # NOT the same as the top-level `batch_size` (see end of file).
+  batch_size: 50                           # (default: 50)  >= 1
+
+
+# -----------------------------------------------------------------------------
+# mapping  (REQUIRED)  — S2: the "Modelo Documental" (RVI → CM class map).
+# TWO mutually-exclusive modes — provide EXACTLY ONE:
+#   * consolidated: a single `csv_path` with all columns inline.
+#   * split:        `rvi_cm_csv_path` + `metadatos_csv_path` (the bank format).
+# -----------------------------------------------------------------------------
+mapping:
+  # --- consolidated mode --- one CSV, comma-separated METADATOS cell.
+  csv_path: /path/to/modelo_documental.csv # one of: consolidated XOR split
+
+  # ---- OR ---- split mode (035 / production bank format) — two CSVs joined
+  # by IDCM ↔ IDCorto. Set BOTH and leave `csv_path` unset.
+  # rvi_cm_csv_path: /path/to/MapeoRVI_CM.csv      # one row per IDRVI
+  # metadatos_csv_path: /path/to/MetadatosCM.csv   # multiple rows per IDCorto
+
+  # --- column names: consolidated-mode CSV ---
+  id_rvi_column: "ID RVI"                          # (default: "ID RVI")
+  clase_id_column: "ID CLASE DOCUMENTAL"           # (default: "ID CLASE DOCUMENTAL")
+  id_corto_column: "ID Corto"                      # (default: "ID Corto")
+  clase_name_column: "CLASE DOCUMENTAL"            # (default: "CLASE DOCUMENTAL")
+  metadata_list_column: "METADATOS"                # (default: "METADATOS")
+  cmis_type_column: "CMISType"                     # (default: "CMISType")
+
+  # --- column names: split-mode MapeoRVI_CM.csv ---
+  rvi_cm_id_rvi_column: "IDRVI"                    # (default: "IDRVI")
+  rvi_cm_id_cm_column: "IDCM"                      # (default: "IDCM")
+  rvi_cm_clase_id_column: "IDClaseDocumental"      # (default: "IDClaseDocumental")
+  rvi_cm_cmis_type_column: "CMISType"              # (default: "CMISType")
+  rvi_cm_cmis_folder_column: "CMISFolder"          # (default: "CMISFolder")
+
+  # --- column names: split-mode MetadatosCM.csv ---
+  metadatos_id_corto_column: "IDCorto"             # (default: "IDCorto")
+  metadatos_metadata_column: "Metadato"            # (default: "Metadato")
+  metadatos_required_column: "Requerido"           # (default: "Requerido")
+  metadatos_cmis_property_id_column: "CMISPropertyId"  # (default: "CMISPropertyId")
+
+  # --- value that marks a metadata field as required in MetadatosCM ---
+  required_marker: "Yes"                           # (default: "Yes")
+
+
+# -----------------------------------------------------------------------------
+# metadata  (REQUIRED)  — S3: how each CM property value is resolved.
+# -----------------------------------------------------------------------------
+metadata:
+  # field_aliases — logical field name → CM property alias.
+  field_aliases:                           # (default: {} empty)
+    CIF: BAC_CIF
+    Nombre_Cliente: BAC_Nombre_Cliente
+    Short_Name: BAC_Short_Name
+
+  # field_sources  (REQUIRED) — per CM property, an ordered list of where to
+  # pull its value from. First source that yields a value wins; if none do,
+  # `default_value` is used (or the doc fails if there is no default).
+  field_sources:
+    BAC_CIF:
+      sources:                             # (REQUIRED) min 1 item
+        # source_type must be one of:
+        #   "trigger"      — a column on the trigger record
+        #   "rvabrep"      — a column on the RVABREP row
+        #   "csv:<alias>"  — a named CSV source declared under `sources:`
+        #   "as400:<alias>"— a named AS400 source declared under `sources:`
+        - source_type: trigger
+          lookup_value_column: cif         # (REQUIRED) column to read the value from
+        - source_type: rvabrep
+          lookup_value_column: index2
+      default_value: "000000"              # (default: null) used if no source matches
+    BAC_Nombre_Cliente:
+      sources:
+        - source_type: "csv:clients"
+          lookup_value_column: Nombre_Cliente   # column whose value is returned
+          lookup_key_column: CIF                # (default: null) join key column
+          validation:                           # (default: null) optional value check
+            allowed_pattern: "^[A-Za-z0-9 ]+$"  # (default: null) regex the value must match
+      default_value: "UNKNOWN_CLIENT"
+    BAC_Short_Name:
+      sources:
+        - source_type: "as400:branch_lookup"
+          lookup_value_column: BRANCH_NAME
+          lookup_key_column: BRANCH_ID
+
+  # sources — named lookup sources referenced by `csv:<alias>` / `as400:<alias>`
+  # above. A list; it MAY mix csv and as400 entries freely.
+  sources:                                 # (default: [] empty)
+    - kind: csv                            # (default: "csv" — may be omitted)
+      alias: clients                       # (REQUIRED) the name used in `csv:clients`
+      csv_path: /path/to/clients.csv        # (REQUIRED) must exist
+    - kind: as400                          # (REQUIRED for an AS400 source)
+      alias: branch_lookup                 # (REQUIRED) the name used in `as400:branch_lookup`
+      as400_connection:                    # (REQUIRED)
+        host: as400.bank.example
+        port: 446
+        database: RVILIB
+        driver: "iSeries Access ODBC Driver"
+        table: null
+      # provide EXACTLY ONE of `table` / `query`:
+      table: BRANCHES                      # bare-table prefetch  (XOR query)
+      # query: "SELECT * FROM RVILIB.BRANCHES WHERE ACTIVE = 'Y'"   # (XOR table)
+
+  # prefetch_enabled — bulk-load metadata sources once at startup vs. per-doc.
+  prefetch_enabled: true                   # (default: true)
+
+  # cache — cross-batch metadata cache (POST-MVP §9, shipped in 037).
+  cache:
+    enabled: false                         # (default: false)
+    ttl_minutes: 60                        # (default: 60)  range 1..43200 (30 days)
+
+
+# -----------------------------------------------------------------------------
+# assembly  (REQUIRED)  — S4: turning RVABREP page files into a single doc.
+# -----------------------------------------------------------------------------
+assembly:
+  source_root: /path/to/source-files       # (REQUIRED) root dir of the page files; must exist
+  temp_dir: /path/to/staging-tmp           # (REQUIRED) scratch dir; CREATED at run time
+  # image_type_map — RVABREP image_type code → MIME type.
+  image_type_map:                          # (default: the three entries below)
+    B: image/tiff                          # (default)
+    O: application/pdf                     # (default)
+    C: image/jpeg                          # (default)
+
+
+# -----------------------------------------------------------------------------
+# cmis  (REQUIRED)  — S5: the IBM Content Manager / Alfresco CMIS target.
+# Credentials come from CMIS_USERNAME / CMIS_PASSWORD env vars.
+# -----------------------------------------------------------------------------
+cmis:
+  base_url: "http://cm.bank.example:9080/opencmcmis/browser"  # (REQUIRED)
+  repo_id: "myrepo"                        # (REQUIRED) repository id; "" for Alfresco browser binding
+  timeout_seconds: 300.0                   # (default: 300.0)  > 0
+  verify_ssl: false                        # (default: false)
+  max_bandwidth_mbps: 0.0                  # (default: 0.0 = uncapped)  >= 0
+  retry_max_attempts: 3                    # (default: 3)  >= 1
+  retry_base_delay_s: 2.0                  # (default: 2.0)  >= 0  (exponential backoff base)
+  workers: 4                               # (default: 4)  >= 1  (S5 upload pool size)
+
+  # auto_tune — AIMD adaptive worker pool (REBIRTH §12). When enabled, a
+  # background controller grows/shrinks the worker count (and optionally the
+  # request timeout) based on observed S5 p95 latency vs target.
+  auto_tune:
+    enabled: false                         # (default: false → static `workers` above)
+    min_threads: 2                         # (default: 2)   >= 1
+    max_threads: 50                        # (default: 50)  >= 1  (must be >= min_threads)
+    target_p95_ms: 5000.0                  # (default: 5000.0)  > 0
+    adjustment_interval_s: 30              # (default: 30)  >= 1
+    warmup_seconds: 60                     # (default: 60)  >= 0  (no adjustments during warmup)
+    timeout_auto_adjust: true              # (default: true)  also tune the CMIS timeout
+    min_timeout_s: 30                      # (default: 30)  >= 1
+    max_timeout_s: 600                     # (default: 600) >= 1  (must be >= min_timeout_s)
+
+
+# -----------------------------------------------------------------------------
+# tracking  (REQUIRED)  — S6: idempotency + resume state.
+# -----------------------------------------------------------------------------
+tracking:
+  db_path: /path/to/tracking.db            # (REQUIRED) SQLite file; CREATED at run time
+
+  # as400_sync — distributed idempotency via the AS400 NIARVILOG table
+  # (POST-MVP §4, shipped in 034). Default off → SQLite-only, pre-034 behavior.
+  # When `enabled: true`, `connection` becomes REQUIRED.
+  as400_sync:
+    enabled: false                         # (default: false)
+    connection:                            # (default: null; REQUIRED when enabled)
+      host: as400.bank.example
+      port: 446
+      database: RVILIB
+      driver: "iSeries Access ODBC Driver"
+      table: null
+    library: RVILIB                        # (default: "RVILIB")  DB2 schema; validated identifier
+    table: NIARVILOG                       # (default: "NIARVILOG") validated identifier
+    # columns — per-environment physical column names for NIARVILOG (049).
+    # Omit entirely → canonical names. Every value is validated as a DB2
+    # identifier (letter/@/#/$ then letters/digits/_/@/#/$, 128 max).
+    columns:                               # (default: all canonical names below)
+      system_id_column: SISCOD             # (default: "SISCOD")
+      txn_num_column: TRNNUM               # (default: "TRNNUM")
+      doc_format_column: DOCFRM            # (default: "DOCFRM")
+      image_archive_column: IMGARC         # (default: "IMGARC")
+      image_type_column: IMGTIP            # (default: "IMGTIP")
+      client_cif_column: CTECIF            # (default: "CTECIF")
+      client_num_column: CTENUM            # (default: "CTENUM")
+      status_column: STSCOD                # (default: "STSCOD")
+      idcm_column: IDNBAC                  # (default: "IDNBAC")
+      cm_type_column: TIPIDN               # (default: "TIPIDN")
+      cm_object_id_column: OBJIDN          # (default: "OBJIDN")
+      retry_count_column: NUMREI           # (default: "NUMREI")
+      started_at_column: PMRREI            # (default: "PMRREI")
+      finished_at_column: FINREI           # (default: "FINREI")
+      error_message_column: EERRMSG        # (default: "EERRMSG")
+    stale_in_progress_minutes: 30          # (default: 30)  range 1..1440
+    retry_attempts: 3                      # (default: 3)   range 1..10
+    retry_base_delay_s: 5.0                # (default: 5.0) > 0
+
+
+# -----------------------------------------------------------------------------
+# observability  (optional — has a full default)  — REBIRTH §17.4 logging.
+# -----------------------------------------------------------------------------
+observability:
+  enabled: true                            # (default: true)  master toggle
+  pipeline_metrics: true                   # (default: true)  tier 2
+  network_metrics: true                    # (default: true)  tier 3
+  # system_metrics — tier 5, psutil sampling (POST-MVP §2, shipped in 026).
+  # Accepts the structured form below OR the legacy bool `system_metrics: false`.
+  system_metrics:
+    enabled: true                          # (default: true)
+    sample_interval_s: 5.0                 # (default: 5.0)  range 1.0..60.0
+  log_dir: ./logs                          # (default: "./logs")  CREATED at run time
+  log_format: json                         # (default: "json")  one of: json | text
+  rotation_mb: 100                         # (default: 100)  >= 1
+  retention_days: 30                       # (default: 30)   >= 1
+  slow_op_threshold_ms: 5000               # (default: 5000) >= 0  (tier 4 slow-ops report)
+  slow_op_top_n: 20                        # (default: 20)   >= 1
+  # unmask_pii — emit RAW property values in the S5 upload trace instead of
+  # masked ones. NEVER set true in production. No CLI flag exists for this;
+  # `doctor` emits a WARNING at startup when it is set.
+  unmask_pii: false                        # (default: false)
+
+
+# -----------------------------------------------------------------------------
+# processing  (optional — has a full default)  — multi-batch + dual-lane knobs.
+# -----------------------------------------------------------------------------
+processing:
+  # batches_in_flight — producer-consumer overlap: while batch N uploads (S5),
+  # batch N+1 prepares (S0–S4). CAPPED AT 2 — values > 2 (POST-MVP §7) are a
+  # deferred change and rejected by the schema.
+  batches_in_flight: 2                     # (default: 2)  range 1..2
+
+  # heavy_light_lanes — adaptive heavy/light upload lanes (POST-MVP §1,
+  # shipped in 036). Default off → single-pool S5, pre-036 behavior.
+  heavy_light_lanes:
+    enabled: false                         # (default: false)
+    heavy_threshold_bytes: 10485760        # (default: 10485760 = 10 MiB)  > 0
+    heavy_lane_min_batch: 50               # (default: 50)  >= 1  (smaller batches skip the split)
+    heavy_initial_ratio: 0.2               # (default: 0.2)  range 0.0..1.0  (heavy lane's worker share)
+    rebalance_interval_s: 10.0             # (default: 10.0)  range >0..600
+    idle_threshold_s: 15.0                 # (default: 15.0)  range >0..3600
+
+
+# -----------------------------------------------------------------------------
+# batch_size  (optional)  — TOP-LEVEL batch size: how many triggers go into
+# one migration batch. DISTINCT from `indexing.batch_size` (which is the
+# RVABREP fetch chunk size). Default differs on purpose.
+# -----------------------------------------------------------------------------
+batch_size: 1000                           # (default: 1000)  >= 1
