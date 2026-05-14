@@ -240,6 +240,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Forty-fourth change (042): TUI multi-batch metric isolation — per-batch `_BandwidthHandler` filter (no more byte bleed across overlapping chunks), live `s5_done`/`s5_failed` propagated into CHUNKS row during UPLOAD (no more stuck `0/0/0`), separate `upload_recorder()` slot in `MultiBatchOrchestrator` so UPLOAD-tab S5 percentiles aren't disturbed by PREP-side recorder flips
 - [x] Forty-fifth change (043): AIMD auto-tune sees real p95 in multi-batch mode — `AutoTuneController.set_p95_provider` swap hook + orchestrator wires the upload-active recorder so the elastic-protection property is restored (pre-043 the controller observed `p95=0` always and only grew workers, never decreased)
 - [x] Forty-sixth change (044): robust resume after kill -9 mid-S5 — `_apply_resume` detects `S{N}_DONE → S{N+1}` stage gaps (workers paused mid-batch no longer abandon as "clean"), `--batch-id` always threads through (operator-named batches honored without `--resume`), explicit `--from-stage` wins over auto-detection
+- [x] Forty-seventh change (045): idempotent S5 upload on 409 conflict — `CmisUploader.upload` recovers from kill-race orphans (doc in Alfresco, missing from migration_log) by looking up the existing `cmis:objectId` via the folder-children endpoint; closes the last `S5_FAILED` window after a real `kill -9`
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

@@ -51,6 +51,72 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.48.0] — 2026-05-13 — **Idempotent S5 upload on 409 conflict**
+
+Closes the last gap surfaced by §H.1's kill-mid-S5 verification.
+After 0.47.0 fixed the resume detection logic, a real
+``kill -9`` between a successful CMIS HTTP 200 and our SQLite
+``mark_stage_done`` commit left the doc in Alfresco but absent
+from the migration log. On resume, the orchestrator retried the
+upload; Alfresco's ``cmis:name`` uniqueness constraint rejected
+the duplicate with HTTP 409; that retry landed as ``S5_FAILED``
+in the migration log even though the doc was already where it
+needed to be (we observed 4 such cases in the §H.1 live verify).
+
+045 brings the same idempotent-409 contract that has covered
+folder creation since 025 (REBIRTH §8.3) to the document upload
+path: on 409 we look the object up by ``cmis:name`` and treat the
+upload as successful if a match exists.
+
+### Fixed
+
+- **Kill-race idempotency for S5 uploads.** ``CmisUploader.upload``
+  now recovers from 409 conflicts by listing the target folder's
+  children and matching ``cmis:name``. When a match is found, the
+  upload returns the existing ``cmis:objectId`` and the
+  orchestrator marks ``S5_DONE`` normally. When no child matches,
+  the 409 propagates as a real failure (the conflict was for some
+  other reason — different name collision, server-side ACL).
+
+### Added
+
+- ``CmisUploader._lookup_existing_object_id(folder_url, name)`` —
+  internal helper that GETs ``cmisselector=children`` and returns
+  the matching ``cmis:objectId`` or ``None``. Uses the children
+  endpoint rather than ``cmisselector=query`` so the lookup is
+  immune to Solr indexing lag (which we observed flakily in 040 +
+  041 verifications).
+- Three new structured network events for operator auditability:
+  - ``s5_upload_409_recovery_attempt`` — 409 received, lookup
+    starting.
+  - ``s5_upload_409_recovered`` — match found, upload counted as
+    done with the recovered objectId.
+  - ``s5_upload_409_recovery_failed`` — lookup transport error or
+    no matching child; original CMISClientError propagates.
+- ``JsonFormatter.ALLOWED_EXTRA_FIELDS`` extended with
+  ``recovered_object_id`` and ``detail`` so the recovery events
+  land in ``network-YYYY-MM-DD.jsonl`` with all their context.
+
+### Operational note
+
+Recovered docs count as ``s5_done`` in the report — there is no
+new outcome enum. To audit which docs were recovered after a
+crash, grep for ``s5_upload_409_recovered`` in
+``network-YYYY-MM-DD.jsonl``; the event carries ``document_name``
+and ``recovered_object_id``.
+
+### Known test issue (unrelated to 045)
+
+Running the full suite ``pytest tests/unit tests/integration``
+in one invocation triggers cross-test logger-state contamination
+between ``tests/unit/observability/test_setup.py`` (added in 041)
+and ``tests/integration/adapters/test_cmis_uploader.py::
+TestUploadPayloadTraceEvents``. Each suite passes cleanly when
+run alone. Pre-existing, not introduced by 045. Tracked for a
+follow-up housekeeping spec.
+
+---
+
 ## [0.47.0] — 2026-05-13 — **Robust resume after kill -9 mid-S5**
 
 Live §H.1 verification against staging caught a class of bugs in
