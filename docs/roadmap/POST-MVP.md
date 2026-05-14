@@ -1,7 +1,7 @@
 # CMCourier — Post-MVP Roadmap
 
 > **Status**: Living document. Updated as new features are deferred or completed.
-> **Last updated**: 2026-05-11
+> **Last updated**: 2026-05-14
 
 This document captures every feature, optimization, and design intent that is **deferred** beyond the MVP. **Nothing here is dropped** — everything is intentional, prioritized, and will be implemented in subsequent changes after the MVP is operational. Each entry is structured to be ready-to-consume as input for a future `/sdd-new` proposal.
 
@@ -9,7 +9,9 @@ This document captures every feature, optimization, and design intent that is **
 
 ## What "MVP" Means in This Project
 
-The **MVP** delivers end-to-end document migration to IBM Content Manager across **four production pipelines** (`csv-trigger`, `rvabrep`, `as400-trigger`, `local-scan`) plus the `single-doc` diagnostic, with all eight atomic stages (`S0`–`S7`, see `docs/domain/CMCOURIER_REBIRTH.md §10.1`), a single resizable S5 upload worker pool with **AIMD auto-tune**, batch-based execution with stage-by-stage resumability, default two-tab textual TUI, structured logging at the application + pipeline + network + slow-ops tiers, idempotent SQLite tracking, the `doctor` pre-flight command, and the cron-friendly `background` runner.
+The **MVP** delivers end-to-end document migration to IBM Content Manager across **three production pipelines** (`csv-trigger`, `rvabrep`, `local-scan`) plus the `single-doc` diagnostic, with all eight atomic stages (`S0`–`S7`, see `docs/domain/CMCOURIER_REBIRTH.md §10.1`), a single resizable S5 upload worker pool with **AIMD auto-tune**, batch-based execution with stage-by-stage resumability, default two-tab textual TUI, structured logging at the application + pipeline + network + slow-ops tiers, idempotent SQLite tracking, the `doctor` pre-flight command, and the cron-friendly `background` runner.
+
+> **Note (048)**: there is no separate `as400-trigger` pipeline anymore. "AS400" is a *source* choice on the `rvabrep` pipeline (`indexing.source.kind: as400`), not its own pipeline — the `rvabrep` pipeline serves both a CSV file and a live AS400 query. See `CHANGELOG.md [0.51.0]`.
 
 The MVP explicitly **excludes**: any size-aware upload scheduling (heavy/light lanes), system-resource sampling (`psutil` tier 5), offline log analysis tooling, AS400-backed tracking, multi-batch parallelism beyond the basic producer-consumer overlap of two batches, per-batch bandwidth quotas, and a cross-batch metadata cache.
 
@@ -17,8 +19,34 @@ Everything excluded lives below, with enough detail to start a new change direct
 
 ### Status snapshot
 
-- **Done (promoted into MVP)**: §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §4 — AS400 NIARVILOG distributed idempotency (shipped in change 034); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016); §7 (N=2) — two-batch producer-consumer overlap (shipped in change 028; N=3..5 deferred to a future change).
-- **Still deferred**: §1, §7 (N>2), §8, §9, plus the §10 watchlist.
+- **Done (promoted into MVP)**: §1 — adaptive heavy/light upload lanes (shipped in change 036); §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §4 — AS400 NIARVILOG distributed idempotency (shipped in change 034); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016 — note: 048 later folded `as400-trigger` into the `rvabrep` pipeline as a source); §7 (N=2) — two-batch producer-consumer overlap (shipped in change 028; N=3..5 deferred to a future change); §9 — cross-batch metadata cache `document_cache` (shipped in change 037).
+- **Still deferred**: §7 (N>2), §8, plus the §10 watchlist.
+
+### Shipped since this snapshot was last numbered (specs 038–049)
+
+The §-numbered sections above are the *original* post-MVP backlog. The
+following changes shipped afterward as standalone specs (each on its
+own `feat/NNN-*` branch, FF'd to `main`) — operational hardening, bug
+fixes, and refinements surfaced during staging shakedown. They are
+**not** roadmap sections; this list keeps the snapshot honest.
+
+| Spec | Version | Summary |
+|------|---------|---------|
+| 038 — cmis-target-preflight | 0.41.0 | CMIS target pre-flight checks + upload payload trace |
+| 039 — mock-rvabrep-generator | 0.42.0 | `cmcourier mock rvabrep` — synthetic RVABREP CSV at any scale |
+| 040 — alfresco-url-compat | 0.43.0 | Alfresco CMIS compatibility (`repo_id=""` semantics, URL shape) |
+| 041 — tui-fix-and-features | 0.44.0 | TUI: clean dashboard + MB progress + CHUNKS breakdown |
+| 042 — tui-metrics-bleed | 0.45.0 | TUI metrics: per-chunk isolation + live UPLOAD counters |
+| 043 — aimd-multibatch-p95 | 0.46.0 | AIMD auto-tune sees real p95 in multi-batch mode |
+| 044 — robust-resume | 0.47.0 | Robust resume after `kill -9` mid-S5 (stage-gap detection) |
+| 045 — idempotent-409 | 0.48.0 | Idempotent S5 upload on CMIS 409 conflict |
+| 046 — polymorphic-trigger | 0.49.0 | Polymorphic `Trigger` model — each pipeline emits its natural shape |
+| 047 — persist-cm-object-id | 0.50.0 | Persist `cm_object_id` on `S5_DONE` in the tracking DB |
+| 048 — pluggable-rvabrep-source | 0.51.0 | Pluggable RVABREP source (CSV ↔ AS400); `as400-trigger` pipeline removed |
+| 049 — niarvilog-column-mapping | 0.52.0 | Configurable NIARVILOG column / identifier names per environment |
+
+Also note: change 039 (CHANGELOG `[0.39.0]`) shipped **§10 watchlist
+item 2** — CMIS connection-pool eager warm-up at process start.
 
 ---
 
