@@ -96,6 +96,10 @@ class TUISnapshot:
     current_chunk_avg_mbps: float = 0.0
     current_chunk_eta_s: float | None = None
 
+    # ---------- 051: docs filtered at S1 (delete-coded RVABREP rows),
+    # summed across all chunk states. 0 in the rare monolithic path.
+    s1_filtered: int = 0
+
 
 class TUIDataProvider:
     """Snapshot factory the TUI polls every refresh tick.
@@ -239,6 +243,12 @@ class TUIDataProvider:
             bandwidth_series=tuple(self._metrics.bandwidth.series(60)),
             slow_ops_all=tuple(self._metrics.aggregator_snapshot()),
             chunks_state=chunks_snapshot,
+            # 051: total docs filtered at S1 across every chunk seen so far.
+            # ``prep_filtered`` is an ``int`` on ``ChunkState`` — the dict
+            # boxes it as ``object``, so the coercion is runtime-safe.
+            s1_filtered=sum(
+                v for c in chunks_snapshot if isinstance((v := c.get("prep_filtered", 0)), int)
+            ),
             lane_snapshot=(
                 self._lane_controller.snapshot() if self._lane_controller is not None else None
             ),
@@ -303,6 +313,7 @@ class TUIDataProvider:
                     "prep_done": getattr(chunk, "prep_done", 0),
                     "prep_skipped": getattr(chunk, "prep_skipped", 0),
                     "prep_failed": getattr(chunk, "prep_failed", 0),
+                    "prep_filtered": getattr(chunk, "prep_filtered", 0),
                     "upload_skipped": upload_skipped,
                     "prep_started_monotonic": prep_started,
                     "prep_elapsed_s": prep_elapsed,

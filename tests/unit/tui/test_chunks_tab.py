@@ -99,13 +99,15 @@ class TestRenderChunksBreakdown041:
                 "prep_done": 95,
                 "prep_skipped": 0,
                 "prep_failed": 0,
+                "prep_filtered": 3,
                 "prep_elapsed_s": 12.4,
                 "upload_skipped": 0,
                 "upload_elapsed_s": 8.9,
             },
         )
         out = render_chunks(_snap(chunks))
-        assert "95/0/0   (12.4s)" in out
+        # 051: PREP cell is done/skip/fail/filtered; UPLOAD stays done/skip/fail.
+        assert "95/0/0/3   (12.4s)" in out
         assert "95/0/0   (8.9s)" in out
         assert "42.0" in out  # MB column
 

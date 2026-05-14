@@ -94,7 +94,8 @@ class _FakePipeline:
             SimpleNamespace(document=SimpleNamespace(txn_num=f"TXN_{batch_id}_{i}"))
             for i, _ in enumerate(triggers)
         ]
-        return items, 0, len(items), 0, 0, 0
+        # 051: (items, skipped, s1_done, s1_filtered, s2_failed, s3_failed, s4_failed)
+        return items, 0, len(items), 0, 0, 0, 0
 
     def upload_chunk(self, *, items, batch_id: str, recorder):  # noqa: ARG002
         if self._upload_sleep:
@@ -108,7 +109,7 @@ class _FakePipeline:
         batch_id = self._resolve_batch_id(
             kwargs.get("batch_id"), kwargs.get("from_stage", 1), kwargs.get("batch_size", 1000)
         )
-        items, skipped, s1d, s2f, s3f, s4f = self.prep_chunk(
+        items, skipped, s1d, s1f, s2f, s3f, s4f = self.prep_chunk(
             triggers=self._triggers, batch_id=batch_id, recorder=None
         )
         s5d, s5f = self.upload_chunk(items=items, batch_id=batch_id, recorder=None)
@@ -118,6 +119,7 @@ class _FakePipeline:
             total_docs=s1d + skipped,
             s1_done=s1d,
             s1_skipped_cross_batch=skipped,
+            s1_filtered=s1f,
             s2_done=s1d - s2f,
             s2_failed=s2f,
             s3_done=s1d - s2f - s3f,
@@ -485,7 +487,9 @@ class TestAimdMultiBatchP95Wiring043:
         # No chunk has entered UPLOAD yet → observer returns 0.0 cleanly.
         assert orch._upload_p95_observer() == 0.0  # noqa: SLF001
 
-    def test_overlapped_run_swaps_controllers_p95_provider(self, tmp_path: Path) -> None:
+    def test_overlapped_run_swaps_controllers_p95_provider(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The orchestrator must call ``set_p95_provider`` on the live
         controller before ``start()``. We capture the call by patching the
         controller's method."""
@@ -520,9 +524,15 @@ class TestAimdMultiBatchP95Wiring043:
             orig_set(provider)
 
         real_ctl.set_p95_provider = _spy  # type: ignore[method-assign]
-        # Patch pipeline.auto_tune_controller property to return our spy.
-        type(pipeline).auto_tune_controller = property(  # type: ignore[attr-defined]
-            lambda _self: real_ctl,
+        # Patch pipeline.auto_tune_controller to return our spy controller.
+        # monkeypatch restores it on teardown — without this the read-only
+        # property leaks onto the shared _FakePipeline class and breaks every
+        # subsequent test that constructs one (its __init__ sets the attr).
+        monkeypatch.setattr(
+            type(pipeline),
+            "auto_tune_controller",
+            property(lambda _self: real_ctl),
+            raising=False,
         )
 
         orch = _build_orchestrator(pipeline, tmp_path)
@@ -533,3 +543,43 @@ class TestAimdMultiBatchP95Wiring043:
         # Calling it after the run (all chunks DONE → upload slot None)
         # returns 0.0.
         assert captured[0]() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 051 — "filtered at S1" threads through reports + chunk state
+# ---------------------------------------------------------------------------
+
+
+class _FilterPipeline(_FakePipeline):
+    """051 probe: prep_chunk reports a fixed number of S1-filtered docs."""
+
+    def __init__(self, *, triggers_per_call, filtered_per_chunk: int) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(triggers_per_call=triggers_per_call)
+        self._filtered_per_chunk = filtered_per_chunk
+
+    def prep_chunk(self, *, triggers, batch_id, recorder, from_stage=1):  # type: ignore[no-untyped-def]
+        items, skipped, s1d, _s1f, s2f, s3f, s4f = super().prep_chunk(
+            triggers=triggers, batch_id=batch_id, recorder=recorder
+        )
+        return items, skipped, s1d, self._filtered_per_chunk, s2f, s3f, s4f
+
+
+class TestFilteredOutcome051:
+    """``s1_filtered`` flows from prep_chunk → ChunkState.prep_filtered →
+    RunReport.s1_filtered → MultiBatchRunReport.s1_filtered (aggregate)."""
+
+    def test_overlapped_n2_threads_filtered(self, tmp_path: Path) -> None:
+        pipeline = _FilterPipeline(triggers_per_call=_make_triggers(6), filtered_per_chunk=2)
+        orch = _build_orchestrator(pipeline, tmp_path)
+        report = orch.run(source_descriptor="", batch_size=2, batches_in_flight=2)
+        # 6 triggers / 2 = 3 chunks, each reporting 2 filtered.
+        assert report.s1_filtered == 6
+        assert all(s.prep_filtered == 2 for s in orch.chunks_snapshot())
+
+    def test_sequential_n1_threads_filtered(self, tmp_path: Path) -> None:
+        pipeline = _FilterPipeline(triggers_per_call=_make_triggers(4), filtered_per_chunk=1)
+        orch = _build_orchestrator(pipeline, tmp_path)
+        report = orch.run(source_descriptor="", batch_size=2, batches_in_flight=1)
+        # 4 triggers / 2 = 2 chunks, each reporting 1 filtered.
+        assert report.s1_filtered == 2
+        assert all(s.prep_filtered == 1 for s in orch.chunks_snapshot())

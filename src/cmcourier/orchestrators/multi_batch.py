@@ -71,6 +71,8 @@ class ChunkState:
     prep_done: int = 0
     prep_skipped: int = 0
     prep_failed: int = 0
+    # 051 — docs filtered at S1 (delete-coded RVABREP rows)
+    prep_filtered: int = 0
     upload_skipped: int = 0
     prep_started_monotonic: float | None = None
     prep_elapsed_s: float = 0.0
@@ -102,6 +104,11 @@ class MultiBatchRunReport:
         return sum(r.s5_failed for r in self.chunks)
 
     @property
+    def s1_filtered(self) -> int:
+        """051 — docs filtered at S1 (delete-coded RVABREP rows)."""
+        return sum(r.s1_filtered for r in self.chunks)
+
+    @property
     def elapsed_seconds(self) -> float:
         return sum(r.elapsed_seconds for r in self.chunks)
 
@@ -121,6 +128,7 @@ class _PreparedChunk:
     items: list[_StageItem]
     skipped: int
     s1_done: int
+    s1_filtered: int
     s2_failed: int
     s3_failed: int
     s4_failed: int
@@ -230,6 +238,7 @@ class MultiBatchOrchestrator:
         prep_done: int | None = None,
         prep_skipped: int | None = None,
         prep_failed: int | None = None,
+        prep_filtered: int | None = None,
         upload_skipped: int | None = None,
         prep_started_monotonic: float | None = None,
         prep_elapsed_s: float | None = None,
@@ -257,6 +266,11 @@ class MultiBatchOrchestrator:
                 ),
                 prep_failed=(
                     prep_failed if prep_failed is not None else (prev.prep_failed if prev else 0)
+                ),
+                prep_filtered=(
+                    prep_filtered
+                    if prep_filtered is not None
+                    else (prev.prep_filtered if prev else 0)
                 ),
                 upload_skipped=(
                     upload_skipped
@@ -442,7 +456,7 @@ class MultiBatchOrchestrator:
                 prep_started_monotonic=started,
             )
             self._set_active_recorder(recorder)
-            items, skipped, s1d, s2f, s3f, s4f = self._pipeline.prep_chunk(
+            items, skipped, s1d, s1_filtered, s2f, s3f, s4f = self._pipeline.prep_chunk(
                 triggers=chunk,
                 batch_id=batch_id,
                 recorder=recorder,
@@ -454,11 +468,12 @@ class MultiBatchOrchestrator:
                 chunk_idx=idx,
                 batch_id=batch_id,
                 status="PREP",
-                doc_count=s1d + skipped,
+                doc_count=s1d + skipped + s1_filtered,
                 total_bytes=total_bytes,
                 prep_done=len(items),
                 prep_skipped=skipped,
                 prep_failed=s2f + s3f + s4f,
+                prep_filtered=s1_filtered,
                 prep_elapsed_s=prep_elapsed,
             )
             return _PreparedChunk(
@@ -468,6 +483,7 @@ class MultiBatchOrchestrator:
                 items=items,
                 skipped=skipped,
                 s1_done=s1d,
+                s1_filtered=s1_filtered,
                 s2_failed=s2f,
                 s3_failed=s3f,
                 s4_failed=s4f,
@@ -549,6 +565,7 @@ class MultiBatchOrchestrator:
                         total_docs=total_docs,
                         s1_done=item.s1_done,
                         s1_skipped_cross_batch=item.skipped,
+                        s1_filtered=item.s1_filtered,
                         s2_done=len(item.items) + item.s2_failed,
                         s2_failed=item.s2_failed,
                         s3_done=len(item.items) + item.s3_failed,

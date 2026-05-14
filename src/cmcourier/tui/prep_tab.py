@@ -29,6 +29,10 @@ def render_prep(snap: TUISnapshot, *, width: int = 76) -> str:
             f"{count:>6}  p50 {p50:>7.1f} ms  p95 {p95:>7.1f} ms"
         )
     lines.append("")
+    # 051: docs the pipeline filtered at S1 — delete-coded RVABREP rows.
+    # Not done, not skipped, not failed: correctly excluded at source.
+    lines.append(f"  FILTERED (S1, deleted at source)  {snap.s1_filtered:>6}")
+    lines.append("")
     lines.append(" SLOW OPS (PREP, top 5)")
     prep_slow = [
         op

@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 import responses
 
+from cmcourier.domain.models import RvabrepRowTrigger
+
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 
@@ -442,3 +444,73 @@ class TestHealedCIF:
         if isinstance(body, bytes):
             body = body.decode("utf-8", errors="replace")
         assert "123456" in body  # the healed CIF appears as a property value
+
+
+# ---------------------------------------------------------------------------
+# 051 — "filtered at S1" is a first-class outcome (delete-coded RVABREP rows)
+# ---------------------------------------------------------------------------
+
+
+def _rvabrep_row(shortname: str, txn: str, *, delete_code: str = "") -> dict[str, str]:
+    return {
+        "shortname": shortname,
+        "system_id": "1",
+        "delete_code": delete_code,
+        "txn_num": txn,
+        "index2": "123456",
+        "index3": "",
+        "index4": "",
+        "index5": "",
+        "index6": "",
+        "index7": "CC03",
+        "image_type": "B",
+        "image_path": "p",
+        "file_name": "DAAA.001",
+        "creation_date": "1251117",
+        "last_view_date": "0",
+        "total_pages": "1",
+    }
+
+
+def _row_trigger(row: dict[str, str]) -> RvabrepRowTrigger:
+    return RvabrepRowTrigger(
+        row=row, col_shortname="shortname", col_cif="index2", col_system_id="system_id"
+    )
+
+
+class TestS1FilteredOutcome051:
+    """A delete-coded RvabrepRowTrigger is *filtered* at S1 — counted and
+    logged, never a silent drop and never a failure."""
+
+    def test_deleted_rows_counted_as_filtered_with_conservation(
+        self,
+        pipeline_harness,  # type: ignore[no-untyped-def]
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        # The trigger CSV is only used to build the pipeline; this test
+        # drives _stage_s0_s1 directly with hand-built RvabrepRowTriggers.
+        triggers_csv = _write_trigger_csv(tmp_path, [("UNUSED", "1", "1")])
+        pipeline = pipeline_harness.build_pipeline(triggers_csv)
+        batch_id = pipeline._tracking_store.start_batch(total_records=4)  # noqa: SLF001
+        triggers = [
+            _row_trigger(_rvabrep_row("A", "TXN_A")),
+            _row_trigger(_rvabrep_row("B", "TXN_B", delete_code="D")),
+            _row_trigger(_rvabrep_row("C", "TXN_C")),
+            _row_trigger(_rvabrep_row("D", "TXN_D", delete_code="X")),
+        ]
+        with caplog.at_level(logging.INFO, logger="cmcourier.orchestrators.staged"):
+            items, skipped, filtered = pipeline._stage_s0_s1(  # noqa: SLF001
+                triggers, batch_id, None
+            )
+
+        assert len(items) == 2  # A, C → real docs
+        assert filtered == 2  # B, D → delete-coded, filtered (NOT failed)
+        assert skipped == 0
+        # Conservation: every trigger is accounted for.
+        assert len(items) + filtered + skipped == len(triggers)
+        # Each filtered doc logged once, with the machine-readable reason.
+        filtered_logs = [
+            r for r in caplog.records if r.__dict__.get("reason") == "deleted_at_source"
+        ]
+        assert len(filtered_logs) == 2

@@ -88,6 +88,17 @@ class TestRenderPrep:
         out = render_prep(_baseline_snap())
         assert "TXN_UP" not in out  # belongs to UPLOAD tab
 
+    def test_shows_filtered_count(self) -> None:
+        # 051: docs filtered at S1 (delete-coded RVABREP rows) surface as a
+        # first-class line — not lost, not a skip, not a fail.
+        out = render_prep(_baseline_snap(s1_filtered=12))
+        assert "FILTERED (S1, deleted at source)" in out
+        assert "12" in out
+
+    def test_filtered_count_zero_still_renders_line(self) -> None:
+        out = render_prep(_baseline_snap())  # default s1_filtered=0
+        assert "FILTERED (S1, deleted at source)" in out
+
 
 class TestRenderUpload:
     def test_includes_workers_panel(self) -> None:

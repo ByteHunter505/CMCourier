@@ -705,6 +705,7 @@ def _emit_outcome(
                     f"chunk {idx}/{len(report.chunks)}  "
                     f"batch_id={chunk.batch_id} "
                     f"total_docs={chunk.total_docs} "
+                    f"s1_filtered={chunk.s1_filtered} "
                     f"s5_done={chunk.s5_done} "
                     f"s5_failed={chunk.s5_failed} "
                     f"elapsed_seconds={chunk.elapsed_seconds:.2f}"
@@ -712,6 +713,7 @@ def _emit_outcome(
             click.echo(
                 f"TOTALS batch_count={len(report.chunks)} "
                 f"total_docs={report.total_docs} "
+                f"s1_filtered={report.s1_filtered} "
                 f"s5_done={report.s5_done} "
                 f"s5_failed={report.s5_failed} "
                 f"failed_chunks={len(report.failed_chunks)} "
@@ -833,6 +835,7 @@ def _emit_summary(report: RunReport) -> None:
         f"batch_id={report.batch_id} "
         f"total_triggers={report.total_triggers} "
         f"total_docs={report.total_docs} "
+        f"s1_filtered={report.s1_filtered} "
         f"s5_done={report.s5_done} "
         f"s5_failed={report.s5_failed} "
         f"elapsed_seconds={report.elapsed_seconds:.2f}"

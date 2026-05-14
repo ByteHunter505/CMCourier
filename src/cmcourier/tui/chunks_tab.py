@@ -58,7 +58,7 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
     lines.append("")
     lines.append(
         f"  {'idx':>3}  {'batch_id':<14}  {'docs':>5}  {'MB':>7}  "
-        f"{'PREP d/s/f (elap)':<22}  {'UPLOAD d/s/f (elap)':<22}  {'state':<10}"
+        f"{'PREP d/s/f/x (elap)':<22}  {'UPLOAD d/s/f (elap)':<22}  {'state':<10}"
     )
     lines.append("  " + "─" * (width - 2))
 
@@ -68,6 +68,7 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
         "prep_done": 0,
         "prep_skipped": 0,
         "prep_failed": 0,
+        "prep_filtered": 0,
         "prep_elapsed_s": 0.0,
         "upload_done": 0,
         "upload_skipped": 0,
@@ -85,6 +86,7 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
         prep_done = _int(chunk.get("prep_done"), 0)
         prep_skipped = _int(chunk.get("prep_skipped"), 0)
         prep_failed = _int(chunk.get("prep_failed"), 0)
+        prep_filtered = _int(chunk.get("prep_filtered"), 0)
         prep_elapsed = _float(chunk.get("prep_elapsed_s"), 0.0)
         upload_done = _int(chunk.get("s5_done"), 0)
         upload_skipped = _int(chunk.get("upload_skipped"), 0)
@@ -95,6 +97,7 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
             done=prep_done,
             skipped=prep_skipped,
             failed=prep_failed,
+            filtered=prep_filtered,
             elapsed_s=prep_elapsed,
             has_started=status in ("PREP", "UPLOAD", "DONE", "FAILED"),
         )
@@ -118,6 +121,7 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
         totals["prep_done"] += prep_done
         totals["prep_skipped"] += prep_skipped
         totals["prep_failed"] += prep_failed
+        totals["prep_filtered"] += prep_filtered
         totals["prep_elapsed_s"] += prep_elapsed
         totals["upload_done"] += upload_done
         totals["upload_skipped"] += upload_skipped
@@ -130,8 +134,12 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
         done=int(totals["prep_done"]),
         skipped=int(totals["prep_skipped"]),
         failed=int(totals["prep_failed"]),
+        filtered=int(totals["prep_filtered"]),
         elapsed_s=float(totals["prep_elapsed_s"]),
-        has_started=any(int(totals[k]) > 0 for k in ("prep_done", "prep_skipped", "prep_failed")),
+        has_started=any(
+            int(totals[k]) > 0
+            for k in ("prep_done", "prep_skipped", "prep_failed", "prep_filtered")
+        ),
     )
     upload_total_cell = _stage_cell(
         done=int(totals["upload_done"]),
@@ -158,16 +166,27 @@ def _stage_cell(
     failed: int,
     elapsed_s: float,
     has_started: bool,
+    filtered: int | None = None,
 ) -> str:
     """Format one ``done/skip/fail (elapsed)`` cell.
 
     When ``has_started`` is False (e.g. QUEUED rows for the UPLOAD stage),
     renders dashes so an operator does not mistake "not yet" for "zero".
+
+    051: the PREP cell passes ``filtered`` (delete-coded RVABREP rows
+    excluded at S1) → the cell renders ``done/skip/fail/filtered``. The
+    UPLOAD cell leaves it ``None`` → the classic three-way breakdown.
     """
     if not has_started:
-        return f"{_DASH}/{_DASH}/{_DASH}   {_DASH}"
+        tail = f"/{_DASH}" if filtered is not None else ""
+        return f"{_DASH}/{_DASH}/{_DASH}{tail}   {_DASH}"
     elapsed_str = f"{elapsed_s:.1f}s" if elapsed_s > 0 else _DASH
-    return f"{done}/{skipped}/{failed}   ({elapsed_str})"
+    counts = (
+        f"{done}/{skipped}/{failed}/{filtered}"
+        if filtered is not None
+        else f"{done}/{skipped}/{failed}"
+    )
+    return f"{counts}   ({elapsed_str})"
 
 
 def _int(v: object, default: int) -> int:

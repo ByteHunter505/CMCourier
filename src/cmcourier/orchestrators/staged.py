@@ -94,6 +94,7 @@ class RunReport:
     total_docs: int
     s1_done: int
     s1_skipped_cross_batch: int
+    s1_filtered: int
     s2_done: int
     s2_failed: int
     s3_done: int
@@ -315,7 +316,9 @@ class StagedPipeline:
                 else None
             )
 
-            items, skipped = self._stage_s0_s1(triggers, resolved_batch_id, resume_scope)
+            items, skipped, s1_filtered = self._stage_s0_s1(
+                triggers, resolved_batch_id, resume_scope
+            )
             s1_done = len(items)
             items, s2_failed = self._stage_s2(items, resolved_batch_id)
             s2_done = len(items)
@@ -357,6 +360,7 @@ class StagedPipeline:
             total_docs=total_docs,
             s1_done=s1_done,
             s1_skipped_cross_batch=skipped,
+            s1_filtered=s1_filtered,
             s2_done=s2_done,
             s2_failed=s2_failed,
             s3_done=s3_done,
@@ -396,22 +400,25 @@ class StagedPipeline:
         batch_id: str,
         recorder: MetricsRecorder,
         from_stage: int = 1,
-    ) -> tuple[list[_StageItem], int, int, int, int, int]:
+    ) -> tuple[list[_StageItem], int, int, int, int, int, int]:
         """Run S0..S4 on a pre-acquired chunk of triggers.
 
-        Returns ``(items, skipped, s1_done, s2_failed, s3_failed, s4_failed)``.
-        Trigger acquisition is the orchestrator's responsibility — this
-        method takes the list directly.
+        Returns ``(items, skipped, s1_done, s1_filtered, s2_failed,
+        s3_failed, s4_failed)``. Trigger acquisition is the
+        orchestrator's responsibility — this method takes the list
+        directly.
         """
         resume_scope = (
             self._tracking_store.list_txn_nums_for_batch(batch_id) if from_stage > 1 else None
         )
-        items, skipped = self._stage_s0_s1(triggers, batch_id, resume_scope, recorder=recorder)
+        items, skipped, s1_filtered = self._stage_s0_s1(
+            triggers, batch_id, resume_scope, recorder=recorder
+        )
         s1_done = len(items)
         items, s2_failed = self._stage_s2(items, batch_id, recorder=recorder)
         items, s3_failed = self._stage_s3(items, batch_id, recorder=recorder)
         items, s4_failed = self._stage_s4(items, batch_id, recorder=recorder)
-        return items, skipped, s1_done, s2_failed, s3_failed, s4_failed
+        return items, skipped, s1_done, s1_filtered, s2_failed, s3_failed, s4_failed
 
     def upload_chunk(
         self,
@@ -457,10 +464,13 @@ class StagedPipeline:
         resume_scope: set[str] | None,
         *,
         recorder: MetricsRecorder | None = None,
-    ) -> tuple[list[_StageItem], int]:
+    ) -> tuple[list[_StageItem], int, int]:
         rec = recorder or self._metrics
         items: list[_StageItem] = []
         skipped_cross_batch = 0
+        # 051: a trigger whose RVABREP row is delete-coded is *filtered* —
+        # a first-class outcome, NOT a failure and NOT a silent drop.
+        filtered = 0
         for trigger in triggers:
             audit = trigger.audit_row()
             audit_shortname = audit.get("shortname") or "<unknown>"
@@ -482,10 +492,16 @@ class StagedPipeline:
                     )
                     continue
                 except RVABREPDeletedError:
-                    timer.mark_failed()
-                    _log.warning(
-                        "pipeline: every rvabrep row deleted",
-                        extra={"batch_id": batch_id, "shortname": audit_shortname},
+                    # 051: deleted-at-source is NOT a pipeline failure — the
+                    # doc is correctly excluded. Count it, log it, move on.
+                    filtered += 1
+                    _log.info(
+                        "pipeline: doc filtered at S1",
+                        extra={
+                            "batch_id": batch_id,
+                            "shortname": audit_shortname,
+                            "reason": "deleted_at_source",
+                        },
                     )
                     continue
                 except IndexingError:
@@ -526,7 +542,7 @@ class StagedPipeline:
                     self._tracking_store.mark_stage_pending(record, StageStatus.S1_PENDING)
                     self._tracking_store.mark_stage_done(doc.txn_num, batch_id, StageStatus.S1_DONE)
                 items.append(item)
-        return items, skipped_cross_batch
+        return items, skipped_cross_batch, filtered
 
     def _stage_s2(
         self,

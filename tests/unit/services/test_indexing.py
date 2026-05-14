@@ -22,7 +22,7 @@ from cmcourier.domain.exceptions import (
     RVABREPDeletedError,
     RVABREPNotFoundError,
 )
-from cmcourier.domain.models import TriggerRecord
+from cmcourier.domain.models import RvabrepRowTrigger, TriggerRecord
 from cmcourier.domain.ports import IDataSource
 from cmcourier.services.indexing import IndexingColumnsConfig, IndexingService
 
@@ -322,6 +322,61 @@ class TestRowCoercion:
         first = next(d for d in docs if d.txn_num == "TXN0000001")
         assert isinstance(first.total_pages, int)
         assert first.total_pages == 540
+
+
+# ---------------------------------------------------------------------------
+# 051 — known-row enrichment: delete-coded rows are a first-class filter
+# ---------------------------------------------------------------------------
+
+
+def _row(shortname: str = "ACME01", system_id: str = "1", delete_code: str = "") -> dict[str, str]:
+    """A minimal RVABREP row keyed by the friendly column names."""
+    return {
+        "shortname": shortname,
+        "system_id": system_id,
+        "delete_code": delete_code,
+        "txn_num": "TXN999",
+        "index2": "",
+        "index3": "",
+        "index4": "",
+        "index5": "",
+        "index6": "",
+        "index7": "CC03",
+        "image_type": "B",
+        "image_path": "p",
+        "file_name": "DAAA.001",
+        "creation_date": "1251117",
+        "last_view_date": "0",
+        "total_pages": "1",
+    }
+
+
+def _row_trigger(row: dict[str, str]) -> RvabrepRowTrigger:
+    return RvabrepRowTrigger(
+        row=row, col_shortname="shortname", col_cif="index2", col_system_id="system_id"
+    )
+
+
+class TestEnrichKnownRow051:
+    """A delete-coded RvabrepRowTrigger raises RVABREPDeletedError instead
+    of the pre-051 silent ``return []`` — so the orchestrator can count it
+    as a first-class "filtered at S1" outcome."""
+
+    def test_active_row_yields_one_document(self, service: IndexingService) -> None:
+        docs = service.enrich(_row_trigger(_row(delete_code="")))
+        assert len(docs) == 1
+        assert docs[0].txn_num == "TXN999"
+
+    def test_delete_coded_row_raises_rvabrep_deleted(self, service: IndexingService) -> None:
+        with pytest.raises(RVABREPDeletedError) as ei:
+            service.enrich(_row_trigger(_row(shortname="GONE01", delete_code="D")))
+        # The error carries the row's identity for traceability.
+        assert ei.value.shortname == "GONE01"
+
+    def test_delete_coded_row_is_not_a_silent_empty_list(self, service: IndexingService) -> None:
+        # Regression guard: pre-051 this returned [] with zero traceability.
+        with pytest.raises(RVABREPDeletedError):
+            service.enrich(_row_trigger(_row(delete_code="X")))
 
 
 # ---------------------------------------------------------------------------

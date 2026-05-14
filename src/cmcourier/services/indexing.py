@@ -133,12 +133,18 @@ class IndexingService:
     def _enrich_known_row(self, row: Mapping[str, Any]) -> list[RVABREPDocument]:
         """Wrap an already-known RVABREP row in a single ``RVABREPDocument``.
 
-        Mirrors ``_classify``'s active-row + duplicate-txn filters but for
-        a single-row input — preserves the contract that
-        delete-coded rows never reach S2.
+        A row carrying a delete code raises :class:`RVABREPDeletedError`
+        — consistent with :meth:`find_documents`, and surfaced by the
+        orchestrator as a first-class "filtered at S1" outcome (051).
+        Pre-051 this returned ``[]`` silently, dropping the doc with no
+        count, no log, no traceability.
         """
         if _str(row.get(self._cfg.delete_code_column)):
-            return []
+            raise RVABREPDeletedError(
+                shortname=_str(row.get(self._cfg.shortname_column)),
+                system_id=_str(row.get(self._cfg.system_id_column)),
+                deleted_count=1,
+            )
         return [self._row_to_document(dict(row))]
 
     def find_documents(self, trigger: TriggerRecord) -> list[RVABREPDocument]:
