@@ -706,7 +706,7 @@ def _dry_run_first_doc(services: _DryRunServices, *, source_descriptor: str) -> 
     if not triggers_iter:
         return _skip("sample_dry_run", "no_triggers")
     trigger = triggers_iter[0]
-    docs = _try("S1", lambda: services.indexing.find_documents(trigger))
+    docs = _try("S1", lambda: services.indexing.enrich(trigger))
     if isinstance(docs, CheckResult):
         return docs
     if not docs:
@@ -714,7 +714,12 @@ def _dry_run_first_doc(services: _DryRunServices, *, source_descriptor: str) -> 
             name="sample_dry_run",
             status=CheckStatus.SKIP,
             message="first trigger resolved to no documents",
-            details=_frozen({"reason": "no_docs", "shortname": trigger.shortname}),
+            details=_frozen(
+                {
+                    "reason": "no_docs",
+                    "shortname": trigger.audit_row().get("shortname") or "<unknown>",
+                }
+            ),
         )
     doc = docs[0]
     mapping = _try("S2", lambda: services.mapping.get_mapping(doc.index7))

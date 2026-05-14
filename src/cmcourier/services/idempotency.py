@@ -43,7 +43,7 @@ from cmcourier.domain.models import (
     MigrationRecord,
     RVABREPDocument,
     StageStatus,
-    TriggerRecord,
+    Trigger,
 )
 from cmcourier.domain.ports import ITrackingStore
 
@@ -100,7 +100,7 @@ class IdempotencyCoordinator:
         self,
         *,
         document: RVABREPDocument,
-        trigger: TriggerRecord,
+        trigger: Trigger,
     ) -> bool:
         """When AS400 is active, ask AS400 directly via the composite PK.
         When AS400 is None, fall through to SQLite by txn_num.
@@ -108,7 +108,7 @@ class IdempotencyCoordinator:
         if self._as400 is None:
             return self._sqlite.is_uploaded(document.txn_num)
         row = self._as400.read_state(
-            siscod=trigger.system_id,
+            siscod=trigger.audit_row().get("system_id") or "",
             trnnum=document.txn_num,
             docfrm=document.index7,
             imgarc=document.file_name,
@@ -123,7 +123,7 @@ class IdempotencyCoordinator:
         record: MigrationRecord,
         document: RVABREPDocument,
         mapping: CMMapping,
-        trigger: TriggerRecord,
+        trigger: Trigger,
     ) -> bool:
         """When AS400 is active: atomic claim against NIARVILOG.
         Returns False if another process owns the doc.
@@ -145,7 +145,7 @@ class IdempotencyCoordinator:
         record: MigrationRecord,
         document: RVABREPDocument,
         mapping: CMMapping,
-        trigger: TriggerRecord,
+        trigger: Trigger,
         cm_object_id: str,
     ) -> None:
         """Mark S5_DONE in SQLite first, then propagate to AS400 if
@@ -169,7 +169,7 @@ class IdempotencyCoordinator:
         record: MigrationRecord,
         document: RVABREPDocument,
         mapping: CMMapping,
-        trigger: TriggerRecord,
+        trigger: Trigger,
         stage: StageStatus,
         error: str,
     ) -> None:

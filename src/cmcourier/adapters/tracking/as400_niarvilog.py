@@ -49,7 +49,7 @@ from cmcourier.domain.models import (
     CMMapping,
     MigrationRecord,
     RVABREPDocument,
-    TriggerRecord,
+    Trigger,
 )
 
 _R = TypeVar("_R")
@@ -158,7 +158,7 @@ class As400NiarvilogStore:
         record: MigrationRecord,
         document: RVABREPDocument,
         mapping: CMMapping,
-        trigger: TriggerRecord,
+        trigger: Trigger,
     ) -> bool:
         """Atomic claim. Returns True iff this process now owns the row."""
         pk = _pk_from(document=document, trigger=trigger)
@@ -189,7 +189,7 @@ class As400NiarvilogStore:
         record: MigrationRecord,  # noqa: ARG002 — kept for API symmetry
         document: RVABREPDocument,
         mapping: CMMapping,  # noqa: ARG002 — kept for API symmetry
-        trigger: TriggerRecord,
+        trigger: Trigger,
         cm_object_id: str,
     ) -> None:
         pk = _pk_from(document=document, trigger=trigger)
@@ -213,7 +213,7 @@ class As400NiarvilogStore:
         record: MigrationRecord,  # noqa: ARG002
         document: RVABREPDocument,
         mapping: CMMapping,  # noqa: ARG002
-        trigger: TriggerRecord,
+        trigger: Trigger,
         error: str,
     ) -> None:
         pk = _pk_from(document=document, trigger=trigger)
@@ -346,7 +346,7 @@ class As400NiarvilogStore:
         record: MigrationRecord,  # noqa: ARG002 — kept for future fields
         document: RVABREPDocument,
         mapping: CMMapping,
-        trigger: TriggerRecord,
+        trigger: Trigger,
     ) -> None:
         sql = (
             f"INSERT INTO {self._full_table()} "
@@ -354,14 +354,18 @@ class As400NiarvilogStore:
             f"STSCOD, IDNBAC, TIPIDN, OBJIDN, NUMREI, EERRMSG) "
             f"VALUES (?, ?, ?, ?, ?, ?, ?, 'I', ?, ?, '', 0, '')"
         )
+        # 046: trigger is polymorphic; use audit_row() to extract the
+        # (shortname, cif, system_id) triple that NIARVILOG indexes on.
+        audit = trigger.audit_row()
+        cif_str = audit.get("cif") or ""
         params: list[Any] = [
-            trigger.system_id,
+            audit.get("system_id") or "",
             document.txn_num,
             document.index7,
             document.file_name,
             document.image_type,
-            trigger.shortname,
-            int(trigger.cif or "0") if (trigger.cif or "").isdigit() else 0,
+            audit.get("shortname") or "",
+            int(cif_str) if cif_str.isdigit() else 0,
             mapping.id_corto,
             mapping.cmis_type,
         ]
@@ -508,10 +512,10 @@ class As400NiarvilogStore:
 # ---------------------------------------------------------------------------
 
 
-def _pk_from(*, document: RVABREPDocument, trigger: TriggerRecord) -> tuple[str, str, str, str]:
+def _pk_from(*, document: RVABREPDocument, trigger: Trigger) -> tuple[str, str, str, str]:
     """Build the four PK columns (SISCOD, TRNNUM, DOCFRM, IMGARC)."""
     return (
-        trigger.system_id,
+        trigger.audit_row().get("system_id") or "",
         document.txn_num,
         document.index7,
         document.file_name,

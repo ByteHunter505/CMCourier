@@ -55,13 +55,14 @@ from cmcourier.domain.exceptions import (
     SourceFileMissingError,
 )
 from cmcourier.domain.models import (
+    ClientTrigger,
     CMMapping,
     MigrationRecord,
     ResolvedMetadata,
     RVABREPDocument,
     StagedFile,
     StageStatus,
-    TriggerRecord,
+    Trigger,
 )
 from cmcourier.domain.ports import ITrackingStore, S0Strategy
 from cmcourier.observability.metrics import MetricsRecorder, StageTimer
@@ -113,7 +114,7 @@ class RunReport:
 class _StageItem:
     """Mutable per-doc state threaded through stages S1..S5."""
 
-    trigger: TriggerRecord
+    trigger: Trigger
     document: RVABREPDocument
     mapping: CMMapping | None = None
     metadata: ResolvedMetadata | None = None
@@ -391,7 +392,7 @@ class StagedPipeline:
     def prep_chunk(
         self,
         *,
-        triggers: list[TriggerRecord],
+        triggers: list[Trigger],
         batch_id: str,
         recorder: MetricsRecorder,
         from_stage: int = 1,
@@ -428,10 +429,13 @@ class StagedPipeline:
         batch_id: str,
         stage: StageStatus,
     ) -> MigrationRecord:
+        # 046: triggers are polymorphic; audit_row() returns the best-effort
+        # projection for the trigger_* migration_log columns.
+        audit = item.trigger.audit_row()
         return MigrationRecord(
-            trigger_shortname=item.trigger.shortname,
-            trigger_cif=item.trigger.cif or "",
-            trigger_system_id=item.trigger.system_id,
+            trigger_shortname=audit.get("shortname") or "",
+            trigger_cif=audit.get("cif") or "",
+            trigger_system_id=audit.get("system_id") or "",
             rvabrep_txn_num=item.document.txn_num,
             rvabrep_file_name=item.document.file_name,
             batch_id=batch_id,
@@ -448,7 +452,7 @@ class StagedPipeline:
 
     def _stage_s0_s1(
         self,
-        triggers: list[TriggerRecord],
+        triggers: list[Trigger],
         batch_id: str,
         resume_scope: set[str] | None,
         *,
@@ -458,35 +462,37 @@ class StagedPipeline:
         items: list[_StageItem] = []
         skipped_cross_batch = 0
         for trigger in triggers:
+            audit = trigger.audit_row()
+            audit_shortname = audit.get("shortname") or "<unknown>"
             docs: list[RVABREPDocument] = []
             with StageTimer(
                 rec,
                 pipeline=self._pipeline_name,
                 stage="S1",
                 batch_id=batch_id,
-                txn_num=trigger.shortname,
+                txn_num=audit_shortname,
             ) as timer:
                 try:
-                    docs = self._indexing_service.find_documents(trigger)
+                    docs = self._indexing_service.enrich(trigger)
                 except RVABREPNotFoundError:
                     timer.mark_failed()
                     _log.warning(
                         "pipeline: trigger has no rvabrep rows",
-                        extra={"batch_id": batch_id, "shortname": trigger.shortname},
+                        extra={"batch_id": batch_id, "shortname": audit_shortname},
                     )
                     continue
                 except RVABREPDeletedError:
                     timer.mark_failed()
                     _log.warning(
                         "pipeline: every rvabrep row deleted",
-                        extra={"batch_id": batch_id, "shortname": trigger.shortname},
+                        extra={"batch_id": batch_id, "shortname": audit_shortname},
                     )
                     continue
                 except IndexingError:
                     timer.mark_failed()
                     _log.exception(
                         "pipeline: indexing failed",
-                        extra={"batch_id": batch_id, "shortname": trigger.shortname},
+                        extra={"batch_id": batch_id, "shortname": audit_shortname},
                     )
                     continue
             for doc in docs:
@@ -588,15 +594,24 @@ class StagedPipeline:
                     else None
                 )
                 if cached is not None:
-                    # 037: cache hit — short-circuit MetadataService. Restore
-                    # the healed CIF on the trigger so downstream stages see
-                    # the same TriggerRecord shape as a fresh resolve.
+                    # 037: cache hit — short-circuit MetadataService.
+                    # 046: triggers are polymorphic. For a ClientTrigger
+                    # we reconstruct with the cached CIF so downstream
+                    # code that reads ``.cif`` directly stays consistent;
+                    # for row-based triggers we keep the original (the row
+                    # is immutable, the cached cif lives in the metadata
+                    # bag's BAC_CIF property anyway).
                     metadata = ResolvedMetadata.from_dict(dict(cached.properties))
-                    healed_trigger = TriggerRecord(
-                        shortname=item.trigger.shortname,
-                        cif=cached.trigger_cif,
-                        system_id=item.trigger.system_id,
-                    )
+                    healed_trigger: Trigger
+                    if isinstance(item.trigger, ClientTrigger):
+                        healed_trigger = ClientTrigger(
+                            shortname=item.trigger.shortname,
+                            cif=cached.trigger_cif,
+                            system_id=item.trigger.system_id,
+                        )
+                    else:
+                        healed_trigger = item.trigger
+                    healed_cif: str | None = cached.trigger_cif
                 else:
                     try:
                         resolution = self._metadata_service.resolve(
@@ -616,12 +631,13 @@ class StagedPipeline:
                         continue
                     metadata = resolution.metadata
                     healed_trigger = resolution.healed_trigger
+                    healed_cif = resolution.healed_cif
                     if self._document_cache is not None:
                         self._document_cache.put(
                             txn_num=txn,
                             fields=fields,
                             metadata=metadata,
-                            trigger_cif=healed_trigger.cif,
+                            trigger_cif=healed_cif,
                         )
             if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
                 record = self._build_record(item, batch_id, StageStatus.S3_PENDING)

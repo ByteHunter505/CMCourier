@@ -26,7 +26,7 @@ __all__ = ["IndexingColumnsConfig", "IndexingService"]
 
 import logging
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,7 +36,11 @@ from cmcourier.domain.exceptions import (
     RVABREPNotFoundError,
 )
 from cmcourier.domain.models import (
+    ClientTrigger,
+    LocalScanTrigger,
     RVABREPDocument,
+    RvabrepRowTrigger,
+    Trigger,
     TriggerRecord,
     parse_cymmdd,
 )
@@ -98,6 +102,44 @@ class IndexingService:
         self._batch_size = batch_size
 
     # ----------------------------------------------------------- public API
+
+    def enrich(self, trigger: Trigger) -> list[RVABREPDocument]:
+        """046 — polymorphic S1 enrichment.
+
+        Dispatch on the trigger subtype:
+
+        * ``ClientTrigger`` → existing ``find_documents`` path
+          (RVABREP lookup by (shortname, system_id), expand to N docs).
+        * ``RvabrepRowTrigger`` → wrap the carried row into one
+          :class:`RVABREPDocument` directly. **Zero queries**.
+        * ``LocalScanTrigger`` → same as the row case — the matched
+          RVABREP row is already attached at S0 acquire time.
+
+        Raises ``RVABREPNotFoundError`` for ClientTrigger when no rows
+        match, and ``RVABREPDeletedError`` when every matching row is
+        marked deleted. Row-based triggers skip those error paths since
+        the row was already validated at S0 (blank shortnames /
+        delete-coded rows are filtered there).
+        """
+        if isinstance(trigger, ClientTrigger):
+            return self.find_documents(trigger)
+        if isinstance(trigger, (RvabrepRowTrigger, LocalScanTrigger)):
+            return self._enrich_known_row(trigger.row)
+        raise TypeError(
+            f"unknown Trigger subtype: {type(trigger).__name__!r} — "
+            f"add a dispatch branch in IndexingService.enrich"
+        )
+
+    def _enrich_known_row(self, row: Mapping[str, Any]) -> list[RVABREPDocument]:
+        """Wrap an already-known RVABREP row in a single ``RVABREPDocument``.
+
+        Mirrors ``_classify``'s active-row + duplicate-txn filters but for
+        a single-row input — preserves the contract that
+        delete-coded rows never reach S2.
+        """
+        if _str(row.get(self._cfg.delete_code_column)):
+            return []
+        return [self._row_to_document(dict(row))]
 
     def find_documents(self, trigger: TriggerRecord) -> list[RVABREPDocument]:
         """Look up every non-deleted RVABREP row matching the trigger."""

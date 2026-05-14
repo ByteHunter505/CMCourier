@@ -215,7 +215,12 @@ def inspect_trigger_command(
     if not records:
         click.echo("No triggers produced", err=True)
         return
-    rows = [[r.shortname, r.cif or "-", r.system_id] for r in records]
+    # 046: triggers are polymorphic; use audit_row() to project the
+    # best-effort (shortname, cif, system_id) triple for display.
+    rows = []
+    for r in records:
+        a = r.audit_row()
+        rows.append([a.get("shortname") or "-", a.get("cif") or "-", a.get("system_id") or "-"])
     click.echo(render_table(["SHORTNAME", "CIF", "SYSTEM_ID"], rows))
 
 

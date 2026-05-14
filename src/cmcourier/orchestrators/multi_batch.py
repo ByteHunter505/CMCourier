@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cmcourier.config.schema import PipelineConfig
-from cmcourier.domain.models import TriggerRecord
+from cmcourier.domain.models import Trigger, TriggerRecord  # noqa: F401 — TriggerRecord re-exported
 from cmcourier.observability.metrics import MetricsRecorder
 from cmcourier.orchestrators.chunked import chunked
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline, _StageItem
@@ -116,7 +116,7 @@ class _PreparedChunk:
 
     batch_id: str
     chunk_idx: int
-    triggers: list[TriggerRecord]
+    triggers: list[Trigger]
     items: list[_StageItem]
     skipped: int
     s1_done: int

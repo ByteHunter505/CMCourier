@@ -123,6 +123,7 @@ def _resolution(cif: str = "123456") -> MetadataResolution:
     return MetadataResolution(
         metadata=ResolvedMetadata.from_dict({"BAC_CIF": cif, "Nombre_Cliente": "ACME"}),
         healed_trigger=TriggerRecord(shortname="CLIENT01", cif=cif, system_id="1"),
+        healed_cif=cif,
     )
 
 
