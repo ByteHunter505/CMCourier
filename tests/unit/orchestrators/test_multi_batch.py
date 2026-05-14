@@ -364,6 +364,117 @@ class TestUploadRecorder042:
             assert all(isinstance(r, MetricsRecorder) for r in observed)
 
 
+class _EventPipeline(_FakePipeline):
+    """050 probe: a pipeline whose trigger source records every *pull* and
+    whose ``prep_chunk`` records every *prep*, into one shared event list —
+    so a test can prove pulls and preps interleave (streaming) instead of
+    all pulls happening first (the pre-050 ``list(acquire())`` behavior).
+    """
+
+    def __init__(self, *, n_triggers: int, events: list[tuple[str, object]]) -> None:
+        super().__init__(triggers_per_call=[])
+        self._events = events
+        all_triggers = _make_triggers(n_triggers)
+
+        def _gen() -> Iterator[TriggerRecord]:
+            for i, trig in enumerate(all_triggers):
+                events.append(("pull", i))
+                yield trig
+
+        gen = _gen()
+
+        class _S:
+            def acquire(self_inner, descriptor: str = "") -> Iterator[TriggerRecord]:  # noqa: ARG002, N805
+                return gen
+
+        self._trigger_strategy = _S()
+
+    def prep_chunk(self, *, triggers, batch_id, recorder, from_stage=1):  # type: ignore[no-untyped-def]  # noqa: ARG002
+        self._events.append(("prep", batch_id))
+        return super().prep_chunk(triggers=triggers, batch_id=batch_id, recorder=recorder)
+
+
+class TestStreaming050:
+    """050 — triggers stream in bounded-memory chunks; the orchestrator
+    never materializes the full trigger set."""
+
+    def test_total_islices_the_source(self, tmp_path: Path) -> None:
+        """``--total N`` pulls exactly N items from the source — not the
+        whole thing. Pre-050 (``list(acquire())[:N]``) would have pulled
+        every item before slicing."""
+        pulled: list[str] = []
+
+        def _counting_gen() -> Iterator[TriggerRecord]:
+            for trig in _make_triggers(1000):
+                pulled.append(trig.shortname)
+                yield trig
+
+        pipeline = _FakePipeline(triggers_per_call=[])
+
+        class _S:
+            def acquire(self_inner, descriptor: str = "") -> Iterator[TriggerRecord]:  # noqa: ARG002, N805
+                return _counting_gen()
+
+        pipeline._trigger_strategy = _S()  # noqa: SLF001
+        orch = _build_orchestrator(pipeline, tmp_path)
+
+        report = orch.run(source_descriptor="", batch_size=5, batches_in_flight=2, total=10)
+        assert len(pulled) == 10, f"islice should pull exactly 10, pulled {len(pulled)}"
+        assert report.s5_done == 10
+
+    def test_overlapped_streams_not_materializes(self, tmp_path: Path) -> None:
+        """N=2 path: prep starts before the source is fully drained.
+        Pre-050 every ``pull`` happened before the first ``prep``."""
+        events: list[tuple[str, object]] = []
+        pipeline = _EventPipeline(n_triggers=20, events=events)
+        orch = _build_orchestrator(pipeline, tmp_path)
+
+        orch.run(source_descriptor="", batch_size=5, batches_in_flight=2)
+
+        first_prep = next(i for i, e in enumerate(events) if e[0] == "prep")
+        last_pull = max(i for i, e in enumerate(events) if e[0] == "pull")
+        assert first_prep < last_pull, (
+            "prep must start before the source is drained — "
+            f"first_prep={first_prep} last_pull={last_pull}"
+        )
+
+    def test_sequential_n1_streams(self, tmp_path: Path) -> None:
+        """Fresh N=1 path routes through ``_run_sequential`` and streams
+        chunk-by-chunk — pulls interleave with preps, reports accumulate."""
+        events: list[tuple[str, object]] = []
+        pipeline = _EventPipeline(n_triggers=12, events=events)
+        orch = _build_orchestrator(pipeline, tmp_path)
+
+        report = orch.run(source_descriptor="", batch_size=4, batches_in_flight=1)
+
+        # 12 triggers / 4 = 3 chunks, each its own RunReport.
+        assert len(report.chunks) == 3
+        assert report.s5_done == 12
+        assert report.failed_chunks == []
+        first_prep = next(i for i, e in enumerate(events) if e[0] == "prep")
+        last_pull = max(i for i, e in enumerate(events) if e[0] == "pull")
+        assert first_prep < last_pull
+
+    def test_sequential_n1_isolates_chunk_failure(self, tmp_path: Path) -> None:
+        """A prep failure in one chunk doesn't abort the N=1 stream."""
+        triggers = _make_triggers(15)
+        pipeline = _FakePipeline(triggers_per_call=triggers, raise_on_prep=2)
+        orch = _build_orchestrator(pipeline, tmp_path)
+
+        report = orch.run(source_descriptor="", batch_size=5, batches_in_flight=1)
+
+        assert len(report.chunks) == 2
+        assert len(report.failed_chunks) == 1
+        assert report.failed_chunks[0][1] == "RuntimeError"
+
+    def test_empty_source_n1_yields_empty_report(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers_per_call=[])
+        orch = _build_orchestrator(pipeline, tmp_path)
+        report = orch.run(source_descriptor="", batch_size=10, batches_in_flight=1)
+        assert report.chunks == []
+        assert report.failed_chunks == []
+
+
 class TestAimdMultiBatchP95Wiring043:
     """043 — overlapped path swaps the controller's p95 source to point at
     the upload-active recorder. Single-batch path stays unchanged."""

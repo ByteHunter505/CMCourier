@@ -102,6 +102,27 @@ class TestContract:
             list(adapter.query_stream("SELECT 1"))
 
 
+class TestGetAllLazy050:
+    """050: ``get_all`` iterates the DataFrame row by row — it must NOT
+    build the full ``to_dict(orient="records")`` list (which doubles the
+    transient peak for a 20M-row source)."""
+
+    def test_get_all_does_not_call_to_dict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import pandas as pd
+
+        def _boom(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("get_all must not call DataFrame.to_dict (050)")
+
+        monkeypatch.setattr(pd.DataFrame, "to_dict", _boom)
+        src = TabularDataSource(_SAMPLE_CSV)
+        try:
+            rows = list(src.get_all())
+            assert len(rows) == 5
+            assert set(rows[0].keys()) == {"Name", "Age", "Birth"}
+        finally:
+            src.close()
+
+
 class TestLifecycle:
     def test_close(self) -> None:
         src = TabularDataSource(_SAMPLE_CSV)

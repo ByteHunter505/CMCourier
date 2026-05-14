@@ -135,8 +135,12 @@ class TabularDataSource(IDataSource):
 
     def get_all(self) -> Iterator[dict[str, Any]]:
         self._ensure_open()
-        for row in self._df.to_dict(orient="records"):
-            yield _normalize_row(row)
+        # 050: iterate row by row via ``itertuples`` (lazy) instead of
+        # ``to_dict(orient="records")`` which builds the full list of
+        # every row's dict before the generator yields anything.
+        columns = list(self._df.columns)
+        for values in self._df.itertuples(index=False, name=None):
+            yield _normalize_row(dict(zip(columns, values, strict=True)))
 
     def count(self) -> int:
         self._ensure_open()

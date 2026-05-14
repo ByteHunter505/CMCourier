@@ -29,11 +29,12 @@ from __future__ import annotations
 
 __all__ = ["ChunkState", "MultiBatchOrchestrator", "MultiBatchRunReport"]
 
+import itertools
 import logging
 import queue
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -342,14 +343,242 @@ class MultiBatchOrchestrator:
         from_stage: int,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        report = self._pipeline.run(
+        # 050: resume / from_stage>1 operate on a previously-created,
+        # already-bounded batch — keep the monolithic pipeline.run(). A
+        # fresh N=1 run can face the full (20M-row) source, so it streams
+        # chunk-by-chunk via _run_sequential (bounded memory).
+        if resume_batch_id is not None or from_stage > 1:
+            report = self._pipeline.run(
+                source_descriptor=source_descriptor,
+                batch_size=batch_size,
+                batch_id=resume_batch_id,
+                from_stage=from_stage,
+                total=total,
+            )
+            return MultiBatchRunReport(chunks=[report])
+        return self._run_sequential(
             source_descriptor=source_descriptor,
             batch_size=batch_size,
-            batch_id=resume_batch_id,
-            from_stage=from_stage,
             total=total,
         )
-        return MultiBatchRunReport(chunks=[report])
+
+    def _run_sequential(
+        self,
+        *,
+        source_descriptor: str,
+        batch_size: int,
+        total: int | None = None,
+    ) -> MultiBatchRunReport:
+        """050: fresh single-in-flight run, streamed chunk-by-chunk.
+
+        The N=1 shape of :meth:`_run_overlapped` — no producer-consumer
+        thread overlap, but the same bounded-memory guarantee: triggers
+        are pulled in ``batch_size`` waves, each chunk's memory released
+        before the next is pulled.
+        """
+        triggers: Iterator[Trigger] = self._pipeline._trigger_strategy.acquire(  # noqa: SLF001
+            source_descriptor
+        )
+        if total is not None:
+            triggers = itertools.islice(triggers, max(0, total))
+
+        results: list[RunReport] = []
+        failed: list[tuple[str, str]] = []
+        results_lock = threading.Lock()
+        controller = self._pipeline.auto_tune_controller
+        sampler = self._pipeline.sampler
+        if sampler is not None:
+            sampler.start()
+        if controller is not None:
+            controller.set_p95_provider(self._upload_p95_observer)
+            controller.start()
+        try:
+            for idx, chunk in enumerate(chunked(triggers, batch_size)):
+                prepared = self._prep_one_chunk(
+                    idx, chunk, failed=failed, results_lock=results_lock
+                )
+                if prepared is not None:
+                    self._upload_one_chunk(
+                        prepared, results=results, failed=failed, results_lock=results_lock
+                    )
+        finally:
+            if controller is not None:
+                controller.stop(timeout=2.0)
+            if sampler is not None:
+                sampler.stop()
+
+        results.sort(key=lambda r: r.batch_id)
+        return MultiBatchRunReport(chunks=results, failed_chunks=failed)
+
+    # ----- shared per-chunk steps (N=1 + N=2) -------------------------
+
+    def _prep_one_chunk(
+        self,
+        idx: int,
+        chunk: list[Trigger],
+        *,
+        failed: list[tuple[str, str]],
+        results_lock: threading.Lock,
+    ) -> _PreparedChunk | None:
+        """Run S0..S4 for one chunk. Shared by the N=1 (_run_sequential)
+        and N=2 (_run_overlapped) paths. Returns the prepared chunk, or
+        ``None`` when prep failed (the failure is recorded in ``failed``).
+
+        The chunk's state is seeded here the moment the chunk is pulled —
+        there is no upfront QUEUED seeding (knowing the chunk count means
+        materializing the whole trigger set, which 050 exists to avoid).
+        """
+        try:
+            batch_id = self._pipeline._resolve_batch_id(  # noqa: SLF001
+                None, from_stage=1, batch_size=len(chunk)
+            )
+            recorder = self._build_chunk_recorder()
+            recorder.start_batch(pipeline=self._pipeline.pipeline_name, batch_id=batch_id)
+            started = time.monotonic()
+            self._update_chunk_state(
+                chunk_idx=idx,
+                batch_id=batch_id,
+                status="PREP",
+                prep_started_monotonic=started,
+            )
+            self._set_active_recorder(recorder)
+            items, skipped, s1d, s2f, s3f, s4f = self._pipeline.prep_chunk(
+                triggers=chunk,
+                batch_id=batch_id,
+                recorder=recorder,
+            )
+            prep_elapsed = time.monotonic() - started
+            total_bytes = _items_total_bytes(items)
+            # Freeze the PREP-side breakdown the moment prep wraps.
+            self._update_chunk_state(
+                chunk_idx=idx,
+                batch_id=batch_id,
+                status="PREP",
+                doc_count=s1d + skipped,
+                total_bytes=total_bytes,
+                prep_done=len(items),
+                prep_skipped=skipped,
+                prep_failed=s2f + s3f + s4f,
+                prep_elapsed_s=prep_elapsed,
+            )
+            return _PreparedChunk(
+                batch_id=batch_id,
+                chunk_idx=idx,
+                triggers=chunk,
+                items=items,
+                skipped=skipped,
+                s1_done=s1d,
+                s2_failed=s2f,
+                s3_failed=s3f,
+                s4_failed=s4f,
+                recorder=recorder,
+                started_at=started,
+            )
+        except BaseException as exc:  # noqa: BLE001 — recorded, run continues
+            _log.exception(
+                "multi-batch: prep failed",
+                extra={"chunk_idx": idx, "reason": type(exc).__name__},
+            )
+            self._update_chunk_state(
+                chunk_idx=idx,
+                batch_id=self._chunks_state.get(
+                    idx, ChunkState(chunk_idx=idx, batch_id="", status="FAILED")
+                ).batch_id,
+                status="FAILED",
+            )
+            with results_lock:
+                failed.append((f"chunk-{idx}", type(exc).__name__))
+            return None
+
+    def _upload_one_chunk(
+        self,
+        item: _PreparedChunk,
+        *,
+        results: list[RunReport],
+        failed: list[tuple[str, str]],
+        results_lock: threading.Lock,
+    ) -> None:
+        """Run S5 for one prepared chunk. Shared by the N=1 and N=2 paths.
+        Appends a :class:`RunReport` to ``results`` on success, or a
+        ``(batch_id, reason)`` pair to ``failed`` on failure.
+        """
+        upload_started = time.monotonic()
+        self._update_chunk_state(
+            chunk_idx=item.chunk_idx,
+            batch_id=item.batch_id,
+            status="UPLOAD",
+            upload_started_monotonic=upload_started,
+        )
+        self._set_active_recorder(item.recorder)
+        # 042: independent UPLOAD-side binding for the TUI tab.
+        self._set_upload_active_recorder(item.recorder)
+        try:
+            s5_done, s5_failed = self._pipeline.upload_chunk(
+                items=item.items,
+                batch_id=item.batch_id,
+                recorder=item.recorder,
+            )
+            self._pipeline._tracking_store.flush()  # noqa: SLF001
+            self._pipeline._tracking_store.complete_batch(item.batch_id)  # noqa: SLF001
+            elapsed = time.monotonic() - item.started_at
+            upload_elapsed = time.monotonic() - upload_started
+            total_docs = item.s1_done + item.skipped
+            item.recorder.close_batch(
+                pipeline=self._pipeline.pipeline_name,
+                batch_id=item.batch_id,
+                total_docs=total_docs,
+                elapsed_s=elapsed,
+            )
+            self._update_chunk_state(
+                chunk_idx=item.chunk_idx,
+                batch_id=item.batch_id,
+                status="DONE",
+                s5_done=s5_done,
+                s5_failed=s5_failed,
+                upload_skipped=item.recorder.upload_skipped_count(),
+                upload_elapsed_s=upload_elapsed,
+            )
+            with self._state_lock:
+                if self._upload_active_recorder is item.recorder:
+                    self._upload_active_recorder = None
+            with results_lock:
+                results.append(
+                    RunReport(
+                        batch_id=item.batch_id,
+                        total_triggers=len(item.triggers),
+                        total_docs=total_docs,
+                        s1_done=item.s1_done,
+                        s1_skipped_cross_batch=item.skipped,
+                        s2_done=len(item.items) + item.s2_failed,
+                        s2_failed=item.s2_failed,
+                        s3_done=len(item.items) + item.s3_failed,
+                        s3_failed=item.s3_failed,
+                        s4_done=len(item.items),
+                        s4_failed=item.s4_failed,
+                        s5_done=s5_done,
+                        s5_failed=s5_failed,
+                        elapsed_seconds=elapsed,
+                    )
+                )
+        except BaseException as exc:  # noqa: BLE001 — recorded, run continues
+            _log.exception(
+                "multi-batch: upload failed",
+                extra={
+                    "batch_id": item.batch_id,
+                    "chunk_idx": item.chunk_idx,
+                    "reason": type(exc).__name__,
+                },
+            )
+            self._update_chunk_state(
+                chunk_idx=item.chunk_idx,
+                batch_id=item.batch_id,
+                status="FAILED",
+            )
+            with self._state_lock:
+                if self._upload_active_recorder is item.recorder:
+                    self._upload_active_recorder = None
+            with results_lock:
+                failed.append((item.batch_id, type(exc).__name__))
 
     # ----- N=2 path ---------------------------------------------------
 
@@ -360,90 +589,31 @@ class MultiBatchOrchestrator:
         batch_size: int,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        triggers = list(self._pipeline._trigger_strategy.acquire(source_descriptor))  # noqa: SLF001
+        # 050: stream the trigger iterator — never materialize the full
+        # trigger set nor the full chunk list. Peak in-flight memory is
+        # O(batch_size × batches_in_flight), not O(total triggers).
+        triggers: Iterator[Trigger] = self._pipeline._trigger_strategy.acquire(  # noqa: SLF001
+            source_descriptor
+        )
         if total is not None:
-            triggers = triggers[: max(0, total)]
+            triggers = itertools.islice(triggers, max(0, total))
         chunks_iter = chunked(triggers, batch_size)
-        chunk_list = list(chunks_iter)
-        if not chunk_list:
-            return MultiBatchRunReport(chunks=[])
 
         upload_queue: queue.Queue[object] = queue.Queue(maxsize=2)
         results: list[RunReport] = []
         failed: list[tuple[str, str]] = []
         results_lock = threading.Lock()
 
-        # 030: seed the chunk-state machine so the TUI's CHUNKS tab can
-        # render the full plan immediately (all chunks start as QUEUED).
-        for idx in range(len(chunk_list)):
-            self._update_chunk_state(chunk_idx=idx, batch_id="", status="QUEUED")
-
         def _prep_loop() -> None:
-            for idx, chunk in enumerate(chunk_list):
-                try:
-                    batch_id = self._pipeline._resolve_batch_id(  # noqa: SLF001
-                        None, from_stage=1, batch_size=len(chunk)
-                    )
-                    recorder = self._build_chunk_recorder()
-                    recorder.start_batch(pipeline=self._pipeline.pipeline_name, batch_id=batch_id)
-                    started = time.monotonic()
-                    self._update_chunk_state(
-                        chunk_idx=idx,
-                        batch_id=batch_id,
-                        status="PREP",
-                        prep_started_monotonic=started,
-                    )
-                    self._set_active_recorder(recorder)
-                    items, skipped, s1d, s2f, s3f, s4f = self._pipeline.prep_chunk(
-                        triggers=chunk,
-                        batch_id=batch_id,
-                        recorder=recorder,
-                    )
-                    prep_elapsed = time.monotonic() - started
-                    total_bytes = _items_total_bytes(items)
-                    # Freeze the PREP-side breakdown the moment prep wraps; the
-                    # chunk will sit in the upload queue with status=PREP until
-                    # picked up, but its prep numbers are already final.
-                    self._update_chunk_state(
-                        chunk_idx=idx,
-                        batch_id=batch_id,
-                        status="PREP",
-                        doc_count=s1d + skipped,
-                        total_bytes=total_bytes,
-                        prep_done=len(items),
-                        prep_skipped=skipped,
-                        prep_failed=s2f + s3f + s4f,
-                        prep_elapsed_s=prep_elapsed,
-                    )
-                    upload_queue.put(
-                        _PreparedChunk(
-                            batch_id=batch_id,
-                            chunk_idx=idx,
-                            triggers=chunk,
-                            items=items,
-                            skipped=skipped,
-                            s1_done=s1d,
-                            s2_failed=s2f,
-                            s3_failed=s3f,
-                            s4_failed=s4f,
-                            recorder=recorder,
-                            started_at=started,
-                        )
-                    )
-                except BaseException as exc:  # noqa: BLE001 — handed off through queue
-                    _log.exception(
-                        "multi-batch: prep failed",
-                        extra={"chunk_idx": idx, "reason": type(exc).__name__},
-                    )
-                    self._update_chunk_state(
-                        chunk_idx=idx,
-                        batch_id=self._chunks_state.get(
-                            idx, ChunkState(chunk_idx=idx, batch_id="", status="FAILED")
-                        ).batch_id,
-                        status="FAILED",
-                    )
-                    with results_lock:
-                        failed.append((f"chunk-{idx}", type(exc).__name__))
+            # 050: pull chunks lazily; _prep_one_chunk seeds each chunk's
+            # state the moment it is pulled. An empty iterator simply runs
+            # zero iterations → empty MultiBatchRunReport.
+            for idx, chunk in enumerate(chunks_iter):
+                prepared = self._prep_one_chunk(
+                    idx, chunk, failed=failed, results_lock=results_lock
+                )
+                if prepared is not None:
+                    upload_queue.put(prepared)
             upload_queue.put(_PREP_DONE)
 
         def _upload_loop() -> None:
@@ -461,86 +631,9 @@ class MultiBatchOrchestrator:
                     if item is _PREP_DONE:
                         return
                     assert isinstance(item, _PreparedChunk)
-                    upload_started = time.monotonic()
-                    self._update_chunk_state(
-                        chunk_idx=item.chunk_idx,
-                        batch_id=item.batch_id,
-                        status="UPLOAD",
-                        upload_started_monotonic=upload_started,
+                    self._upload_one_chunk(
+                        item, results=results, failed=failed, results_lock=results_lock
                     )
-                    self._set_active_recorder(item.recorder)
-                    # 042: independent UPLOAD-side binding for the TUI tab.
-                    self._set_upload_active_recorder(item.recorder)
-                    try:
-                        s5_done, s5_failed = self._pipeline.upload_chunk(
-                            items=item.items,
-                            batch_id=item.batch_id,
-                            recorder=item.recorder,
-                        )
-                        self._pipeline._tracking_store.flush()  # noqa: SLF001
-                        self._pipeline._tracking_store.complete_batch(item.batch_id)  # noqa: SLF001
-                        elapsed = time.monotonic() - item.started_at
-                        upload_elapsed = time.monotonic() - upload_started
-                        total_docs = item.s1_done + item.skipped
-                        item.recorder.close_batch(
-                            pipeline=self._pipeline.pipeline_name,
-                            batch_id=item.batch_id,
-                            total_docs=total_docs,
-                            elapsed_s=elapsed,
-                        )
-                        self._update_chunk_state(
-                            chunk_idx=item.chunk_idx,
-                            batch_id=item.batch_id,
-                            status="DONE",
-                            s5_done=s5_done,
-                            s5_failed=s5_failed,
-                            upload_skipped=item.recorder.upload_skipped_count(),
-                            upload_elapsed_s=upload_elapsed,
-                        )
-                        # 042: chunk left S5 — release the UPLOAD-side slot
-                        # so the TUI doesn't keep showing this chunk's
-                        # numbers after the next chunk enters UPLOAD.
-                        with self._state_lock:
-                            if self._upload_active_recorder is item.recorder:
-                                self._upload_active_recorder = None
-                        with results_lock:
-                            results.append(
-                                RunReport(
-                                    batch_id=item.batch_id,
-                                    total_triggers=len(item.triggers),
-                                    total_docs=total_docs,
-                                    s1_done=item.s1_done,
-                                    s1_skipped_cross_batch=item.skipped,
-                                    s2_done=len(item.items) + item.s2_failed,
-                                    s2_failed=item.s2_failed,
-                                    s3_done=len(item.items) + item.s3_failed,
-                                    s3_failed=item.s3_failed,
-                                    s4_done=len(item.items),
-                                    s4_failed=item.s4_failed,
-                                    s5_done=s5_done,
-                                    s5_failed=s5_failed,
-                                    elapsed_seconds=elapsed,
-                                )
-                            )
-                    except BaseException as exc:  # noqa: BLE001
-                        _log.exception(
-                            "multi-batch: upload failed",
-                            extra={
-                                "batch_id": item.batch_id,
-                                "chunk_idx": item.chunk_idx,
-                                "reason": type(exc).__name__,
-                            },
-                        )
-                        self._update_chunk_state(
-                            chunk_idx=item.chunk_idx,
-                            batch_id=item.batch_id,
-                            status="FAILED",
-                        )
-                        with self._state_lock:
-                            if self._upload_active_recorder is item.recorder:
-                                self._upload_active_recorder = None
-                        with results_lock:
-                            failed.append((item.batch_id, type(exc).__name__))
             finally:
                 if controller is not None:
                     controller.stop(timeout=2.0)
