@@ -51,6 +51,46 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.57.0] — 2026-05-14 — **UPLOAD-tab recorder wiring: finish the 042 split**
+
+On an N=2 staging run the UPLOAD tab was dead: bandwidth `0.00 MB/s`,
+peak `0.00 MB/s`, a blank UPLOAD SPEED sparkline, SLOW OPS
+"(none yet)" — and the per-chunk timer counted from a point long
+before S5 started. Two bugs, both incomplete fallout from 042.
+
+### Fixed
+
+- **Bandwidth / peak / sparkline / slow ops read the PREP recorder.**
+  042 split the TUI's recorder binding (`recorder_provider` follows the
+  most-recently-started chunk; `upload_recorder_provider` stays on the
+  chunk inside S5) and moved `_current_chunk_progress` to the upload
+  side — but four fields in `TUIDataProvider.snapshot()`
+  (`bandwidth_current_mbps`, `bandwidth_peak_mbps`, `bandwidth_series`,
+  `slow_ops_all`) were left reading `self._metrics`. During chunk N's
+  upload, with chunk N+1 already in PREP, `self._metrics` is N+1's
+  recorder — whose per-batch `_BandwidthHandler` / `_SlowOpHandler`
+  filter out batch N's `cmis_upload` events. So all four read empty.
+  They now read `self._upload_metrics` (which falls back to
+  `self._metrics` for single-batch runs — unchanged there).
+- **The per-chunk timer measured from PREP start.**
+  `_current_chunk_progress` derived the active chunk's `elapsed_s` from
+  `prep_started_monotonic` — so the UPLOAD tab's "chunk elapsed"
+  counted from roughly program launch for chunk 0, and
+  `current_chunk_avg_mbps` was diluted by the entire PREP phase. It now
+  resolves `elapsed_s` by chunk status: `UPLOAD` measures from
+  `upload_started_monotonic`, `DONE` uses the frozen `upload_elapsed_s`,
+  `PREP` is `0.0`. Single-batch (no active chunk) is unchanged.
+
+### Notes
+
+- The gap that let both bugs ship: no `TUIDataProvider` test wired
+  **divergent** PREP and UPLOAD recorders, so `_metrics` and
+  `_upload_metrics` could never diverge under test. 054 adds that shape
+  — two distinct `MetricsRecorder`s, one fed PREP data, one fed UPLOAD
+  data — as the regression gate.
+
+---
+
 ## [0.56.0] — 2026-05-14 — **Bottleneck classifier: stage-aware + time-window log association**
 
 `cmcourier analyze batch` is supposed to answer *where the time went*
