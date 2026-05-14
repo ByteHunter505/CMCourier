@@ -146,6 +146,9 @@ class TUIDataProvider:
         self._lane_controller = lane_controller
         self._batch_id: str = ""
         self._batch_started_monotonic: float | None = None
+        # 052: stamped on completion so the run timer FREEZES instead of
+        # ticking forever after the last chunk finishes.
+        self._batch_completed_monotonic: float | None = None
         self._is_complete = False
 
     @property
@@ -175,10 +178,13 @@ class TUIDataProvider:
     def mark_batch_started(self, batch_id: str) -> None:
         self._batch_id = batch_id
         self._batch_started_monotonic = time.monotonic()
+        self._batch_completed_monotonic = None
         self._is_complete = False
 
     def mark_batch_complete(self) -> None:
         self._is_complete = True
+        # 052: freeze the run clock at completion.
+        self._batch_completed_monotonic = time.monotonic()
 
     # ------------------------------------------------------- snapshot
 
@@ -194,11 +200,13 @@ class TUIDataProvider:
                 if UPLOAD_STAGE in upload_stages:
                     stages = {**stages, UPLOAD_STAGE: upload_stages[UPLOAD_STAGE]}
         pool = self._pool_stats.snapshot()
-        elapsed = (
-            time.monotonic() - self._batch_started_monotonic
-            if self._batch_started_monotonic is not None
-            else 0.0
-        )
+        # 052: once complete, measure to the frozen completion time so the
+        # footer timer stops instead of counting up after the run ends.
+        if self._batch_started_monotonic is None:
+            elapsed = 0.0
+        else:
+            end = self._batch_completed_monotonic or time.monotonic()
+            elapsed = end - self._batch_started_monotonic
         completed = pool.completed
         throughput = (completed / elapsed) if elapsed > 0 and completed > 0 else 0.0
 

@@ -220,3 +220,50 @@ class TestRenderChunksLiveCounters042:
         assert "17/0/0   (4.2s)" in out
         # NOT showing the stale 0/0/0 the pre-042 code would have shown
         assert "0/0/0   (4.2s)" not in out
+
+
+# ---------------------------------------------------------------------------
+# 052 — per-chunk UPLOAD throughput (MB/s · docs/s)
+# ---------------------------------------------------------------------------
+
+
+class TestRenderChunksRate052:
+    """The CHUNKS tab shows per-chunk UPLOAD throughput; zero elapsed
+    renders a dash instead of dividing by zero."""
+
+    def test_chunk_shows_upload_rate(self) -> None:
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "AAA",
+                "status": "DONE",
+                "s5_done": 50,
+                "s5_failed": 0,
+                "doc_count": 50,
+                "total_bytes": 100 * 1_048_576,  # 100 MB
+                "prep_done": 50,
+                "prep_elapsed_s": 5.0,
+                "upload_elapsed_s": 10.0,
+            },
+        )
+        out = render_chunks(_snap(chunks))
+        # 100 MB / 10s = 10.0 MB/s ; 50 docs / 10s = 5.0 docs/s
+        assert "10.0 · 5.0" in out
+
+    def test_zero_upload_elapsed_renders_dash_no_crash(self) -> None:
+        chunks = (
+            {
+                "chunk_idx": 0,
+                "batch_id": "AAA",
+                "status": "PREP",
+                "s5_done": 0,
+                "s5_failed": 0,
+                "doc_count": 50,
+                "total_bytes": 10 * 1_048_576,
+                "prep_done": 50,
+                "prep_elapsed_s": 5.0,
+                "upload_elapsed_s": 0.0,  # not started → no divide-by-zero
+            },
+        )
+        out = render_chunks(_snap(chunks))  # must not raise
+        assert "— · —" in out

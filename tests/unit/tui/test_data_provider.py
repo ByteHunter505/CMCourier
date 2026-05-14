@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -124,6 +125,24 @@ class TestTUIDataProvider:
         assert snap.is_complete is False
         provider.mark_batch_complete()
         assert provider.snapshot().is_complete is True
+
+    def test_elapsed_ticks_while_running(self, tmp_path: Path) -> None:
+        provider, _r, _p, _s = _make_provider(tmp_path)
+        provider.mark_batch_started("b")
+        e1 = provider.snapshot().elapsed_s
+        time.sleep(0.05)
+        e2 = provider.snapshot().elapsed_s
+        assert e2 > e1  # still running → the clock advances
+
+    def test_elapsed_frozen_after_complete(self, tmp_path: Path) -> None:
+        # 052: the run timer must FREEZE at completion, not tick forever.
+        provider, _r, _p, _s = _make_provider(tmp_path)
+        provider.mark_batch_started("b")
+        provider.mark_batch_complete()
+        e1 = provider.snapshot().elapsed_s
+        time.sleep(0.05)
+        e2 = provider.snapshot().elapsed_s
+        assert e1 == e2
 
     def test_slow_ops_passes_through_aggregator(self, tmp_path: Path) -> None:
         provider, recorder, _p, _s = _make_provider(tmp_path)

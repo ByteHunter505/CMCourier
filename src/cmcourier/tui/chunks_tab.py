@@ -58,7 +58,8 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
     lines.append("")
     lines.append(
         f"  {'idx':>3}  {'batch_id':<14}  {'docs':>5}  {'MB':>7}  "
-        f"{'PREP d/s/f/x (elap)':<22}  {'UPLOAD d/s/f (elap)':<22}  {'state':<10}"
+        f"{'PREP d/s/f/x (elap)':<22}  {'UPLOAD d/s/f (elap)':<22}  "
+        f"{'RATE MB/s·d/s':<16}  {'state':<10}"
     )
     lines.append("  " + "─" * (width - 2))
 
@@ -108,10 +109,12 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
             elapsed_s=upload_elapsed,
             has_started=status in ("UPLOAD", "DONE", "FAILED"),
         )
+        # 052: per-chunk UPLOAD throughput — bytes/sec and docs/sec.
+        rate_cell = _rate_cell(total_bytes, upload_done, upload_elapsed)
 
         lines.append(
             f"  {idx:>3}  {batch_id:<14}  {doc_count:>5}  {mb:>7.1f}  "
-            f"{prep_cell:<22}  {upload_cell:<22}  {glyph} {status:<8}"
+            f"{prep_cell:<22}  {upload_cell:<22}  {rate_cell:<16}  {glyph} {status:<8}"
         )
 
         # Aggregate. QUEUED rows contribute their plan (docs/bytes) but no
@@ -150,13 +153,29 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
             int(totals[k]) > 0 for k in ("upload_done", "upload_skipped", "upload_failed")
         ),
     )
+    total_rate_cell = _rate_cell(
+        int(totals["bytes"]), int(totals["upload_done"]), float(totals["upload_elapsed_s"])
+    )
     label = f"TOTAL ({len(chunks)} chunks)"
     lines.append(
         f"  {label:<19}  {int(totals['docs']):>5}  {total_mb:>7.1f}  "
-        f"{prep_total_cell:<22}  {upload_total_cell:<22}"
+        f"{prep_total_cell:<22}  {upload_total_cell:<22}  {total_rate_cell:<16}"
     )
     lines.append("")
     return "\n".join(lines)
+
+
+def _rate_cell(total_bytes: int, docs: int, elapsed_s: float) -> str:
+    """052: format the UPLOAD throughput cell — ``MB/s · docs/s``.
+
+    A non-positive ``elapsed_s`` (stage not started, or instant) renders a
+    dash instead of dividing by zero.
+    """
+    if elapsed_s <= 0:
+        return f"{_DASH} · {_DASH}"
+    mbps = (total_bytes / 1_048_576.0) / elapsed_s
+    dps = docs / elapsed_s
+    return f"{mbps:.1f} · {dps:.1f}"
 
 
 def _stage_cell(
