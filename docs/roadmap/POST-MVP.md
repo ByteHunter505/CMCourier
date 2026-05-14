@@ -508,14 +508,14 @@ S3 always queries fresh. The `document_cache` table is created in the schema wit
 
 These are not promises — they are observations from the original codebase or the design that may grow into features if real operations demand them:
 
-1. **Concurrent CMIS uploads against the same folder** — IBM CM has been observed to throttle when too many uploads target one folder. May need per-folder concurrency limits if it bites in production.
-2. **Connection pool warm-up at process start** — currently each thread warms up its own JSESSIONID lazily; warming all up front could shave first-request latency.
-3. **Resume after total host crash mid-S5** — the tracking idempotency handles process-kill mid-batch, but a subtle bug class is "S5 partial: file uploaded to CMIS but tracking write didn't land". Currently mitigated by CMIS idempotency on `cmis:objectId` + retry, but should be characterized empirically.
-4. **Configurable retry budgets per pipeline** — MVP uses one global retry policy. Different pipelines may want different budgets.
-5. **Periodic state snapshot for very long batches** — for a batch that takes hours, midway snapshots accelerate post-mortem analysis.
-6. **CLI auto-completion** — Click supports it; not free but cheap. Worth doing once command surface stabilizes.
+1. **Concurrent CMIS uploads against the same folder** — IBM CM has been observed to throttle when too many uploads target one folder. May need per-folder concurrency limits if it bites in production. **— still open.**
+2. ~~**Connection pool warm-up at process start**~~ — **SHIPPED in change 039** (`CHANGELOG.md [0.39.0]`, tagged `POST-MVP §10.2`). The pool now eager-warms every connection at process start instead of lazy per-thread JSESSIONID warm-up.
+3. ~~**Resume after total host crash mid-S5**~~ — **SHIPPED in changes 044 + 045.** 044 added stage-gap detection to the resume logic; 045 closed the exact "file uploaded to CMIS but tracking write didn't land" kill-race — on the retry's HTTP 409 the uploader looks the object up by `cmis:name` and treats it as `S5_DONE`. Characterized empirically via the §H.1 live kill-mid-S5 verification. See `CHANGELOG.md [0.47.0]` + `[0.48.0]`.
+4. **Configurable retry budgets per pipeline** — MVP uses one global retry policy. Different pipelines may want different budgets. **— still open.**
+5. **Periodic state snapshot for very long batches** — for a batch that takes hours, midway snapshots accelerate post-mortem analysis. **— still open.**
+6. ~~**CLI auto-completion**~~ — **SHIPPED.** `cmcourier completion {bash|zsh|fish}` emits the shell-completion script. (PowerShell unsupported — a known gap, not on this watchlist.)
 
-These items will not get their own roadmap section until a real operational pain pushes them to implementation.
+Remaining open: **items 1, 4, 5** — none with a hard date; each waits on a real operational pain (most likely surfacing during the first production migration) before it earns its own `/sdd-new` change.
 
 ---
 
