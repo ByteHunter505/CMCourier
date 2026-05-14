@@ -243,6 +243,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Forty-seventh change (045): idempotent S5 upload on 409 conflict — `CmisUploader.upload` recovers from kill-race orphans (doc in Alfresco, missing from migration_log) by looking up the existing `cmis:objectId` via the folder-children endpoint; closes the last `S5_FAILED` window after a real `kill -9`
 - [x] Forty-eighth change (046): polymorphic `Trigger` model — each pipeline emits its natural trigger shape (`ClientTrigger` for csv / single-doc / as400, `RvabrepRowTrigger` for rvabrep-direct, `LocalScanTrigger` for local-scan); S1 dispatches per subtype, so local-scan now uploads exactly the files in the scan pool (no more "1 file → all client docs" over-expansion)
 - [x] Forty-ninth change (047): persist `cm_object_id` on `S5_DONE` — `mark_stage_done` now writes the CMIS objectId into `migration_log` so the tracking DB can answer "what's the objectId of doc X?" without a children-walk against CMIS
+- [x] Fiftieth change (048): pluggable RVABREP source — `indexing.source` becomes a discriminated union (`kind: csv` ↔ `kind: as400`); `rvabrep-pipeline` serves both (CSV file vs. live AS400 query returning an RVABREP-shaped table), the standalone `as400-trigger-pipeline` command and `trigger.kind: as400` are removed (AS400 is a *source* choice, not a trigger kind)
 - [x] MVP: `rvabrep-pipeline` end-to-end
 - [ ] Real-data dry run against staging
 - [ ] First production migration

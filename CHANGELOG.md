@@ -51,6 +51,45 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.51.0] — 2026-05-14 — **Pluggable RVABREP source**
+
+The `rvabrep-pipeline` and the old `as400-trigger-pipeline` were never
+two different pipelines — they ran the *same* stages over the *same*
+RVABREP-shaped table. The only real difference was **where the table
+came from**: a CSV file simulating RVABREP, or a live SQL query against
+the AS400. 048 makes that the only thing that varies.
+
+### Changed
+
+- **`indexing.source` is now a discriminated union** (`kind: csv` or
+  `kind: as400`). The CSV variant carries `csv_path`; the AS400 variant
+  carries a `connection` block plus a `query` that returns an
+  RVABREP-shaped result set (JOINs / filters may be baked into the
+  query — the pipeline only cares about the output columns). The
+  pipeline wiring builds an `IDataSource` from whichever variant is
+  configured; every downstream stage is unchanged.
+- The `rvabrep-pipeline` command now serves **both** sources. Pick the
+  source in config, not in the command name.
+
+### Removed
+
+- **`as400-trigger-pipeline` command** and the `trigger.kind: as400`
+  config kind. AS400 is a *source* choice, not a *trigger* kind. Configs
+  using `trigger.kind: as400` now fail fast at load time with a
+  migration hint: set `trigger.kind: rvabrep` and
+  `indexing.source.kind: as400` with `connection` + `query`.
+- `As400TriggerConfig`, `As400TriggerStrategy`, and
+  `services/triggers/as400.py`.
+
+### Notes
+
+- NIARVILOG (AS400-level idempotency tracking, 034) is untouched — it
+  remains a separate concern from the RVABREP source.
+- Clean break, no back-compat shim: the project is pre-production and
+  the loader rejects the removed kind with an actionable error.
+
+---
+
 ## [0.50.0] — 2026-05-14 — **Persist cm_object_id on S5_DONE**
 
 The §L.3 step of the validation checklist ("GET a doc by objectId,

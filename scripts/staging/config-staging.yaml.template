@@ -20,7 +20,15 @@ trigger:
 # S1 — Indexing (RVABREP)
 # ---------------------------------------------------------------------
 indexing:
-  csv_path: </abs/path/to/sample/rvabrep.csv>
+  # 048: the RVABREP source is pluggable — a CSV file (simulating
+  # RVABREP) or a live AS400 query that returns an RVABREP-shaped table.
+  source:
+    kind: csv
+    csv_path: </abs/path/to/sample/rvabrep.csv>
+    # kind: as400
+    # connection:
+    #   host: "10.0.0.1"
+    # query: "SELECT * FROM RVILIB.RVABREP"
   batch_size: 50
   # columns: ...  # match your CSV's actual header names if non-default
 

@@ -207,7 +207,7 @@ cmcourier --help
 ```
 
 **Espera**: lista de subcomandos (`doctor`, `csv-trigger-pipeline`,
-`rvabrep-pipeline`, `as400-trigger-pipeline`, `local-scan-pipeline`,
+`rvabrep-pipeline`, `local-scan-pipeline`,
 `single-doc`, `batch`, `inspect`, `as400-query`, `background`,
 `analyze`, `completion`, `sync`, `mock`, `cache`).
 
@@ -476,16 +476,31 @@ cmcourier rvabrep-pipeline run --config config-staging.yaml --total 10 --no-tui
 **Espera**: similar a E.1 pero S0 reporta "scanner-driven" en vez de
 "csv-driven".
 
-### E.3 — `as400-trigger-pipeline`
+### E.3 — `rvabrep-pipeline` con fuente AS400 (048)
+
+A partir de 0.51.0 **no hay** un `as400-trigger-pipeline` aparte: es la
+**misma** `rvabrep-pipeline`, sólo cambia de dónde sale la tabla
+RVABREP. En el YAML, `indexing.source.kind` es un union discriminado:
+
+```yaml
+indexing:
+  source:
+    kind: as400
+    connection:
+      host: "10.0.0.1"
+    query: "SELECT * FROM RVILIB.RVABREP"   # devuelve una tabla con forma RVABREP
+```
 
 ⚠️ **No la podés probar localmente** sin AS400. Si tenés acceso a un
 AS400 staging:
 
 ```bash
-cmcourier as400-trigger-pipeline run --config config-staging-as400.yaml --total 5 --no-tui
+cmcourier rvabrep-pipeline run --config config-staging-as400.yaml --total 5 --no-tui
 ```
 
-Sino, salteá esto.
+Sino, salteá esto. (Configs viejas con `trigger.kind: as400` fallan al
+cargar con un hint de migración — pasá a `trigger.kind: rvabrep` +
+`indexing.source.kind: as400`.)
 
 ### E.4 — `local-scan-pipeline`
 
@@ -940,9 +955,9 @@ errores, duración. Detecta regresiones entre runs.
 
 ⚠️ El filter `--pipeline` matchea contra el campo `pipeline` del
 `batch_summary` (que es **el nombre completo del pipeline**:
-`csv-trigger-pipeline`, `rvabrep-trigger`, `as400-trigger-pipeline`,
-`local-scan-pipeline`, `single-doc`). Pasarle el alias corto
-(`rvabrep`, `csv`) devuelve una tabla vacía.
+`csv-trigger-pipeline`, `rvabrep-trigger`, `local-scan-pipeline`,
+`single-doc`). Pasarle el alias corto (`rvabrep`, `csv`) devuelve una
+tabla vacía.
 
 ---
 
@@ -1125,7 +1140,7 @@ Remove-Item C:\Temp\filler                          # liberar
 
 | Test | Por qué no acá | Cómo testearlo |
 | --- | --- | --- |
-| `as400-trigger-pipeline` end-to-end | Necesita IBM i AS400 con NIARVILOG accesible | Pedí accesos a staging AS400 + ODBC driver instalado |
+| `rvabrep-pipeline` con `indexing.source.kind: as400` end-to-end | Necesita IBM i AS400 accesible vía ODBC | Pedí accesos a staging AS400 + ODBC driver instalado |
 | AS400 distributed idempotency (034) | Idem | Idem |
 | Modelo `cmcourier:bacDoc` properties | NO se registra en Alfresco 23.x Community vía bootstrap classpath (bug #5 en session memory) | Subir XML via Admin Console (`/share` → Admin Tools → Model Manager → Import) |
 | CMIS rejection de tipos IBM CM (`$t!-N_BAC_…v-1`) | Alfresco no replica el syntax check de IBM CM | Solo en CMIS productivo |

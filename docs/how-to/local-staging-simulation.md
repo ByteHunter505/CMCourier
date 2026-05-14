@@ -188,7 +188,9 @@ trigger:
   csv_path: sample/triggers.csv
 
 indexing:
-  csv_path: sample/rvabrep-50k.csv
+  source:
+    kind: csv
+    csv_path: sample/rvabrep-50k.csv
 
 mapping:
   rvi_cm_csv_path: sample/MapeoRVI_CM.csv      # or docs/samples/csv/...
