@@ -26,11 +26,12 @@ If you don't want to point at a YAML, swap `--config` for
 `--log-dir <path>` and the analyzer reads raw JSONL files
 without consulting the pipeline config. Two consequences:
 
-1. The bottleneck classifier loses the `cmis_max_bandwidth_mbps`
-   ceiling, so the `network-bound` rule can only fall back to
-   the "upload p95 > 5 s" heuristic.
-2. The classifier loses `pool_capacity`, so the
-   `worker-saturated` rule never fires.
+1. The classifier loses the `cmis_max_bandwidth_mbps` ceiling, so the
+   system-metrics `network-bound` *reason* can't fire — but an upload
+   bottleneck still surfaces as `upload-bound` via the stage breakdown.
+2. The classifier loses `pool_capacity`, so the `worker-saturated`
+   *reason* never fires. Neither loss affects the primary, stage-led
+   verdict.
 
 ---
 
@@ -42,9 +43,21 @@ families:
 | File pattern | Tier | Filter |
 |---|---|---|
 | `metrics-{date}.jsonl` | 2 — pipeline | records where `batch_id` matches |
-| `network-{date}.jsonl` | 3 — network | records where `batch_id` matches |
-| `system-{date}.jsonl` | 5 — system (026) | records where `batch_id` matches |
+| `network-{date}.jsonl` | 3 — network | records inside the batch's **time window** (no `batch_id` on these records) |
+| `system-{date}.jsonl` | 5 — system (026) | records inside the batch's **time window** (no `batch_id` on these records) |
 | `slow-ops-{batch_id}.jsonl` | 4 — slow ops | file-per-batch, picked by name |
+
+The `network-*` and `system-*` records carry **no `batch_id`** — only
+a timestamp. The reader derives the batch window
+`[ts − elapsed_s, ts]` from the `batch_summary` record (which *is*
+batch-tagged) and keeps records whose timestamp (`ts` for network,
+`ts_iso` for system) falls inside it. For a single-batch run this is
+exact; for **overlapped (N=2)** runs the two batches' windows overlap
+and a record in the overlap may land in either batch — a known
+limitation (the per-stage breakdown below is batch-tagged and exact,
+and it is the primary signal). When a batch has no `batch_summary`
+record the window can't be derived and the network/system tiers come
+back empty rather than guessing.
 
 Cross-midnight runs are handled by the glob — both
 `metrics-2026-05-10.jsonl` and `metrics-2026-05-11.jsonl`
@@ -57,51 +70,80 @@ report still produces.
 
 ## Bottleneck classifier
 
-The classifier inspects the aggregated system samples and
-network metrics and outputs one of six classes:
+The classifier answers two questions: *which stage ate the time*, and
+*is the bottleneck inside the program (ours to optimise) or outside it
+(the CMIS server + network — we can only push more concurrency)*.
 
-| Class | Rule |
+### The per-stage breakdown is the PRIMARY signal
+
+The `batch_summary` record carries a per-stage timing breakdown
+(`sum_ms` = total time across every doc in that stage). It is
+batch-tagged, always present, and the most direct bottleneck signal —
+so the classifier leads with it. When one stage holds **≥ 45%** of
+total stage time, that stage **is** the bottleneck:
+
+| Dominant stage | Class | Locus |
+|---|---|---|
+| `S5` (upload) | `upload-bound` | **OUTSIDE** the program — the CMIS server + network. The client can only push more concurrency. |
+| `S4` (assembly) | `assembly-bound` | INSIDE — PDF/TIFF assembly CPU. Ours. |
+| `S3` (metadata) | `metadata-bound` | INSIDE — metadata resolution. |
+| `S2` (mapping) | `mapping-bound` | INSIDE. |
+| `S1` (indexing) | `indexing-bound` | INSIDE. |
+| `S0` (trigger) | `trigger-bound` | INSIDE. |
+
+`confidence` is the dominant stage's share of total stage time, and
+the `reasons` line names the stage, its share, its p50/p95, and
+whether it is **INSIDE** or **OUTSIDE** the program — so the operator
+gets the answer to their question, not just a label.
+
+### System metrics REFINE, they don't gate
+
+When system samples are present, these signals are appended as
+**corroborating reasons** to the stage verdict — they no longer gate
+it:
+
+| Signal | Rule |
 |---|---|
-| `worker-saturated` | `active_workers == pool_capacity` in **≥80%** of system samples |
 | `cpu-bound` | `process_cpu_pct > 80%` in **≥50%** of samples |
 | `memory-bound` | `ram_used / ram_total > 0.85` in **≥50%** of samples |
 | `disk-bound` | `disk_read + disk_write > 100 Mbps` **and** `cpu_pct < 50%` in **≥50%** of samples |
-| `network-bound` | `(net_in + net_out) > 80% × cmis.max_bandwidth_mbps` in **≥50%** of samples (with system metrics) **OR** `cmis_upload p95 > 5000 ms` (fallback when no system samples) |
-| `under-utilized` | none of the above crossed its threshold — the run looks healthy and the bottleneck is unclear |
+| `network-bound` | `(net_in + net_out) > 80% × cmis.max_bandwidth_mbps` in **≥50%** of samples |
+| `worker-saturated` | `active_workers == pool_capacity` in **≥80%** of samples — a **symptom** of a slow downstream, not a cause |
 
-**Tie-break order (highest precedence first):**
-`worker-saturated > cpu-bound > memory-bound > disk-bound >
-network-bound > under-utilized`.
+These become the *classification* **only when no stage dominates**.
+In that fallback a real resource cause (cpu / mem / disk / network)
+always outranks `worker-saturated` — saturation is a symptom, so it is
+the verdict only when it is the sole signal that fired.
 
-When multiple rules fire, the one with the highest sample-vote
-confidence wins; on a tie, precedence breaks it.
+`under-utilized` is returned only when **no** stage dominates **and**
+no system signal fires — a genuinely idle run.
 
 ### Reading confidence
 
-The `confidence` field is the fraction of samples that voted
-for the winning class. A `cpu-bound` verdict with confidence
-`0.62` means 62% of the system samples showed
-`process_cpu_pct > 80%`. Anything ≥ 0.75 is high-signal;
-0.5–0.74 is suggestive; below 0.5 should never fire (it's the
-threshold).
+For a stage-led verdict, `confidence` is the dominant stage's fraction
+of total stage time — `upload-bound` at `0.93` means S5 ate 93% of the
+per-doc time. For a system-led fallback verdict it is the fraction of
+samples that voted for the winning class. Anything ≥ 0.75 is
+high-signal; 0.45–0.74 is suggestive.
 
 ### Known limitations
 
-- **Small batches (< 60 s)** with the default 5 s sampler
-  interval produce <12 samples — the classifier can be noisy.
-  Lower `observability.system_metrics.sample_interval_s` to
-  1.0 if you specifically need higher resolution for short
-  diagnostic runs.
-- **Sampler disabled** (`system_metrics.enabled: false`)
-  → only the network-bound fallback heuristic can fire; every
-  other class falls back to `under-utilized`.
-- **No `cmis.max_bandwidth_mbps`** configured → the
-  system-metrics network rule is skipped; only the upload-p95
-  fallback can fire.
-- The analyzer reports **what** is saturated, not **why**.
-  A `network-bound` verdict on a CMIS-heavy run could mean
-  the CMIS server is overloaded, your NIC is at capacity,
-  or there's WAN contention between you and CMIS — that's
+- **Overlapped (N=2) runs** — network/system records are associated by
+  time window, and the two batches' windows overlap. The stage
+  breakdown stays exact (batch-tagged); the system/network *reasons*
+  may be slightly cross-contaminated.
+- **Small batches (< 60 s)** with the default 5 s sampler interval
+  produce <12 system samples — the corroborating reasons can be noisy.
+  Lower `observability.system_metrics.sample_interval_s` to 1.0 for
+  higher resolution on short diagnostic runs.
+- **Sampler disabled** (`system_metrics.enabled: false`) → no
+  corroborating reasons, but the stage-led verdict is unaffected.
+- **No `cmis.max_bandwidth_mbps`** configured → the system-metrics
+  `network-bound` reason is skipped, but an upload bottleneck still
+  surfaces as `upload-bound` via the stage breakdown.
+- The analyzer reports **what** is saturated, not **why**. An
+  `upload-bound` verdict means S5 dominated — it could be the CMIS
+  server overloaded, your NIC at capacity, or WAN contention; that's
   for the operator to triage.
 
 ---
@@ -140,8 +182,8 @@ TOP SLOW OPS
 ------------------------------------------------------------
   cmis_upload          6000 ms  txn=TXN_001  worker=w1
 
-Bottleneck: under-utilized (confidence 1.00)
-  • no bottleneck class crossed its threshold
+Bottleneck: upload-bound (confidence 1.00)
+  • S5 dominates — 100% of total stage time (p50 100 ms, p95 500 ms); bottleneck is OUTSIDE the program
 ```
 
 ---
@@ -207,9 +249,13 @@ fails and a comment is posted on the PR.
 
 ### Minimum viable check
 
-The smallest useful CI step is "run the validation batch and
-assert the verdict didn't move from `under-utilized` →
-`network-bound`":
+For a migration tool, `upload-bound` is the *expected* steady state —
+S5 (the CMIS upload) dominating means the program is doing its job and
+the bottleneck is OUTSIDE our control. The regression to catch is an
+**INSIDE**-the-program stage suddenly dominating
+(`assembly-bound`, `metadata-bound`, `mapping-bound`, …) — that means
+*our* code got slow. So the CI gate is "assert the verdict stayed
+outside the program":
 
 ```bash
 # In CI — run a tiny migration (the --total flag from 033 caps it):
@@ -224,13 +270,13 @@ VERDICT=$(cmcourier analyze trends --last 1 --config staging.yaml --format json 
           | xargs -I {} cmcourier analyze batch {} --config staging.yaml --format json \
           | jq -r '.bottleneck.classification')
 
-# Fail the build if a regression is detected:
+# Fail the build if an INSIDE-the-program stage regressed:
 case "$VERDICT" in
-  "under-utilized"|"network-bound")
-    echo "::notice::CI batch verdict: $VERDICT"
+  "upload-bound"|"under-utilized"|"network-bound")
+    echo "::notice::CI batch verdict: $VERDICT (bottleneck outside the program)"
     ;;
-  "cpu-bound"|"memory-bound"|"disk-bound"|"worker-saturated")
-    echo "::error::CI batch verdict regressed to '$VERDICT'"
+  *)
+    echo "::error::CI batch verdict regressed to '$VERDICT' — an INSIDE-the-program stage now dominates"
     exit 1
     ;;
 esac
@@ -331,11 +377,12 @@ about.
   against a CMIS-emulator container, or run only the
   pre-S5 stages and skip S5 entirely (a future change can
   add `--skip-s5`).
-* **Small `--total` masks worker-saturation**: with `--total
-  10`, the AIMD controller never warms up and `active_workers`
-  stays low. The `worker-saturated` and `cpu-bound` verdicts
-  almost never fire in CI — that's expected. CI catches
-  config / wiring regressions, not load issues.
+* **Small `--total` masks load signals**: with `--total 10`, the AIMD
+  controller never warms up and `active_workers` stays low — the
+  `worker-saturated` / `cpu-bound` corroborating reasons almost never
+  fire in CI, and that's expected. The stage-led verdict is still
+  meaningful (a tiny batch will normally still be `upload-bound`). CI
+  catches config / wiring regressions, not load issues.
 * **Determinism is per-input**: identical JSONL produces
   identical JSON, but two CI runs with different timing
   produce different JSONL. Don't pin against `byte-identical

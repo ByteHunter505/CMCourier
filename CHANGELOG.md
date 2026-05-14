@@ -51,6 +51,64 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.56.0] — 2026-05-14 — **Bottleneck classifier: stage-aware + time-window log association**
+
+`cmcourier analyze batch` is supposed to answer *where the time went*
+and *whether the bottleneck is inside the program or outside it*. On a
+real 95-doc staging run — S5 (upload) was **26× the next stage** — it
+reported `under-utilized`. Exactly wrong.
+
+### Fixed
+
+- **The classifier ignored the stage breakdown.**
+  `classify_bottleneck` *received* the per-stage timing but it was
+  marked `# noqa: ARG001` and never read — so the single clearest,
+  batch-exact bottleneck signal was discarded and the verdict fell
+  back to system metrics that weren't even populated (see below).
+- **Network & system records were never associated with the batch.**
+  `LogReader` filtered the `network-*.jsonl` / `system-*.jsonl` tiers
+  by `rec["batch_id"] == batch_id`, but those records carry **no**
+  `batch_id` — only a timestamp. So `network_summary` came back empty
+  and `system_summary` was `None` on every run. The reader now derives
+  the batch window `[ts − elapsed_s, ts]` from the `batch_summary`
+  record and associates the non-tagged tiers by timestamp (`ts` for
+  network, `ts_iso` for system).
+- **Absolute thresholds masked the obvious.** `network-bound` was dead
+  whenever `cmis_max_bandwidth_mbps == 0` (the default); the
+  `cmis_upload p95 > 5000 ms` fallback never fired for a run whose S5
+  dominated 26× but whose p95 was "only" ~1.1 s.
+
+### Changed
+
+- **Classification is stage-led.** The per-stage breakdown is the
+  PRIMARY signal: when one stage holds ≥ 45% of total stage time it
+  *is* the bottleneck. The verdict names the stage and whether the
+  bottleneck is **INSIDE** the program (ours to optimise) or
+  **OUTSIDE** it (the CMIS server + network — the client can only push
+  more concurrency): `S5 → upload-bound` (outside);
+  `S4 → assembly-bound`, `S3 → metadata-bound`, `S2 → mapping-bound`,
+  `S1 → indexing-bound`, `S0 → trigger-bound` (inside).
+- **System metrics refine, they don't gate.** cpu/mem/disk/network
+  signals are appended as corroborating reasons to the stage verdict.
+  They only become the *classification* when no stage dominates.
+- **`worker-saturated` is a symptom, not a cause.** It is reported as
+  a reason line alongside the verdict; it never overrides a stage
+  verdict, and even in the no-stage fallback a real resource cause
+  outranks it. `under-utilized` is returned only when no stage
+  dominates *and* no system signal fires.
+
+### Notes
+
+- Out of scope: tagging network/system records with a real `batch_id`
+  (contextvar plumbing through the S5 worker pool). Time-window
+  association is exact for single-batch runs; for **overlapped (N=2)**
+  runs the windows overlap and a record in the overlap may be
+  attributed to either batch — a documented limitation. The
+  batch-tagged per-stage breakdown is unaffected and remains the
+  primary signal.
+
+---
+
 ## [0.55.0] — 2026-05-14 — **CHUNKS tab: live rates, frozen timer, drill-down**
 
 Three gaps the operator hit on the TUI during a `--total 2000`

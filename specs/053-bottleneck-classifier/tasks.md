@@ -24,14 +24,16 @@
 
 ## Phase 2 — CHANGELOG 0.56.0 + version bump + docs + FF
 
-- [ ] 2.1 `CHANGELOG.md [0.56.0]` — Fixed / Changed.
-- [ ] 2.2 `pyproject.toml` 0.55.0 → 0.56.0.
-- [ ] 2.3 `.venv/bin/pip install -e . --no-deps`.
-- [ ] 2.4 `cmcourier --version` reports 0.56.0.
-- [ ] 2.5 `README.md` feature row tick.
-- [ ] 2.6 `docs/how-to/log-analysis.md` — stage-led classification +
-      inside/outside-the-program labels + time-window caveat.
-- [ ] 2.7 Full suite + ruff + mypy clean.
-- [ ] 2.8 Commit
+- [x] 2.1 `CHANGELOG.md [0.56.0]` — Fixed / Changed.
+- [x] 2.2 `pyproject.toml` 0.55.0 → 0.56.0.
+- [x] 2.3 `.venv/bin/pip install -e . --no-deps`.
+- [x] 2.4 `cmcourier --version` reports 0.56.0.
+- [x] 2.5 `README.md` feature row tick.
+- [x] 2.6 `docs/how-to/log-analysis.md` — stage-led classification +
+      inside/outside-the-program labels + time-window caveat + the
+      CI regression gate reframed around INSIDE-the-program stages.
+- [x] 2.7 Full suite + ruff + mypy clean (verified in Phase 1; Phase 2
+      touches no source — docs/CHANGELOG/version/README only).
+- [x] 2.8 Commit
       `docs(053): CHANGELOG 0.56.0 + version bump + bottleneck-classifier docs (053 Phase 2)`.
 - [ ] 2.9 FF to main.
