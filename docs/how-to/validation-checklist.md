@@ -557,6 +557,19 @@ cmcourier rvabrep-pipeline run --config config-staging.yaml --total 5
 cmcourier rvabrep-pipeline run --config config-staging.yaml --total 5 --no-tui
 ```
 
+> **Corré el TUI en una terminal de verdad** (Windows Terminal,
+> PowerShell, iTerm, etc.), **NO en la terminal integrada de VS Code**
+> — esa última no forwardea bien el teclado a apps a pantalla completa
+> y las teclas no llegan.
+
+> **Pestañas del TUI (054+)**: `p` PREP · `u` UPLOAD · `c` CHUNKS ·
+> `d` DETAIL · `q` salir. En CHUNKS, la columna `RATE MB/s·d/s` muestra
+> el throughput de upload por chunk. Con `[` / `]` movés el cursor de
+> chunk; `d` te lleva a la pestaña DETAIL, que lista los docs del chunk
+> seleccionado (nombre, tamaño, estado, razón del fail/skip) leídos del
+> tracking store. El timer del footer **se congela** cuando el run
+> termina (antes seguía corriendo).
+
 ### F.2 — Multi-batch (N=2 producer-consumer)
 
 YAML: `processing.batches_in_flight: 2` (default). Override CLI:

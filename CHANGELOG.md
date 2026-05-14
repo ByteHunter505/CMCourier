@@ -51,6 +51,44 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.55.0] — 2026-05-14 — **CHUNKS tab: live rates, frozen timer, drill-down**
+
+Three gaps the operator hit on the TUI during a `--total 2000`
+staging run.
+
+### Added
+
+- **Per-chunk throughput in the CHUNKS tab.** A new `RATE MB/s·d/s`
+  column shows each chunk's UPLOAD-phase throughput (and a TOTAL
+  row). Zero `upload_elapsed_s` renders a dash — no divide-by-zero.
+- **DETAIL tab — per-chunk drill-down.** `[` / `]` move a chunk
+  cursor, `d` jumps to the tab, and the pane lists every doc of the
+  selected chunk: `txn_num`, `file_name`, size, status, and the
+  fail/skip reason. The detail is read from the SQLite tracking
+  store **on demand** — never held in memory for every chunk, so
+  spec 050's bounded-memory guarantee holds. New
+  `ITrackingStore.list_docs_for_batch` + `DocDetail` model; the
+  table caps at 100 rows and points at `cmcourier batch show` for
+  the full list.
+
+### Fixed
+
+- **The run timer never stopped.** `TUIDataProvider` measured
+  `elapsed` to `time.monotonic()` on every snapshot, so the footer
+  clock counted up forever after the last chunk finished.
+  `mark_batch_complete` now stamps a frozen completion time and
+  `snapshot()` measures to it — the timer **stops** when the run
+  does.
+
+### Notes
+
+- Out of scope: a mouse-clickable `DataTable` rewrite of the CHUNKS
+  tab (the `Static` + `[`/`]` cursor is lower-risk and sufficient
+  for a live dashboard), and full post-mortem of a finished run
+  (still the CLI's job — `cmcourier batch show` / `inspect`).
+
+---
+
 ## [0.54.0] — 2026-05-14 — **"Filtered at S1" is a first-class outcome**
 
 A `--total 2000` staging run showed S1 processing 1000 triggers per
