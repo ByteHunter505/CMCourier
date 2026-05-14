@@ -900,6 +900,79 @@ class TestAs400SyncConfig:
         config = PipelineConfig.model_validate(data)
         assert config.tracking.as400_sync.enabled is False
 
+    def test_invalid_library_identifier_rejected(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig
+
+        with pytest.raises(ValidationError):
+            As400SyncConfig(library="MI BIB")  # space
+        with pytest.raises(ValidationError):
+            As400SyncConfig(table="NIARVILOG; DROP TABLE X")  # injection attempt
+
+    def test_valid_custom_library_table(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig
+
+        cfg = As400SyncConfig(library="MIBIB", table="MININARVILOG")
+        assert cfg.library == "MIBIB"
+        assert cfg.table == "MININARVILOG"
+
+
+# ---------------------------------------------------------------------------
+# 049 — NiarvilogColumnsModel
+# ---------------------------------------------------------------------------
+
+
+class TestNiarvilogColumnsModel:
+    def test_defaults_are_canonical_names(self) -> None:
+        from cmcourier.config.schema import NiarvilogColumnsModel
+
+        cols = NiarvilogColumnsModel()
+        assert cols.status_column == "STSCOD"
+        assert cols.txn_num_column == "TRNNUM"
+        assert cols.cm_object_id_column == "OBJIDN"
+        assert cols.error_message_column == "EERRMSG"
+
+    def test_partial_override_keeps_other_defaults(self) -> None:
+        from cmcourier.config.schema import NiarvilogColumnsModel
+
+        cols = NiarvilogColumnsModel(status_column="ESTADO", txn_num_column="NUMTRX")
+        assert cols.status_column == "ESTADO"
+        assert cols.txn_num_column == "NUMTRX"
+        # untouched fields keep canonical defaults
+        assert cols.cm_object_id_column == "OBJIDN"
+
+    def test_as400_sync_carries_columns(self) -> None:
+        from cmcourier.config.schema import As400SyncConfig, NiarvilogColumnsModel
+
+        cfg = As400SyncConfig(columns=NiarvilogColumnsModel(status_column="ESTADO"))
+        assert cfg.columns.status_column == "ESTADO"
+        # default when omitted
+        assert As400SyncConfig().columns.status_column == "STSCOD"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "ESTA DO",  # space
+            "STSCOD;",  # statement terminator
+            "1STSCOD",  # leading digit
+            "ST'SCOD",  # quote
+            "A" * 129,  # too long
+            "",  # empty
+        ],
+    )
+    def test_invalid_identifier_rejected(self, bad: str) -> None:
+        from cmcourier.config.schema import NiarvilogColumnsModel
+
+        with pytest.raises(ValidationError):
+            NiarvilogColumnsModel(status_column=bad)
+
+    def test_db2_special_letters_accepted(self) -> None:
+        from cmcourier.config.schema import NiarvilogColumnsModel
+
+        # @, #, $ are valid DB2 identifier letters.
+        cols = NiarvilogColumnsModel(status_column="ST#COD", idcm_column="$IDNBAC")
+        assert cols.status_column == "ST#COD"
+        assert cols.idcm_column == "$IDNBAC"
+
 
 # ---------------------------------------------------------------------------
 # MappingConfig two-mode (035): consolidated CSV vs split MapeoRVI+MetadatosCM

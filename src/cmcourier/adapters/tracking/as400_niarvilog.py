@@ -34,6 +34,7 @@ __all__ = [
     "As400CoordinationError",
     "As400NiarvilogStore",
     "As400UnreachableError",
+    "NiarvilogColumns",
     "NiarvilogRow",
 ]
 
@@ -98,10 +99,54 @@ class NiarvilogRow:
     eerrmsg: str
 
 
-_SELECT_COLUMNS = (
-    "SISCOD, TRNNUM, DOCFRM, IMGARC, IMGTIP, CTECIF, CTENUM, "
-    "STSCOD, IDNBAC, TIPIDN, OBJIDN, NUMREI, PMRREI, FINREI, EERRMSG"
-)
+@dataclass(frozen=True, slots=True)
+class NiarvilogColumns:
+    """Physical column names for RVILIB.NIARVILOG — per-environment (049).
+
+    Defaults are the canonical names. Validated upstream by
+    :class:`cmcourier.config.schema.NiarvilogColumnsModel` (DB2
+    identifier check); the adapter treats them as trusted identifiers
+    safe to interpolate into SQL.
+    """
+
+    system_id: str = "SISCOD"
+    txn_num: str = "TRNNUM"
+    doc_format: str = "DOCFRM"
+    image_archive: str = "IMGARC"
+    image_type: str = "IMGTIP"
+    client_cif: str = "CTECIF"
+    client_num: str = "CTENUM"
+    status: str = "STSCOD"
+    idcm: str = "IDNBAC"
+    cm_type: str = "TIPIDN"
+    cm_object_id: str = "OBJIDN"
+    retry_count: str = "NUMREI"
+    started_at: str = "PMRREI"
+    finished_at: str = "FINREI"
+    error_message: str = "EERRMSG"
+
+    def select_list(self) -> str:
+        """Comma-separated column list for ``SELECT`` — fixed field order
+        matching :class:`NiarvilogRow`."""
+        return ", ".join(
+            (
+                self.system_id,
+                self.txn_num,
+                self.doc_format,
+                self.image_archive,
+                self.image_type,
+                self.client_cif,
+                self.client_num,
+                self.status,
+                self.idcm,
+                self.cm_type,
+                self.cm_object_id,
+                self.retry_count,
+                self.started_at,
+                self.finished_at,
+                self.error_message,
+            )
+        )
 
 
 class As400NiarvilogStore:
@@ -135,6 +180,7 @@ class As400NiarvilogStore:
         password: str,
         library: str = "RVILIB",
         table: str = "NIARVILOG",
+        columns: NiarvilogColumns | None = None,
         stale_in_progress_minutes: int = 30,
         retry_attempts: int = 3,
         retry_base_delay_s: float = 5.0,
@@ -144,6 +190,7 @@ class As400NiarvilogStore:
         self._password = password
         self._library = library
         self._table = table
+        self._cols = columns or NiarvilogColumns()
         self._stale_minutes = stale_in_progress_minutes
         self._retry_attempts = max(1, int(retry_attempts))
         self._retry_base_delay_s = max(0.001, float(retry_base_delay_s))
@@ -162,11 +209,13 @@ class As400NiarvilogStore:
     ) -> bool:
         """Atomic claim. Returns True iff this process now owns the row."""
         pk = _pk_from(document=document, trigger=trigger)
+        c = self._cols
         update_sql = (
             f"UPDATE {self._full_table()} "
-            f"SET STSCOD = 'I', IDNBAC = ?, TIPIDN = ? "
-            f"WHERE SISCOD = ? AND TRNNUM = ? AND DOCFRM = ? AND IMGARC = ? "
-            f"AND STSCOD = 'N'"
+            f"SET {c.status} = 'I', {c.idcm} = ?, {c.cm_type} = ? "
+            f"WHERE {c.system_id} = ? AND {c.txn_num} = ? "
+            f"AND {c.doc_format} = ? AND {c.image_archive} = ? "
+            f"AND {c.status} = 'N'"
         )
         params = [mapping.id_corto, mapping.cmis_type, *pk]
         rowcount = self._execute_write(update_sql, params, "niarvilog_claim_update")
@@ -193,10 +242,12 @@ class As400NiarvilogStore:
         cm_object_id: str,
     ) -> None:
         pk = _pk_from(document=document, trigger=trigger)
+        c = self._cols
         sql = (
             f"UPDATE {self._full_table()} "
-            f"SET STSCOD = 'O', OBJIDN = ?, EERRMSG = '' "
-            f"WHERE SISCOD = ? AND TRNNUM = ? AND DOCFRM = ? AND IMGARC = ?"
+            f"SET {c.status} = 'O', {c.cm_object_id} = ?, {c.error_message} = '' "
+            f"WHERE {c.system_id} = ? AND {c.txn_num} = ? "
+            f"AND {c.doc_format} = ? AND {c.image_archive} = ?"
         )
         params = [cm_object_id, *pk]
         rowcount = self._execute_write(sql, params, "niarvilog_mark_uploaded")
@@ -217,10 +268,13 @@ class As400NiarvilogStore:
         error: str,
     ) -> None:
         pk = _pk_from(document=document, trigger=trigger)
+        c = self._cols
         sql = (
             f"UPDATE {self._full_table()} "
-            f"SET STSCOD = 'F', EERRMSG = ?, NUMREI = NUMREI + 1 "
-            f"WHERE SISCOD = ? AND TRNNUM = ? AND DOCFRM = ? AND IMGARC = ?"
+            f"SET {c.status} = 'F', {c.error_message} = ?, "
+            f"{c.retry_count} = {c.retry_count} + 1 "
+            f"WHERE {c.system_id} = ? AND {c.txn_num} = ? "
+            f"AND {c.doc_format} = ? AND {c.image_archive} = ?"
         )
         # AS400 VARCHAR(1024) — truncate defensively.
         params = [error[:1024], *pk]
@@ -234,32 +288,17 @@ class As400NiarvilogStore:
         docfrm: str,
         imgarc: str,
     ) -> NiarvilogRow | None:
+        c = self._cols
         sql = (
-            f"SELECT {_SELECT_COLUMNS} FROM {self._full_table()} "
-            f"WHERE SISCOD = ? AND TRNNUM = ? AND DOCFRM = ? AND IMGARC = ?"
+            f"SELECT {c.select_list()} FROM {self._full_table()} "
+            f"WHERE {c.system_id} = ? AND {c.txn_num} = ? "
+            f"AND {c.doc_format} = ? AND {c.image_archive} = ?"
         )
         params = [siscod, trnnum, docfrm, imgarc]
         rows = self._execute_read(sql, params, "niarvilog_read_state")
         if not rows:
             return None
-        row = rows[0]
-        return NiarvilogRow(
-            siscod=str(row["SISCOD"]).strip(),
-            trnnum=str(row["TRNNUM"]).strip(),
-            docfrm=str(row["DOCFRM"]).strip(),
-            imgarc=str(row["IMGARC"]).strip(),
-            imgtip=str(row["IMGTIP"]).strip(),
-            ctecif=str(row["CTECIF"]).strip(),
-            ctenum=int(row["CTENUM"] or 0),
-            stscod=str(row["STSCOD"]).strip(),
-            idnbac=str(row["IDNBAC"]).strip(),
-            tipidn=str(row["TIPIDN"]).strip(),
-            objidn=str(row["OBJIDN"]).strip(),
-            numrei=int(row["NUMREI"] or 0),
-            pmrrei=row["PMRREI"],
-            finrei=row["FINREI"],
-            eerrmsg=str(row["EERRMSG"]).strip(),
-        )
+        return self._row_from_dict(rows[0])
 
     def read_state_by_txn(self, *, trnnum: str) -> NiarvilogRow | None:
         """TRNNUM-only lookup (034 phase 4).
@@ -270,31 +309,15 @@ class As400NiarvilogStore:
         one row per txn_num — this method assumes that and returns
         the first matching row (or None).
         """
+        c = self._cols
         sql = (
-            f"SELECT {_SELECT_COLUMNS} FROM {self._full_table()} "
-            f"WHERE TRNNUM = ? FETCH FIRST 1 ROWS ONLY"
+            f"SELECT {c.select_list()} FROM {self._full_table()} "
+            f"WHERE {c.txn_num} = ? FETCH FIRST 1 ROWS ONLY"
         )
         rows = self._execute_read(sql, [trnnum], "niarvilog_read_state_by_txn")
         if not rows:
             return None
-        row = rows[0]
-        return NiarvilogRow(
-            siscod=str(row["SISCOD"]).strip(),
-            trnnum=str(row["TRNNUM"]).strip(),
-            docfrm=str(row["DOCFRM"]).strip(),
-            imgarc=str(row["IMGARC"]).strip(),
-            imgtip=str(row["IMGTIP"]).strip(),
-            ctecif=str(row["CTECIF"]).strip(),
-            ctenum=int(row["CTENUM"] or 0),
-            stscod=str(row["STSCOD"]).strip(),
-            idnbac=str(row["IDNBAC"]).strip(),
-            tipidn=str(row["TIPIDN"]).strip(),
-            objidn=str(row["OBJIDN"]).strip(),
-            numrei=int(row["NUMREI"] or 0),
-            pmrrei=row["PMRREI"],
-            finrei=row["FINREI"],
-            eerrmsg=str(row["EERRMSG"]).strip(),
-        )
+        return self._row_from_dict(rows[0])
 
     def mark_uploaded_by_txn(self, *, trnnum: str, cm_object_id: str) -> int:
         """Phase 4 helper for ``sync resolve --prefer-local``.
@@ -304,10 +327,11 @@ class As400NiarvilogStore:
         Operators use this when SQLite knows the doc is done but
         AS400 didn't get the notification (e.g. AS400 was down).
         """
+        c = self._cols
         sql = (
             f"UPDATE {self._full_table()} "
-            f"SET STSCOD = 'O', OBJIDN = ?, EERRMSG = '' "
-            f"WHERE TRNNUM = ?"
+            f"SET {c.status} = 'O', {c.cm_object_id} = ?, {c.error_message} = '' "
+            f"WHERE {c.txn_num} = ?"
         )
         return self._execute_write(sql, [cm_object_id, trnnum], "niarvilog_mark_uploaded_by_txn")
 
@@ -317,10 +341,12 @@ class As400NiarvilogStore:
         Returns the row count. Useful when a previous claim crashed
         between UPDATE 'I' and the eventual 'O' / 'F' write.
         """
+        c = self._cols
         sql = (
             f"UPDATE {self._full_table()} "
-            f"SET STSCOD = 'N' "
-            f"WHERE STSCOD = 'I' AND FINREI < (CURRENT_TIMESTAMP - ? MINUTES)"
+            f"SET {c.status} = 'N' "
+            f"WHERE {c.status} = 'I' "
+            f"AND {c.finished_at} < (CURRENT_TIMESTAMP - ? MINUTES)"
         )
         return self._execute_write(sql, [self._stale_minutes], "niarvilog_cleanup_stale")
 
@@ -340,6 +366,28 @@ class As400NiarvilogStore:
     def _full_table(self) -> str:
         return f"{self._library}.{self._table}"
 
+    def _row_from_dict(self, row: dict[str, Any]) -> NiarvilogRow:
+        """Build a :class:`NiarvilogRow` from a result dict keyed by the
+        configured physical column names."""
+        c = self._cols
+        return NiarvilogRow(
+            siscod=str(row[c.system_id]).strip(),
+            trnnum=str(row[c.txn_num]).strip(),
+            docfrm=str(row[c.doc_format]).strip(),
+            imgarc=str(row[c.image_archive]).strip(),
+            imgtip=str(row[c.image_type]).strip(),
+            ctecif=str(row[c.client_cif]).strip(),
+            ctenum=int(row[c.client_num] or 0),
+            stscod=str(row[c.status]).strip(),
+            idnbac=str(row[c.idcm]).strip(),
+            tipidn=str(row[c.cm_type]).strip(),
+            objidn=str(row[c.cm_object_id]).strip(),
+            numrei=int(row[c.retry_count] or 0),
+            pmrrei=row[c.started_at],
+            finrei=row[c.finished_at],
+            eerrmsg=str(row[c.error_message]).strip(),
+        )
+
     def _insert_new_claim(
         self,
         *,
@@ -348,10 +396,13 @@ class As400NiarvilogStore:
         mapping: CMMapping,
         trigger: Trigger,
     ) -> None:
+        c = self._cols
         sql = (
             f"INSERT INTO {self._full_table()} "
-            f"(SISCOD, TRNNUM, DOCFRM, IMGARC, IMGTIP, CTECIF, CTENUM, "
-            f"STSCOD, IDNBAC, TIPIDN, OBJIDN, NUMREI, EERRMSG) "
+            f"({c.system_id}, {c.txn_num}, {c.doc_format}, {c.image_archive}, "
+            f"{c.image_type}, {c.client_cif}, {c.client_num}, {c.status}, "
+            f"{c.idcm}, {c.cm_type}, {c.cm_object_id}, {c.retry_count}, "
+            f"{c.error_message}) "
             f"VALUES (?, ?, ?, ?, ?, ?, ?, 'I', ?, ?, '', 0, '')"
         )
         # 046: trigger is polymorphic; use audit_row() to extract the

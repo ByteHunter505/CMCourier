@@ -41,6 +41,7 @@ __all__ = [
     "SingleDocTriggerConfig",
     "MetadataConfigModel",
     "MetadataSourceConfig",
+    "NiarvilogColumnsModel",
     "ObservabilityConfig",
     "PipelineConfig",
     "RvabrepFiltersModel",
@@ -52,6 +53,7 @@ __all__ = [
     "ValidationModel",
 ]
 
+import re
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -66,6 +68,25 @@ from pydantic import (
 )
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
+
+# DB2 for i ordinary-identifier rules: a letter (``@``, ``#``, ``$`` count
+# as letters) followed by letters / digits / underscore, 128 chars max.
+# NIARVILOG column / library / table names are string-interpolated into
+# SQL (an identifier can never be a ``?`` bind-param), so every
+# configurable identifier MUST be validated to close the injection
+# surface — see spec 049.
+_SQL_IDENTIFIER_RE = re.compile(r"[A-Za-z@#$][A-Za-z0-9@#$_]{0,127}")
+
+
+def _validate_sql_identifier(value: str) -> str:
+    if not _SQL_IDENTIFIER_RE.fullmatch(value):
+        msg = (
+            f"{value!r} is not a valid DB2 SQL identifier "
+            "(letter / @ / # / $ then letters / digits / _ / @ / # / $, "
+            "128 chars max)"
+        )
+        raise ValueError(msg)
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +456,41 @@ class CmisConfigModel(BaseModel):
     auto_tune: AutoTuneConfig = Field(default_factory=AutoTuneConfig)
 
 
+class NiarvilogColumnsModel(BaseModel):
+    """Logical → physical column map for the AS400 NIARVILOG table.
+
+    The bank runs CMCourier against several AS400 environments whose
+    NIARVILOG table has the same 15 columns under different physical
+    names. Defaults equal the canonical names so a config that omits
+    this block behaves exactly as pre-049.
+
+    Every value is interpolated into SQL (a column name can never be
+    a bind-param), so each field is validated as a DB2 identifier.
+    """
+
+    model_config = _STRICT
+    system_id_column: str = "SISCOD"
+    txn_num_column: str = "TRNNUM"
+    doc_format_column: str = "DOCFRM"
+    image_archive_column: str = "IMGARC"
+    image_type_column: str = "IMGTIP"
+    client_cif_column: str = "CTECIF"
+    client_num_column: str = "CTENUM"
+    status_column: str = "STSCOD"
+    idcm_column: str = "IDNBAC"
+    cm_type_column: str = "TIPIDN"
+    cm_object_id_column: str = "OBJIDN"
+    retry_count_column: str = "NUMREI"
+    started_at_column: str = "PMRREI"
+    finished_at_column: str = "FINREI"
+    error_message_column: str = "EERRMSG"
+
+    @field_validator("*")
+    @classmethod
+    def _check_identifier(cls, v: str) -> str:
+        return _validate_sql_identifier(v)
+
+
 class As400SyncConfig(BaseModel):
     """POST-MVP §4 — distributed idempotency coordination via AS400 NIARVILOG.
 
@@ -450,9 +506,15 @@ class As400SyncConfig(BaseModel):
     connection: As400ConnectionConfig | None = None
     library: str = "RVILIB"
     table: str = "NIARVILOG"
+    columns: NiarvilogColumnsModel = Field(default_factory=NiarvilogColumnsModel)
     stale_in_progress_minutes: int = Field(default=30, ge=1, le=1440)
     retry_attempts: int = Field(default=3, ge=1, le=10)
     retry_base_delay_s: float = Field(default=5.0, gt=0)
+
+    @field_validator("library", "table")
+    @classmethod
+    def _check_identifier(cls, v: str) -> str:
+        return _validate_sql_identifier(v)
 
     @model_validator(mode="after")
     def _connection_required_when_enabled(self) -> As400SyncConfig:

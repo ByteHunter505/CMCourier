@@ -13,7 +13,10 @@ __all__ = ["build_pipeline"]
 from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
 from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.adapters.tracking import SqliteDocumentCache, SQLiteTrackingStore
-from cmcourier.adapters.tracking.as400_niarvilog import As400NiarvilogStore
+from cmcourier.adapters.tracking.as400_niarvilog import (
+    As400NiarvilogStore,
+    NiarvilogColumns,
+)
 from cmcourier.adapters.upload.cmis_uploader import CmisConfig, CmisUploader
 from cmcourier.config.loader import Secrets
 from cmcourier.config.schema import (
@@ -26,6 +29,7 @@ from cmcourier.config.schema import (
     LocalScanTriggerConfig,
     MetadataConfigModel,
     MetadataSourceConfig,
+    NiarvilogColumnsModel,
     PipelineConfig,
     RvabrepTriggerConfig,
     SingleDocTriggerConfig,
@@ -202,6 +206,7 @@ def _build_idempotency_coordinator(
         password=secrets.as400_password,
         library=sync_cfg.library,
         table=sync_cfg.table,
+        columns=_niarvilog_columns_from_schema(sync_cfg.columns),
         stale_in_progress_minutes=sync_cfg.stale_in_progress_minutes,
         retry_attempts=sync_cfg.retry_attempts,
         retry_base_delay_s=sync_cfg.retry_base_delay_s,
@@ -384,6 +389,26 @@ def _indexing_columns_from_schema(model: IndexingColumnsModel) -> IndexingColumn
         creation_date_column=model.creation_date_column,
         last_view_date_column=model.last_view_date_column,
         total_pages_column=model.total_pages_column,
+    )
+
+
+def _niarvilog_columns_from_schema(model: NiarvilogColumnsModel) -> NiarvilogColumns:
+    return NiarvilogColumns(
+        system_id=model.system_id_column,
+        txn_num=model.txn_num_column,
+        doc_format=model.doc_format_column,
+        image_archive=model.image_archive_column,
+        image_type=model.image_type_column,
+        client_cif=model.client_cif_column,
+        client_num=model.client_num_column,
+        status=model.status_column,
+        idcm=model.idcm_column,
+        cm_type=model.cm_type_column,
+        cm_object_id=model.cm_object_id_column,
+        retry_count=model.retry_count_column,
+        started_at=model.started_at_column,
+        finished_at=model.finished_at_column,
+        error_message=model.error_message_column,
     )
 
 

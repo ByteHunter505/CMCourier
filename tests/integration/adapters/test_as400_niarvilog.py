@@ -18,6 +18,7 @@ from cmcourier.adapters.tracking.as400_niarvilog import (
     As400CoordinationError,
     As400NiarvilogStore,
     As400UnreachableError,
+    NiarvilogColumns,
     NiarvilogRow,
 )
 from cmcourier.config.schema import As400ConnectionConfig
@@ -593,6 +594,210 @@ def _make_store_with_retry(
         retry_base_delay_s=retry_base_delay_s,
     )
     return store, cur, conn
+
+
+# ---------------------------------------------------------------------------
+# Configurable column names (049)
+# ---------------------------------------------------------------------------
+
+
+# A NIARVILOG table in a different environment: same 15 columns, all
+# renamed. None of these names overlap the canonical ones.
+_CUSTOM_COLUMNS = NiarvilogColumns(
+    system_id="SISTID",
+    txn_num="NUMTRX",
+    doc_format="FORMATO",
+    image_archive="ARCHIVO",
+    image_type="TIPIMG",
+    client_cif="CIFCTE",
+    client_num="NUMCTE",
+    status="ESTADO",
+    idcm="IDCMBAC",
+    cm_type="TIPOCM",
+    cm_object_id="OBJCM",
+    retry_count="REINT",
+    started_at="FECINI",
+    finished_at="FECFIN",
+    error_message="MSGERR",
+)
+
+
+def _make_store_custom_cols(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    cursor: _FakeCursor | None = None,
+) -> tuple[As400NiarvilogStore, _FakeCursor, _FakeConn]:
+    cur, conn = _patch_pyodbc(monkeypatch, cursor)
+    store = As400NiarvilogStore(
+        connection=_conn_cfg(),
+        username="tester",
+        password="secret",
+        library="MIBIB",
+        table="MININARVILOG",
+        columns=_CUSTOM_COLUMNS,
+        stale_in_progress_minutes=30,
+    )
+    return store, cur, conn
+
+
+class TestConfigurableColumns:
+    """049: per-environment NIARVILOG physical column names."""
+
+    def test_try_claim_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.rowcount_queue = [1]
+        store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
+        record, document, mapping, trigger = _make_record()
+
+        store.try_claim(record=record, document=document, mapping=mapping, trigger=trigger)
+
+        sql, _ = cur.executions[0]
+        assert "MIBIB.MININARVILOG" in sql
+        assert "ESTADO = 'I'" in sql
+        assert "ESTADO = 'N'" in sql
+        assert "SISTID = ?" in sql and "NUMTRX = ?" in sql
+        # No canonical name leaked through.
+        assert "STSCOD" not in sql and "SISCOD" not in sql
+
+    def test_insert_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.rowcount_queue = [0, 1]  # UPDATE misses → INSERT
+        store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
+        record, document, mapping, trigger = _make_record()
+
+        store.try_claim(record=record, document=document, mapping=mapping, trigger=trigger)
+
+        insert_sql, _ = cur.executions[1]
+        assert "INSERT INTO MIBIB.MININARVILOG" in insert_sql
+        assert "SISTID" in insert_sql and "MSGERR" in insert_sql
+        assert "STSCOD" not in insert_sql and "EERRMSG" not in insert_sql
+
+    def test_mark_uploaded_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.rowcount_queue = [1]
+        store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
+        record, document, mapping, trigger = _make_record(cm_object_id="cm-xyz")
+
+        store.mark_uploaded(
+            record=record,
+            document=document,
+            mapping=mapping,
+            trigger=trigger,
+            cm_object_id="cm-xyz",
+        )
+
+        sql, params = cur.executions[0]
+        assert "ESTADO = 'O'" in sql
+        assert "OBJCM = ?" in sql
+        assert "cm-xyz" in params
+        assert "OBJIDN" not in sql
+
+    def test_mark_failed_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.rowcount_queue = [1]
+        store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
+        record, document, mapping, trigger = _make_record(error="boom")
+
+        store.mark_failed(
+            record=record,
+            document=document,
+            mapping=mapping,
+            trigger=trigger,
+            error="boom",
+        )
+
+        sql, _ = cur.executions[0]
+        assert "ESTADO = 'F'" in sql
+        assert "REINT = REINT + 1" in sql
+        assert "NUMREI" not in sql
+
+    def test_cleanup_stale_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.rowcount_queue = [2]
+        store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
+
+        store.cleanup_stale_in_progress()
+
+        sql, _ = cur.executions[0]
+        assert "ESTADO = 'N'" in sql
+        assert "ESTADO = 'I'" in sql
+        assert "FECFIN <" in sql
+        assert "FINREI" not in sql
+
+    def test_read_state_parses_custom_keyed_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cur = _FakeCursor()
+        cur.fetch_queue = [
+            (
+                [
+                    (
+                        "1",
+                        "0000001",
+                        "CC03",
+                        "DAAAH9X4.001",
+                        "B",
+                        "TESTCLIENT01",
+                        123456,
+                        "O",
+                        "CN01",
+                        "MyType",
+                        "cm-abc",
+                        3,
+                        datetime(2025, 11, 17, 10, 0, 0),
+                        datetime(2025, 11, 17, 10, 5, 0),
+                        "",
+                    )
+                ],
+                # Result set keyed by the CUSTOM physical names.
+                (
+                    "SISTID",
+                    "NUMTRX",
+                    "FORMATO",
+                    "ARCHIVO",
+                    "TIPIMG",
+                    "CIFCTE",
+                    "NUMCTE",
+                    "ESTADO",
+                    "IDCMBAC",
+                    "TIPOCM",
+                    "OBJCM",
+                    "REINT",
+                    "FECINI",
+                    "FECFIN",
+                    "MSGERR",
+                ),
+            )
+        ]
+        store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
+
+        row = store.read_state(
+            siscod="1",
+            trnnum="0000001",
+            docfrm="CC03",
+            imgarc="DAAAH9X4.001",
+        )
+
+        assert row is not None
+        assert isinstance(row, NiarvilogRow)
+        assert row.stscod == "O"
+        assert row.objidn == "cm-abc"
+        assert row.numrei == 3
+        sql, _ = cur.executions[0]
+        assert "SISTID, NUMTRX" in sql  # custom select list
+        assert "WHERE SISTID = ?" in sql
+
+    def test_default_columns_emit_canonical_sql(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Omitting columns → byte-identical to pre-049 canonical SQL."""
+        cur = _FakeCursor()
+        cur.rowcount_queue = [1]
+        store, _, _ = _make_store(monkeypatch, cursor=cur)  # default columns
+        record, document, mapping, trigger = _make_record()
+
+        store.try_claim(record=record, document=document, mapping=mapping, trigger=trigger)
+
+        sql, _ = cur.executions[0]
+        assert "STSCOD = 'I'" in sql
+        assert "SISCOD = ?" in sql
+        assert "RVILIB.NIARVILOG" in sql
 
 
 class TestRetryBackoff:

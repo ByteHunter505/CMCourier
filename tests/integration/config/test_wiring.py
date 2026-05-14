@@ -400,3 +400,64 @@ class TestBuildRvabrepSource048:
         with pytest.raises(ConfigurationError) as ei:
             _build_rvabrep_source(config.indexing, _secrets())
         assert "AS400_USERNAME" in ei.value.context["missing_vars"]
+
+
+class TestNiarvilogColumnsWiring049:
+    """049: tracking.as400_sync.columns reaches the NIARVILOG store."""
+
+    def test_translator_maps_all_fields(self) -> None:
+        from cmcourier.config.schema import NiarvilogColumnsModel
+        from cmcourier.config.wiring import _niarvilog_columns_from_schema
+
+        model = NiarvilogColumnsModel(status_column="ESTADO", txn_num_column="NUMTRX")
+        cols = _niarvilog_columns_from_schema(model)
+        assert cols.status == "ESTADO"
+        assert cols.txn_num == "NUMTRX"
+        # untouched → canonical defaults
+        assert cols.cm_object_id == "OBJIDN"
+        assert cols.error_message == "EERRMSG"
+
+    def test_custom_columns_reach_the_store(self, tmp_path: Path) -> None:
+        from cmcourier.adapters.tracking import SQLiteTrackingStore
+        from cmcourier.config.wiring import _build_idempotency_coordinator
+
+        yaml_path = _write_yaml(tmp_path)
+        text = yaml_path.read_text()
+        # Append an as400_sync block with custom column names. The written
+        # YAML is dedent()'d, so ``tracking:`` sits at column 0.
+        text = text.replace(
+            f"tracking:\n  db_path: {tmp_path / 'tracking.db'}\n",
+            "tracking:\n"
+            f"  db_path: {tmp_path / 'tracking.db'}\n"
+            "  as400_sync:\n"
+            "    enabled: true\n"
+            "    library: MIBIB\n"
+            "    table: MININARVILOG\n"
+            "    connection:\n"
+            "      host: as400.bank.test\n"
+            "    columns:\n"
+            "      status_column: ESTADO\n"
+            "      txn_num_column: NUMTRX\n",
+        )
+        assert "as400_sync:" in text, "replace target did not match"
+        yaml_path.write_text(text)
+        config = load_config(yaml_path)
+        secrets = Secrets(
+            cmis_username="t",
+            cmis_password="x",
+            as400_username="a400",
+            as400_password="a400pw",
+        )
+        sqlite_store = SQLiteTrackingStore(tmp_path / "tracking.db")
+        try:
+            coordinator = _build_idempotency_coordinator(
+                config=config, secrets=secrets, sqlite_store=sqlite_store
+            )
+            assert coordinator is not None
+            assert coordinator._as400 is not None
+            assert coordinator._as400._cols.status == "ESTADO"
+            assert coordinator._as400._cols.txn_num == "NUMTRX"
+            assert coordinator._as400._cols.cm_object_id == "OBJIDN"
+            assert coordinator._as400._library == "MIBIB"
+        finally:
+            sqlite_store.close()
