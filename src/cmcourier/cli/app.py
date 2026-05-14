@@ -838,25 +838,43 @@ def _apply_resume(
     if details is None:
         click.echo(f"Batch not found: {batch_id}", err=True)
         sys.exit(1)
+
+    # 044: explicit ``--from-stage`` wins regardless of detection. The
+    # operator named a specific replay point and provided a batch_id —
+    # honor it even if auto-detection would say "clean". Moved BEFORE
+    # the clean-exit so a user can force a replay of an outwardly-
+    # complete batch (typical after a config change that wants S3+ rerun).
+    if explicit_from_stage != 1:
+        _log.info(
+            "resume_explicit_from_stage",
+            extra={
+                "batch_id": batch_id,
+                "explicit_from_stage": explicit_from_stage,
+            },
+        )
+        return explicit_from_stage
+
     resolved: int | None = None
     for n in (1, 2, 3, 4, 5):
         counts = details.stage_counts.get(f"S{n}", {})
+        # FAILED / PENDING at this stage takes priority — same-stage
+        # retry path is more conservative than skipping ahead.
         if counts.get("FAILED", 0) + counts.get("PENDING", 0) > 0:
             resolved = n
+            break
+        # 044: docs at ``S{N}_DONE`` with N<5 are completed at stage N
+        # but never picked up for stage N+1. With a worker pool sized
+        # smaller than the batch, most kill-mid-S5 scenarios leave the
+        # bulk of docs at S4_DONE — pre-044 this looked "clean" to
+        # ``_apply_resume`` because neither FAILED nor PENDING marker
+        # was set. Detect the gap and resume from N+1.
+        if n < 5 and counts.get("DONE", 0) > 0:
+            resolved = n + 1
             break
     if resolved is None:
         if not quiet:
             click.echo(f"Nothing to resume — batch {batch_id} is clean")
         sys.exit(0)
-    if explicit_from_stage != 1:
-        _log.warning(
-            "--from-stage explicit value overrides --resume",
-            extra={
-                "explicit_from_stage": explicit_from_stage,
-                "resume_inferred": resolved,
-            },
-        )
-        return explicit_from_stage
     _log.info(
         "resume_resolved",
         extra={"batch_id": batch_id, "resume_inferred": resolved},
