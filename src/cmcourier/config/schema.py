@@ -422,6 +422,12 @@ class AutoTuneConfig(BaseModel):
     target_p95_ms: float = Field(default=5000.0, gt=0)
     adjustment_interval_s: int = Field(default=30, ge=1)
     warmup_seconds: int = Field(default=60, ge=0)
+    # 061: don't act on a tick that has seen fewer than this many S5
+    # samples — the nearest-rank p95 is dominated by a single big sample
+    # when N is small, so a cold-connection outlier in the first chunk
+    # used to trigger a spurious halve. 20 is the empirical floor where
+    # one 30 s outlier among 19 normal 1.5 s samples cannot dominate.
+    min_samples: int = Field(default=20, ge=1)
     timeout_auto_adjust: bool = True
     min_timeout_s: int = Field(default=30, ge=1)
     max_timeout_s: int = Field(default=600, ge=1)

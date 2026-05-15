@@ -484,8 +484,10 @@ class TestAimdMultiBatchP95Wiring043:
     def test_observer_returns_zero_with_no_active_upload(self, tmp_path: Path) -> None:
         pipeline = _FakePipeline(triggers_per_call=_make_triggers(1))
         orch = _build_orchestrator(pipeline, tmp_path)
-        # No chunk has entered UPLOAD yet → observer returns 0.0 cleanly.
-        assert orch._upload_p95_observer() == 0.0  # noqa: SLF001
+        # No chunk has entered UPLOAD yet → observer returns (0.0, 0) cleanly
+        # (061: the provider returns (p95, sample_count) so AIMD can gate on
+        # minimum samples).
+        assert orch._upload_p95_observer() == (0.0, 0)  # noqa: SLF001
 
     def test_overlapped_run_swaps_controllers_p95_provider(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -511,7 +513,7 @@ class TestAimdMultiBatchP95Wiring043:
         )
         real_ctl = AutoTuneController(
             config=cfg,
-            p95_provider=lambda: 999.0,  # the "wrong" pre-043 source
+            p95_provider=lambda: (999.0, 100),  # the "wrong" pre-043 source
             current_workers_provider=lambda: 4,
             current_timeout_provider=lambda: 60.0,
             on_pool_resize=lambda _n: None,
@@ -542,7 +544,7 @@ class TestAimdMultiBatchP95Wiring043:
         # The captured provider is the orchestrator's upload-side observer.
         # Calling it after the run (all chunks DONE → upload slot None)
         # returns 0.0.
-        assert captured[0]() == 0.0
+        assert captured[0]() == (0.0, 0)
 
 
 # ---------------------------------------------------------------------------

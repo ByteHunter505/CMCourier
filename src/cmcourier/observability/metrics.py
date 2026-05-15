@@ -410,6 +410,21 @@ class MetricsRecorder:
             return 0.0
         return float(bucket.summary()["p95_ms"])
 
+    def current_stage_p95_with_count(self, stage: str) -> tuple[float, int]:
+        """061: p95 + sample count in a single atomic read for AIMD.
+
+        The auto-tune controller needs both to decide whether the
+        observation is trustworthy enough to act on (nearest-rank p95
+        with few samples gets dominated by outliers). The dict-builder
+        in ``_StageBucket.summary()`` already holds the bucket lock for
+        both values so the pair is consistent.
+        """
+        bucket = self._stage_buckets.get(stage)
+        if bucket is None:
+            return 0.0, 0
+        snap = bucket.summary()
+        return float(snap["p95_ms"]), int(snap["count"])
+
     def close_batch(
         self,
         *,

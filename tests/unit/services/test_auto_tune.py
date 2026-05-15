@@ -32,6 +32,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=800.0,  # below target, would trigger AI
+            sample_count=100,
             elapsed_s=10.0,  # still in warmup
             current_workers=4,
             current_timeout_s=300.0,
@@ -45,6 +46,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=500.0,  # < 0.8 * 1000 = 800
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=4,
             current_timeout_s=300.0,
@@ -59,6 +61,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=200.0,
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=8,  # already at cap
             current_timeout_s=300.0,
@@ -71,6 +74,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=2000.0,  # > 1.2 * 1000 = 1200
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=8,
             current_timeout_s=300.0,
@@ -85,6 +89,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=5000.0,
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=2,  # already at floor
             current_timeout_s=300.0,
@@ -97,6 +102,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=1000.0,  # exactly target
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=4,
             current_timeout_s=300.0,
@@ -111,6 +117,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=2000.0,  # MD trigger
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=8,
             current_timeout_s=300.0,
@@ -124,6 +131,7 @@ class TestDecide:
         d = decide(
             cfg,
             observed_p95_ms=2000.0,
+            sample_count=100,
             elapsed_s=120.0,
             current_workers=8,
             current_timeout_s=300.0,
@@ -133,6 +141,71 @@ class TestDecide:
         assert d.timeout_s == 400.0
 
 
+class TestMinSamplesGuard061:
+    """061 — the AIMD halved on the first chunk because nearest-rank p95
+    with few samples is dominated by a single cold-connection outlier.
+    ``decide`` now short-circuits to ``insufficient_data`` when the
+    sample count is below ``config.min_samples``.
+    """
+
+    def test_insufficient_data_when_below_min_samples(self) -> None:
+        # The named regression: 5 uploads, one of which paid the TCP+TLS
+        # handshake (12 s = 12000 ms) → nearest-rank p95 = 12000. With
+        # target 6000, that would have halved pre-061. Now it bails.
+        cfg = _cfg(target_p95_ms=6000.0, min_samples=20)
+        d = decide(
+            cfg,
+            observed_p95_ms=12000.0,
+            sample_count=5,  # below default min_samples=20
+            elapsed_s=120.0,  # past warmup
+            current_workers=6,
+            current_timeout_s=120.0,
+        )
+        assert d.action == "insufficient_data"
+        assert d.workers == 6  # unchanged
+        assert d.timeout_s == 120.0  # unchanged
+
+    def test_zero_samples_short_circuits(self) -> None:
+        cfg = _cfg(min_samples=20)
+        d = decide(
+            cfg,
+            observed_p95_ms=99999.0,  # would scream halve
+            sample_count=0,
+            elapsed_s=120.0,
+            current_workers=8,
+            current_timeout_s=300.0,
+        )
+        assert d.action == "insufficient_data"
+        assert d.workers == 8
+
+    def test_guard_releases_at_floor(self) -> None:
+        # The guard is a floor — at exactly min_samples the real decision runs.
+        cfg = _cfg(target_p95_ms=6000.0, min_samples=20)
+        d = decide(
+            cfg,
+            observed_p95_ms=12000.0,
+            sample_count=20,
+            elapsed_s=120.0,
+            current_workers=6,
+            current_timeout_s=120.0,
+        )
+        assert d.action == "halve"
+        assert d.workers == 3
+
+    def test_warmup_takes_precedence_over_min_samples(self) -> None:
+        # During warmup we never act, regardless of sample count.
+        cfg = _cfg(warmup_seconds=60, min_samples=20)
+        d = decide(
+            cfg,
+            observed_p95_ms=12000.0,
+            sample_count=100,  # plenty of samples
+            elapsed_s=10.0,  # in warmup
+            current_workers=4,
+            current_timeout_s=300.0,
+        )
+        assert d.action == "warmup"
+
+
 class TestAutoTuneController:
     def test_disabled_controller_does_not_start(self) -> None:
         cfg = AutoTuneConfig(enabled=False)
@@ -140,7 +213,7 @@ class TestAutoTuneController:
         timeout_calls: list[float] = []
         controller = AutoTuneController(
             config=cfg,
-            p95_provider=lambda: 0.0,
+            p95_provider=lambda: (0.0, 100),
             current_workers_provider=lambda: 4,
             current_timeout_provider=lambda: 300.0,
             on_pool_resize=lambda n: resize_calls.append(n),
@@ -161,7 +234,7 @@ class TestAutoTuneController:
         )
         controller = AutoTuneController(
             config=cfg,
-            p95_provider=lambda: 0.0,
+            p95_provider=lambda: (0.0, 100),
             current_workers_provider=lambda: 4,
             current_timeout_provider=lambda: 300.0,
             on_pool_resize=lambda _n: None,
@@ -189,17 +262,17 @@ class TestSetP95Provider043:
         )
         ctl = AutoTuneController(
             config=cfg,
-            p95_provider=lambda: 100.0,
+            p95_provider=lambda: (100.0, 100),
             current_workers_provider=lambda: 4,
             current_timeout_provider=lambda: 60.0,
             on_pool_resize=lambda _n: None,
             on_timeout_change=lambda _t: None,
         )
         # Pre-swap: read the original provider's return value.
-        assert ctl._p95_provider() == 100.0  # noqa: SLF001 — direct field check
-        ctl.set_p95_provider(lambda: 7000.0)
+        assert ctl._p95_provider() == (100.0, 100)  # noqa: SLF001
+        ctl.set_p95_provider(lambda: (7000.0, 100))
         # Post-swap: the new provider is in place.
-        assert ctl._p95_provider() == 7000.0  # noqa: SLF001
+        assert ctl._p95_provider() == (7000.0, 100)  # noqa: SLF001
 
     def test_swap_takes_effect_on_next_tick(self) -> None:
         """Drive _tick manually with the swapped provider and assert the
@@ -215,7 +288,7 @@ class TestSetP95Provider043:
         )
         ctl = AutoTuneController(
             config=cfg,
-            p95_provider=lambda: 100.0,  # well below target → would say +1
+            p95_provider=lambda: (100.0, 100),  # well below target → would say +1
             current_workers_provider=lambda: 4,
             current_timeout_provider=lambda: 60.0,
             on_pool_resize=lambda _n: None,
@@ -223,7 +296,7 @@ class TestSetP95Provider043:
         )
         # Swap to a provider that reports far ABOVE target → should drive
         # a multiplicative-decrease decision on the next tick.
-        ctl.set_p95_provider(lambda: 9000.0)
+        ctl.set_p95_provider(lambda: (9000.0, 100))
         # Direct tick (no thread) — simulates one elapsed cycle past warmup.
         ctl._tick(elapsed_s=20.0)  # noqa: SLF001
         # _last_decision now reflects the swapped provider's observation.
@@ -233,3 +306,35 @@ class TestSetP95Provider043:
         # which the controller emits as ``action="halve"``.
         assert d.action == "halve", f"expected halve, got {d.action!r}"
         assert d.workers < 4, "workers must drop below the 4 starting count"
+
+
+class TestControllerGatesInsufficientData061:
+    def test_tick_with_few_samples_does_not_promote_to_last_decision(self) -> None:
+        # 061 regression: when the provider reports too few samples, the
+        # controller must NOT update `last_decision` (same treatment as
+        # warmup) and must NOT call the resize / timeout callbacks. This
+        # is what stops the first-chunk halve.
+        cfg = AutoTuneConfig(
+            enabled=True,
+            adjustment_interval_s=15,
+            warmup_seconds=0,
+            min_threads=2,
+            max_threads=16,
+            target_p95_ms=6000.0,
+            min_samples=20,
+            timeout_auto_adjust=False,
+        )
+        resize_calls: list[int] = []
+        timeout_calls: list[float] = []
+        ctl = AutoTuneController(
+            config=cfg,
+            p95_provider=lambda: (12000.0, 5),  # outlier + few samples
+            current_workers_provider=lambda: 6,
+            current_timeout_provider=lambda: 120.0,
+            on_pool_resize=lambda n: resize_calls.append(n),
+            on_timeout_change=lambda t: timeout_calls.append(t),
+        )
+        ctl._tick(elapsed_s=20.0)  # noqa: SLF001 — past warmup, but few samples
+        assert ctl.last_decision is None, "insufficient_data must not promote"
+        assert resize_calls == [], "pool must not resize on insufficient_data"
+        assert timeout_calls == [], "timeout must not change on insufficient_data"

@@ -366,9 +366,10 @@ observability:
         lines = [json.loads(ln) for ln in app_log.read_text().splitlines()]
         decisions = [ln for ln in lines if ln.get("msg") == "auto_tune_decision"]
         assert decisions, "expected at least one auto_tune_decision event"
-        # Action must be one of the documented values.
+        # Action must be one of the documented values (061 added
+        # ``insufficient_data`` — the AIMD's "few samples" gate).
         actions = {d.get("action") for d in decisions}
-        assert actions & {"+1", "halve", "noop", "warmup"}
+        assert actions & {"+1", "halve", "noop", "warmup", "insufficient_data"}
 
 
 def test_worker_pool_thread_safety_under_writes(tmp_path: Path) -> None:

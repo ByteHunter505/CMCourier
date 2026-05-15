@@ -195,6 +195,19 @@ class TestNumericConstraints:
         with pytest.raises(ValidationError):
             ProcessingConfig(prep_workers=0)
 
+    def test_auto_tune_min_samples_defaults_to_twenty(self) -> None:
+        # 061: AIMD gates on sample_count >= min_samples (default 20) to
+        # avoid halving on a single cold-connection outlier.
+        from cmcourier.config.schema import AutoTuneConfig
+
+        assert AutoTuneConfig().min_samples == 20
+
+    def test_auto_tune_min_samples_must_be_ge_one(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(min_samples=0)
+
     def test_batch_size_must_be_ge_one(
         self, fixture_paths: dict[str, Path], tmp_path: Path
     ) -> None:

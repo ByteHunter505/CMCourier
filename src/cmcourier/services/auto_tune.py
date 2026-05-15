@@ -44,7 +44,7 @@ _AUTO_TUNE_LOG = "auto_tune_decision"
 class Decision:
     """One AIMD round's resolved adjustment."""
 
-    action: str  # "+1" | "halve" | "noop" | "warmup"
+    action: str  # "+1" | "halve" | "noop" | "warmup" | "insufficient_data"
     workers: int
     timeout_s: float
 
@@ -53,13 +53,27 @@ def decide(
     config: AutoTuneConfig,
     *,
     observed_p95_ms: float,
+    sample_count: int,
     elapsed_s: float,
     current_workers: int,
     current_timeout_s: float,
 ) -> Decision:
-    """Pure-function AIMD decision (unit-testable in isolation)."""
+    """Pure-function AIMD decision (unit-testable in isolation).
+
+    061: ``sample_count`` gates the decision — when the recorder has
+    fewer than ``config.min_samples`` S5 durations, nearest-rank p95 is
+    dominated by a single big sample (a cold-connection outlier from
+    the first chunk). The action is ``insufficient_data`` and workers
+    / timeout stay where they are.
+    """
     if elapsed_s < config.warmup_seconds:
         return Decision(action="warmup", workers=current_workers, timeout_s=current_timeout_s)
+    if sample_count < config.min_samples:
+        return Decision(
+            action="insufficient_data",
+            workers=current_workers,
+            timeout_s=current_timeout_s,
+        )
 
     lower = 0.8 * config.target_p95_ms
     upper = 1.2 * config.target_p95_ms
@@ -99,7 +113,7 @@ class AutoTuneController:
         self,
         *,
         config: AutoTuneConfig,
-        p95_provider: Callable[[], float],
+        p95_provider: Callable[[], tuple[float, int]],
         current_workers_provider: Callable[[], int],
         current_timeout_provider: Callable[[], float],
         on_pool_resize: Callable[[int], None],
@@ -134,8 +148,11 @@ class AutoTuneController:
         )
         self._thread.start()
 
-    def set_p95_provider(self, provider: Callable[[], float]) -> None:
+    def set_p95_provider(self, provider: Callable[[], tuple[float, int]]) -> None:
         """043 — swap the p95 observation source after construction.
+
+        061: the provider now returns ``(p95_ms, sample_count)`` so the
+        decision can be gated on minimum samples.
 
         The controller reads ``self._p95_provider`` once per tick, so a
         replacement takes effect on the next ``adjustment_interval_s``
@@ -184,18 +201,23 @@ class AutoTuneController:
     def _tick(self, elapsed_s: float) -> None:
         current_workers = self._current_workers_provider()
         current_timeout = self._current_timeout_provider()
-        observed_p95 = self._p95_provider()
+        observed_p95, sample_count = self._p95_provider()
         now = time.monotonic()
         d = decide(
             self._config,
             observed_p95_ms=observed_p95,
+            sample_count=sample_count,
             elapsed_s=elapsed_s,
             current_workers=current_workers,
             current_timeout_s=current_timeout,
         )
+        # 061: ``insufficient_data`` is gated like ``warmup`` — the
+        # observation isn't trustworthy, so we don't promote it to
+        # ``last_decision`` (which the TUI surfaces as "last move").
+        gated = d.action in ("warmup", "insufficient_data")
         with self._state_lock:
             self._last_tick_monotonic = now
-            if d.action != "warmup":
+            if not gated:
                 self._last_decision = d
                 self._last_decision_monotonic = now
         _log.info(
@@ -203,6 +225,7 @@ class AutoTuneController:
             extra={
                 "action": d.action,
                 "p95_observed_ms": round(observed_p95, 3),
+                "p95_sample_count": sample_count,
                 "p95_target_ms": self._config.target_p95_ms,
                 "workers_before": current_workers,
                 "workers_after": d.workers,

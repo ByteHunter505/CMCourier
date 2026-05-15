@@ -466,3 +466,21 @@ class TestUploadOutcomeCounters042:
         for t in threads:
             t.join()
         assert rec.upload_done_count() == n_workers * per_worker
+
+
+class TestCurrentStageP95WithCount061:
+    """061 — the AIMD reads (p95, count) atomically so it can gate on a
+    minimum sample count. ``current_stage_p95_with_count`` returns both
+    in one shot, holding the bucket lock once."""
+
+    def test_empty_stage_returns_zero_tuple(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        assert rec.current_stage_p95_with_count("S5") == (0.0, 0)
+
+    def test_populated_stage_returns_p95_and_count(self, tmp_path: Path) -> None:
+        rec = _make_recorder(tmp_path)
+        for d in (100.0, 200.0, 300.0):
+            rec.record_stage(stage="S5", duration_ms=d)
+        p95, count = rec.current_stage_p95_with_count("S5")
+        assert count == 3
+        assert p95 == 300.0  # nearest-rank p95 of 3 sorted samples

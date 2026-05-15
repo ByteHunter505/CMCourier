@@ -264,7 +264,7 @@ class StagedPipeline:
             return None
         return AutoTuneController(
             config=self._auto_tune_cfg,
-            p95_provider=lambda: self._metrics.current_stage_p95("S5"),
+            p95_provider=lambda: self._metrics.current_stage_p95_with_count("S5"),
             current_workers_provider=self._current_total_workers,
             current_timeout_provider=lambda: self._uploader._timeout_s,
             on_pool_resize=self._on_pool_resize,
