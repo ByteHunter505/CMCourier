@@ -51,6 +51,71 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.68.0] — 2026-05-15 — **S4 PDF assembly in ProcessPoolExecutor (real CPU parallelism)**
+
+Diagnosed during a real streaming run with
+`prep_workers: 16` and a mixed 5000-doc source: BUCKET tab showed
+all 16 producers "in flight", bucket level near zero (S5 fast),
+yet aggregate PREP throughput was **< 5 docs/s**. Root cause: the
+GIL serializes Python bytecode execution; S4 (PDF assembly via
+`img2pdf` + `PIL` + `PyPDF2`) is CPU-bound and dominated by
+C-extension calls that do not always release the GIL. The 16
+threads existed but only one ran at any instant.
+
+S1 (indexing), S2 (mapping), S3 (metadata) are all dict-lookup-in-
+memory — they parallelize fine with threading and were not affected.
+
+### Added
+
+- **`processing.s4_use_processes: bool = True`** — NEW DEFAULT.
+  When true, S4 runs in a `ProcessPoolExecutor`, bypassing the
+  GIL completely. Set to `false` to restore the 063/064/065
+  inline behaviour byte-identically.
+- **`processing.s4_max_processes: int | None = None`** —
+  process count for the pool. `null` resolves to `os.cpu_count()`.
+- **`cmcourier.adapters.assembly.pool`** — new module exposing
+  `_pool_init` (worker initializer), `_pool_assemble` (worker
+  entry point), and `build_s4_process_pool` (factory). All
+  module-level functions for picklability.
+- **`StagedPipeline.__init__(..., s4_process_pool=None)`** — new
+  optional dependency injected by the wiring layer.
+
+### Changed
+
+- **`StagedPipeline._s4_one`** routes through
+  `pool.submit(_pool_assemble, doc).result()` when the pool is
+  set, calls `self._assembler.assemble(doc)` directly otherwise.
+  The thread blocks on `.result()` but releases the GIL during the
+  wait — other producers run S1-S3 work in parallel.
+- **Wiring layer** (`config/wiring.py`) constructs the pool when
+  configured and registers shutdown via `atexit`. A follow-up can
+  move it to a pipeline `close()` for explicit lifecycle.
+- **`SourceFileMissingError.__reduce__`** +
+  **`PDFAssemblyFailedError.__reduce__`** — required for these
+  exceptions to round-trip through `pickle` when they cross the
+  worker → main process boundary. Pre-066 the kwargs-only
+  `__init__` signature broke pickle unmarshalling.
+- **`ProcessPoolExecutor` uses `multiprocessing.get_context("spawn")`**
+  explicitly. The parent has many threads (producers, S5 pool,
+  AIMD controller, sampler); `fork()` in a multi-threaded parent
+  can leave the child in inconsistent lock state and emits a
+  `DeprecationWarning` on Python 3.12. `spawn` builds a fresh
+  interpreter and re-runs `_pool_init` cleanly.
+
+### Notes on impact
+
+- Aggregate PREP throughput scales with `s4_max_processes` for
+  CPU-bound workloads. With `os.cpu_count() = 8`, expect ~8x
+  speedup for runs dominated by S4 on large PDFs.
+- Per-doc overhead: `+1-5ms` for IPC + pickle. Negligible against
+  multi-second PDF assembly.
+- Memory: each worker process has ~30-50 MB RSS. 8 workers add
+  ~250-400 MB total.
+- First-doc latency: pool spin-up + worker imports take 200-500 ms,
+  amortized to nothing over the rest of the run.
+
+---
+
 ## [0.67.0] — 2026-05-15 — **Heavy/light lanes in streaming mode**
 
 063 shipped streaming with a single S5 consumer pool — a single
