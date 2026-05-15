@@ -51,6 +51,53 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.72.0] — 2026-05-15 — **Unify the LaneController across streaming + batched**
+
+Operator-reported in the post-067 streaming run: UPLOAD tab's
+LANES sub-block shows `queue 0` for both HEAVY and LIGHT — always,
+never moves. BUCKET tab's LANES block shows the same data live and
+correct.
+
+Root cause: there were **two `LaneController` instances** in a
+streaming run with `heavy_light_lanes.enabled: true`.
+`StagedPipeline.__init__` (036) constructed one. The 065
+`StreamingOrchestrator.__init__` constructed another. The
+TUIDataProvider's `lane_snapshot` field reads the **pipeline's**
+instance — the dead one in streaming mode. The streaming
+orchestrator's dispatcher + consumers only wrote to its own
+(live) instance.
+
+Beyond the UI bug, this also silently broke AIMD's per-lane budget
+steering in streaming mode since 065:
+`StagedPipeline._on_pool_resize → pipeline.lane_controller.set_total_budget`
+was setting the budget on the *idle* controller; the streaming
+dispatcher's actual per-lane semaphore split never got rebalanced
+by AIMD.
+
+### Fixed
+
+- **`StreamingOrchestrator` reuses `pipeline.lane_controller`**
+  instead of constructing its own. The constructor no longer
+  builds a `LaneController(...)`. `self._lane_controller` becomes
+  a read-only property forwarding to `self._pipeline.lane_controller`,
+  which keeps every existing call site (`self._lane_controller.start()`,
+  `.set_queue_depth(...)`, etc.) working unchanged.
+- The TUI `lane_snapshot` field, the BUCKET-tab `bucket.lane_snapshot`
+  field, and the streaming dispatcher all now hit one controller
+  instance per run.
+- AIMD's `set_total_budget` reaches the live streaming-mode
+  per-lane semaphores.
+
+### Notes
+
+- No behaviour change for batched mode.
+- No behaviour change for streaming single-lane mode (lanes
+  disabled).
+- In streaming + lanes mode: UPLOAD-tab LANES block becomes live;
+  AIMD-driven lane rebalance becomes effective.
+
+---
+
 ## [0.71.0] — 2026-05-15 — **Bandwidth sampler: distribute bytes over real transmission window**
 
 Operator-reported during the same 068 staging run: even after AIMD
