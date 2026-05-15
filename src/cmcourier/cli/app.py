@@ -42,6 +42,7 @@ from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.observability.setup import configure as configure_observability
 from cmcourier.orchestrators.multi_batch import MultiBatchOrchestrator, MultiBatchRunReport
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline
+from cmcourier.orchestrators.streaming import StreamingOrchestrator
 from cmcourier.services.triggers import SingleDocTriggerStrategy
 
 _log = logging.getLogger(__name__)
@@ -622,11 +623,32 @@ def _run_with_optional_tui(
         # per-chunk ids and would ignore the user's name).
         batches_in_flight = 1
 
-    orchestrator = MultiBatchOrchestrator(
-        pipeline=pipeline,
-        config=config,
-        log_dir=config.observability.log_dir,
-    )
+    # 063: streaming mode selector. Both orchestrators expose the same
+    # ``.run(...)`` signature and return a MultiBatchRunReport, so the
+    # rest of this function (TUI wiring, _emit_outcome) is unchanged.
+    orchestrator: MultiBatchOrchestrator | StreamingOrchestrator
+    if config.processing.mode == "streaming":
+        if config.processing.heavy_light_lanes.enabled:
+            _log.warning(
+                "streaming mode: heavy/light lanes deferred to spec 065 — "
+                "single-lane consumers will be used for this run"
+            )
+        if int(pipeline_kwargs.get("from_stage", 1)) > 1 or resume_batch_id is not None:
+            _log.warning(
+                "streaming mode rejects resume args; the orchestrator will "
+                "raise ValueError. Re-run with --from-stage 1 and no --batch-id."
+            )
+        orchestrator = StreamingOrchestrator(
+            pipeline=pipeline,
+            config=config,
+            log_dir=config.observability.log_dir,
+        )
+    else:
+        orchestrator = MultiBatchOrchestrator(
+            pipeline=pipeline,
+            config=config,
+            log_dir=config.observability.log_dir,
+        )
     orchestrator_kwargs: dict[str, Any] = {
         "source_descriptor": pipeline_kwargs["source_descriptor"],
         "batch_size": int(pipeline_kwargs["batch_size"]),

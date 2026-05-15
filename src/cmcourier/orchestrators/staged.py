@@ -458,6 +458,62 @@ class StagedPipeline:
         """Run S5 on a prepared chunk. Returns ``(s5_done, s5_failed)``."""
         return self._stage_s5(items, batch_id, recorder=recorder)
 
+    # ----------------------------------------------------- streaming (063)
+
+    def streaming_prep_one(
+        self,
+        trigger: Trigger,
+        batch_id: str,
+        recorder: MetricsRecorder,
+    ) -> tuple[_StageItem | None, int, int]:
+        """063: run S1→S4 on a single trigger and return the survivor.
+
+        Used by :class:`StreamingOrchestrator` producers. Returns
+        ``(survivor, skipped_cross_batch, s1_filtered)``:
+
+        * ``survivor`` is the sole surviving ``_StageItem`` or ``None``
+          (filtered / cross-batch skipped / failed at S2-S4).
+        * ``skipped_cross_batch`` is 1 when the trigger's RVABREP doc
+          was already uploaded in a prior batch (062 ``S1_SKIPPED``).
+        * ``s1_filtered`` is 1 when the RVABREP row was delete-coded
+          (062 ``S1_FILTERED``).
+
+        Failure / filter / skip persistence is done by the inner
+        per-stage helpers — this method adds no behaviour of its own
+        beyond sequencing.
+        """
+        items, skipped, filtered = self._stage_s0_s1(
+            [trigger], batch_id, resume_scope=None, recorder=recorder
+        )
+        if not items:
+            return None, skipped, filtered
+        survivor, _ = self._s2_one(items[0], batch_id, recorder)
+        if survivor is None:
+            return None, skipped, filtered
+        survivor, _ = self._s3_one(survivor, batch_id, recorder)
+        if survivor is None:
+            return None, skipped, filtered
+        survivor, _ = self._s4_one(survivor, batch_id, recorder)
+        return survivor, skipped, filtered
+
+    def streaming_upload_one(
+        self,
+        item: _StageItem,
+        batch_id: str,
+        recorder: MetricsRecorder,
+    ) -> Literal["done", "failed", "skipped"]:
+        """063: run S5 on a single prepared item. Single-lane (065 adds lanes).
+
+        The existing ``_upload_one`` already handles the auto-tune
+        semaphore, pool-stats, and coordinator — this is a thin
+        public wrapper.
+        """
+        return self._upload_one(item, batch_id, recorder, None)
+
+    def warm_upload_pool(self, workers: int) -> None:
+        """063: pre-open the S5 connection pool to ``workers`` sockets."""
+        self._uploader.warm_connection_pool(workers)
+
     def _build_record(
         self,
         item: _StageItem,

@@ -208,6 +208,32 @@ class TestNumericConstraints:
         with pytest.raises(ValidationError):
             AutoTuneConfig(min_samples=0)
 
+    def test_processing_mode_defaults_to_batched(self) -> None:
+        # 063: default keeps every byte of pre-063 behaviour intact.
+        assert ProcessingConfig().mode == "batched"
+
+    def test_processing_mode_rejects_unknown_value(self) -> None:
+        with pytest.raises(ValidationError):
+            ProcessingConfig(mode="continuous")  # type: ignore[arg-type]
+
+    def test_processing_mode_accepts_streaming(self) -> None:
+        cfg = ProcessingConfig(mode="streaming")
+        assert cfg.mode == "streaming"
+        assert cfg.streaming.bucket_size == 100  # default
+
+    def test_streaming_bucket_size_defaults_to_one_hundred(self) -> None:
+        from cmcourier.config.schema import StreamingConfig
+
+        assert StreamingConfig().bucket_size == 100
+
+    def test_streaming_bucket_size_must_be_ge_one(self) -> None:
+        from cmcourier.config.schema import StreamingConfig
+
+        with pytest.raises(ValidationError):
+            StreamingConfig(bucket_size=0)
+        with pytest.raises(ValidationError):
+            StreamingConfig(bucket_size=-1)
+
     def test_batch_size_must_be_ge_one(
         self, fixture_paths: dict[str, Path], tmp_path: Path
     ) -> None:

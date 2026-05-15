@@ -31,6 +31,7 @@ from cmcourier.orchestrators.multi_batch import (
     MultiBatchOrchestrator,
     MultiBatchRunReport,
 )
+from cmcourier.orchestrators.streaming import StreamingOrchestrator
 from cmcourier.tui import CMCourierTUI, TUIDataProvider
 
 
@@ -54,13 +55,16 @@ def tty_available() -> bool:
 
 def run_orchestrator_with_tui(
     *,
-    orchestrator: MultiBatchOrchestrator,
+    orchestrator: MultiBatchOrchestrator | StreamingOrchestrator,
     data_provider: TUIDataProvider,
     orchestrator_kwargs: dict[str, Any],
 ) -> TUIRunOutcome:
-    """Run the multi-batch orchestrator in a worker thread while the TUI
-    owns main. ``orchestrator_kwargs`` is splatted into
-    ``orchestrator.run(**kwargs)`` (see :meth:`MultiBatchOrchestrator.run`).
+    """Run an orchestrator in a worker thread while the TUI owns main.
+
+    ``orchestrator_kwargs`` is splatted into ``orchestrator.run(**kwargs)``.
+    Both :class:`MultiBatchOrchestrator` (batched mode) and
+    :class:`StreamingOrchestrator` (063 streaming mode) expose the same
+    ``.run(...)`` shape and return a :class:`MultiBatchRunReport`.
     """
     outcome = TUIRunOutcome()
 

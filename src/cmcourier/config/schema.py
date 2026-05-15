@@ -47,6 +47,7 @@ __all__ = [
     "RvabrepFiltersModel",
     "RvabrepSourceUnion",
     "RvabrepTriggerConfig",
+    "StreamingConfig",
     "TrackingConfig",
     "TriggerConfigUnion",
     "TriggerCsvConfig",
@@ -562,25 +563,55 @@ class HeavyLightLanesConfig(BaseModel):
     idle_threshold_s: float = Field(default=15.0, gt=0.0, le=3600.0)
 
 
-class ProcessingConfig(BaseModel):
-    """POST-MVP §7 + §1 — multi-batch orchestration + dual-lane knobs.
+class StreamingConfig(BaseModel):
+    """063 — streaming-mode knobs.
 
-    ``batches_in_flight`` controls the producer-consumer overlap:
-    while batch N uploads (S5), batches N+1..N+(K-1) prepare
-    (S0–S4) concurrently. Default ``2`` is the canonical
-    "one preparing + one uploading" model.
+    ``bucket_size`` is the maximum number of fully-prepped documents
+    sitting between PREP (S1–S4 producers) and UPLOAD (S5 consumers).
+    The bucket is a bounded queue: when full, producers block; when
+    empty, consumers block. Memory peak therefore scales with
+    ``bucket_size`` only — independent of the total trigger count.
+    """
+
+    model_config = _STRICT
+    bucket_size: int = Field(default=100, ge=1)
+
+
+class ProcessingConfig(BaseModel):
+    """POST-MVP §7 + §1 + 063 — orchestration mode + per-mode knobs.
+
+    ``mode`` (063) selects the pipeline orchestrator:
+
+    * ``"batched"`` (default): the historical N=2 multi-batch
+      pipeline — chunk N+1 prepares while chunk N uploads. Honours
+      ``batches_in_flight`` and full resume semantics.
+    * ``"streaming"``: a continuous producer-consumer pipeline driven
+      by a bounded bucket (``streaming.bucket_size``). ``batches_in_flight``
+      is **ignored** in this mode — there is only one logical batch
+      per run. Resume args (``--from-stage``, ``--batch-id``) are
+      rejected; resume = a new run.
+
+    ``batches_in_flight`` controls the batched-mode producer-consumer
+    overlap: while batch N uploads (S5), batches N+1..N+(K-1) prepare
+    (S0–S4) concurrently. Default ``2`` is the canonical "one
+    preparing + one uploading" model.
 
     ``prep_workers`` (056) sizes a fixed thread pool for the prep
     stages S2 (mapping), S3 (metadata) and S4 (assembly) — these run
     one document at a time otherwise. Default ``1`` keeps the serial
     behaviour byte-identical. S0/S1 stay serial by design (they carry
-    the cross-batch idempotency + resume logic).
+    the cross-batch idempotency + resume logic). Applies to both
+    modes.
 
     ``heavy_light_lanes`` carries the dual-lane (POST-MVP §1) config —
-    default-off; see :class:`HeavyLightLanesConfig`.
+    default-off; see :class:`HeavyLightLanesConfig`. In streaming
+    mode the lanes are *deferred* (spec 065) — the wiring layer emits
+    a clear startup WARN if the operator combines them.
     """
 
     model_config = _STRICT
+    mode: Literal["batched", "streaming"] = "batched"
+    streaming: StreamingConfig = Field(default_factory=StreamingConfig)
     batches_in_flight: int = Field(default=2, ge=1, le=2)
     prep_workers: int = Field(default=1, ge=1)
     heavy_light_lanes: HeavyLightLanesConfig = Field(default_factory=HeavyLightLanesConfig)

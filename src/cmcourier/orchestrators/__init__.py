@@ -6,6 +6,14 @@ pipeline. No business logic, no direct I/O. Constitution Principle I.
 
 from __future__ import annotations
 
+from cmcourier.orchestrators.multi_batch import MultiBatchOrchestrator, MultiBatchRunReport
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline
+from cmcourier.orchestrators.streaming import StreamingOrchestrator
 
-__all__ = ["StagedPipeline", "RunReport"]
+__all__ = [
+    "MultiBatchOrchestrator",
+    "MultiBatchRunReport",
+    "RunReport",
+    "StagedPipeline",
+    "StreamingOrchestrator",
+]
