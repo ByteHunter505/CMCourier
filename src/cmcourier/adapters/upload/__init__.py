@@ -1,4 +1,4 @@
-"""CMIS upload adapter: requests + requests-toolbelt MultipartEncoder."""
+"""Adaptador de subida `cmis`: requests + MultipartEncoder de requests-toolbelt."""
 
 from __future__ import annotations
 

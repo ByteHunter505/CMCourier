@@ -1,4 +1,4 @@
-"""PDF assembly adapter: img2pdf fast path + Pillow/PyPDF2 fallback."""
+"""Adaptador de ensamblado de PDF: img2pdf como camino rápido + fallback con Pillow/PyPDF2."""
 
 from __future__ import annotations
 

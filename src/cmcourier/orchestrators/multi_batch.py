@@ -1,28 +1,29 @@
-"""Multi-batch producer-consumer orchestrator (028 — POST-MVP §7).
+"""Orchestrator multi-batch producer-consumer (028 — POST-MVP §7).
 
-Wraps a :class:`StagedPipeline` to run multiple chunks of the
-trigger source with up to ``batches_in_flight`` chunks in
-flight at once. For ``batches_in_flight == 1`` the orchestrator
-delegates straight to ``pipeline.run(...)`` (zero overhead). For
-``N == 2`` it spawns one prep thread (S0..S4) and one upload
-thread (S5) communicating via a small bounded queue.
+Envuelve un :class:`StagedPipeline` para correr múltiples `chunk`s del
+origen de triggers con hasta ``batches_in_flight`` `chunk`s en vuelo
+simultáneamente. Para ``batches_in_flight == 1`` el orchestrator
+delega directamente a ``pipeline.run(...)`` (sin overhead). Para
+``N == 2`` lanza un `thread` de prep (S0..S4) y un `thread` de upload
+(S5) que se comunican a través de una `queue` acotada chica.
 
-Per-chunk semantics:
-    * Each chunk gets its **own** ``batch_id`` from the
-      tracking store.
-    * Each chunk gets its **own** :class:`MetricsRecorder`
-      so per-chunk slow-ops files + per-chunk batch_summary
-      events stay isolated. The recorders' slow-op handlers
-      filter by ``record.batch_id`` (see 028 phase 2).
-    * The S5 worker pool (semaphore + ThreadPoolExecutor) is
-      **shared** across chunks — total upload concurrency
-      stays at ``cmis.workers``.
+Semántica por `chunk`:
+    * Cada `chunk` obtiene su **propio** ``batch_id`` del
+      `tracking store`.
+    * Cada `chunk` obtiene su **propio** :class:`MetricsRecorder`
+      para que los archivos `slow-ops` por `chunk` + los eventos
+      `batch_summary` por `chunk` queden aislados. Los handlers de
+      `slow-op` de los recorders filtran por ``record.batch_id``
+      (ver 028 fase 2).
+    * El `worker pool` de S5 (`semaphore` + ThreadPoolExecutor) se
+      **comparte** entre `chunk`s — la concurrencia total de upload
+      se mantiene en ``cmis.workers``.
 
-Failure isolation: an exception in one chunk's prep or upload
-is logged at ERROR and the chunk is added to
-``failed_chunks``. Remaining chunks continue. The aggregate
-report's exit code reflects whether any chunk reported s5
-failures or crashed outright.
+Aislamiento de fallas: una excepción en el prep o upload de un
+`chunk` se loguea en ERROR y el `chunk` se agrega a
+``failed_chunks``. Los `chunk`s restantes continúan. El exit code
+del reporte agregado refleja si algún `chunk` reportó fallas en
+s5 o si crasheó directamente.
 """
 
 from __future__ import annotations
@@ -39,7 +40,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cmcourier.config.schema import PipelineConfig
-from cmcourier.domain.models import Trigger, TriggerRecord  # noqa: F401 — TriggerRecord re-exported
+from cmcourier.domain.models import (  # noqa: F401 — TriggerRecord re-exportado
+    Trigger,
+    TriggerRecord,
+)
 from cmcourier.observability.metrics import MetricsRecorder
 from cmcourier.orchestrators.chunked import chunked
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline, _StageItem
@@ -49,15 +53,15 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ChunkState:
-    """One row in the orchestrator's chunk-state machine (030, TUI binding).
+    """Una fila en la máquina de estados de `chunk`s del orchestrator (030, binding del TUI).
 
-    Statuses: ``QUEUED``, ``PREP``, ``UPLOAD``, ``DONE``, ``FAILED``.
+    Estados: ``QUEUED``, ``PREP``, ``UPLOAD``, ``DONE``, ``FAILED``.
 
-    041 adds the per-stage breakdown that drives the CHUNKS tab table and
-    the UPLOAD tab's chunk-scoped MB/timer/ETA display. The ``*_monotonic``
-    fields are populated when the chunk transitions into the stage; the
-    ``*_elapsed_s`` fields are frozen when it leaves. While the chunk is
-    live in a stage, the consumer derives elapsed = ``now - started``.
+    041 agrega el desglose por `stage` que alimenta la tabla del tab CHUNKS y
+    el display por `chunk` de MB/timer/ETA del tab UPLOAD. Los campos
+    ``*_monotonic`` se setean cuando el `chunk` transiciona al `stage`; los
+    campos ``*_elapsed_s`` se congelan cuando lo deja. Mientras el `chunk`
+    está vivo en un `stage`, el `consumer` deriva elapsed = ``now - started``.
     """
 
     chunk_idx: int
@@ -65,13 +69,13 @@ class ChunkState:
     status: str
     s5_done: int = 0
     s5_failed: int = 0
-    # 041 — per-chunk plan + per-stage stats
+    # 041 — plan por `chunk` + estadísticas por `stage`
     doc_count: int = 0
     total_bytes: int = 0
     prep_done: int = 0
     prep_skipped: int = 0
     prep_failed: int = 0
-    # 051 — docs filtered at S1 (delete-coded RVABREP rows)
+    # 051 — docs filtrados en S1 (filas RVABREP con código de baja)
     prep_filtered: int = 0
     upload_skipped: int = 0
     prep_started_monotonic: float | None = None
@@ -82,7 +86,7 @@ class ChunkState:
 
 @dataclass(frozen=True, slots=True)
 class MultiBatchRunReport:
-    """Aggregated outcome of a multi-batch run."""
+    """Resultado agregado de una corrida multi-batch."""
 
     chunks: list[RunReport]
     failed_chunks: list[tuple[str, str]] = field(default_factory=list)
@@ -105,7 +109,7 @@ class MultiBatchRunReport:
 
     @property
     def s1_filtered(self) -> int:
-        """051 — docs filtered at S1 (delete-coded RVABREP rows)."""
+        """051 — docs filtrados en S1 (filas RVABREP con código de baja)."""
         return sum(r.s1_filtered for r in self.chunks)
 
     @property
@@ -114,13 +118,13 @@ class MultiBatchRunReport:
 
 
 # ---------------------------------------------------------------------------
-# Internal handoff shape
+# Forma interna del handoff
 # ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
 class _PreparedChunk:
-    """Hand-off from prep thread to upload thread."""
+    """Handoff desde el `thread` de prep al `thread` de upload."""
 
     batch_id: str
     chunk_idx: int
@@ -137,17 +141,17 @@ class _PreparedChunk:
     prep_failure: BaseException | None = None
 
 
-# Sentinel placed on the upload queue by the prep thread to signal "no more
-# chunks". The upload thread drains and exits.
+# `Sentinel` que el `thread` de prep deja en la `queue` de upload para
+# señalizar "no hay más `chunk`s". El `thread` de upload drena y sale.
 _PREP_DONE = object()
 
 
 def _items_total_bytes(items: Sequence[object]) -> int:
-    """Sum ``staged_file.size_bytes`` defensively across a chunk's items.
+    """Suma ``staged_file.size_bytes`` defensivamente sobre los items de un `chunk`.
 
-    Production items always carry a ``staged_file`` after S4. Unit-test
-    stubs (``SimpleNamespace`` etc.) sometimes don't — fall back to 0
-    for any item that doesn't expose the chain.
+    Los items de producción siempre llevan un ``staged_file`` después de S4.
+    Los `stub`s de tests unitarios (``SimpleNamespace``, etc.) a veces no
+    — se cae a 0 para cualquier item que no exponga la cadena.
     """
     total = 0
     for it in items:
@@ -161,7 +165,7 @@ def _items_total_bytes(items: Sequence[object]) -> int:
 
 
 class MultiBatchOrchestrator:
-    """Run a ``StagedPipeline`` with producer-consumer overlap."""
+    """Corre un ``StagedPipeline`` con overlap producer-consumer."""
 
     def __init__(
         self,
@@ -173,56 +177,60 @@ class MultiBatchOrchestrator:
         self._pipeline = pipeline
         self._config = config
         self._log_dir = log_dir
-        # 030: chunk-state machine for the TUI's CHUNKS tab. Indexed by
-        # chunk_idx so prep / upload threads can update without lookups.
-        # The active recorder feeds the live PREP/UPLOAD tab bindings.
+        # 030: máquina de estados de `chunk`s para el tab CHUNKS del TUI.
+        # Indexada por chunk_idx para que los `thread`s de prep / upload
+        # puedan actualizar sin lookups. El recorder activo alimenta los
+        # bindings en vivo de los tabs PREP/UPLOAD.
         self._chunks_state: dict[int, ChunkState] = {}
         self._active_recorder: MetricsRecorder | None = None
-        # 042: separate slot for the UPLOAD-side binding so the PREP flip
-        # (set when chunk N+1 enters PREP while chunk N is still uploading)
-        # no longer disturbs the UPLOAD tab's percentile + MB display.
-        # ``upload_recorder()`` returns this; ``active_recorder()`` keeps
-        # the pre-042 "most-recent PREP-or-UPLOAD" semantics for PREP tab.
+        # 042: slot separado para el binding del lado UPLOAD para que el
+        # flip de PREP (que se setea cuando el `chunk` N+1 entra a PREP
+        # mientras el `chunk` N sigue subiendo) ya no perturbe el display
+        # de percentiles + MB del tab UPLOAD. ``upload_recorder()``
+        # devuelve esto; ``active_recorder()`` conserva la semántica
+        # pre-042 "el más reciente entre PREP-o-UPLOAD" para el tab PREP.
         self._upload_active_recorder: MetricsRecorder | None = None
         self._state_lock = threading.Lock()
 
-    # ----- TUI binding hooks (030) -----------------------------------
+    # ----- Hooks de binding del TUI (030) ----------------------------
 
     def chunks_snapshot(self) -> list[ChunkState]:
-        """Read-only snapshot of every chunk's status for the TUI."""
+        """Snapshot de sólo lectura del estado de cada `chunk` para el TUI."""
         with self._state_lock:
             return [self._chunks_state[k] for k in sorted(self._chunks_state)]
 
     def active_recorder(self) -> MetricsRecorder | None:
-        """The most recently started chunk's recorder, or ``None``."""
+        """El recorder del `chunk` iniciado más recientemente, o ``None``."""
         with self._state_lock:
             return self._active_recorder
 
     def upload_recorder(self) -> MetricsRecorder | None:
-        """042 — recorder of the chunk currently inside S5, or ``None``.
+        """042 — recorder del `chunk` que está actualmente dentro de S5, o ``None``.
 
-        Distinct from ``active_recorder``: when chunk N+1 enters PREP while
-        chunk N is uploading, ``active_recorder`` flips to N+1 but
-        ``upload_recorder`` stays on N. The TUI's UPLOAD tab binds here so
-        its percentile / MB display tracks the chunk that is actually
-        uploading, not the one preparing the next batch.
+        Distinto de ``active_recorder``: cuando el `chunk` N+1 entra a PREP
+        mientras el `chunk` N está subiendo, ``active_recorder`` salta a N+1
+        pero ``upload_recorder`` se mantiene en N. El tab UPLOAD del TUI se
+        bindea acá para que su display de percentiles / MB siga al `chunk`
+        que está realmente subiendo, no al que está preparando el próximo
+        `batch`.
         """
         with self._state_lock:
             return self._upload_active_recorder
 
     def _upload_p95_observer(self) -> tuple[float, int]:
-        """043 — p95 source for the AIMD controller in multi-batch mode.
+        """043 — fuente de p95 para el controller AIMD en modo multi-batch.
 
-        Reads from the upload-active recorder so the controller sees the
-        latency of the chunk currently in S5 — not the pipeline's own
-        recorder, which receives nothing because each chunk uses its own
-        per-batch recorder. Returns ``(0.0, 0)`` when no chunk is uploading
-        yet (during warmup), matching the controller's "no data → assume
-        slack" semantics.
+        Lee del recorder upload-active para que el controller vea la
+        latencia del `chunk` actualmente en S5 — no el recorder propio del
+        `pipeline`, que no recibe nada porque cada `chunk` usa su propio
+        recorder por `batch`. Devuelve ``(0.0, 0)`` cuando todavía no hay
+        ningún `chunk` subiendo (durante el `warmup`), lo que matchea la
+        semántica del controller "sin datos → asumir holgura".
 
-        061: returns ``(p95_ms, sample_count)`` so the controller can
-        gate decisions on minimum samples and avoid halving on a
-        single cold-connection outlier in the first chunk.
+        061: devuelve ``(p95_ms, sample_count)`` para que el controller
+        pueda gatear decisiones según un mínimo de muestras y evitar el
+        halving por un único outlier de conexión fría en el primer
+        `chunk`.
         """
         rec = self.upload_recorder()
         if rec is None:
@@ -249,8 +257,9 @@ class MultiBatchOrchestrator:
         upload_started_monotonic: float | None = None,
         upload_elapsed_s: float | None = None,
     ) -> None:
-        """Atomic transition for one chunk. ``None`` means "keep previous value"
-        for that field — so callers only have to supply what actually changed.
+        """Transición atómica para un `chunk`. ``None`` significa "mantener el
+        valor previo" para ese campo — así los callers sólo tienen que
+        proveer lo que realmente cambió.
         """
         with self._state_lock:
             prev = self._chunks_state.get(chunk_idx)
@@ -311,7 +320,7 @@ class MultiBatchOrchestrator:
         with self._state_lock:
             self._upload_active_recorder = recorder
 
-    # ----- public API -------------------------------------------------
+    # ----- API pública ------------------------------------------------
 
     def run(
         self,
@@ -323,15 +332,15 @@ class MultiBatchOrchestrator:
         resume_batch_id: str | None = None,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        """Acquire triggers, chunk, then run them per ``batches_in_flight``.
+        """Adquiere triggers, hace `chunk`ing, y los corre según ``batches_in_flight``.
 
-        ``total`` (033) caps the trigger count after acquire. Applied
-        uniformly to both N=1 and N=2 paths.
+        ``total`` (033) acota la cantidad de triggers luego del acquire.
+        Se aplica de manera uniforme a los paths N=1 y N=2.
         """
         if resume_batch_id is not None or batches_in_flight == 1 or from_stage > 1:
-            # Resume + single-in-flight + non-default from_stage all force the
-            # legacy single-batch path: it preserves byte-identical semantics
-            # of pre-028 ``pipeline.run`` invocations.
+            # Resume + single-in-flight + from_stage no default fuerzan
+            # todos el path legacy single-batch: preserva la semántica
+            # byte-idéntica a las invocaciones pre-028 de ``pipeline.run``.
             return self._run_single(
                 source_descriptor=source_descriptor,
                 batch_size=batch_size,
@@ -350,7 +359,7 @@ class MultiBatchOrchestrator:
             total=total,
         )
 
-    # ----- N=1 path ---------------------------------------------------
+    # ----- Path N=1 ---------------------------------------------------
 
     def _run_single(
         self,
@@ -361,10 +370,11 @@ class MultiBatchOrchestrator:
         from_stage: int,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        # 050: resume / from_stage>1 operate on a previously-created,
-        # already-bounded batch — keep the monolithic pipeline.run(). A
-        # fresh N=1 run can face the full (20M-row) source, so it streams
-        # chunk-by-chunk via _run_sequential (bounded memory).
+        # 050: resume / from_stage>1 operan sobre un `batch` previamente
+        # creado y ya acotado — se mantiene el pipeline.run() monolítico.
+        # Una corrida N=1 fresca puede enfrentar la fuente completa
+        # (20M filas), así que se hace `streaming` `chunk` a `chunk` vía
+        # _run_sequential (memoria acotada).
         if resume_batch_id is not None or from_stage > 1:
             report = self._pipeline.run(
                 source_descriptor=source_descriptor,
@@ -387,12 +397,12 @@ class MultiBatchOrchestrator:
         batch_size: int,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        """050: fresh single-in-flight run, streamed chunk-by-chunk.
+        """050: corrida fresca single-in-flight, en `streaming` `chunk` a `chunk`.
 
-        The N=1 shape of :meth:`_run_overlapped` — no producer-consumer
-        thread overlap, but the same bounded-memory guarantee: triggers
-        are pulled in ``batch_size`` waves, each chunk's memory released
-        before the next is pulled.
+        La forma N=1 de :meth:`_run_overlapped` — sin overlap entre
+        `thread`s producer-consumer, pero con la misma garantía de
+        memoria acotada: los triggers se traen en olas de ``batch_size``,
+        y la memoria de cada `chunk` se libera antes de traer el siguiente.
         """
         triggers: Iterator[Trigger] = self._pipeline._trigger_strategy.acquire(  # noqa: SLF001
             source_descriptor
@@ -428,7 +438,7 @@ class MultiBatchOrchestrator:
         results.sort(key=lambda r: r.batch_id)
         return MultiBatchRunReport(chunks=results, failed_chunks=failed)
 
-    # ----- shared per-chunk steps (N=1 + N=2) -------------------------
+    # ----- pasos compartidos por `chunk` (N=1 + N=2) ------------------
 
     def _prep_one_chunk(
         self,
@@ -438,13 +448,15 @@ class MultiBatchOrchestrator:
         failed: list[tuple[str, str]],
         results_lock: threading.Lock,
     ) -> _PreparedChunk | None:
-        """Run S0..S4 for one chunk. Shared by the N=1 (_run_sequential)
-        and N=2 (_run_overlapped) paths. Returns the prepared chunk, or
-        ``None`` when prep failed (the failure is recorded in ``failed``).
+        """Corre S0..S4 para un `chunk`. Compartido por los paths N=1
+        (_run_sequential) y N=2 (_run_overlapped). Devuelve el `chunk`
+        preparado, o ``None`` cuando el prep falló (la falla se registra
+        en ``failed``).
 
-        The chunk's state is seeded here the moment the chunk is pulled —
-        there is no upfront QUEUED seeding (knowing the chunk count means
-        materializing the whole trigger set, which 050 exists to avoid).
+        El estado del `chunk` se siembra acá apenas se trae el `chunk` —
+        no hay siembra de QUEUED por adelantado (conocer el conteo de
+        `chunk`s implica materializar el conjunto completo de triggers,
+        lo que 050 existe para evitar).
         """
         try:
             batch_id = self._pipeline._resolve_batch_id(  # noqa: SLF001
@@ -467,7 +479,7 @@ class MultiBatchOrchestrator:
             )
             prep_elapsed = time.monotonic() - started
             total_bytes = _items_total_bytes(items)
-            # Freeze the PREP-side breakdown the moment prep wraps.
+            # Congela el desglose del lado PREP apenas el prep termina.
             self._update_chunk_state(
                 chunk_idx=idx,
                 batch_id=batch_id,
@@ -494,7 +506,7 @@ class MultiBatchOrchestrator:
                 recorder=recorder,
                 started_at=started,
             )
-        except BaseException as exc:  # noqa: BLE001 — recorded, run continues
+        except BaseException as exc:  # noqa: BLE001 — registrado, la corrida continúa
             _log.exception(
                 "multi-batch: prep failed",
                 extra={"chunk_idx": idx, "reason": type(exc).__name__},
@@ -518,9 +530,10 @@ class MultiBatchOrchestrator:
         failed: list[tuple[str, str]],
         results_lock: threading.Lock,
     ) -> None:
-        """Run S5 for one prepared chunk. Shared by the N=1 and N=2 paths.
-        Appends a :class:`RunReport` to ``results`` on success, or a
-        ``(batch_id, reason)`` pair to ``failed`` on failure.
+        """Corre S5 para un `chunk` preparado. Compartido por los paths
+        N=1 y N=2. Agrega un :class:`RunReport` a ``results`` cuando
+        sale bien, o un par ``(batch_id, reason)`` a ``failed`` cuando
+        falla.
         """
         upload_started = time.monotonic()
         self._update_chunk_state(
@@ -530,7 +543,7 @@ class MultiBatchOrchestrator:
             upload_started_monotonic=upload_started,
         )
         self._set_active_recorder(item.recorder)
-        # 042: independent UPLOAD-side binding for the TUI tab.
+        # 042: binding independiente del lado UPLOAD para el tab del TUI.
         self._set_upload_active_recorder(item.recorder)
         try:
             s5_done, s5_failed = self._pipeline.upload_chunk(
@@ -581,7 +594,7 @@ class MultiBatchOrchestrator:
                         elapsed_seconds=elapsed,
                     )
                 )
-        except BaseException as exc:  # noqa: BLE001 — recorded, run continues
+        except BaseException as exc:  # noqa: BLE001 — registrado, la corrida continúa
             _log.exception(
                 "multi-batch: upload failed",
                 extra={
@@ -601,7 +614,7 @@ class MultiBatchOrchestrator:
             with results_lock:
                 failed.append((item.batch_id, type(exc).__name__))
 
-    # ----- N=2 path ---------------------------------------------------
+    # ----- Path N=2 ---------------------------------------------------
 
     def _run_overlapped(
         self,
@@ -610,9 +623,10 @@ class MultiBatchOrchestrator:
         batch_size: int,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        # 050: stream the trigger iterator — never materialize the full
-        # trigger set nor the full chunk list. Peak in-flight memory is
-        # O(batch_size × batches_in_flight), not O(total triggers).
+        # 050: hace `streaming` del iterador de triggers — nunca
+        # materializa ni el conjunto completo de triggers ni la lista
+        # completa de `chunk`s. El pico de memoria en vuelo es
+        # O(batch_size × batches_in_flight), no O(total triggers).
         triggers: Iterator[Trigger] = self._pipeline._trigger_strategy.acquire(  # noqa: SLF001
             source_descriptor
         )
@@ -626,9 +640,10 @@ class MultiBatchOrchestrator:
         results_lock = threading.Lock()
 
         def _prep_loop() -> None:
-            # 050: pull chunks lazily; _prep_one_chunk seeds each chunk's
-            # state the moment it is pulled. An empty iterator simply runs
-            # zero iterations → empty MultiBatchRunReport.
+            # 050: trae `chunk`s de manera `lazy`; _prep_one_chunk siembra
+            # el estado de cada `chunk` apenas se lo trae. Un iterador
+            # vacío simplemente corre cero iteraciones → un
+            # MultiBatchRunReport vacío.
             for idx, chunk in enumerate(chunks_iter):
                 prepared = self._prep_one_chunk(
                     idx, chunk, failed=failed, results_lock=results_lock
@@ -641,10 +656,11 @@ class MultiBatchOrchestrator:
             controller = self._pipeline.auto_tune_controller
             try:
                 if controller is not None:
-                    # 043: in multi-batch mode the pipeline's own recorder is
-                    # never written to (each chunk has its own), so the
-                    # controller's default p95_provider always reads zero.
-                    # Point it at the upload-active recorder before start().
+                    # 043: en modo multi-batch el recorder propio del
+                    # `pipeline` nunca se escribe (cada `chunk` tiene el
+                    # suyo), así que el p95_provider default del
+                    # controller siempre lee cero. Lo apuntamos al
+                    # recorder upload-active antes del start().
                     controller.set_p95_provider(self._upload_p95_observer)
                     controller.start()
                 while True:
@@ -677,11 +693,12 @@ class MultiBatchOrchestrator:
             if sampler is not None:
                 sampler.stop()
 
-        # Sort results by chunk start time so the output stream is stable.
+        # Ordena los resultados por el tiempo de inicio del `chunk` para
+        # que el `stream` de salida sea estable.
         results.sort(key=lambda r: r.batch_id)
         return MultiBatchRunReport(chunks=results, failed_chunks=failed)
 
-    # ----- internals --------------------------------------------------
+    # ----- internos ---------------------------------------------------
 
     def _build_chunk_recorder(self) -> MetricsRecorder:
         cfg = self._config.observability

@@ -1,30 +1,30 @@
-"""AS400 NIARVILOG coordination adapter (034 phase 2).
+"""Adaptador de coordinación AS400 NIARVILOG (034 fase 2).
 
-Owns the distributed-idempotency layer on top of the existing
-``SQLiteTrackingStore``. NOT an :class:`ITrackingStore` — this is a
-separate coordination surface used by :class:`IdempotencyCoordinator`
-when ``tracking.as400_sync.enabled=true``.
+Es dueño de la capa de idempotencia distribuida que se monta sobre el
+``SQLiteTrackingStore`` existente. NO es un :class:`ITrackingStore` — es
+una superficie de coordinación separada que usa
+:class:`IdempotencyCoordinator` cuando ``tracking.as400_sync.enabled=true``.
 
-Constitution Principle VI applies: the AS400 server is never mocked,
-but the ``pyodbc`` driver bindings ARE faked at the cursor / connection
-level for tests (mirror of :class:`As400DataSource`).
+Aplica el Principio VI de la Constitución: el server AS400 nunca se mockea,
+pero los bindings del driver ``pyodbc`` SÍ se fakean a nivel cursor /
+conexión para los tests (espejo de :class:`As400DataSource`).
 
-Field mapping (locked in spec 034):
+Mapeo de campos (cerrado en el spec 034):
 
     SISCOD  ← trigger.system_id           (CHAR(1))
     TRNNUM  ← document.txn_num             (CHAR(7), = ABAANB)
     DOCFRM  ← document.index7              (CHAR(30), = ABAHCD)
-    IMGARC  ← document.file_name           (CHAR(12), first page)
+    IMGARC  ← document.file_name           (CHAR(12), primera página)
     IMGTIP  ← document.image_type          (CHAR(1))
     CTECIF  ← trigger.shortname            (VARCHAR(30))
     CTENUM  ← int(trigger.cif or 0)        (DECIMAL(9,0))
-    STSCOD  ← derived: N/I/O/F
+    STSCOD  ← derivado: N/I/O/F
     IDNBAC  ← mapping.id_corto (== IDCM)   (VARCHAR(10))
-    TIPIDN  ← mapping.cmis_type            (VARCHAR(128), '' until 035)
+    TIPIDN  ← mapping.cmis_type            (VARCHAR(128), '' hasta 035)
     OBJIDN  ← record.cm_object_id          (VARCHAR(128), post-S5)
     NUMREI  ← record.retry_count           (INTEGER)
-    PMRREI  ← record.started_at or NOW()   (TIMESTAMP)
-    FINREI  ← DB2 auto-update              (TIMESTAMP)
+    PMRREI  ← record.started_at o NOW()    (TIMESTAMP)
+    FINREI  ← auto-update de DB2           (TIMESTAMP)
     EERRMSG ← record.error_message         (VARCHAR(1024))
 """
 
@@ -58,29 +58,29 @@ _R = TypeVar("_R")
 _network_log = logging.getLogger("cmcourier.metrics.network")
 _log = logging.getLogger(__name__)
 
-# Lazy import — same pattern as As400DataSource.
+# Import lazy — mismo patrón que As400DataSource.
 pyodbc: Any = None
 
 
 class As400CoordinationError(Exception):
-    """Raised when an NIARVILOG operation fails for a non-transient reason
-    (schema mismatch, syntax error, integrity violation surfaced as
-    Error, etc.). Not retried.
+    """Se lanza cuando una operación NIARVILOG falla por una razón no
+    transitoria (schema mismatch, error de sintaxis, violación de
+    integridad surgida como Error, etc.). No se reintenta.
     """
 
 
 class As400UnreachableError(As400CoordinationError):
-    """Raised when retry attempts are exhausted on a transient
-    ``pyodbc.OperationalError``. The pipeline aborts with exit 2.
+    """Se lanza cuando se agotan los intentos de `retry` ante un
+    ``pyodbc.OperationalError`` transitorio. El `pipeline` aborta con exit 2.
     """
 
 
-_MAX_BACKOFF_S = 300.0  # 5 minutes
+_MAX_BACKOFF_S = 300.0  # 5 minutos
 
 
 @dataclass(frozen=True, slots=True)
 class NiarvilogRow:
-    """One row of RVILIB.NIARVILOG (read shape)."""
+    """Una fila de RVILIB.NIARVILOG (forma de lectura)."""
 
     siscod: str
     trnnum: str
@@ -101,12 +101,12 @@ class NiarvilogRow:
 
 @dataclass(frozen=True, slots=True)
 class NiarvilogColumns:
-    """Physical column names for RVILIB.NIARVILOG — per-environment (049).
+    """Nombres físicos de columnas de RVILIB.NIARVILOG — por entorno (049).
 
-    Defaults are the canonical names. Validated upstream by
-    :class:`cmcourier.config.schema.NiarvilogColumnsModel` (DB2
-    identifier check); the adapter treats them as trusted identifiers
-    safe to interpolate into SQL.
+    Los defaults son los nombres canónicos. Se validan upstream con
+    :class:`cmcourier.config.schema.NiarvilogColumnsModel` (chequeo de
+    identificador DB2); el adaptador los trata como identificadores
+    confiables, seguros para interpolar en SQL.
     """
 
     system_id: str = "SISCOD"
@@ -126,8 +126,8 @@ class NiarvilogColumns:
     error_message: str = "EERRMSG"
 
     def select_list(self) -> str:
-        """Comma-separated column list for ``SELECT`` — fixed field order
-        matching :class:`NiarvilogRow`."""
+        """Lista de columnas separadas por coma para ``SELECT`` — orden fijo
+        de campos que coincide con :class:`NiarvilogRow`."""
         return ", ".join(
             (
                 self.system_id,
@@ -150,26 +150,27 @@ class NiarvilogColumns:
 
 
 class As400NiarvilogStore:
-    """Distributed-idempotency store over RVILIB.NIARVILOG.
+    """Store de idempotencia distribuida sobre RVILIB.NIARVILOG.
 
-    Operations:
+    Operaciones:
 
-    * :meth:`try_claim` — atomic ``UPDATE STSCOD='I' WHERE STSCOD='N'``
-      with INSERT fallback for first-time rows. Returns True if we
-      now own the row.
-    * :meth:`mark_uploaded` — ``UPDATE STSCOD='O', OBJIDN=...`` once S5
-      completes. Logs WARNING on rowcount != 1 (the row changed
-      under us between claim and complete; investigate but don't
-      fail the pipeline).
+    * :meth:`try_claim` — ``UPDATE STSCOD='I' WHERE STSCOD='N'`` atómico
+      con fallback a INSERT para filas que aparecen por primera vez.
+      Devuelve True si ahora somos dueños de la fila.
+    * :meth:`mark_uploaded` — ``UPDATE STSCOD='O', OBJIDN=...`` cuando S5
+      completa. Loguea WARNING si el rowcount != 1 (la fila cambió bajo
+      nuestros pies entre el claim y el complete; investigar pero no
+      fallar el `pipeline`).
     * :meth:`mark_failed` — ``UPDATE STSCOD='F', EERRMSG=...,
-      NUMREI=NUMREI+1`` on any stage failure.
-    * :meth:`read_state` — SELECT one row by PK.
-    * :meth:`cleanup_stale_in_progress` — reset rows stuck at
-      ``STSCOD='I'`` for too long (a previous run crashed mid-claim).
+      NUMREI=NUMREI+1`` ante cualquier falla de etapa.
+    * :meth:`read_state` — SELECT de una fila por PK.
+    * :meth:`cleanup_stale_in_progress` — resetea filas que quedaron
+      pegadas en ``STSCOD='I'`` por demasiado tiempo (una corrida
+      anterior crasheó a mitad de claim).
 
-    DB2 for i note: ``FINREI`` is declared ``ROW CHANGE TIMESTAMP`` so
-    DB2 updates it implicitly on every UPDATE — our SQL never
-    references it.
+    Nota DB2 for i: ``FINREI`` se declara ``ROW CHANGE TIMESTAMP``, así
+    que DB2 lo actualiza implícitamente en cada UPDATE — nuestro SQL nunca
+    lo referencia.
     """
 
     def __init__(
@@ -197,7 +198,7 @@ class As400NiarvilogStore:
         self._conn: Any = None
         self._closed = False
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def try_claim(
         self,
@@ -207,7 +208,7 @@ class As400NiarvilogStore:
         mapping: CMMapping,
         trigger: Trigger,
     ) -> bool:
-        """Atomic claim. Returns True iff this process now owns the row."""
+        """Claim atómico. Devuelve True si y solo si este proceso ahora es dueño de la fila."""
         pk = _pk_from(document=document, trigger=trigger)
         c = self._cols
         update_sql = (
@@ -221,23 +222,24 @@ class As400NiarvilogStore:
         rowcount = self._execute_write(update_sql, params, "niarvilog_claim_update")
         if rowcount >= 1:
             return True
-        # Row doesn't exist (or already in non-N state). Try INSERT.
+        # La fila no existe (o ya está en un estado distinto de N). Intentamos INSERT.
         try:
             self._insert_new_claim(
                 document=document, mapping=mapping, trigger=trigger, record=record
             )
         except _pyodbc_integrity_error_type():
-            # Race: another process inserted the row between our UPDATE
-            # and INSERT. That means someone else owns it now → False.
+            # `race condition`: otro proceso insertó la fila entre nuestro
+            # UPDATE y el INSERT. Eso significa que alguien más es dueño
+            # ahora → False.
             return False
         return True
 
     def mark_uploaded(
         self,
         *,
-        record: MigrationRecord,  # noqa: ARG002 — kept for API symmetry
+        record: MigrationRecord,  # noqa: ARG002 — se mantiene por simetría de API
         document: RVABREPDocument,
-        mapping: CMMapping,  # noqa: ARG002 — kept for API symmetry
+        mapping: CMMapping,  # noqa: ARG002 — se mantiene por simetría de API
         trigger: Trigger,
         cm_object_id: str,
     ) -> None:
@@ -276,7 +278,7 @@ class As400NiarvilogStore:
             f"WHERE {c.system_id} = ? AND {c.txn_num} = ? "
             f"AND {c.doc_format} = ? AND {c.image_archive} = ?"
         )
-        # AS400 VARCHAR(1024) — truncate defensively.
+        # AS400 VARCHAR(1024) — truncamos defensivamente.
         params = [error[:1024], *pk]
         self._execute_write(sql, params, "niarvilog_mark_failed")
 
@@ -301,13 +303,13 @@ class As400NiarvilogStore:
         return self._row_from_dict(rows[0])
 
     def read_state_by_txn(self, *, trnnum: str) -> NiarvilogRow | None:
-        """TRNNUM-only lookup (034 phase 4).
+        """Lookup solo por TRNNUM (034 fase 4).
 
-        For pre-flight sync + ``cmcourier sync resolve``, the caller
-        typically knows only the txn_num, not the full composite PK
-        (SISCOD/DOCFRM/IMGARC). The bank's operational convention is
-        one row per txn_num — this method assumes that and returns
-        the first matching row (or None).
+        Para el `pre-flight` de sync + ``cmcourier sync resolve``, el caller
+        normalmente solo conoce el txn_num, no la PK compuesta completa
+        (SISCOD/DOCFRM/IMGARC). La convención operativa del banco es una
+        fila por txn_num — este método lo asume y devuelve la primera
+        fila que coincida (o None).
         """
         c = self._cols
         sql = (
@@ -320,12 +322,13 @@ class As400NiarvilogStore:
         return self._row_from_dict(rows[0])
 
     def mark_uploaded_by_txn(self, *, trnnum: str, cm_object_id: str) -> int:
-        """Phase 4 helper for ``sync resolve --prefer-local``.
+        """Helper de fase 4 para ``sync resolve --prefer-local``.
 
-        Updates the existing NIARVILOG row by TRNNUM, setting
-        ``STSCOD='O'`` + ``OBJIDN=cm_object_id``. Returns row count.
-        Operators use this when SQLite knows the doc is done but
-        AS400 didn't get the notification (e.g. AS400 was down).
+        Actualiza la fila NIARVILOG existente por TRNNUM, seteando
+        ``STSCOD='O'`` + ``OBJIDN=cm_object_id``. Devuelve el row count.
+        Los operadores usan esto cuando SQLite sabe que el doc está
+        completo pero AS400 no recibió la notificación (por ejemplo,
+        AS400 estaba caído).
         """
         c = self._cols
         sql = (
@@ -336,10 +339,10 @@ class As400NiarvilogStore:
         return self._execute_write(sql, [cm_object_id, trnnum], "niarvilog_mark_uploaded_by_txn")
 
     def cleanup_stale_in_progress(self) -> int:
-        """Reset STSCOD='I' rows whose FINREI is older than threshold.
+        """Resetea las filas con STSCOD='I' cuyo FINREI es más viejo que el umbral.
 
-        Returns the row count. Useful when a previous claim crashed
-        between UPDATE 'I' and the eventual 'O' / 'F' write.
+        Devuelve el row count. Útil cuando un claim anterior crasheó
+        entre el UPDATE 'I' y la escritura eventual de 'O' / 'F'.
         """
         c = self._cols
         sql = (
@@ -361,14 +364,14 @@ class As400NiarvilogStore:
                 _log.exception("AS400 close failed")
             self._conn = None
 
-    # ----------------------------------------------------------- internals
+    # ----------------------------------------------------------- internos
 
     def _full_table(self) -> str:
         return f"{self._library}.{self._table}"
 
     def _row_from_dict(self, row: dict[str, Any]) -> NiarvilogRow:
-        """Build a :class:`NiarvilogRow` from a result dict keyed by the
-        configured physical column names."""
+        """Construye un :class:`NiarvilogRow` a partir de un dict de resultados
+        indexado por los nombres físicos de columna configurados."""
         c = self._cols
         return NiarvilogRow(
             siscod=str(row[c.system_id]).strip(),
@@ -391,7 +394,7 @@ class As400NiarvilogStore:
     def _insert_new_claim(
         self,
         *,
-        record: MigrationRecord,  # noqa: ARG002 — kept for future fields
+        record: MigrationRecord,  # noqa: ARG002 — se mantiene para futuros campos
         document: RVABREPDocument,
         mapping: CMMapping,
         trigger: Trigger,
@@ -405,8 +408,8 @@ class As400NiarvilogStore:
             f"{c.error_message}) "
             f"VALUES (?, ?, ?, ?, ?, ?, ?, 'I', ?, ?, '', 0, '')"
         )
-        # 046: trigger is polymorphic; use audit_row() to extract the
-        # (shortname, cif, system_id) triple that NIARVILOG indexes on.
+        # 046: trigger es polimórfico; usamos audit_row() para extraer la
+        # tripleta (shortname, cif, system_id) que NIARVILOG indexa.
         audit = trigger.audit_row()
         cif_str = audit.get("cif") or ""
         params: list[Any] = [
@@ -444,15 +447,17 @@ class As400NiarvilogStore:
             )
             return rowcount
         except _pyodbc_integrity_error_type():
-            # Caller (try_claim) handles this. Re-raise unwrapped — and
-            # crucially, NEVER retry: an IntegrityError means the row
-            # already exists or the constraint failed deterministically.
+            # El caller (try_claim) maneja esto. Re-raise sin envolver — y
+            # crucialmente, NUNCA reintentamos: un IntegrityError significa
+            # que la fila ya existe o que la constraint falló de manera
+            # determinística.
             raise
         except _pyodbc_operational_error_type():
-            # Transient — let _with_retry handle it.
+            # Transitorio — dejamos que _with_retry se encargue.
             raise
         except _pyodbc_error_type() as exc:
-            # Non-transient pyodbc error — wrap and surface immediately.
+            # Error de pyodbc no transitorio — envolvemos y propagamos
+            # inmediatamente.
             raise As400CoordinationError(f"NIARVILOG {kind} failed: {exc}") from exc
         finally:
             cursor.close()
@@ -486,23 +491,23 @@ class As400NiarvilogStore:
             cursor.close()
 
     def _with_retry(self, kind: str, op: Callable[[], _R]) -> _R:
-        """Retry a NIARVILOG operation on transient ``OperationalError``.
+        """Reintenta una operación NIARVILOG ante un ``OperationalError`` transitorio.
 
-        Sequence: ``base, base*2, base*4, ...`` capped at 5 minutes.
-        Uses configured ``retry_attempts`` (total tries) and
-        ``retry_base_delay_s`` from the YAML.
+        Secuencia: ``base, base*2, base*4, ...`` capada a 5 minutos. Usa el
+        ``retry_attempts`` configurado (intentos totales) y
+        ``retry_base_delay_s`` del YAML.
 
-        IntegrityError and other pyodbc.Error subclasses are NOT
-        retried — they're either deterministic (PK race in
-        try_claim) or schema mismatches that won't fix themselves.
+        IntegrityError y otras subclases de pyodbc.Error NO se reintentan
+        — o son determinísticas (`race condition` de PK en try_claim) o
+        son schema mismatches que no se van a arreglar solas.
         """
         last_exc: BaseException | None = None
         for attempt in range(1, self._retry_attempts + 1):
             try:
                 return op()
             except _pyodbc_integrity_error_type():
-                # Deterministic — do NOT retry. Propagate so try_claim
-                # can detect the race.
+                # Determinístico — NO reintentar. Propagamos para que
+                # try_claim pueda detectar la `race condition`.
                 raise
             except _pyodbc_operational_error_type() as exc:
                 last_exc = exc
@@ -520,8 +525,8 @@ class As400NiarvilogStore:
                     exc,
                     delay,
                 )
-                # Reset the cached connection — operational errors often
-                # leave it in a bad state. The next op will reconnect.
+                # Reseteamos la conexión cacheada — los errores operacionales
+                # suelen dejarla en mal estado. La próxima op va a reconectar.
                 self._reset_connection()
                 time.sleep(delay)
         raise As400UnreachableError(
@@ -564,7 +569,7 @@ class As400NiarvilogStore:
 
 
 def _pk_from(*, document: RVABREPDocument, trigger: Trigger) -> tuple[str, str, str, str]:
-    """Build the four PK columns (SISCOD, TRNNUM, DOCFRM, IMGARC)."""
+    """Construye las cuatro columnas de PK (SISCOD, TRNNUM, DOCFRM, IMGARC)."""
     return (
         trigger.audit_row().get("system_id") or "",
         document.txn_num,
@@ -591,15 +596,16 @@ def _pyodbc_error_type() -> type[BaseException]:
 def _pyodbc_integrity_error_type() -> type[BaseException]:
     if pyodbc is None:
         return RuntimeError
-    # pyodbc exposes IntegrityError as a subclass of Error.
+    # pyodbc expone IntegrityError como subclase de Error.
     return getattr(pyodbc, "IntegrityError", pyodbc.Error)  # type: ignore[no-any-return]
 
 
 def _pyodbc_operational_error_type() -> type[BaseException]:
-    """Transient errors that warrant a retry. ``OperationalError`` covers
-    network drops, deadlocks, and most "server temporarily unavailable"
-    states. When pyodbc isn't installed (test env), return a sentinel
-    that won't match real exceptions."""
+    """Errores transitorios que justifican un `retry`. ``OperationalError``
+    cubre caídas de red, deadlocks, y la mayoría de los estados de
+    "servidor temporalmente no disponible". Cuando pyodbc no está
+    instalado (entorno de test), devuelve un centinela que no va a
+    coincidir con excepciones reales."""
     if pyodbc is None:
         return RuntimeError
     return getattr(pyodbc, "OperationalError", pyodbc.Error)  # type: ignore[no-any-return]

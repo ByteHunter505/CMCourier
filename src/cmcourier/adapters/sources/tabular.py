@@ -1,17 +1,18 @@
-"""TabularDataSource - concrete IDataSource over CSV and XLSX files.
+"""TabularDataSource — IDataSource concreto sobre archivos CSV y XLSX.
 
-First adapter implementation in CMCourier. Reads the entire file eagerly via
-pandas, stores it as a private DataFrame, and exposes the IDataSource
-contract. ``query()`` and ``query_stream()`` raise ``NotImplementedError``
-because tabular sources have no SQL surface; callers use ``get_by_fields``,
-``get_by_fields_in``, or ``get_all`` instead.
+Primera implementación de adaptador en CMCourier. Lee el archivo completo de
+forma eager con pandas, lo guarda como un DataFrame privado, y expone el
+contrato IDataSource. ``query()`` y ``query_stream()`` levantan
+``NotImplementedError`` porque las fuentes tabulares no tienen superficie SQL;
+los callers usan ``get_by_fields``, ``get_by_fields_in`` o ``get_all`` en su
+lugar.
 
-The adapter normalizes ``NaN`` (pandas missing-value sentinel) to ``None``
-before yielding any row dict, so callers never see pandas-specific
-internals through the port boundary.
+El adaptador normaliza el centinela ``NaN`` de pandas a ``None`` antes de
+emitir cualquier dict de fila, de modo que los callers nunca ven internals
+específicos de pandas a través del borde del puerto.
 
-See ``specs/003-tabular-data-source-adapter/{spec,plan}.md`` for full
-context and rationale.
+Ver ``specs/003-tabular-data-source-adapter/{spec,plan}.md`` para el contexto
+y la justificación completa.
 """
 
 from __future__ import annotations
@@ -32,23 +33,24 @@ _SUPPORTED_XLSX: tuple[str, ...] = (".xlsx", ".xls")
 
 
 def _normalize_row(row: dict[Any, Any]) -> dict[str, Any]:
-    """Replace pandas ``NaN`` sentinels with ``None`` and stringify keys.
+    """Reemplaza los centinelas ``NaN`` de pandas por ``None`` y convierte las claves a string.
 
-    pandas's ``DataFrame.to_dict(orient="records")`` returns
-    ``dict[Hashable, Any]`` because column labels can be anything hashable.
-    At runtime our DataFrames always have string headers (CSV / XLSX), but
-    we coerce ``str(k)`` defensively to keep the contract clean.
+    ``DataFrame.to_dict(orient="records")`` de pandas devuelve
+    ``dict[Hashable, Any]`` porque las etiquetas de columna pueden ser cualquier
+    hashable. En runtime nuestros DataFrames siempre tienen headers de tipo
+    string (CSV / XLSX), pero forzamos ``str(k)`` de manera defensiva para
+    mantener el contrato limpio.
     """
     return {str(k): (None if pd.isna(v) else v) for k, v in row.items()}
 
 
 class TabularDataSource(IDataSource):
-    """In-memory IDataSource backed by a single CSV or XLSX file.
+    """IDataSource en memoria respaldado por un único archivo CSV o XLSX.
 
-    Construction reads the file once into a pandas DataFrame and stores it
-    for the lifetime of the instance. Callers must ``close()`` the source
-    when done; subsequent operations on a closed instance raise
-    ``RuntimeError``.
+    La construcción lee el archivo una vez en un DataFrame de pandas y lo
+    guarda por el resto del ciclo de vida de la instancia. Los callers deben
+    invocar ``close()`` cuando terminen; operaciones posteriores sobre una
+    instancia cerrada levantan ``RuntimeError``.
     """
 
     def __init__(
@@ -88,7 +90,7 @@ class TabularDataSource(IDataSource):
                 dtype=str,
                 engine="openpyxl",
             )
-        except Exception as exc:  # pandas / openpyxl raise heterogeneous types
+        except Exception as exc:  # pandas / openpyxl levantan tipos heterogéneos
             raise ConfigurationError(f"Failed to load XLSX {path}: {exc}") from exc
 
     def _ensure_open(self) -> None:
@@ -106,7 +108,7 @@ class TabularDataSource(IDataSource):
             "TabularDataSource does not support raw SQL. "
             "Use get_by_fields(filters), get_by_fields_in(...), or get_all()."
         )
-        yield  # pragma: no cover - unreachable, keeps the function a generator
+        yield  # pragma: no cover - inalcanzable; mantiene la función como generator
 
     def get_by_fields(self, filters: Mapping[str, Any]) -> list[dict[str, Any]]:
         self._ensure_open()
@@ -135,9 +137,9 @@ class TabularDataSource(IDataSource):
 
     def get_all(self) -> Iterator[dict[str, Any]]:
         self._ensure_open()
-        # 050: iterate row by row via ``itertuples`` (lazy) instead of
-        # ``to_dict(orient="records")`` which builds the full list of
-        # every row's dict before the generator yields anything.
+        # 050: iteramos fila por fila vía ``itertuples`` (lazy) en lugar de
+        # ``to_dict(orient="records")``, que construye la lista completa de
+        # dicts de todas las filas antes de que el generator emita nada.
         columns = list(self._df.columns)
         for values in self._df.itertuples(index=False, name=None):
             yield _normalize_row(dict(zip(columns, values, strict=True)))

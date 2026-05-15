@@ -1,36 +1,39 @@
-"""Stage S5 — :class:`CmisUploader`.
+"""Etapa S5 — :class:`CmisUploader`.
 
-Concrete :class:`IUploader` for IBM Content Manager via the CMIS Browser
-Binding REST/JSON protocol. The adapter holds one :class:`httpx.Client`
-shared across all calls. Sync client; the orchestrator's ``ThreadPoolExecutor``
-calls into it from N worker threads.
+Implementación concreta de :class:`IUploader` para IBM Content Manager vía
+el protocolo REST/JSON del CMIS Browser Binding. El adaptador mantiene un
+único :class:`httpx.Client` compartido entre todas las llamadas. Cliente
+sync; el ``ThreadPoolExecutor`` del orquestador lo invoca desde N `threads`
+`worker`.
 
-060: migrated from ``requests`` to ``httpx[http2]``. When the server
-negotiates HTTP/2 via ALPN (Apache-fronted Alfresco in prod) the N
-concurrent workers multiplex over a single TCP connection — small-upload
-overhead drops. If the server only speaks HTTP/1.1 (Tomcat-direct
-staging) httpx transparently falls back, same behaviour as pre-060.
+060: migrado de ``requests`` a ``httpx[http2]``. Cuando el server negocia
+HTTP/2 vía `ALPN` (Alfresco con Apache adelante en prod), los N `workers`
+concurrentes hacen `multiplexing` sobre una sola conexión TCP — baja el
+overhead de los uploads chicos. Si el server solo habla HTTP/1.1 (staging
+con Tomcat directo) httpx hace fallback transparente, mismo comportamiento
+que pre-060.
 
-Implements the full S5 upload contract:
+Implementa el contrato completo de upload de S5:
 
-* JSESSIONID warmup — lazy, runs once per session lifetime.
-* Recursive folder creation with the in-memory cache and idempotent 409
-  semantics; ``$``-prefixed system folders are skipped.
-* Streaming multipart upload via httpx's ``files=`` / ``data=`` API;
-  the file is read from disk on demand, never buffered whole.
-* Optional :class:`BandwidthLimiter` wrapping the file stream for
-  throttled corporate networks.
-* Retry policy: 401 → re-warmup + retry once; 5xx → exponential
-  backoff capped at 60 s; Windows-10053 connection abort → doubled
-  sleep; 4xx → fail-fast :class:`CMISClientError`; retry budget
-  exhausted → :class:`RetriesExhaustedError`.
-* The 3-path ``cmis:objectId`` parser.
+* Warmup de JSESSIONID — lazy, corre una vez por session lifetime.
+* Creación recursiva de carpetas con cache en memoria y semántica
+  idempotente para 409; las carpetas de sistema con prefijo ``$`` se saltean.
+* Upload `multipart` `streaming` vía la API ``files=`` / ``data=`` de httpx;
+  el archivo se lee de disco bajo demanda, nunca se bufferea entero.
+* :class:`BandwidthLimiter` opcional que envuelve el `stream` del archivo
+  para redes corporativas con throttling.
+* Política de `retry`: 401 → re-warmup + un `retry`; 5xx → `back-off`
+  exponencial capado a 60 s; aborto de conexión Windows-10053 → sleep
+  duplicado; 4xx → fail-fast :class:`CMISClientError`; presupuesto de
+  `retry` agotado → :class:`RetriesExhaustedError`.
+* El parser de ``cmis:objectId`` de 3 rutas.
 
-Constitution Principle I: this module imports ``httpx`` (declared in
-``pyproject.toml``) and the standard library. Domain models are
-imported as types only. Principle VIII: logs identify operational keys
-(txn_num, folder_path, HTTP status, attempt) but never property values
-or response bodies beyond a truncation cap.
+Principio I de la Constitución: este módulo importa ``httpx`` (declarado en
+``pyproject.toml``) y la standard library. Los modelos de dominio se
+importan solo como tipos. Principio VIII: los logs identifican claves
+operacionales (txn_num, folder_path, status HTTP, attempt) pero nunca
+valores de propiedades ni cuerpos de respuesta más allá de un cap de
+truncado.
 """
 
 from __future__ import annotations
@@ -67,13 +70,13 @@ _RESPONSE_BODY_TRUNCATION = 1024
 
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuración
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class CmisConfig:
-    """Connection + retry + bandwidth knobs for :class:`CmisUploader`."""
+    """Perillas de conexión + `retry` + ancho de banda para :class:`CmisUploader`."""
 
     base_url: str
     repo_id: str
@@ -84,13 +87,15 @@ class CmisConfig:
     max_bandwidth_mbps: float = 0.0
     retry_max_attempts: int = 3
     retry_base_delay_s: float = 2.0
-    # 038: default httpx connection pool is small. When the S5 worker
-    # count exceeds the keepalive pool, httpx opens fresh TCP per
-    # request. Size the pool to match expected concurrency.
+    # 038: el `connection pool` default de httpx es chico. Cuando la
+    # cantidad de `workers` de S5 supera el pool `keep-alive`, httpx abre
+    # TCP fresco por request. Dimensionamos el pool para que coincida con
+    # la concurrencia esperada.
     pool_size: int = 10
-    # 038: when True, ``s5_upload_attempt`` and ``s5_upload_failed``
-    # events emit raw property values instead of PII-masked ones.
-    # Toggled via ``ObservabilityConfig.unmask_pii``; never default-true.
+    # 038: cuando es True, los eventos ``s5_upload_attempt`` y
+    # ``s5_upload_failed`` emiten valores de propiedad crudos en lugar de
+    # enmascarados como PII. Se togglea vía ``ObservabilityConfig.unmask_pii``;
+    # nunca default-true.
     unmask_pii: bool = False
 
 
@@ -100,29 +105,29 @@ class CmisConfig:
 
 
 class TokenBucket:
-    """Process-shared token bucket (fixed in 029).
+    """`token bucket` compartido a nivel de proceso (corregido en 029).
 
-    A single instance is owned by :class:`CmisUploader` and reused
-    across every upload + every worker thread. Concurrent
-    ``consume()`` calls serialize on the internal lock so the
-    configured rate is the **global** ceiling, not a per-call
-    one. ``mbps=0`` disables throttling entirely (no lock taken).
+    :class:`CmisUploader` es dueño de una sola instancia y se reusa en
+    cada upload + cada `thread` `worker`. Las llamadas concurrentes a
+    ``consume()`` se serializan sobre el `lock` interno, así que la tasa
+    configurada es el techo **global**, no uno por llamada. ``mbps=0``
+    desactiva el throttling por completo (no se toma el `lock`).
     """
 
     def __init__(self, mbps: float) -> None:
         self._enabled = mbps > 0
-        self._rate = mbps * 1_000_000.0  # bytes/sec
+        self._rate = mbps * 1_000_000.0  # bytes/seg
         self._tokens = 0.0
         self._last_refill = time.monotonic()
         self._lock = threading.Lock()
 
     def consume(self, n_bytes: int) -> None:
-        """Block until ``n_bytes`` tokens are available, then deduct."""
+        """Bloquea hasta tener ``n_bytes`` tokens disponibles, luego los descuenta."""
         if not self._enabled or n_bytes <= 0:
             return
-        # Compute the sleep outside the lock so other threads can
-        # refill their token math while this one waits. The lock
-        # only guards the (tokens, last_refill) state.
+        # Computamos el sleep fuera del `lock` para que otros `threads` puedan
+        # refrescar su matemática de tokens mientras este espera. El `lock`
+        # solo protege el estado (tokens, last_refill).
         while True:
             with self._lock:
                 now = time.monotonic()
@@ -137,7 +142,7 @@ class TokenBucket:
 
 
 class BandwidthLimiter:
-    """File-like wrapper that defers throttling to a shared bucket."""
+    """Wrapper file-like que delega el throttling a un `bucket` compartido."""
 
     def __init__(self, stream: IO[bytes], bucket: TokenBucket) -> None:
         self._stream = stream
@@ -174,14 +179,14 @@ class BandwidthLimiter:
 
 
 class CmisUploader(IUploader):
-    """Concrete :class:`IUploader` over CMIS Browser Binding (httpx[http2])."""
+    """Implementación concreta de :class:`IUploader` sobre CMIS Browser Binding (httpx[http2])."""
 
     def __init__(self, config: CmisConfig) -> None:
         self._cfg = config
         pool_size = max(1, int(config.pool_size))
-        # 060: HTTP/2 negotiated via ALPN; HTTP/1.1 fallback if the
-        # server doesn't advertise h2. Same wire behaviour as pre-060
-        # against Tomcat-direct; multiplexing kicks in vs Apache.
+        # 060: HTTP/2 negociado vía `ALPN`; fallback a HTTP/1.1 si el server
+        # no anuncia `h2`. Mismo comportamiento de cable que pre-060 contra
+        # Tomcat directo; el `multiplexing` aparece contra Apache.
         self._client = httpx.Client(
             http2=True,
             auth=(config.username, config.password),
@@ -193,28 +198,29 @@ class CmisUploader(IUploader):
             timeout=httpx.Timeout(config.timeout_seconds),
         )
         self._warm = False
-        # 025: S5 worker pool calls upload concurrently. The per-instance
-        # state above is shared across worker threads.
+        # 025: el `worker pool` de S5 invoca upload concurrentemente. El
+        # estado por instancia de arriba se comparte entre `threads` `worker`.
         self._warm_lock = threading.Lock()
-        # 025 phase 2: the AIMD auto-tune controller may adjust the
-        # request timeout mid-batch. CmisConfig itself is frozen, so we
-        # keep the live value here. Request paths consult this property
-        # via ``self._timeout_s``; defaults to the configured value.
+        # 025 fase 2: el controlador AIMD de auto-tune puede ajustar el
+        # timeout de request a mitad de `batch`. CmisConfig en sí está
+        # frozen, así que guardamos el valor en vivo acá. Los caminos de
+        # request consultan esta propiedad vía ``self._timeout_s``; por
+        # defecto, el valor configurado.
         self._timeout_s: float = float(config.timeout_seconds)
-        # 029: one shared TokenBucket per uploader so the configured
-        # ``max_bandwidth_mbps`` is the global cap across every
-        # concurrent upload (not a per-call ceiling that multiplies
-        # by worker count).
+        # 029: un único TokenBucket compartido por uploader para que el
+        # ``max_bandwidth_mbps`` configurado sea el cap global entre todos
+        # los uploads concurrentes (no un techo por llamada que se
+        # multiplica por la cantidad de `workers`).
         self._bandwidth_bucket = TokenBucket(mbps=config.max_bandwidth_mbps)
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def test_connection(self) -> Mapping[str, str]:
-        """GET repositoryInfo, return a small diagnostics dict.
+        """GET repositoryInfo, devuelve un dict chico de diagnóstico.
 
-        IBM CM returns the fields flat under the top-level JSON object.
-        Alfresco wraps them: ``{"<repo_id>": {"repositoryId": ...}}``.
-        We unwrap when the top-level lacks ``repositoryId`` (040).
+        IBM CM devuelve los campos planos bajo el objeto JSON de nivel
+        superior. Alfresco los envuelve: ``{"<repo_id>": {"repositoryId": ...}}``.
+        Desenvolvemos cuando al nivel superior le falta ``repositoryId`` (040).
         """
         data = self._warmup_session()
         if isinstance(data, dict) and "repositoryId" not in data:
@@ -229,18 +235,18 @@ class CmisUploader(IUploader):
         }
 
     def warm_connection_pool(self, n: int) -> int:
-        """Pre-open ``n`` TCP+TLS+JSESSIONID connections (038).
+        """Pre-abre ``n`` conexiones TCP+`TLS`+JSESSIONID (038).
 
-        Without this, the first ``n`` S5 uploads each pay the TCP +
-        TLS handshake + JSESSIONID bootstrap on the critical path —
-        easily 100-400 ms per worker on a corporate link. Calling this
-        once before stage S5 dispatches all that to a parallel
-        startup phase, leaving the uploads themselves on warm
-        keep-alive connections.
+        Sin esto, los primeros ``n`` uploads de S5 pagan cada uno el
+        handshake TCP + `TLS` + bootstrap de `JSESSIONID` en la ruta
+        crítica — fácil 100-400 ms por `worker` en un enlace corporativo.
+        Llamar a esto una vez antes de S5 manda todo ese costo a una fase
+        de arranque paralela, dejando los uploads en sí sobre conexiones
+        `keep-alive` calientes.
 
-        Returns the number of warmups that completed successfully.
-        Failures are logged but never raise — a cold pool just means
-        the first uploads pay the handshake.
+        Devuelve la cantidad de warmups que completaron exitosamente. Las
+        fallas se loguean pero nunca se levantan — un pool frío solo
+        implica que los primeros uploads pagan el handshake.
         """
         if n <= 0:
             return 0
@@ -267,7 +273,7 @@ class CmisUploader(IUploader):
         return successes
 
     def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
-        """GET cmisselector=typeDefinition&typeId=<id>. Bypasses the retry loop."""
+        """GET cmisselector=typeDefinition&typeId=<id>. No pasa por el loop de `retry`."""
         with self._warm_lock:
             need_warmup = not self._warm
         if need_warmup:
@@ -301,18 +307,20 @@ class CmisUploader(IUploader):
         return data if isinstance(data, dict) else {}
 
     def verify_folder_exists(self, folder_path: str) -> bool:
-        """Return ``True`` iff *folder_path* exists on the CM server and is
-        a ``cmis:folder``.
+        """Devuelve ``True`` si y solo si *folder_path* existe en el server CM
+        y es un ``cmis:folder``.
 
-        Read-only — never creates the folder. CMCourier deposits documents
-        only; the target folder tree is governed by the CMIS administrator
-        (038). Used by ``doctor --check cm-targets`` to pre-flight every
-        ``CMISFolder`` declared in MapeoRVI_CM before S5 ever runs.
+        Read-only — nunca crea la carpeta. CMCourier solo deposita
+        documentos; el árbol de carpetas destino lo gobierna el
+        administrador `cmis` (038). Lo usa ``doctor --check cm-targets``
+        para hacer `pre-flight` de cada ``CMISFolder`` declarado en
+        MapeoRVI_CM antes de que S5 corra.
 
-        Returns ``False`` on 404 or when the path resolves to a non-folder
-        object. Raises ``CMISClientError`` (401/403) or ``CMISServerError``
-        (5xx) on connectivity / authentication failures so doctor surfaces
-        configuration errors loudly.
+        Devuelve ``False`` ante un 404 o cuando la ruta resuelve a un
+        objeto que no es carpeta. Levanta ``CMISClientError`` (401/403) o
+        ``CMISServerError`` (5xx) ante fallas de conectividad /
+        autenticación para que doctor exponga los errores de configuración
+        en voz alta.
         """
         normalized = folder_path.strip("/")
         url = self._service_url(f"root/{normalized}")
@@ -364,18 +372,18 @@ class CmisUploader(IUploader):
         *,
         batch_id: str,
     ) -> str:
-        """Stream the staged file and return the resulting cmis:objectId.
+        """`stream`ea el archivo staged y devuelve el cmis:objectId resultante.
 
-        ``batch_id`` tags every network event emitted here so the
-        per-batch ``_BandwidthHandler`` / ``_SlowOpHandler`` attribute
-        the bytes + slow ops to the right chunk. Without it the handlers
-        drop the events (their ``batch_id`` filter never matches).
+        ``batch_id`` etiqueta cada evento de red que se emite acá para que
+        el ``_BandwidthHandler`` / ``_SlowOpHandler`` por `batch` atribuyan
+        los bytes + slow ops al `chunk` correcto. Sin él, los handlers
+        descartan los eventos (su filtro de ``batch_id`` nunca matchea).
 
-        The target folder is NOT verified or created here — the operator
-        is expected to have run ``doctor --check cm-targets`` (038) before
-        the pipeline. If the folder is missing or is not a CMIS folder,
-        the server returns a 4xx and the failure surfaces via the
-        existing retry / metrics path.
+        La carpeta destino NO se verifica ni se crea acá — se espera que el
+        operador haya corrido ``doctor --check cm-targets`` (038) antes del
+        `pipeline`. Si la carpeta no existe o no es una carpeta `cmis`, el
+        server devuelve un 4xx y la falla aparece vía el camino existente
+        de `retry` / métricas.
         """
         normalized = folder_path.strip("/")
         url = self._service_url(f"root/{normalized}")
@@ -408,11 +416,12 @@ class CmisUploader(IUploader):
                     batch_id=batch_id,
                 )
             except (CMISClientError, CMISServerError) as exc:
-                # 045: a 409 conflict typically means a prior run (or a
-                # kill-race between a successful CMIS POST and our SQLite
-                # commit) already created this object. Look it up by
-                # cmis:name; if found, treat the upload as idempotently
-                # successful and return that objectId.
+                # 045: un conflicto 409 típicamente significa que una
+                # corrida anterior (o una `race condition` entre un POST
+                # `cmis` exitoso y nuestro commit de SQLite) ya creó este
+                # objeto. Lo buscamos por cmis:name; si aparece, tratamos
+                # el upload como exitoso de forma `idempotent` y
+                # devolvemos ese objectId.
                 if isinstance(exc, CMISClientError) and exc.status_code == 409:
                     recovered = self._try_recover_409(
                         folder_url=url,
@@ -452,12 +461,13 @@ class CmisUploader(IUploader):
         content_bytes: int,
         exc: CMISClientError,
     ) -> str | None:
-        """045 — recover a 409 conflict via children lookup.
+        """045 — recupera un conflicto 409 vía lookup de hijos.
 
-        Returns the existing ``cmis:objectId`` when a child of ``folder_url``
-        already has ``cmis:name == document_name``; returns ``None`` when
-        nothing matches (true 409 — propagate as failure). Emits structured
-        audit events so the operator can grep recoveries in
+        Devuelve el ``cmis:objectId`` existente cuando un hijo de
+        ``folder_url`` ya tiene ``cmis:name == document_name``; devuelve
+        ``None`` cuando no matchea nada (409 real — propagamos como
+        falla). Emite eventos de auditoría estructurados para que el
+        operador pueda grepear las recuperaciones en
         ``network-YYYY-MM-DD.jsonl``.
         """
         self._emit_409_event(
@@ -472,8 +482,8 @@ class CmisUploader(IUploader):
         try:
             existing_id = self._lookup_existing_object_id(folder_url, document_name)
         except (CMISClientError, CMISServerError, httpx.RequestError):
-            # Lookup itself failed — fall through to the original failure
-            # path so the operator sees the underlying upload error.
+            # El lookup en sí falló — caemos al camino original de falla
+            # para que el operador vea el error subyacente del upload.
             self._emit_409_event(
                 event="s5_upload_409_recovery_failed",
                 url=folder_url,
@@ -507,11 +517,11 @@ class CmisUploader(IUploader):
             content_bytes=content_bytes,
             recovered_object_id=existing_id,
         )
-        del exc  # the original 409 is consumed — recovery is the answer now.
+        del exc  # el 409 original se consume — la recuperación es la respuesta ahora.
         return existing_id
 
     def _lookup_existing_object_id(self, folder_url: str, document_name: str) -> str | None:
-        """List ``folder_url``'s children, return the matching cmis:objectId."""
+        """Lista los hijos de ``folder_url``, devuelve el cmis:objectId que matchee."""
         t0 = time.monotonic()
         resp = self._client.get(
             folder_url,
@@ -602,7 +612,7 @@ class CmisUploader(IUploader):
         content_bytes: int,
         batch_id: str,
     ) -> None:
-        """038: structured ``s5_upload_attempt`` event into metrics.jsonl."""
+        """038: evento ``s5_upload_attempt`` estructurado hacia metrics.jsonl."""
         masked = mask_dict(
             {
                 "cmis:name": document_name,
@@ -640,7 +650,7 @@ class CmisUploader(IUploader):
         status_code: int,
         response_body: str,
     ) -> None:
-        """038: structured ``s5_upload_failed`` event with curl-equivalent."""
+        """038: evento ``s5_upload_failed`` estructurado con su equivalente curl."""
         masked = mask_dict(
             {
                 "cmis:name": document_name,
@@ -674,10 +684,11 @@ class CmisUploader(IUploader):
     def _build_curl_equivalent(
         self, *, url: str, object_type_id: str, masked_properties: Mapping[str, str]
     ) -> str:
-        """Render a runnable curl that reproduces the failing POST.
+        """Renderiza un curl ejecutable que reproduce el POST que falló.
 
-        Auth is rendered as ``-u admin:***`` regardless of unmask_pii —
-        credentials never leak into structured logs (Principle VIII).
+        El `auth` se renderiza como ``-u admin:***`` sin importar
+        unmask_pii — las credenciales nunca se filtran a los logs
+        estructurados (Principio VIII).
         """
         parts = [
             "curl -u admin:***",
@@ -688,8 +699,8 @@ class CmisUploader(IUploader):
         idx = 1
         for k, v in masked_properties.items():
             if k in ("cmis:contentStreamMimeType",):
-                # already in the form; skip duplicate (the encoder always
-                # carries mime via `cmis:contentStreamMimeType`).
+                # ya está en el form; salteamos el duplicado (el encoder
+                # siempre lleva el mime vía `cmis:contentStreamMimeType`).
                 pass
             safe_v = v.replace("'", "'\\''")
             parts.append(f"-F 'propertyId[{idx}]={k}' -F 'propertyValue[{idx}]={safe_v}'")
@@ -698,22 +709,21 @@ class CmisUploader(IUploader):
         parts.append(f"'{url}'")
         return " ".join(parts)
 
-    # ----------------------------------------------------------- internals
+    # ----------------------------------------------------------- internos
 
     def _service_url(self, suffix: str = "") -> str:
-        """Build a CMIS Browser Binding service URL respecting Alfresco vs IBM CM.
+        """Construye una URL de servicio CMIS Browser Binding respetando Alfresco vs IBM CM.
 
-        IBM Content Manager exposes its repository id INSIDE the URL path
-        (``.../cmis-browser/<repo_id>/root/<folder>``). Alfresco's browser
-        binding does NOT — the repository id is read from the
-        ``repositoryInfo`` response, and the ``base_url`` already includes
-        everything up to ``.../browser`` (040). Distinguish the two via
-        the ``repo_id`` config:
+        IBM Content Manager expone su `repo` id DENTRO del path de la URL
+        (``.../cmis-browser/<repo_id>/root/<folder>``). El browser binding
+        de Alfresco NO lo hace — el `repo` id se lee de la respuesta de
+        ``repositoryInfo``, y la ``base_url`` ya incluye todo hasta
+        ``.../browser`` (040). Los distinguimos vía la config ``repo_id``:
 
-        - ``repo_id`` set (any non-empty string): IBM CM convention,
-          emit ``f"{base}/{repo_id}/{suffix}"``.
-        - ``repo_id == ""``: Alfresco convention, emit
-          ``f"{base}/{suffix}"`` (no doubled slash).
+        - ``repo_id`` seteado (cualquier string no vacío): convención IBM CM,
+          emite ``f"{base}/{repo_id}/{suffix}"``.
+        - ``repo_id == ""``: convención Alfresco, emite
+          ``f"{base}/{suffix}"`` (sin slash duplicada).
         """
         if self._cfg.repo_id:
             url = f"{self._cfg.base_url}/{self._cfg.repo_id}"
@@ -764,10 +774,10 @@ class CmisUploader(IUploader):
         last_exc: Exception | None = None
         real_attempts = 0
         t0 = time.monotonic()
-        # 060: the file stream may have been consumed by a previous attempt
-        # (httpx reads it whole on POST). Seek to 0 before each retry — but
-        # only the underlying file handle, since BandwidthLimiter forwards
-        # seek() to it.
+        # 060: el `stream` del archivo pudo haber sido consumido por un
+        # intento previo (httpx lo lee entero en el POST). Hacemos seek a 0
+        # antes de cada `retry` — pero solo al file handle subyacente, ya
+        # que BandwidthLimiter le reenvía el seek().
         stream = file_field[1]
         while real_attempts < self._cfg.retry_max_attempts:
             with self._warm_lock:
@@ -784,9 +794,9 @@ class CmisUploader(IUploader):
                     timeout=self._timeout_s,
                 )
             except httpx.RequestError as exc:
-                # httpx.RequestError covers ConnectError, ReadError,
-                # RemoteProtocolError, TimeoutException — every transport
-                # failure that would previously have come up as
+                # httpx.RequestError cubre ConnectError, ReadError,
+                # RemoteProtocolError, TimeoutException — todas las fallas
+                # de transporte que antes hubieran aparecido como
                 # requests.exceptions.ConnectionError.
                 real_attempts += 1
                 last_exc = exc
@@ -842,9 +852,10 @@ class CmisUploader(IUploader):
         url: str,
         batch_id: str,
     ) -> None:
-        # ``batch_id`` is mandatory: the per-batch _BandwidthHandler /
-        # _SlowOpHandler drop any record whose batch_id doesn't match,
-        # so an event without it is silently discarded by every recorder.
+        # ``batch_id`` es obligatorio: los _BandwidthHandler /
+        # _SlowOpHandler por `batch` descartan cualquier record cuyo
+        # batch_id no matchee, así que un evento sin él lo descarta en
+        # silencio cada recorder.
         extra: dict[str, object] = {
             "kind": kind,
             "batch_id": batch_id,
@@ -872,21 +883,22 @@ class CmisUploader(IUploader):
         object_type_id: str,
         properties: Mapping[str, str],
     ) -> tuple[dict[str, str], tuple[str, IO[bytes], str]]:
-        """Build the multipart body for `client.post(..., data=..., files=...)`.
+        """Construye el cuerpo `multipart` para `client.post(..., data=..., files=...)`.
 
-        060: httpx separates text fields (``data``) from file fields
-        (``files``). Returns ``(data_fields, file_field)`` so the caller
-        can assemble the POST. The text fields carry every CMIS property
-        (``cmisaction``, ``propertyId[N]`` / ``propertyValue[N]``) and the
-        file field carries the staged stream.
+        060: httpx separa los campos de texto (``data``) de los campos de
+        archivo (``files``). Devuelve ``(data_fields, file_field)`` para
+        que el caller arme el POST. Los campos de texto llevan todas las
+        propiedades `cmis` (``cmisaction``, ``propertyId[N]`` /
+        ``propertyValue[N]``) y el campo de archivo lleva el `stream`
+        staged.
 
-        040: IBM CM requires ``cmis:contentStreamMimeType`` as an explicit
-        property; Alfresco rejects that same property with 400 because it
-        infers the mime type from the multipart Content-Type. The
-        convention follows the same Alfresco-vs-IBM-CM heuristic as the
-        URL builder: empty ``repo_id`` means Alfresco mode → omit the
-        explicit property; the multipart part still carries the right
-        Content-Type.
+        040: IBM CM requiere ``cmis:contentStreamMimeType`` como
+        propiedad explícita; Alfresco rechaza esa misma propiedad con 400
+        porque infiere el mime type del Content-Type del `multipart`. La
+        convención sigue la misma heurística Alfresco-vs-IBM-CM que el
+        URL builder: ``repo_id`` vacío significa modo Alfresco → omitimos
+        la propiedad explícita; la parte del `multipart` igual lleva el
+        Content-Type correcto.
         """
         data_fields: dict[str, str] = {
             "cmisaction": "createDocument",
@@ -926,7 +938,7 @@ class CmisUploader(IUploader):
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers
+# Helpers a nivel de módulo
 # ---------------------------------------------------------------------------
 
 

@@ -1,35 +1,39 @@
-"""Streaming orchestrator (063 — POST-MVP §13).
+"""Orchestrator de `streaming` (063 — POST-MVP §13).
 
-Coexists with :class:`MultiBatchOrchestrator`. Selected by
-``processing.mode == "streaming"`` in the operator's YAML.
+Coexiste con :class:`MultiBatchOrchestrator`. Se selecciona con
+``processing.mode == "streaming"`` en el YAML del operador.
 
-Shape:
+Forma:
 
-* **One** logical batch_id for the whole run.
-* **One** :class:`MetricsRecorder` for the run — AIMD reads
-  ``current_stage_p95_with_count("S5")`` from this single recorder.
-* A bounded :class:`queue.Queue` (the *bucket*) sits between PREP
-  (S1-S4 producers) and UPLOAD (S5 consumers). Producers push
-  prepared items into the bucket; consumers pop them out.
-  ``bucket.put`` blocks when the bucket is full → automatic
-  back-pressure on PREP. ``bucket.get`` blocks when the bucket is
-  empty → consumers idle on a futex, not a spinloop.
-* Producers (``processing.prep_workers``) pull triggers from a
-  shared, lock-guarded iterator over the trigger source. When the
-  iterator is exhausted, the observing producer pushes ``N`` poison
-  pills (one per consumer) into the bucket and exits.
-* Consumers (sized to ``_pool_ceiling()``, like the batched path's
-  S5 pool — spec 057) call the existing ``streaming_upload_one``.
-  A consumer that pops a poison pill exits.
+* **Un** batch_id lógico para toda la corrida.
+* **Un** :class:`MetricsRecorder` para la corrida — AIMD lee
+  ``current_stage_p95_with_count("S5")`` de este único recorder.
+* Una :class:`queue.Queue` acotada (el *`bucket`*) se ubica entre
+  PREP (`producer`s S1-S4) y UPLOAD (`consumer`s S5). Los
+  `producer`s empujan items preparados dentro del `bucket`; los
+  `consumer`s los sacan. ``bucket.put`` bloquea cuando el `bucket`
+  está lleno → `back-pressure` automática sobre PREP.
+  ``bucket.get`` bloquea cuando el `bucket` está vacío → los
+  `consumer`s quedan idle en un `futex`, no en un `spinloop`.
+* Los `producer`s (``processing.prep_workers``) traen triggers de
+  un iterador compartido y protegido por `lock` sobre la fuente
+  de triggers. Cuando el iterador se agota, el `producer` que lo
+  observa empuja ``N`` `poison pill`s (una por cada `consumer`)
+  al `bucket` y sale.
+* Los `consumer`s (dimensionados a ``_pool_ceiling()``, igual que
+  el pool S5 del path batched — spec 057) llaman al
+  ``streaming_upload_one`` existente. Un `consumer` que saca una
+  `poison pill` sale.
 
-Result: memory peak collapses to ``bucket_size`` (independent of
-total trigger count); S5 never waits for a chunk's PREP to finish;
-PREP never blocks on an in-flight chunk slot.
+Resultado: el pico de memoria colapsa a ``bucket_size``
+(independiente del conteo total de triggers); S5 nunca espera a
+que termine el PREP de un `chunk`; PREP nunca se bloquea en un
+slot de `chunk` en vuelo.
 
-Resume is rejected in streaming mode (``from_stage > 1`` or
-non-None ``resume_batch_id`` → ``ValueError``). Cross-batch
-idempotency (062, ``S1_SKIPPED`` rows) gives traceability for docs
-already uploaded in prior runs.
+El resume queda rechazado en modo `streaming` (``from_stage > 1``
+o ``resume_batch_id`` no-None → ``ValueError``). La
+`idempotency` cross-batch (062, filas ``S1_SKIPPED``) da
+trazabilidad para docs ya subidos en corridas previas.
 """
 
 from __future__ import annotations
@@ -58,13 +62,14 @@ _POISON: object = object()
 
 
 class _TriggerIter:
-    """Thread-safe wrapper over a single trigger iterator.
+    """Wrapper thread-safe sobre un único iterador de triggers.
 
-    Producers all share one instance. ``next()`` is guarded by a
-    ``threading.Lock`` so a trigger is delivered to exactly one
-    producer. ``StopIteration`` is raised on exhaustion (standard
-    iterator contract — the producer that observes it is responsible
-    for fan-out shutdown).
+    Todos los `producer`s comparten una instancia. ``next()`` está
+    protegido por un ``threading.Lock`` para que cada trigger se
+    entregue a exactamente un `producer`. Se levanta
+    ``StopIteration`` al agotarse (contrato estándar de iterador —
+    el `producer` que lo observa es responsable del shutdown
+    `fan-out`).
     """
 
     __slots__ = ("_inner", "_lock", "_count")
@@ -91,7 +96,7 @@ class _TriggerIter:
 
 @dataclass(slots=True)
 class _StreamingTally:
-    """Mutable per-run counters owned by consumers + producers."""
+    """Counters mutables por corrida que son propiedad de `consumer`s + `producer`s."""
 
     s5_done: int = 0
     s5_failed: int = 0
@@ -103,10 +108,10 @@ class _StreamingTally:
 
 @dataclass(frozen=True, slots=True)
 class StreamingSnapshot:
-    """064 — read-only snapshot of streaming-mode state for the TUI.
+    """064 — snapshot de sólo lectura del estado del modo `streaming` para el TUI.
 
-    065 adds ``lane_snapshot`` for dual heavy/light operation;
-    ``None`` in single-lane mode.
+    065 agrega ``lane_snapshot`` para la operación dual heavy/light;
+    ``None`` en modo single-lane.
     """
 
     bucket_level: int
@@ -121,11 +126,11 @@ class StreamingSnapshot:
 
 
 class _ThroughputWindow:
-    """Sliding-window throughput estimator (064).
+    """Estimador de `throughput` por ventana deslizante (064).
 
-    Records the monotonic timestamp of each event into a deque and
-    returns ``count / window_s`` for events newer than the cut-off.
-    Thread-safe via an internal lock.
+    Registra el timestamp monotónico de cada evento en un deque y
+    devuelve ``count / window_s`` para los eventos más nuevos que el
+    cut-off. Thread-safe vía un `lock` interno.
     """
 
     __slots__ = ("_events", "_lock", "_window_s")
@@ -154,12 +159,12 @@ class _ThroughputWindow:
 
 
 class StreamingOrchestrator:
-    """Continuous producer-consumer pipeline (063).
+    """`Pipeline` continuo producer-consumer (063).
 
-    Exposes the same ``.run(...)`` shape as
-    :class:`MultiBatchOrchestrator` for CLI parity. Returns a
-    :class:`MultiBatchRunReport` carrying a single synthetic
-    :class:`RunReport` summarising the whole run.
+    Expone la misma forma de ``.run(...)`` que
+    :class:`MultiBatchOrchestrator` para paridad con el CLI.
+    Devuelve un :class:`MultiBatchRunReport` que lleva un único
+    :class:`RunReport` sintético resumiendo toda la corrida.
     """
 
     def __init__(
@@ -180,34 +185,37 @@ class StreamingOrchestrator:
         self._recorder: MetricsRecorder | None = None
         self._bucket: queue.Queue[_StageItem | object] | None = None
         self._peak_qsize = 0
-        # 064: live-observability counters for the BUCKET tab.
+        # 064: counters de observabilidad en vivo para el tab BUCKET.
         self._prep_in_flight = 0
         self._prep_in_flight_lock = threading.Lock()
         self._prep_window = _ThroughputWindow(window_s=5.0)
         self._upload_window = _ThroughputWindow(window_s=5.0)
-        # 067: per-lane queue refs (only populated when lanes enabled).
-        # Used by ``_publish_pending_count`` to compute live pending
-        # work + by the dispatcher/consumers to report real qsize back
-        # into pool_stats and the lane controller.
+        # 067: refs a las `queue`s por-`lane` (sólo se populan cuando
+        # las `lane`s están habilitadas). Las usa
+        # ``_publish_pending_count`` para computar el trabajo
+        # pendiente en vivo + el dispatcher/consumers para reportar
+        # el qsize real de vuelta a pool_stats y al lane controller.
         self._heavy_queue: queue.Queue[_StageItem | object] | None = None
         self._light_queue: queue.Queue[_StageItem | object] | None = None
-        # 065: heavy/light lanes. ``None`` keeps the 063 single-lane path
-        # byte-identical.
-        # 070: the LaneController is owned by StagedPipeline (036 wiring).
-        # Pre-070 the orchestrator built its OWN LaneController instance,
-        # which left the TUIDataProvider's lane_snapshot binding (which
-        # reads pipeline.lane_controller) reporting zeros forever — and
-        # silently broke AIMD's per-lane budget steering. Reusing the
-        # pipeline's instance unifies the data source.
+        # 065: `lane`s heavy/light. ``None`` mantiene el path
+        # single-lane de 063 byte-idéntico.
+        # 070: el LaneController es propiedad del StagedPipeline
+        # (wiring de 036). Pre-070 el orchestrator construía su
+        # PROPIA instancia de LaneController, lo que dejaba el
+        # binding lane_snapshot del TUIDataProvider (que lee
+        # pipeline.lane_controller) reportando ceros para siempre —
+        # y rompía silenciosamente el steering del budget por-`lane`
+        # de AIMD. Reusar la instancia del `pipeline` unifica la
+        # fuente de datos.
         self._lanes_config = config.processing.heavy_light_lanes
 
-    # ------------------------------------------- TUI binding hooks (063)
+    # ------------------------------------------- Hooks de binding del TUI (063)
 
     def chunks_snapshot(self) -> list[ChunkState]:
-        """Single synthetic-chunk view of the run.
+        """Vista de `chunk` sintético único de la corrida.
 
-        The CHUNKS tab degrades gracefully in streaming mode — spec
-        064 replaces it with a real BUCKET tab.
+        El tab CHUNKS degrada con elegancia en modo `streaming` — la
+        spec 064 lo reemplaza con un tab BUCKET real.
         """
         with self._state_lock:
             return [self._chunk_state] if self._chunk_state is not None else []
@@ -228,10 +236,10 @@ class StreamingOrchestrator:
     def peak_qsize(self) -> int:
         return self._peak_qsize
 
-    # ------------------------------------------- 064 BUCKET-tab accessors
+    # ------------------------------------------- 064 accessors del tab BUCKET
 
     def bucket_level(self) -> int:
-        """Approximate current bucket occupancy (0 outside a run)."""
+        """Ocupación actual aproximada del `bucket` (0 fuera de una corrida)."""
         bucket = self._bucket
         return int(bucket.qsize()) if bucket is not None else 0
 
@@ -240,7 +248,7 @@ class StreamingOrchestrator:
             return self._prep_in_flight
 
     def streaming_snapshot(self) -> StreamingSnapshot:
-        """Single read of every BUCKET-tab field."""
+        """Lectura única de cada campo del tab BUCKET."""
         return StreamingSnapshot(
             bucket_level=self.bucket_level(),
             bucket_cap=self._bucket_size,
@@ -257,27 +265,30 @@ class StreamingOrchestrator:
 
     @property
     def lane_controller(self) -> LaneController | None:
-        """065 + 070: read-only handle for the TUI / tests. ``None`` in
-        single-lane mode. 070: forwards to the pipeline's instance so
-        there is exactly one LaneController per run — see spec 070 for
-        the bug this fixes (UPLOAD-tab LANES queue stuck at 0)."""
+        """065 + 070: handle de sólo lectura para el TUI / tests.
+        ``None`` en modo single-lane. 070: forwardea a la instancia
+        del `pipeline` para que haya exactamente un LaneController
+        por corrida — ver spec 070 para el bug que esto soluciona
+        (la `queue` LANES del tab UPLOAD trabada en 0)."""
         return self._pipeline.lane_controller
 
     @property
     def _lane_controller(self) -> LaneController | None:
-        """070: internal read-through alias. The orchestrator wrote
-        ``self._lane_controller`` everywhere pre-070; the property keeps
-        those call sites unchanged while routing reads to the pipeline's
-        instance."""
+        """070: alias interno de lectura `read-through`. El
+        orchestrator escribía ``self._lane_controller`` por todos
+        lados pre-070; la property mantiene esos call sites sin
+        cambios mientras rutea las lecturas a la instancia del
+        `pipeline`."""
         return self._pipeline.lane_controller
 
-    # ----------------------------------------------------- 067 live TUI bindings
+    # ----------------------------------------------------- 067 bindings vivos del TUI
 
     def _publish_pending_count(self) -> None:
-        """067: report live total pending (main bucket + per-lane queues)
-        to the pipeline's ``pool_stats``. This drives ``snap.queue_depth``
-        on the UPLOAD-tab snapshot — without this, ``target = count + 0``
-        and the progress bar shows ``count/count`` permanently."""
+        """067: reporta el total de pendientes en vivo (`bucket`
+        principal + `queue`s por-`lane`) a los ``pool_stats`` del
+        `pipeline`. Esto alimenta ``snap.queue_depth`` en el
+        snapshot del tab UPLOAD — sin esto, ``target = count + 0``
+        y la barra de progreso muestra ``count/count`` para siempre."""
         bucket = self._bucket
         if bucket is None:
             return
@@ -295,9 +306,10 @@ class StreamingOrchestrator:
         tally: _StreamingTally,
         tally_lock: threading.Lock,
     ) -> None:
-        """067: write the live counters into the synthetic ChunkState so
-        the CHUNKS tab + UPLOAD-tab timer/avg-speed reflect in-progress
-        work. Called after every S5 outcome by both consumer loops."""
+        """067: escribe los counters en vivo dentro del ChunkState
+        sintético para que el tab CHUNKS + el timer/avg-speed del tab
+        UPLOAD reflejen el trabajo en progreso. Llamado luego de
+        cada resultado de S5 por ambos loops de `consumer`."""
         with tally_lock:
             s5d = tally.s5_done
             s5f = tally.s5_failed
@@ -324,7 +336,7 @@ class StreamingOrchestrator:
                 ),
             )
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def run(
         self,
@@ -336,13 +348,14 @@ class StreamingOrchestrator:
         resume_batch_id: str | None = None,
         total: int | None = None,
     ) -> MultiBatchRunReport:
-        """Drive the streaming pipeline end-to-end.
+        """Maneja el `pipeline` `streaming` end-to-end.
 
-        ``batch_size`` and ``batches_in_flight`` are accepted for CLI
-        parity but **ignored** — streaming uses the configured
-        ``bucket_size`` as its single memory-control knob. ``from_stage
-        > 1`` or non-None ``resume_batch_id`` raises ``ValueError``;
-        resume in streaming mode = re-run + 062's ``S1_SKIPPED`` rows.
+        ``batch_size`` y ``batches_in_flight`` se aceptan por paridad
+        con el CLI pero se **ignoran** — el `streaming` usa el
+        ``bucket_size`` configurado como su única perilla de control
+        de memoria. ``from_stage > 1`` o ``resume_batch_id`` no-None
+        levanta ``ValueError``; resume en modo `streaming` = re-run
+        + las filas ``S1_SKIPPED`` de 062.
         """
         if from_stage > 1:
             raise ValueError(
@@ -373,12 +386,15 @@ class StreamingOrchestrator:
         tally_lock = threading.Lock()
 
         start = time.monotonic()
-        # 067: seed the synthetic chunk_state in "UPLOAD" status with both
-        # monotonic stamps set to run start. In streaming mode PREP and
-        # UPLOAD run simultaneously, so "UPLOAD" is the dominant phase
-        # for the UPLOAD-tab timer + avg-speed binding. Pre-067 this was
-        # ``status="PREP"`` for the whole run, which made the
-        # ``_current_chunk_progress`` helper return elapsed_s=0 forever.
+        # 067: siembra el chunk_state sintético en estado "UPLOAD"
+        # con ambos stamps monotónicos seteados al inicio de la
+        # corrida. En modo `streaming` PREP y UPLOAD corren
+        # simultáneamente, así que "UPLOAD" es la fase dominante
+        # para el binding de timer + avg-speed del tab UPLOAD.
+        # Pre-067 esto era ``status="PREP"`` durante toda la
+        # corrida, lo que hacía que el helper
+        # ``_current_chunk_progress`` devolviera elapsed_s=0 para
+        # siempre.
         with self._state_lock:
             self._recorder = recorder
             self._chunk_state = ChunkState(
@@ -400,8 +416,9 @@ class StreamingOrchestrator:
             controller.set_p95_provider(_p95_provider)
             controller.start()
         try:
-            # 038: pre-open the S5 connection pool so the first batch of
-            # uploads does not pay TCP+TLS+session handshake on critical path.
+            # 038: pre-abre el `connection pool` de S5 para que el
+            # primer `batch` de uploads no pague el handshake
+            # TCP+`TLS`+session en el critical path.
             self._pipeline.warm_upload_pool(self._consumer_count)
 
             producers = [
@@ -415,9 +432,10 @@ class StreamingOrchestrator:
             ]
 
             if self._lane_controller is not None:
-                # 065: dual-lane mode. Two per-lane queues + a dispatcher
-                # thread + heavy and light consumer pools sharing the
-                # ``_pool_ceiling()`` total budget.
+                # 065: modo dual-lane. Dos `queue`s por-`lane` + un
+                # `thread` dispatcher + `pool`s de `consumer` heavy
+                # y light que comparten el budget total
+                # ``_pool_ceiling()``.
                 self._lane_controller.start()
                 heavy_queue: queue.Queue[_StageItem | object] = queue.Queue(
                     maxsize=self._bucket_size
@@ -425,8 +443,9 @@ class StreamingOrchestrator:
                 light_queue: queue.Queue[_StageItem | object] = queue.Queue(
                     maxsize=self._bucket_size
                 )
-                # 067: stash queue refs so ``_publish_pending_count`` can
-                # read their live qsize from any thread.
+                # 067: guarda las refs a las `queue`s para que
+                # ``_publish_pending_count`` pueda leer su qsize en
+                # vivo desde cualquier `thread`.
                 self._heavy_queue = heavy_queue
                 self._light_queue = light_queue
                 heavy_consumers = [
@@ -484,8 +503,9 @@ class StreamingOrchestrator:
 
                 for p in producers:
                     p.join()
-                # Signal end of stream to the dispatcher; it forwards
-                # `_POISON` to both lane queues × consumer count.
+                # Señaliza fin de `stream` al dispatcher; éste
+                # forwardea `_POISON` a ambas `queue`s de `lane` ×
+                # cantidad de `consumer`s.
                 bucket.put(_POISON)
                 dispatcher.join()
                 for c in heavy_consumers:
@@ -509,7 +529,8 @@ class StreamingOrchestrator:
 
                 for p in producers:
                     p.join()
-                # Producers are done; ensure consumers get N poison pills.
+                # Los `producer`s terminaron; aseguramos que los
+                # `consumer`s reciban N `poison pill`s.
                 for _ in range(self._consumer_count):
                     bucket.put(_POISON)
                 for c in consumers:
@@ -521,8 +542,9 @@ class StreamingOrchestrator:
                 controller.stop(timeout=2.0)
             if sampler is not None:
                 sampler.stop()
-            # 067: release lane-queue refs so a follow-up run does not
-            # leak the previous run's queues into ``_publish_pending_count``.
+            # 067: libera las refs a las `queue`s de `lane` para que
+            # una corrida siguiente no filtre las `queue`s de la
+            # corrida previa dentro de ``_publish_pending_count``.
             self._heavy_queue = None
             self._light_queue = None
 
@@ -583,7 +605,7 @@ class StreamingOrchestrator:
         )
         return MultiBatchRunReport(chunks=[report])
 
-    # ------------------------------------------------------ producer / consumer
+    # ------------------------------------------------------ `producer` / `consumer`
 
     def _prep_loop(
         self,
@@ -606,7 +628,7 @@ class StreamingOrchestrator:
                     survivor, skipped, filtered = self._pipeline.streaming_prep_one(
                         trigger, batch_id, recorder
                     )
-                except BaseException as exc:  # noqa: BLE001 — log + count, run continues
+                except BaseException as exc:  # noqa: BLE001 — log + count, la corrida continúa
                     _log.exception(
                         "streaming: prep failed",
                         extra={"batch_id": batch_id, "reason": type(exc).__name__},
@@ -618,17 +640,19 @@ class StreamingOrchestrator:
                     tally.cross_batch_skipped += skipped
                     tally.s1_filtered += filtered
                 if survivor is None:
-                    # filtered / cross-batch-skipped / failed at S2-S4. Already
-                    # persisted by the inner helpers; counters above capture
-                    # the outcome for the synthetic RunReport.
+                    # filtrado / saltado cross-batch / fallado en
+                    # S2-S4. Ya persistido por los helpers internos;
+                    # los counters de arriba capturan el resultado
+                    # para el RunReport sintético.
                     continue
                 bucket.put(survivor)
                 self._prep_window.record()
                 current = bucket.qsize()
                 if current > self._peak_qsize:
                     self._peak_qsize = current
-                # 067: report live in-flight count to pool_stats so the
-                # UPLOAD-tab progress bar shows real progress instead of
+                # 067: reporta el conteo en vuelo en vivo a
+                # pool_stats para que la barra de progreso del tab
+                # UPLOAD muestre progreso real en lugar de
                 # ``count/count``.
                 self._publish_pending_count()
             finally:
@@ -648,10 +672,11 @@ class StreamingOrchestrator:
             try:
                 if item is _POISON:
                     return
-                # 067: a consumer just popped → pending dropped by 1.
+                # 067: un `consumer` acaba de hacer pop → los
+                # pendientes bajan en 1.
                 self._publish_pending_count()
-                # ``bucket`` carries _StageItem instances except for the
-                # poison sentinel (handled above).
+                # ``bucket`` lleva instancias de _StageItem excepto
+                # por el `sentinel` de poison (manejado arriba).
                 stage_item: _StageItem = item  # type: ignore[assignment]
                 try:
                     outcome = self._pipeline.streaming_upload_one(stage_item, batch_id, recorder)
@@ -675,7 +700,8 @@ class StreamingOrchestrator:
                         tally.s5_skipped += 1
                         recorder.record_upload_skipped()
                 self._upload_window.record()
-                # 067: refresh CHUNKS tab + UPLOAD-tab live bindings.
+                # 067: refresca los bindings vivos del tab CHUNKS +
+                # tab UPLOAD.
                 self._publish_chunk_state(batch_id=batch_id, tally=tally, tally_lock=tally_lock)
             finally:
                 bucket.task_done()
@@ -690,16 +716,17 @@ class StreamingOrchestrator:
         heavy_consumer_count: int,
         light_consumer_count: int,
     ) -> None:
-        """065: route prepared items from the main bucket into per-lane
-        queues based on ``staged_file.size_bytes``.
+        """065: rutea items preparados desde el `bucket` principal a
+        `queue`s por-`lane` en función de ``staged_file.size_bytes``.
 
-        On ``_POISON`` from the main bucket: push N poison pills into
-        each lane queue (one per consumer) and exit.
+        Cuando llega ``_POISON`` desde el `bucket` principal:
+        empuja N `poison pill`s a cada `queue` de `lane` (una por
+        cada `consumer`) y sale.
 
-        067: queue depth reported to LaneController is the live
-        ``lane_queue.qsize()`` — the pre-067 monotonic counter only
-        went up, exceeded ``bucket_size``, and broke the drain-driven
-        rebalance heuristic.
+        067: la `queue depth` que se reporta al LaneController es
+        el ``lane_queue.qsize()`` en vivo — el counter monotónico
+        pre-067 sólo subía, excedía ``bucket_size``, y rompía la
+        heurística de rebalance dirigida por drenaje.
         """
         threshold = self._lanes_config.heavy_threshold_bytes
         while True:
@@ -723,7 +750,8 @@ class StreamingOrchestrator:
                     light_queue.put(stage_item)
                     if self._lane_controller is not None:
                         self._lane_controller.set_queue_depth("light", light_queue.qsize())
-                # 067: tick pool_stats so the UPLOAD-tab bar progresses.
+                # 067: hace tick a pool_stats para que la barra del
+                # tab UPLOAD avance.
                 self._publish_pending_count()
             finally:
                 bucket.task_done()
@@ -737,18 +765,19 @@ class StreamingOrchestrator:
         tally: _StreamingTally,
         tally_lock: threading.Lock,
     ) -> None:
-        """065: per-lane S5 consumer. Acquires the lane semaphore via
-        ``streaming_upload_one(lane=...)`` so the LaneController caps
-        per-lane concurrency."""
+        """065: `consumer` S5 por-`lane`. Adquiere el `semaphore` de
+        `lane` vía ``streaming_upload_one(lane=...)`` para que el
+        LaneController limite la concurrencia por-`lane`."""
         while True:
             item = lane_queue.get()
             try:
                 if item is _POISON:
                     return
-                # 067: consumer just popped → report live qsize so the
-                # LaneController's drain heuristic sees the decrement
-                # and the BUCKET/UPLOAD tabs reflect the live lane
-                # occupancy.
+                # 067: el `consumer` acaba de hacer pop → reporta el
+                # qsize en vivo para que la heurística de drenaje
+                # del LaneController vea el decremento y los tabs
+                # BUCKET/UPLOAD reflejen la ocupación en vivo de la
+                # `lane`.
                 if self._lane_controller is not None:
                     self._lane_controller.set_queue_depth(lane, lane_queue.qsize())
                 self._publish_pending_count()
@@ -785,7 +814,7 @@ class StreamingOrchestrator:
             finally:
                 lane_queue.task_done()
 
-    # ------------------------------------------------------ internals
+    # ------------------------------------------------------ internos
 
     def _build_run_recorder(self) -> MetricsRecorder:
         cfg = self._config.observability

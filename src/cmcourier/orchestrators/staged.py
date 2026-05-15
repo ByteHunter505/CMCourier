@@ -1,28 +1,30 @@
-"""Stage S0..S6 orchestrator for the ``csv-trigger-pipeline``.
+"""Orchestrator de las etapas S0..S6 para el ``csv-trigger-pipeline``.
 
-Wires the seven collaborators (S0 trigger strategy + S1..S5 services /
-adapters + S6 tracking store) into one runnable pipeline. The orchestrator
-contains no business logic — only coordination, error handling, and
-counting (Constitution Principle III).
+Conecta los siete colaboradores (estrategia de triggers S0 + servicios /
+adaptadores S1..S5 + tracking store S6) en un único `pipeline` ejecutable.
+El orchestrator no contiene lógica de negocio — sólo coordinación, manejo
+de errores y conteo (Principio III de la Constitución).
 
-Two top-level behaviors:
+Dos comportamientos de alto nivel:
 
-* **Cross-batch idempotency**: docs whose ``txn_num`` is
-  already at ``S5_DONE`` in any prior batch are skipped — they don't
-  re-upload, but 062 reversed the earlier "silent skip" contract and the
-  current batch now writes a ``migration_log`` row with
-  ``status=S1_SKIPPED`` so the DETAIL tab + analyzer + ``batch show``
-  can identify which specific docs landed in this bucket.
-* **Stage-by-stage resume**: ``run(batch_id=..., from_stage=N)``
-  re-uses an existing batch and SCOPES the run to its prior set of
-  ``txn_num``s. Within each stage, ``is_stage_done`` per-doc short-circuits
-  re-doing successful work — so re-running with ``from_stage=1`` against a
-  completed batch performs zero uploads.
+* **`Idempotency` cross-batch**: los docs cuyo ``txn_num`` ya está en
+  ``S5_DONE`` en cualquier `batch` previo se saltean — no se re-suben,
+  pero 062 revirtió el contrato previo de "salto silencioso" y el
+  `batch` actual ahora escribe una fila en ``migration_log`` con
+  ``status=S1_SKIPPED`` para que el tab DETAIL + analyzer +
+  ``batch show`` puedan identificar qué docs específicos cayeron en
+  este `bucket`.
+* **Resume `stage`-por-`stage`**: ``run(batch_id=..., from_stage=N)``
+  reutiliza un `batch` existente y ACOTA la corrida a su conjunto
+  previo de ``txn_num``s. Dentro de cada `stage`, ``is_stage_done``
+  por-doc cortocircuita la re-ejecución del trabajo ya exitoso — así,
+  re-correr con ``from_stage=1`` contra un `batch` completado realiza
+  cero uploads.
 
-Logging discipline (Constitution VIII): every record carries ``batch_id``
-in ``extra``; per-doc records add ``txn_num``; per-stage records add
-``stage``. Resolved property values (CIF, Nombre_Cliente, …) NEVER appear
-in log records.
+Disciplina de logging (Constitución VIII): cada record lleva ``batch_id``
+en ``extra``; los records por-doc agregan ``txn_num``; los records
+por-`stage` agregan ``stage``. Los valores resueltos de propiedades
+(CIF, Nombre_Cliente, …) NUNCA aparecen en los records de log.
 """
 
 from __future__ import annotations
@@ -86,13 +88,13 @@ _log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Public dataclasses
+# Dataclasses públicas
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class RunReport:
-    """Outcome summary returned by :meth:`StagedPipeline.run`."""
+    """Resumen del resultado devuelto por :meth:`StagedPipeline.run`."""
 
     batch_id: str
     total_triggers: int
@@ -112,13 +114,13 @@ class RunReport:
 
 
 # ---------------------------------------------------------------------------
-# Internal stage state
+# Estado interno de `stage`
 # ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
 class _StageItem:
-    """Mutable per-doc state threaded through stages S1..S5."""
+    """Estado mutable por-doc que se hilvana a través de los `stage`s S1..S5."""
 
     trigger: Trigger
     document: RVABREPDocument
@@ -129,7 +131,7 @@ class _StageItem:
 
 
 def _size_of_stage_item(item: _StageItem) -> int:
-    """Size accessor for the lane splitter (036). 0 when staged_file missing."""
+    """Accessor de tamaño para el lane splitter (036). 0 cuando falta staged_file."""
     return item.staged_file.size_bytes if item.staged_file is not None else 0
 
 
@@ -139,7 +141,7 @@ def _size_of_stage_item(item: _StageItem) -> int:
 
 
 class StagedPipeline:
-    """``csv-trigger-pipeline`` orchestrator (S0..S6)."""
+    """Orchestrator del ``csv-trigger-pipeline`` (S0..S6)."""
 
     def __init__(
         self,
@@ -179,38 +181,46 @@ class StagedPipeline:
         )
         self._pipeline_name = pipeline_name
         self._workers = max(1, int(workers))
-        # 056: fixed-size thread pool for the prep stages S2/S3/S4.
-        # 1 == serial (byte-identical to pre-056). S0/S1 stay serial.
+        # 056: `thread pool` de tamaño fijo para los `stage`s de prep
+        # S2/S3/S4. 1 == serial (byte-idéntico al pre-056). S0/S1 se
+        # mantienen seriales.
         self._prep_workers = max(1, int(prep_workers))
         self._pool_stats = pool_stats or WorkerPoolStats()
-        # 025 phase 2: soft-cap concurrency limit. Auto-tune adjusts it.
+        # 025 fase 2: `soft-cap` del límite de concurrencia. El
+        # auto-tune lo ajusta.
         self._auto_tune_cfg = auto_tune
         self._concurrency_limit = ResizableSemaphore(self._workers)
-        # 025 phase 3: build the controller eagerly so the TUI can reference
-        # it before run() starts. The controller stays idle (no thread) until
-        # ``start()`` is called inside _stage_s5.
+        # 025 fase 3: construye el controller `eagerly` para que el TUI
+        # pueda referenciarlo antes de que arranque run(). El controller
+        # se queda idle (sin `thread`) hasta que se llama ``start()``
+        # dentro de _stage_s5.
         self._auto_tune_controller: AutoTuneController | None = self._build_auto_tune_controller()
-        # 026: tier-5 system metrics sampler. The factory returns None when
-        # disabled in config; we late-bind the pool stats so a sampler
-        # constructed by the wiring layer can report active_workers.
+        # 026: `sampler` de métricas del sistema tier-5. La factory
+        # devuelve None cuando está deshabilitado en config; hacemos
+        # late-bind de las pool stats para que un `sampler` construido
+        # por la capa de wiring pueda reportar active_workers.
         self._sampler = sampler
         if self._sampler is not None:
             self._sampler.attach_pool_stats(self._pool_stats)
-        # 034 phase 3: distributed-idempotency coordinator. When None,
-        # is_uploaded / mark_uploaded / mark_failed go straight to the
-        # tracking_store (pre-034 behavior). When set, the coordinator
-        # adds the AS400 NIARVILOG path on top.
+        # 034 fase 3: coordinador de `idempotency` distribuida. Cuando
+        # es None, is_uploaded / mark_uploaded / mark_failed van
+        # directo al tracking_store (comportamiento pre-034). Cuando
+        # está seteado, el coordinador agrega encima el path de AS400
+        # NIARVILOG.
         self._coordinator = coordinator
-        # 037: cross-batch metadata cache. None when disabled (default)
-        # — S3 always invokes MetadataService.resolve (pre-037 behavior).
+        # 037: cache de metadata cross-batch. None cuando está
+        # deshabilitado (default) — S3 siempre invoca
+        # MetadataService.resolve (comportamiento pre-037).
         self._document_cache = document_cache
-        # 066: optional process pool for S4 (PDF assembly). When set,
-        # ``_s4_one`` submits to the pool instead of calling the
-        # assembler directly — bypasses the GIL for CPU-bound work.
-        # ``None`` runs S4 inline (pre-066 behaviour, byte-identical).
+        # 066: `process pool` opcional para S4 (ensamblado de PDF).
+        # Cuando está seteado, ``_s4_one`` hace `submit` al pool en
+        # lugar de llamar al assembler directamente — bypasea el `GIL`
+        # para el trabajo CPU-bound. ``None`` corre S4 inline
+        # (comportamiento pre-066, byte-idéntico).
         self._s4_process_pool = s4_process_pool
-        # 036: heavy/light lane coordinator. None when dual mode is off
-        # (the default) — S5 keeps the legacy single-pool path.
+        # 036: coordinador de `lane`s heavy/light. None cuando el modo
+        # dual está apagado (el default) — S5 mantiene el path legacy
+        # de pool único.
         self._lanes_config = heavy_light_lanes
         self._lane_controller: LaneController | None = None
         if heavy_light_lanes is not None and heavy_light_lanes.enabled:
@@ -221,7 +231,7 @@ class StagedPipeline:
                 idle_threshold_s=heavy_light_lanes.idle_threshold_s,
             )
 
-    # ------------------------------------------------- TUI accessors
+    # ------------------------------------------------- Accessors del TUI
 
     @property
     def metrics_recorder(self) -> MetricsRecorder:
@@ -253,22 +263,26 @@ class StagedPipeline:
 
     @property
     def lane_controller(self) -> LaneController | None:
-        """036: read-only handle for TUI / tests. ``None`` when dual mode is off."""
+        """036: handle de sólo lectura para el TUI / tests.
+
+        ``None`` cuando el modo dual está apagado.
+        """
         return self._lane_controller
 
     @property
     def tracking_store(self) -> ITrackingStore:
-        """052: read-only handle for the TUI's per-chunk drill-down."""
+        """052: handle de sólo lectura para el drill-down por `chunk` del TUI."""
         return self._tracking_store
 
-    # --------------------------------------------------- auto-tune wiring
+    # --------------------------------------------------- wiring del auto-tune
 
     def _build_auto_tune_controller(self) -> AutoTuneController | None:
-        """Return a controller iff ``cmis.auto_tune.enabled``; else None.
+        """Devuelve un controller sii ``cmis.auto_tune.enabled``; si no, None.
 
-        In dual-lane mode (036), AIMD steers the TOTAL worker budget;
-        the lane controller owns the per-lane split. ``on_pool_resize``
-        dispatches to whichever controller is active.
+        En modo dual-lane (036), AIMD pilotea el budget TOTAL de
+        `worker`s; el lane controller es dueño del split por `lane`.
+        ``on_pool_resize`` despacha a cualquiera de los dos
+        controllers que esté activo.
         """
         if self._auto_tune_cfg is None or not self._auto_tune_cfg.enabled:
             return None
@@ -282,38 +296,40 @@ class StagedPipeline:
         )
 
     def _current_total_workers(self) -> int:
-        """Return the current TOTAL worker budget across both modes (036)."""
+        """Devuelve el budget TOTAL actual de `worker`s para ambos modos (036)."""
         if self._lane_controller is not None:
             return self._lane_controller.snapshot().total_budget
         return self._concurrency_limit.capacity
 
     def _on_pool_resize(self, new_total: int) -> None:
-        """AIMD pool-resize hook. Dispatches by mode (036)."""
+        """Hook AIMD para resize del pool. Despacha por modo (036)."""
         if self._lane_controller is not None:
             self._lane_controller.set_total_budget(new_total)
         else:
             self._concurrency_limit.set_capacity(new_total)
 
     def _pool_ceiling(self) -> int:
-        """057: the maximum thread count S5 could ever need.
+        """057: la cantidad máxima de `thread`s que S5 alguna vez podría necesitar.
 
-        The S5 ``ThreadPoolExecutor`` must be sized to this — NOT to the
-        initial ``cmis.workers``. AIMD resizes the ``ResizableSemaphore``
-        / ``LaneController`` up to ``auto_tune.max_threads``; if the pool
-        only has ``cmis.workers`` threads, those extra semaphore slots
-        have no thread to run them and ``pool_in_use`` stays pinned at
-        the initial count. With AIMD disabled nothing resizes the
-        semaphore, so ``cmis.workers`` is already the correct ceiling.
+        El ``ThreadPoolExecutor`` de S5 debe dimensionarse a este valor —
+        NO al ``cmis.workers`` inicial. AIMD redimensiona el
+        ``ResizableSemaphore`` / ``LaneController`` hasta
+        ``auto_tune.max_threads``; si el pool sólo tiene
+        ``cmis.workers`` `thread`s, esos slots extra del `semaphore`
+        no tienen ningún `thread` para correrlos y ``pool_in_use`` se
+        queda clavado en el conteo inicial. Con AIMD deshabilitado
+        nada redimensiona el `semaphore`, así que ``cmis.workers`` ya
+        es el techo correcto.
         """
         if self._auto_tune_cfg is not None and self._auto_tune_cfg.enabled:
             return max(self._workers, self._auto_tune_cfg.max_threads)
         return self._workers
 
     def _set_upload_timeout(self, new_timeout_s: float) -> None:
-        """AIMD pushes a new timeout; uploader picks it up on the next call."""
+        """AIMD empuja un nuevo timeout; el uploader lo toma en la próxima llamada."""
         self._uploader._timeout_s = float(new_timeout_s)
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def run(
         self,
@@ -324,11 +340,11 @@ class StagedPipeline:
         from_stage: int = 1,
         total: int | None = None,
     ) -> RunReport:
-        """Run the csv-trigger pipeline end-to-end.
+        """Corre el `pipeline` csv-trigger end-to-end.
 
-        ``total`` (033) caps the number of triggers processed after the
-        S0 acquire — useful for validating a config against a small
-        subset before launching the full migration.
+        ``total`` (033) acota la cantidad de triggers procesados después
+        del acquire de S0 — útil para validar una config contra un
+        subconjunto chico antes de lanzar la migración completa.
         """
         start = time.monotonic()
         self._validate_parameters(batch_size, from_stage, batch_id)
@@ -365,9 +381,9 @@ class StagedPipeline:
             try:
                 if controller is not None:
                     controller.start()
-                # 038: pre-open the S5 TCP+TLS+JSESSIONID connection
-                # pool so the first ``self._workers`` uploads do not
-                # each pay the handshake on their critical path.
+                # 038: pre-abre el `connection pool` TCP+`TLS`+`JSESSIONID`
+                # de S5 para que los primeros ``self._workers`` uploads
+                # no paguen cada uno el handshake en su critical path.
                 self._uploader.warm_connection_pool(self._workers)
                 s5_done, s5_failed = self._stage_s5(items, resolved_batch_id)
             finally:
@@ -407,7 +423,7 @@ class StagedPipeline:
             elapsed_seconds=elapsed,
         )
 
-    # ----------------------------------------------------------- helpers
+    # ----------------------------------------------------------- helpers (auxiliares)
 
     @staticmethod
     def _validate_parameters(batch_size: int, from_stage: int, batch_id: str | None) -> None:
@@ -423,10 +439,11 @@ class StagedPipeline:
             return batch_id
         return self._tracking_store.start_batch(total_records=batch_size)
 
-    # ----------------------------------------------------- multi-batch entry points
-    # 028: prep_chunk / upload_chunk let MultiBatchOrchestrator drive each chunk
-    # with its own MetricsRecorder while sharing the rest of the pipeline's
-    # state (S5 worker pool, tracking, services, AIMD controller).
+    # ----------------------------------------------------- puntos de entrada multi-batch
+    # 028: prep_chunk / upload_chunk permiten que el MultiBatchOrchestrator
+    # maneje cada `chunk` con su propio MetricsRecorder mientras comparten
+    # el resto del estado del `pipeline` (`worker pool` de S5, tracking,
+    # servicios, controller AIMD).
 
     def prep_chunk(
         self,
@@ -436,12 +453,12 @@ class StagedPipeline:
         recorder: MetricsRecorder,
         from_stage: int = 1,
     ) -> tuple[list[_StageItem], int, int, int, int, int, int]:
-        """Run S0..S4 on a pre-acquired chunk of triggers.
+        """Corre S0..S4 sobre un `chunk` de triggers ya adquirido.
 
-        Returns ``(items, skipped, s1_done, s1_filtered, s2_failed,
-        s3_failed, s4_failed)``. Trigger acquisition is the
-        orchestrator's responsibility — this method takes the list
-        directly.
+        Devuelve ``(items, skipped, s1_done, s1_filtered, s2_failed,
+        s3_failed, s4_failed)``. La adquisición de triggers es
+        responsabilidad del orchestrator — este método toma la lista
+        directamente.
         """
         resume_scope = (
             self._tracking_store.list_txn_nums_for_batch(batch_id) if from_stage > 1 else None
@@ -462,7 +479,7 @@ class StagedPipeline:
         batch_id: str,
         recorder: MetricsRecorder,
     ) -> tuple[int, int]:
-        """Run S5 on a prepared chunk. Returns ``(s5_done, s5_failed)``."""
+        """Corre S5 sobre un `chunk` preparado. Devuelve ``(s5_done, s5_failed)``."""
         return self._stage_s5(items, batch_id, recorder=recorder)
 
     # ----------------------------------------------------- streaming (063)
@@ -473,21 +490,22 @@ class StagedPipeline:
         batch_id: str,
         recorder: MetricsRecorder,
     ) -> tuple[_StageItem | None, int, int]:
-        """063: run S1→S4 on a single trigger and return the survivor.
+        """063: corre S1→S4 sobre un único trigger y devuelve el sobreviviente.
 
-        Used by :class:`StreamingOrchestrator` producers. Returns
-        ``(survivor, skipped_cross_batch, s1_filtered)``:
+        Usado por los `producer`s de :class:`StreamingOrchestrator`.
+        Devuelve ``(survivor, skipped_cross_batch, s1_filtered)``:
 
-        * ``survivor`` is the sole surviving ``_StageItem`` or ``None``
-          (filtered / cross-batch skipped / failed at S2-S4).
-        * ``skipped_cross_batch`` is 1 when the trigger's RVABREP doc
-          was already uploaded in a prior batch (062 ``S1_SKIPPED``).
-        * ``s1_filtered`` is 1 when the RVABREP row was delete-coded
-          (062 ``S1_FILTERED``).
+        * ``survivor`` es el único ``_StageItem`` sobreviviente o
+          ``None`` (filtrado / saltado cross-batch / fallado en S2-S4).
+        * ``skipped_cross_batch`` es 1 cuando el doc RVABREP del
+          trigger ya había sido subido en un `batch` previo (062
+          ``S1_SKIPPED``).
+        * ``s1_filtered`` es 1 cuando la fila RVABREP venía con código
+          de baja (062 ``S1_FILTERED``).
 
-        Failure / filter / skip persistence is done by the inner
-        per-stage helpers — this method adds no behaviour of its own
-        beyond sequencing.
+        La persistencia de falla / filtrado / salto la hacen los
+        helpers internos por-`stage` — este método no agrega ningún
+        comportamiento propio más allá del secuenciamiento.
         """
         items, skipped, filtered = self._stage_s0_s1(
             [trigger], batch_id, resume_scope=None, recorder=recorder
@@ -510,18 +528,18 @@ class StagedPipeline:
         recorder: MetricsRecorder,
         lane: Lane | None = None,
     ) -> Literal["done", "failed", "skipped"]:
-        """063: run S5 on a single prepared item.
+        """063: corre S5 sobre un único item preparado.
 
-        ``lane`` (065) selects between the single-pool semaphore +
-        worker-pool-stats (``None``) and the per-lane semaphore inside
-        the :class:`LaneController` (``"heavy"`` / ``"light"``). The
-        existing ``_upload_one`` handles both paths uniformly — this
-        is a thin public wrapper.
+        ``lane`` (065) selecciona entre el `semaphore` de pool único +
+        worker-pool-stats (``None``) y el `semaphore` por-`lane` dentro
+        del :class:`LaneController` (``"heavy"`` / ``"light"``). El
+        ``_upload_one`` existente maneja ambos paths de manera
+        uniforme — esto es un wrapper público delgado.
         """
         return self._upload_one(item, batch_id, recorder, lane)
 
     def warm_upload_pool(self, workers: int) -> None:
-        """063: pre-open the S5 connection pool to ``workers`` sockets."""
+        """063: pre-abre el `connection pool` de S5 a ``workers`` `socket`s."""
         self._uploader.warm_connection_pool(workers)
 
     def _build_record(
@@ -530,8 +548,9 @@ class StagedPipeline:
         batch_id: str,
         stage: StageStatus,
     ) -> MigrationRecord:
-        # 046: triggers are polymorphic; audit_row() returns the best-effort
-        # projection for the trigger_* migration_log columns.
+        # 046: los triggers son polimórficos; audit_row() devuelve la
+        # proyección best-effort para las columnas trigger_* de
+        # migration_log.
         audit = item.trigger.audit_row()
         return MigrationRecord(
             trigger_shortname=audit.get("shortname") or "",
@@ -541,7 +560,7 @@ class StagedPipeline:
             rvabrep_file_name=item.document.file_name,
             batch_id=batch_id,
             status=stage,
-            created_at=datetime.now(),  # noqa: DTZ005 — wall-clock for human-readable audit
+            created_at=datetime.now(),  # noqa: DTZ005 — wall-clock para auditoría humana-legible
             cm_folder=item.mapping.cm_folder if item.mapping else None,
             cm_object_type=item.mapping.cm_object_type if item.mapping else None,
             source_file_path=str(item.staged_file.path) if item.staged_file else None,
@@ -549,7 +568,7 @@ class StagedPipeline:
             file_size_bytes=item.staged_file.size_bytes if item.staged_file else None,
         )
 
-    # ----------------------------------------------------------- stages
+    # ----------------------------------------------------------- `stage`s
 
     def _stage_s0_s1(
         self,
@@ -562,8 +581,9 @@ class StagedPipeline:
         rec = recorder or self._metrics
         items: list[_StageItem] = []
         skipped_cross_batch = 0
-        # 051: a trigger whose RVABREP row is delete-coded is *filtered* —
-        # a first-class outcome, NOT a failure and NOT a silent drop.
+        # 051: un trigger cuya fila RVABREP viene con código de baja es
+        # *filtrado* — un resultado de primera clase, NO una falla y
+        # NO un descarte silencioso.
         filtered = 0
         for trigger in triggers:
             audit = trigger.audit_row()
@@ -586,14 +606,17 @@ class StagedPipeline:
                     )
                     continue
                 except RVABREPDeletedError as exc:
-                    # 051: deleted-at-source is NOT a pipeline failure — the
-                    # doc is correctly excluded. Count it, log it, move on.
-                    # 062: persist a `S1_FILTERED` row in migration_log so the
-                    # DETAIL tab + analyzer + `batch show` can see WHICH
-                    # triggers were filtered and why. The exception fires
-                    # before any txn_num is derived, so we use a synthetic
-                    # key keyed on the trigger identity — re-runs collide
-                    # idempotently via INSERT OR IGNORE.
+                    # 051: borrado-en-origen NO es una falla del `pipeline`
+                    # — el doc se excluye correctamente. Lo contamos, lo
+                    # logueamos y seguimos.
+                    # 062: persiste una fila `S1_FILTERED` en
+                    # migration_log para que el tab DETAIL + analyzer +
+                    # `batch show` puedan ver QUÉ triggers fueron
+                    # filtrados y por qué. La excepción se dispara antes
+                    # de que se derive ningún txn_num, así que usamos
+                    # una clave sintética indexada por la identidad del
+                    # trigger — las re-corridas colisionan
+                    # idempotentemente vía INSERT OR IGNORE.
                     filtered += 1
                     audit_system_id = audit.get("system_id") or ""
                     synthetic_txn = f"FILTERED__{audit_shortname}__{audit_system_id}"
@@ -645,10 +668,11 @@ class StagedPipeline:
                     doc.txn_num, batch_id, StageStatus.S1_DONE
                 )
                 if not already_in_batch and self._tracking_store.is_uploaded(doc.txn_num):
-                    # 062: persist a ``S1_SKIPPED`` row so the DETAIL tab +
-                    # analyzer + `batch show` can see which docs were
-                    # cross-batch skipped (the prior "silently skipped"
-                    # contract is intentionally reversed for traceability).
+                    # 062: persiste una fila ``S1_SKIPPED`` para que el
+                    # tab DETAIL + analyzer + `batch show` puedan ver
+                    # qué docs fueron salteados cross-batch (el
+                    # contrato previo de "salteado silenciosamente"
+                    # se revierte intencionalmente por trazabilidad).
                     skipped_cross_batch += 1
                     skip_item = _StageItem(trigger=trigger, document=doc)
                     skip_record = self._build_record(skip_item, batch_id, StageStatus.S1_PENDING)
@@ -681,13 +705,14 @@ class StagedPipeline:
         items: list[_StageItem],
         worker: Callable[[_StageItem], tuple[_StageItem | None, bool]],
     ) -> tuple[list[_StageItem], int]:
-        """056: dispatch one prep stage's per-item worker.
+        """056: despacha el `worker` por-item de un `stage` de prep.
 
-        ``prep_workers == 1`` runs serially — byte-identical to the
-        pre-056 loop. Above 1, a fixed ``ThreadPoolExecutor`` runs the
-        worker; ``pool.map`` preserves input order, so ``survivors``
-        stays deterministic regardless of completion order. Each
-        worker returns ``(survivor_or_None, counted_failure)``.
+        ``prep_workers == 1`` corre en serial — byte-idéntico al loop
+        pre-056. Arriba de 1, un ``ThreadPoolExecutor`` fijo corre el
+        `worker`; ``pool.map`` preserva el orden de entrada, así que
+        ``survivors`` queda determinístico sin importar el orden de
+        completación. Cada `worker` devuelve
+        ``(survivor_or_None, counted_failure)``.
         """
         if self._prep_workers == 1:
             results = [worker(item) for item in items]
@@ -714,9 +739,9 @@ class StagedPipeline:
     def _s2_one(
         self, item: _StageItem, batch_id: str, rec: MetricsRecorder
     ) -> tuple[_StageItem | None, bool]:
-        """S2 mapping for one item. Returns ``(survivor_or_None,
-        counted_failure)`` — a failure already marked done in a prior
-        run is dropped without being counted."""
+        """S2 mapping para un item. Devuelve ``(survivor_or_None,
+        counted_failure)`` — una falla ya marcada como done en una
+        corrida previa se descarta sin contar."""
         txn = item.document.txn_num
         with StageTimer(
             rec,
@@ -757,7 +782,7 @@ class StagedPipeline:
     def _s3_one(
         self, item: _StageItem, batch_id: str, rec: MetricsRecorder
     ) -> tuple[_StageItem | None, bool]:
-        """S3 metadata resolution for one item. Returns
+        """Resolución de metadata S3 para un item. Devuelve
         ``(survivor_or_None, counted_failure)``."""
         assert item.mapping is not None
         txn = item.document.txn_num
@@ -775,13 +800,14 @@ class StagedPipeline:
                 else None
             )
             if cached is not None:
-                # 037: cache hit — short-circuit MetadataService.
-                # 046: triggers are polymorphic. For a ClientTrigger
-                # we reconstruct with the cached CIF so downstream
-                # code that reads ``.cif`` directly stays consistent;
-                # for row-based triggers we keep the original (the row
-                # is immutable, the cached cif lives in the metadata
-                # bag's BAC_CIF property anyway).
+                # 037: cache hit — cortocircuita el MetadataService.
+                # 046: los triggers son polimórficos. Para un
+                # ClientTrigger reconstruimos con el CIF cacheado para
+                # que el código downstream que lee ``.cif``
+                # directamente quede consistente; para los triggers
+                # basados en filas conservamos el original (la fila es
+                # inmutable, y el cif cacheado vive de todos modos en
+                # la propiedad BAC_CIF del `bag` de metadata).
                 metadata = ResolvedMetadata.from_dict(dict(cached.properties))
                 healed_trigger: Trigger
                 if isinstance(item.trigger, ClientTrigger):
@@ -839,14 +865,15 @@ class StagedPipeline:
     def _s4_one(
         self, item: _StageItem, batch_id: str, rec: MetricsRecorder
     ) -> tuple[_StageItem | None, bool]:
-        """S4 PDF assembly for one item. Returns ``(survivor_or_None,
-        counted_failure)``.
+        """Ensamblado de PDF de S4 para un item. Devuelve
+        ``(survivor_or_None, counted_failure)``.
 
-        066: when ``_s4_process_pool`` is set, dispatches via
-        ``pool.submit(_pool_assemble, ...).result()`` so the
-        CPU-bound work runs in a separate process — bypassing the
-        GIL. The producer thread blocks waiting for the future but
-        releases the GIL, letting other producers run S1-S3 work.
+        066: cuando ``_s4_process_pool`` está seteado, despacha vía
+        ``pool.submit(_pool_assemble, ...).result()`` para que el
+        trabajo CPU-bound corra en un proceso separado — bypaseando
+        el `GIL`. El `thread` `producer` bloquea esperando la future
+        pero libera el `GIL`, dejando que otros `producer`s corran
+        trabajo de S1-S3.
         """
         txn = item.document.txn_num
         with StageTimer(
@@ -876,12 +903,13 @@ class StagedPipeline:
             self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
             self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S4_DONE)
         item.staged_file = staged
-        # 058: the row was INSERT-OR-IGNORE'd in S1 with NULL metadata
-        # (item.staged_file was None then). Now that the assembler has
-        # produced the real values, persist them so the DETAIL tab and
-        # ``cmcourier batch show`` actually see the file's size + page
-        # count + path. Outside the is_stage_done guard so resume runs
-        # also backfill any pre-058 rows.
+        # 058: la fila se hizo INSERT-OR-IGNORE en S1 con metadata
+        # NULL (item.staged_file era None en ese momento). Ahora que
+        # el assembler produjo los valores reales, los persistimos
+        # para que el tab DETAIL y ``cmcourier batch show`` vean
+        # efectivamente el tamaño + cantidad de páginas + path del
+        # archivo. Fuera del guard de is_stage_done para que las
+        # corridas de resume también rellenen cualquier fila pre-058.
         self._tracking_store.record_staged_file_metadata(
             txn,
             batch_id,
@@ -898,20 +926,22 @@ class StagedPipeline:
         *,
         recorder: MetricsRecorder | None = None,
     ) -> tuple[int, int]:
-        """S5 uploads, parallelized over ``self._workers`` threads (025).
+        """Uploads de S5, paralelizados sobre ``self._workers`` `thread`s (025).
 
-        Tracking-store calls remain serialized by the writer queue;
-        `CmisUploader` is thread-safe per 025 R011/R012; per-stage
-        metrics use a lock under the hood. Outcomes are tallied in
-        the main thread from ``as_completed`` results.
+        Las llamadas al tracking-store siguen serializadas por la
+        `queue` del writer; `CmisUploader` es thread-safe según 025
+        R011/R012; las métricas por-`stage` usan un `lock` por
+        debajo. Los resultados se totalizan en el `thread` principal
+        a partir de los resultados de ``as_completed``.
 
-        028: ``recorder`` lets the multi-batch orchestrator route
-        S5 timings to the per-chunk recorder.
+        028: ``recorder`` permite que el orchestrator multi-batch
+        rutee los timings de S5 al recorder por-`chunk`.
         """
         rec = recorder or self._metrics
-        # 036: when dual-lane is configured AND the splitter says it's
-        # worth it, dispatch each item with its lane tag. Otherwise the
-        # legacy single-pool path runs byte-identically to pre-036.
+        # 036: cuando el modo dual-lane está configurado Y el splitter
+        # dice que vale la pena, despacha cada item con su tag de
+        # `lane`. Si no, el path legacy de pool único corre
+        # byte-idéntico al pre-036.
         assignment = self._partition_for_lanes(items)
         if assignment is None:
             return self._stage_5_single(items, batch_id, rec)
@@ -923,11 +953,12 @@ class StagedPipeline:
         batch_id: str,
         rec: MetricsRecorder,
     ) -> tuple[int, int]:
-        """Legacy single-pool S5 (pre-036). Byte-identical to 025.
+        """S5 legacy de pool único (pre-036). Byte-idéntico a 025.
 
-        057: the pool is sized to ``_pool_ceiling()`` (the AIMD max),
-        not the initial ``cmis.workers`` — otherwise the AIMD-resized
-        ``ResizableSemaphore`` has no threads to honour its extra slots.
+        057: el pool se dimensiona a ``_pool_ceiling()`` (el máximo
+        AIMD), no al ``cmis.workers`` inicial — si no, el
+        ``ResizableSemaphore`` redimensionado por AIMD no tiene
+        `thread`s para honrar sus slots extra.
         """
         ceiling = self._pool_ceiling()
         self._pool_stats.set_pool_size(ceiling)
@@ -955,7 +986,7 @@ class StagedPipeline:
     def _partition_for_lanes(
         self, items: list[_StageItem]
     ) -> tuple[tuple[_StageItem, ...], tuple[_StageItem, ...]] | None:
-        """Return ``(heavy, light)`` items when dual mode applies, else ``None``."""
+        """Devuelve items ``(heavy, light)`` cuando aplica el modo dual; si no, ``None``."""
         if self._lane_controller is None or self._lanes_config is None:
             return None
         if not self._lanes_config.enabled:
@@ -976,16 +1007,17 @@ class StagedPipeline:
         batch_id: str,
         rec: MetricsRecorder,
     ) -> tuple[int, int]:
-        """036: dual heavy/light dispatch via two cooperating executors.
+        """036: `dispatch` dual heavy/light vía dos `executor`s cooperantes.
 
-        Each lane gets its own ``ThreadPoolExecutor`` sized to the
-        TOTAL worker budget ceiling (057: ``_pool_ceiling()``, the AIMD
-        max — not the initial ``cmis.workers``); the per-lane semaphore
-        inside the ``LaneController`` caps actual concurrency. Two
-        executors avoid the starvation that would occur if a single
-        executor's workers grabbed heavies first and then blocked on
-        the heavy semaphore — leaving light items queued without a
-        thread to run them.
+        Cada `lane` obtiene su propio ``ThreadPoolExecutor``
+        dimensionado al techo del budget TOTAL de `worker`s (057:
+        ``_pool_ceiling()``, el máximo AIMD — no el ``cmis.workers``
+        inicial); el `semaphore` por-`lane` dentro del
+        ``LaneController`` acota la concurrencia real. Dos
+        `executor`s evitan la inanición que ocurriría si los `worker`s
+        de un único `executor` agarrasen primero los heavies y luego
+        se bloqueasen en el `semaphore` heavy — dejando los items
+        light encolados sin un `thread` que los corra.
         """
         assert self._lane_controller is not None
         heavy_items, light_items = assignment
@@ -1040,11 +1072,12 @@ class StagedPipeline:
         recorder: MetricsRecorder | None = None,
         lane: Lane | None = None,
     ) -> Literal["done", "failed", "skipped"]:
-        """Per-doc S5 work executed inside a worker thread (025 + 036).
+        """Trabajo S5 por-doc ejecutado dentro de un `worker` `thread` (025 + 036).
 
-        When ``lane`` is None, the legacy single-pool semaphore +
-        stats path runs (pre-036). When set, the per-lane semaphore
-        and counters of the :class:`LaneController` are used instead.
+        Cuando ``lane`` es None, corre el path legacy del `semaphore`
+        de pool único + stats (pre-036). Cuando está seteado, en su
+        lugar se usan el `semaphore` por-`lane` y los counters del
+        :class:`LaneController`.
         """
         assert item.mapping is not None
         assert item.metadata is not None
@@ -1052,8 +1085,8 @@ class StagedPipeline:
         txn = item.document.txn_num
         worker_name = threading.current_thread().name
 
-        # 025 phase 2: respect the auto-tune semaphore cap before
-        # actually consuming a worker slot.
+        # 025 fase 2: respeta el cap del `semaphore` del auto-tune
+        # antes de consumir efectivamente un slot de `worker`.
         if lane is None:
             self._concurrency_limit.acquire()
             self._pool_stats.mark_busy(worker_name)
@@ -1066,11 +1099,11 @@ class StagedPipeline:
                 return "done"
             record = self._build_record(item, batch_id, StageStatus.S5_PENDING)
             self._tracking_store.mark_stage_pending(record, StageStatus.S5_PENDING)
-            # 034 phase 3: distributed claim. When the coordinator is
-            # None (legacy path), try_claim is always True. When
-            # active, the coordinator goes to AS400 NIARVILOG; if
-            # someone else already owns the row (Java competitor or
-            # another CMCourier instance), we skip.
+            # 034 fase 3: claim distribuido. Cuando el coordinador es
+            # None (path legacy), try_claim siempre es True. Cuando
+            # está activo, el coordinador va a AS400 NIARVILOG; si
+            # otro proceso ya es dueño de la fila (un competidor en
+            # Java u otra instancia de CMCourier), salteamos.
             if self._coordinator is not None and not self._coordinator.try_claim(
                 record=record,
                 document=item.document,
@@ -1096,12 +1129,15 @@ class StagedPipeline:
             ) as timer:
                 try:
                     # 039: ``cmis_type`` (MapeoRVI_CM.CMISType, 035)
-                    # overrides the derived ``cm_object_type`` when set.
+                    # sobrescribe el ``cm_object_type`` derivado cuando
+                    # está seteado.
                     # 038: ``cmis_folder`` (MapeoRVI_CM.CMISFolder)
-                    # overrides the derived ``cm_folder`` when set. Both
-                    # let non-IBM-CM repositories (Alfresco staging, or
-                    # future bank types that don't follow the
-                    # ``$t!-N_BAC_…v-1`` pattern) work without code change.
+                    # sobrescribe el ``cm_folder`` derivado cuando está
+                    # seteado. Ambos permiten que `repo`sitorios no
+                    # IBM-CM (Alfresco staging, o tipos de banco
+                    # futuros que no sigan el patrón
+                    # ``$t!-N_BAC_…v-1``) funcionen sin cambio de
+                    # código.
                     object_type_id = item.mapping.cmis_type or item.mapping.cm_object_type
                     folder_path = item.mapping.cmis_folder or item.mapping.cm_folder
                     cm_object_id = self._uploader.upload(

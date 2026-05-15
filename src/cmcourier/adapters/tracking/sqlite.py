@@ -1,21 +1,24 @@
-"""SQLite-backed :class:`ITrackingStore`.
+""":class:`ITrackingStore` respaldado por SQLite.
 
-Two connections coexist over the same WAL-mode database file:
+Dos conexiones conviven sobre el mismo archivo de base de datos en
+`WAL mode`:
 
-* a **reader** connection on the main thread, used for synchronous reads
-  and for ``start_batch`` (the only write that must be visible immediately);
-* a **writer** connection owned by a daemon thread that drains a
-  :class:`queue.Queue` of statements and commits them in batches (up to
-  500 statements, or every 1 second — whichever fires first).
+* una conexión **reader** en el thread principal, usada para lecturas
+  sincrónicas y para ``start_batch`` (la única escritura que debe ser
+  visible inmediatamente);
+* una conexión **writer** que pertenece a un thread daemon que drena una
+  :class:`queue.Queue` de sentencias y las commitea en `batches` (hasta
+  500 sentencias, o cada 1 segundo — lo que ocurra primero).
 
-The reader / writer split is enabled by SQLite's WAL journal mode: a
-writer connection never blocks readers and vice versa. ``synchronous=OFF``
-and a 64 MiB page cache keep throughput high under
-production-scale workloads.
+La separación reader / writer la habilita el `journal mode` WAL de SQLite:
+una conexión writer nunca bloquea readers, y viceversa. ``synchronous=OFF``
+y una page cache de 64 MiB mantienen el `throughput` alto bajo cargas a
+escala productiva.
 
-Constitution Principle I: this module only depends on the standard library
-and on :mod:`cmcourier.domain`. All :class:`sqlite3.Error` exceptions are
-wrapped in :class:`TrackingError` before bubbling up.
+Principio I de la Constitución: este módulo solo depende de la standard
+library y de :mod:`cmcourier.domain`. Todas las excepciones
+:class:`sqlite3.Error` se envuelven en :class:`TrackingError` antes de
+propagarse hacia arriba.
 """
 
 from __future__ import annotations
@@ -95,10 +98,10 @@ ON migration_log (rvabrep_txn_num)
 WHERE status = 'S5_DONE'
 """
 
-# 037: cross-batch metadata cache (POST-MVP §9). The table is created
-# unconditionally — the schema migration is cheap and idempotent. The
-# pipeline only reads / writes it when ``metadata.cache.enabled`` is
-# True; otherwise the table stays empty.
+# 037: cache de metadatos cross-`batch` (POST-MVP §9). La tabla se crea
+# incondicionalmente — la migración de schema es barata e idempotente. El
+# `pipeline` solo lee / escribe sobre ella cuando ``metadata.cache.enabled``
+# es True; en caso contrario queda vacía.
 _CREATE_DOCUMENT_CACHE = """
 CREATE TABLE IF NOT EXISTS document_cache (
     txn_num         TEXT NOT NULL,
@@ -132,10 +135,11 @@ _BATCH_FLUSH_SIZE = 500
 _BATCH_FLUSH_INTERVAL_S = 1.0
 
 
-# is_stage_done(stage) returns True if the row has reached AT LEAST that
-# stage's success state. After mark_stage_done(SN_DONE), the row may
-# subsequently transition to a later stage's PENDING/DONE/FAILED — those
-# all count as "past SN_DONE" so resume logic can skip redoing the work.
+# is_stage_done(stage) devuelve True si la fila alcanzó AL MENOS el estado de
+# éxito de esa etapa. Después de mark_stage_done(SN_DONE) la fila puede
+# transicionar luego al PENDING/DONE/FAILED de una etapa posterior — todos
+# esos cuentan como "pasado SN_DONE" para que la lógica de resume pueda
+# saltearse el trabajo.
 _STATUSES_AT_OR_PAST: dict[StageStatus, frozenset[str]] = {
     StageStatus.S1_DONE: frozenset(
         {
@@ -192,25 +196,25 @@ _STATUSES_AT_OR_PAST: dict[StageStatus, frozenset[str]] = {
 
 
 # ---------------------------------------------------------------------------
-# Write-task envelope
+# Envelope de tarea de escritura
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class _WriteTask:
-    """A single SQL statement plus its bind parameters, queued for the writer."""
+    """Una sentencia SQL única y sus parámetros bind, encolados para el writer."""
 
     sql: str
     params: tuple[Any, ...]
 
 
 # ---------------------------------------------------------------------------
-# Implementation
+# Implementación
 # ---------------------------------------------------------------------------
 
 
 class SQLiteTrackingStore(ITrackingStore):
-    """Concrete tracking store backed by SQLite (WAL + async writer queue)."""
+    """Tracking store concreto respaldado por SQLite (`WAL mode` + escritura asíncrona)."""
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -218,10 +222,11 @@ class SQLiteTrackingStore(ITrackingStore):
         self._stop = threading.Event()
         self._closed = False
 
-        # 025: ``check_same_thread=False`` allows S5 worker threads to issue
-        # reads against this connection. ``_reader_lock`` serializes those
-        # reads (SQLite WAL allows concurrent reads via SEPARATE connections,
-        # but a single connection still needs app-level locking).
+        # 025: ``check_same_thread=False`` permite que los `threads` `worker`
+        # de S5 emitan lecturas contra esta conexión. ``_reader_lock`` serializa
+        # esas lecturas (SQLite en `WAL mode` permite lecturas concurrentes vía
+        # conexiones SEPARADAS, pero una sola conexión sigue necesitando un
+        # `lock` a nivel de aplicación).
         try:
             self._reader = sqlite3.connect(str(db_path), check_same_thread=False)
             self._apply_pragmas(self._reader)
@@ -235,7 +240,7 @@ class SQLiteTrackingStore(ITrackingStore):
         )
         self._writer_thread.start()
 
-    # ------------------------------------------------------------------ init
+    # ------------------------------------------------------------------ inicialización
 
     @staticmethod
     def _apply_pragmas(conn: sqlite3.Connection) -> None:
@@ -252,7 +257,7 @@ class SQLiteTrackingStore(ITrackingStore):
         conn.execute(_CREATE_IDX_DOCUMENT_CACHE_AGE)
         conn.commit()
 
-    # ------------------------------------------------------------ writer loop
+    # ------------------------------------------------------------ loop del writer
 
     def _writer_loop(self) -> None:
         try:
@@ -296,18 +301,18 @@ class SQLiteTrackingStore(ITrackingStore):
                 break
         return batch
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def flush(self) -> None:
-        """Block until the writer queue is fully drained.
+        """Bloquea hasta que la `queue` del writer queda completamente drenada.
 
-        Used by tests and by orchestrators that need to read state they
-        just wrote.
+        Lo usan los tests y los orquestadores que necesitan leer estado que
+        acaban de escribir.
         """
         self._queue.join()
 
     def start_batch(self, total_records: int) -> str:
-        """Insert a new batch row synchronously and return its UUID4."""
+        """Inserta una nueva fila de `batch` de forma sincrónica y devuelve su UUID4."""
         batch_id = str(uuid.uuid4())
         try:
             with self._reader_lock:
@@ -329,8 +334,8 @@ class SQLiteTrackingStore(ITrackingStore):
 
     def mark_stage_pending(self, record: MigrationRecord, stage: StageStatus) -> None:
         _require_state(stage, "PENDING")
-        # INSERT OR IGNORE makes this idempotent within a batch (unique index
-        # on (rvabrep_txn_num, batch_id)).
+        # INSERT OR IGNORE vuelve esto idempotente dentro de un `batch` (índice
+        # único sobre (rvabrep_txn_num, batch_id)).
         sql = (
             "INSERT OR IGNORE INTO migration_log ("
             "trigger_shortname, trigger_cif, trigger_system_id, "
@@ -353,18 +358,20 @@ class SQLiteTrackingStore(ITrackingStore):
         _require_state(stage, "DONE")
         completed_at = datetime.now().isoformat()
         if cm_object_id is None:
-            # 047: None path is byte-identical to pre-047 — status +
-            # completed_at only, the cm_object_id column is untouched so
-            # any prior value survives (S1..S4 transitions never carry it).
+            # 047: el camino con None es byte-idéntico al pre-047 — solo
+            # status + completed_at, la columna cm_object_id no se toca, así
+            # que cualquier valor previo sobrevive (las transiciones S1..S4
+            # nunca lo cargan).
             self._enqueue(
                 "UPDATE migration_log SET status = ?, completed_at = ? "
                 "WHERE rvabrep_txn_num = ? AND batch_id = ?",
                 (stage.value, completed_at, txn_num, batch_id),
             )
         else:
-            # 047: S5_DONE carries the CMIS objectId — persist it so the
-            # tracking DB can answer "what's the objectId of doc X?"
-            # without a children-walk against the CMIS server.
+            # 047: S5_DONE lleva el objectId de `cmis` — lo persistimos para
+            # que la DB de tracking pueda responder "¿cuál es el objectId del
+            # doc X?" sin tener que hacer un walk de hijos contra el server
+            # `cmis`.
             self._enqueue(
                 "UPDATE migration_log SET status = ?, completed_at = ?, cm_object_id = ? "
                 "WHERE rvabrep_txn_num = ? AND batch_id = ?",
@@ -389,11 +396,11 @@ class SQLiteTrackingStore(ITrackingStore):
         stage: StageStatus,
         error_message: str,
     ) -> None:
-        # 062: terminal transition that is NOT a failure — used for
-        # ``S1_FILTERED`` (deleted-at-source) and ``S1_SKIPPED`` (already
-        # uploaded in a prior batch). Unlike ``mark_stage_failed`` this
-        # does NOT bump ``retry_count``; the doc didn't "fail", it just
-        # ended its journey here for a non-error reason.
+        # 062: transición terminal que NO es una falla — se usa para
+        # ``S1_FILTERED`` (borrado en origen) y ``S1_SKIPPED`` (ya subido en
+        # un `batch` anterior). A diferencia de ``mark_stage_failed`` esto
+        # NO incrementa ``retry_count``; el doc no "falló", solo terminó su
+        # recorrido acá por un motivo que no es de error.
         _require_terminal_state(stage)
         completed_at = datetime.now().isoformat()
         self._enqueue(
@@ -412,10 +419,10 @@ class SQLiteTrackingStore(ITrackingStore):
         page_count: int,
         file_size_bytes: int,
     ) -> None:
-        # 058: the row was first INSERT-OR-IGNORE'd in S1 when
-        # ``item.staged_file`` was still ``None``, so source_file_path /
-        # page_count / file_size_bytes all landed as NULL. S4 knows the
-        # real values — UPDATE them here. Idempotent.
+        # 058: la fila se insertó originalmente con INSERT-OR-IGNORE en S1
+        # cuando ``item.staged_file`` aún era ``None``, así que
+        # source_file_path / page_count / file_size_bytes quedaron en NULL.
+        # S4 conoce los valores reales — los UPDATEa acá. Idempotente.
         self._enqueue(
             "UPDATE migration_log "
             "SET source_file_path = ?, page_count = ?, file_size_bytes = ? "
@@ -462,7 +469,7 @@ class SQLiteTrackingStore(ITrackingStore):
             raise TrackingError("list_txn_nums_for_batch failed", batch_id=batch_id) from exc
         return {row[0] for row in rows}
 
-    # -------------------------------------------------- operator-facing (021)
+    # -------------------------------------------------- API para operadores (021)
 
     def list_batches(
         self,
@@ -512,7 +519,7 @@ class SQLiteTrackingStore(ITrackingStore):
         )
 
     def list_docs_for_batch(self, batch_id: str) -> list[DocDetail]:
-        """052: per-doc detail for the TUI's per-chunk drill-down."""
+        """052: detalle por documento para el drill-down por `chunk` de la TUI."""
         try:
             with self._reader_lock:
                 rows = self._reader.execute(
@@ -544,7 +551,8 @@ class SQLiteTrackingStore(ITrackingStore):
                 "retry_failed expects a *_FAILED StageStatus or None",
                 stage=stage.value,
             )
-        # Drain any pending writes so the UPDATE sees a consistent state.
+        # Drenamos cualquier escritura pendiente para que el UPDATE vea un
+        # estado consistente.
         self.flush()
         try:
             with self._reader_lock:
@@ -570,7 +578,7 @@ class SQLiteTrackingStore(ITrackingStore):
         return int(cursor.rowcount)
 
     def close(self) -> None:
-        """Idempotent shutdown: drain queue, stop writer, close reader."""
+        """Apagado idempotente: drena la `queue`, frena el writer, cierra el reader."""
         if self._closed:
             return
         self._closed = True
@@ -589,24 +597,24 @@ class SQLiteTrackingStore(ITrackingStore):
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers (kept outside the class so methods stay terse)
+# Helpers a nivel de módulo (fuera de la clase para que los métodos queden cortos)
 # ---------------------------------------------------------------------------
 
 
 def _require_state(stage: StageStatus, expected_suffix: str) -> None:
-    """Reject stage values whose name does not end with the expected suffix."""
+    """Rechaza valores de stage cuyo nombre no termina con el sufijo esperado."""
     if not stage.value.endswith(f"_{expected_suffix}"):
         raise ValueError(f"expected a {expected_suffix} stage, got {stage.value!r}")
 
 
 def _require_terminal_state(stage: StageStatus) -> None:
-    """062: accept any terminal (non-progressing) suffix — FAILED, FILTERED, SKIPPED."""
+    """062: acepta cualquier sufijo terminal (no-progresivo) — FAILED, FILTERED, SKIPPED."""
     if not any(stage.value.endswith(f"_{s}") for s in ("FAILED", "FILTERED", "SKIPPED")):
         raise ValueError(f"expected a terminal stage, got {stage.value!r}")
 
 
 def _row_to_batch_info(row: tuple[Any, ...]) -> BatchInfo:
-    """Map a (batch_id, started_at, completed_at, total_records) row."""
+    """Mapea una fila (batch_id, started_at, completed_at, total_records)."""
     completed_at = datetime.fromisoformat(row[2]) if row[2] is not None else None
     return BatchInfo(
         batch_id=row[0],
@@ -616,7 +624,7 @@ def _row_to_batch_info(row: tuple[Any, ...]) -> BatchInfo:
     )
 
 
-# Stages the CLI's ``batch show`` table always renders, in fixed order.
+# Stages que la tabla ``batch show`` del CLI siempre renderiza, en orden fijo.
 _DISPLAY_STAGES: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4", "S5")
 _DISPLAY_OUTCOMES: tuple[str, ...] = ("DONE", "FAILED", "PENDING")
 
@@ -624,10 +632,10 @@ _DISPLAY_OUTCOMES: tuple[str, ...] = ("DONE", "FAILED", "PENDING")
 def _pivot_status_counts(
     rows: list[tuple[Any, ...]],
 ) -> dict[str, dict[str, int]]:
-    """Group ``(status, count)`` rows into ``{Sn: {DONE: x, FAILED: y, PENDING: z}}``.
+    """Agrupa filas ``(status, count)`` en ``{Sn: {DONE: x, FAILED: y, PENDING: z}}``.
 
-    Always emits the full ``S0..S5`` × ``DONE / FAILED / PENDING`` shape
-    so the renderer has predictable cells.
+    Siempre emite la forma completa ``S0..S5`` × ``DONE / FAILED / PENDING``
+    para que el renderer tenga celdas predecibles.
     """
     pivot: dict[str, dict[str, int]] = {
         stage: dict.fromkeys(_DISPLAY_OUTCOMES, 0) for stage in _DISPLAY_STAGES
@@ -643,7 +651,7 @@ def _pivot_status_counts(
 
 
 def _record_to_params(record: MigrationRecord, stage: StageStatus) -> tuple[Any, ...]:
-    """Flatten a :class:`MigrationRecord` into the 18-tuple for INSERT."""
+    """Aplana un :class:`MigrationRecord` en la tupla de 18 elementos para INSERT."""
     return (
         record.trigger_shortname,
         record.trigger_cif,

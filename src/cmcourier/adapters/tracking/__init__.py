@@ -1,4 +1,4 @@
-"""Tracking store adapters: SQLite (WAL + async writer queue) and AS400 (post-MVP)."""
+"""Adaptadores del almacén de tracking: SQLite (WAL + escritura asíncrona) y AS400 (post-MVP)."""
 
 from __future__ import annotations
 

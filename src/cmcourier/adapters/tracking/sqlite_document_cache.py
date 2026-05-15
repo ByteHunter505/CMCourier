@@ -1,15 +1,15 @@
-"""SQLite-backed :class:`IDocumentCache` (POST-MVP §9, 037 Phase 1).
+""":class:`IDocumentCache` respaldado por SQLite (POST-MVP §9, 037 Fase 1).
 
-Stores resolved S3 metadata so cross-batch re-runs of the same
-``txn_num`` skip the resolver. Uses the same database file as
-:class:`SQLiteTrackingStore` — the schema migration for
-``document_cache`` runs at every tracking store open, so no special
-bootstrap is required. The adapter opens its own connection in WAL
-mode for thread-safe reads / writes.
+Guarda los metadatos resueltos de S3 para que las re-corridas cross-`batch`
+del mismo ``txn_num`` salten el resolver. Usa el mismo archivo de base de
+datos que :class:`SQLiteTrackingStore` — la migración de schema para
+``document_cache`` corre en cada apertura del tracking store, así que no
+hace falta bootstrap especial. El adaptador abre su propia conexión en
+`WAL mode` para lecturas / escrituras thread-safe.
 
-Constitution Principle VI: this adapter is the only place that knows
-about SQLite for the cache. All TTL / hit-miss logic lives in the
-service layer (:mod:`cmcourier.services.document_cache`).
+Principio VI de la Constitución: este adaptador es el único lugar que
+sabe de SQLite para el cache. Toda la lógica de TTL / hit-miss vive en la
+capa de servicios (:mod:`cmcourier.services.document_cache`).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _PRAGMAS_WAL: tuple[str, ...] = (
 
 
 class SqliteDocumentCache(IDocumentCache):
-    """Concrete cache adapter. One connection per instance, app-locked."""
+    """Adaptador de cache concreto. Una conexión por instancia, con `lock` a nivel de aplicación."""
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path

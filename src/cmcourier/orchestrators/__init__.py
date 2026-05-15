@@ -1,7 +1,8 @@
-"""Orchestrators layer - thin coordinators for pipeline composition.
+"""Capa de orchestrators — coordinadores delgados para la composición del `pipeline`.
 
-Each orchestrator wires a sequence of stages (``S0`` ... ``S7``) into a runnable
-pipeline. No business logic, no direct I/O. Constitution Principle I.
+Cada orchestrator conecta una secuencia de `stage`s (``S0`` ... ``S7``) en un
+`pipeline` ejecutable. Sin lógica de negocio, sin I/O directo. Principio I de
+la Constitución.
 """
 
 from __future__ import annotations

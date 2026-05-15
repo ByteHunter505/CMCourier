@@ -1,24 +1,25 @@
-"""Stage S4 — :class:`PdfAssembler`.
+"""Etapa S4 — :class:`PdfAssembler`.
 
-Concrete :class:`IAssembler` over the local file server. Two paths:
+Implementación concreta de :class:`IAssembler` sobre el file server local.
+Dos caminos:
 
-* **Native PDF** — ``shutil.copy2`` the source PDF to
-  ``temp_dir / "{txn_num}.pdf"``. ``StagedFile.page_count`` is read from
-  the document's ``total_pages`` (we trust RVABREP, do not parse).
-* **Paged document** — glob ``FILECODE.*`` in the source directory, filter
-  to numeric extensions, sort by ``int(extension)``, then
-  try :func:`img2pdf.convert` as the fast path. On any exception, fall
-  back to Pillow + :class:`PyPDF2.PdfMerger`.
+* **PDF nativo** — ``shutil.copy2`` del PDF fuente a
+  ``temp_dir / "{txn_num}.pdf"``. ``StagedFile.page_count`` se lee de
+  ``total_pages`` del documento (confiamos en RVABREP, no parseamos).
+* **Documento paginado** — glob de ``FILECODE.*`` en el directorio fuente,
+  filtra extensiones numéricas, ordena por ``int(extension)``, y luego
+  intenta :func:`img2pdf.convert` como camino rápido. Ante cualquier
+  excepción, cae al fallback con Pillow + :class:`PyPDF2.PdfMerger`.
 
-The OneDrive temp-dir trap is handled in the constructor:
-configured paths matching ``./tmp`` variants are diverted to the system
-temp directory.
+La trampa del directorio temporal en OneDrive se maneja en el constructor:
+las rutas configuradas que coincidan con variantes de ``./tmp`` se desvían
+al directorio temporal del sistema.
 
-Constitution Principle I: this module imports ``img2pdf``, ``PIL``, and
-``PyPDF2`` — all declared in ``pyproject.toml``. Domain models are
-imported as types only. Principle VIII: logs identify operational keys
-(``txn_num``, ``file_path``, page counts) but never image content or
-metadata values.
+Principio I de la Constitución: este módulo importa ``img2pdf``, ``PIL`` y
+``PyPDF2`` — todos declarados en ``pyproject.toml``. Los modelos de dominio
+se importan solo como tipos. Principio VIII: los logs identifican claves
+operacionales (``txn_num``, ``file_path``, conteos de páginas) pero nunca
+contenido de imágenes ni valores de metadatos.
 """
 
 from __future__ import annotations
@@ -47,24 +48,24 @@ from cmcourier.domain.ports import IAssembler
 _log = logging.getLogger(__name__)
 
 
-# OneDrive trap variants normalized for case-insensitive comparison.
+# Variantes de la trampa de OneDrive normalizadas para comparación case-insensitive.
 _ONEDRIVE_TRAP_VARIANTS: frozenset[str] = frozenset({"tmp", "./tmp", "tmp/", ".\\tmp"})
 _DIVERTED_DIR_NAME = "cmcourier_tmp"
 
 
 def _default_image_type_map() -> dict[str, str]:
-    """Mapping: image_type code → MIME hint."""
+    """Mapeo: código image_type → hint MIME."""
     return {"B": "image/tiff", "O": "application/pdf", "C": "image/jpeg"}
 
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuración
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class AssemblerConfig:
-    """Configuration for :class:`PdfAssembler`."""
+    """Configuración para :class:`PdfAssembler`."""
 
     source_root: Path
     temp_dir: Path
@@ -77,22 +78,22 @@ class AssemblerConfig:
 
 
 class PdfAssembler(IAssembler):
-    """Concrete :class:`IAssembler` for stage S4."""
+    """Implementación concreta de :class:`IAssembler` para la etapa S4."""
 
     def __init__(self, config: AssemblerConfig) -> None:
         self._cfg = config
         self.temp_dir = self._resolve_temp_dir(config.temp_dir)
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def assemble(self, document: RVABREPDocument) -> StagedFile:
-        """Turn *document* into a single staged PDF."""
+        """Convierte *document* en un único PDF staged."""
         if document.is_pdf:
             return self._passthrough_native_pdf(document)
         return self._assemble_paged(document)
 
-    # ----------------------------------------------------------- internals
+    # ----------------------------------------------------------- internos
 
     @staticmethod
     def _resolve_temp_dir(configured: Path) -> Path:
@@ -117,7 +118,7 @@ class PdfAssembler(IAssembler):
         output = self.temp_dir / f"{doc.txn_num}.pdf"
         try:
             self._try_img2pdf(pages, output)
-        except Exception as primary:  # noqa: BLE001 — img2pdf raises a wide surface
+        except Exception as primary:  # noqa: BLE001 — img2pdf levanta una superficie amplia
             _log.info(
                 "assembler: img2pdf fast path failed, falling back",
                 extra={"txn_num": doc.txn_num, "reason": str(primary)},
@@ -179,7 +180,7 @@ class PdfAssembler(IAssembler):
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers
+# Helpers a nivel de módulo
 # ---------------------------------------------------------------------------
 
 

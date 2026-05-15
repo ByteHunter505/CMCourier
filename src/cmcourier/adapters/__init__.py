@@ -1,6 +1,6 @@
-"""Adapters layer - concrete implementations of domain ports.
+"""Capa de adaptadores — implementaciones concretas de los puertos del dominio.
 
-The only place I/O lives. Each subpackage holds adapters by responsibility:
-``sources/`` (data sources), ``tracking/`` (idempotency store),
-``assembly/`` (PDF assembly), ``upload/`` (CMIS upload).
+Es el único lugar donde vive el I/O. Cada subpaquete agrupa adaptadores por
+responsabilidad: ``sources/`` (fuentes de datos), ``tracking/`` (almacén de
+idempotencia), ``assembly/`` (ensamblado de PDF), ``upload/`` (subida `cmis`).
 """

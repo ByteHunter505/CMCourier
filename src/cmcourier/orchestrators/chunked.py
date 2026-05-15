@@ -1,8 +1,7 @@
-"""Pure chunker helper (028).
+"""Helper puro de `chunk`ing (028).
 
-Used by the multi-batch orchestrator to split a trigger
-iterable into batches of ``size`` for producer-consumer
-pipelining.
+Lo usa el orchestrator multi-batch para partir un iterable de
+triggers en `batch`es de ``size`` para `pipelining` producer-consumer.
 """
 
 from __future__ import annotations
@@ -16,11 +15,11 @@ T = TypeVar("T")
 
 
 def chunked(items: Iterable[T], size: int) -> Iterator[list[T]]:
-    """Yield successive ``size``-long lists from ``items``.
+    """Emite listas sucesivas de longitud ``size`` desde ``items``.
 
-    The last chunk may be smaller. Order is preserved.
-    Accepts any iterable (lists, generators, etc.). Empty
-    input yields nothing. ``size`` must be ≥ 1.
+    El último `chunk` puede ser más chico. El orden se preserva.
+    Acepta cualquier iterable (listas, generadores, etc.). Una
+    entrada vacía no emite nada. ``size`` debe ser ≥ 1.
     """
     if size < 1:
         raise ValueError(f"chunk size must be >= 1, got {size}")

@@ -1,20 +1,22 @@
-"""AS400 ODBC data source — concrete :class:`IDataSource` via pyodbc.
+"""Fuente de datos AS400 vía ODBC — :class:`IDataSource` concreto sobre pyodbc.
 
-Lazy ``pyodbc`` import inside :meth:`_connect` so importing this module
-in environments without unixODBC headers does not crash (the failure
-surfaces on first real call instead).
+Import lazy de ``pyodbc`` dentro de :meth:`_connect` para que importar este
+módulo en entornos sin headers de unixODBC no rompa (el error se manifiesta
+en la primera llamada real).
 
-The AS400 ODBC driver is NOT thread-safe; a future change will add
-``threading.local()`` connections when the orchestrator's worker pool
-lands. 014 ships ONE connection per :class:`As400DataSource` instance.
+El driver ODBC de AS400 NO es thread-safe; un cambio futuro va a sumar
+conexiones con ``threading.local()`` cuando aterrice el `worker pool` del
+orquestador. 014 entrega UNA sola conexión por instancia de
+:class:`As400DataSource`.
 
-All :class:`pyodbc.Error` exceptions are wrapped in
-:class:`cmcourier.domain.exceptions.IndexingError`. SQLSTATE codes are
-extracted from ``exc.args[0]`` when present.
+Todas las excepciones :class:`pyodbc.Error` se envuelven en
+:class:`cmcourier.domain.exceptions.IndexingError`. Los códigos SQLSTATE se
+extraen de ``exc.args[0]`` cuando están presentes.
 
-Constitution Principle VIII: SQL queries and their parameters MAY
-contain customer values (CIF, names). The adapter NEVER logs the SQL
-body or parameters; callers are expected to handle their own audit.
+Principio VIII de la Constitución: las consultas SQL y sus parámetros PUEDEN
+contener valores de clientes (CIF, nombres). El adaptador NUNCA loguea el
+cuerpo del SQL ni los parámetros; los callers son responsables de su propia
+auditoría.
 """
 
 from __future__ import annotations
@@ -32,8 +34,8 @@ from cmcourier.domain.ports import IDataSource
 
 _network_log = logging.getLogger("cmcourier.metrics.network")
 
-# Lazy import: the `pyodbc` name is resolved inside `_connect()` so test
-# environments without unixODBC headers can `import` this module.
+# Import lazy: el nombre `pyodbc` se resuelve dentro de `_connect()` para que
+# los entornos de test sin headers de unixODBC puedan `import` este módulo.
 pyodbc: Any = None
 
 _log = logging.getLogger(__name__)
@@ -44,16 +46,16 @@ _SQLSTATE_RE = re.compile(r"^[0-9A-Z]{5}$")
 
 
 class As400DataSource(IDataSource):
-    """Concrete IDataSource over an AS400 ODBC connection.
+    """IDataSource concreto sobre una conexión ODBC a AS400.
 
-    Accepts either a ``table`` (bare identifier) or a custom prefetch
-    ``query`` (a full ``SELECT ...`` statement), but never both. In
-    query mode the SQL is wrapped in a derived-table alias
-    (``(query) AS T``) so the full IDataSource contract (``get_all``,
-    ``count``, ``get_by_fields*``) keeps working transparently. The
-    "raw mode" (neither set) is valid for callers that only invoke
-    :meth:`query` or :meth:`query_stream` directly (e.g. trigger
-    strategies that own their own SQL).
+    Acepta o bien ``table`` (un identificador suelto) o bien un ``query`` de
+    prefetch personalizado (una sentencia ``SELECT ...`` completa), pero
+    nunca ambos. En modo query, el SQL se envuelve en un alias de tabla
+    derivada (``(query) AS T``) para que el contrato IDataSource completo
+    (``get_all``, ``count``, ``get_by_fields*``) siga funcionando de manera
+    transparente. El "modo raw" (ninguno seteado) es válido para callers que
+    solo invocan :meth:`query` o :meth:`query_stream` directamente (por
+    ejemplo, trigger strategies que manejan su propio SQL).
     """
 
     def __init__(
@@ -82,7 +84,7 @@ class As400DataSource(IDataSource):
         self._conn: Any = None
         self._closed = False
 
-    # ------------------------------------------------------------------ ports
+    # ------------------------------------------------------------------ puertos
 
     def query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         cursor = self._connect().cursor()
@@ -195,7 +197,7 @@ class As400DataSource(IDataSource):
                 _log.exception("AS400 close failed")
             self._conn = None
 
-    # ------------------------------------------------------------------ internals
+    # ------------------------------------------------------------------ internos
 
     def _connect(self) -> Any:
         if self._conn is not None:
@@ -223,7 +225,7 @@ class As400DataSource(IDataSource):
 
 
 # ---------------------------------------------------------------------------
-# Module-level helpers
+# Helpers a nivel de módulo
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +233,7 @@ def _import_pyodbc() -> None:
     global pyodbc
     if pyodbc is not None:
         return
-    import pyodbc as _pyodbc  # noqa: PLC0415 — intentional lazy import
+    import pyodbc as _pyodbc  # noqa: PLC0415 — import lazy intencional
 
     pyodbc = _pyodbc
 
