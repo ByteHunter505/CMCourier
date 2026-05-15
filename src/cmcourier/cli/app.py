@@ -628,11 +628,6 @@ def _run_with_optional_tui(
     # rest of this function (TUI wiring, _emit_outcome) is unchanged.
     orchestrator: MultiBatchOrchestrator | StreamingOrchestrator
     if config.processing.mode == "streaming":
-        if config.processing.heavy_light_lanes.enabled:
-            _log.warning(
-                "streaming mode: heavy/light lanes deferred to spec 065 — "
-                "single-lane consumers will be used for this run"
-            )
         if int(pipeline_kwargs.get("from_stage", 1)) > 1 or resume_batch_id is not None:
             _log.warning(
                 "streaming mode rejects resume args; the orchestrator will "

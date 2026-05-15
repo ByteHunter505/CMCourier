@@ -94,3 +94,43 @@ class TestRenderBucket:
         assert "1" in out
         assert "2" in out
         assert "3" in out
+
+    def test_renders_lane_block_when_lane_snapshot_present(self) -> None:
+        from cmcourier.services.lane_controller import LaneSnapshot
+        from cmcourier.services.worker_pool_stats import WorkerPoolStatsSnapshot
+
+        heavy = WorkerPoolStatsSnapshot(
+            pool_size=3,
+            busy=1,
+            idle=2,
+            queue_depth=4,
+            completed=12,
+            failed=0,
+        )
+        light = WorkerPoolStatsSnapshot(
+            pool_size=5,
+            busy=2,
+            idle=3,
+            queue_depth=6,
+            completed=33,
+            failed=1,
+        )
+        bucket = StreamingSnapshot(
+            bucket_level=2,
+            bucket_cap=10,
+            bucket_peak=8,
+            prep_workers=4,
+            prep_in_flight=1,
+            upload_workers=8,
+            prep_docs_per_s=5.0,
+            upload_docs_per_s=4.0,
+            lane_snapshot=LaneSnapshot(heavy=heavy, light=light, total_budget=8),
+        )
+        snap = _streaming_snapshot(bucket=bucket)
+        out = render_bucket(snap)
+        assert "LANES" in out
+        assert "heavy" in out and "light" in out
+        # heavy budget 3, busy 1, queue 4
+        assert "3" in out and "1" in out
+        # total budget 8
+        assert "total budget 8" in out

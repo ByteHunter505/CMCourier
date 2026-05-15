@@ -501,14 +501,17 @@ class StagedPipeline:
         item: _StageItem,
         batch_id: str,
         recorder: MetricsRecorder,
+        lane: Lane | None = None,
     ) -> Literal["done", "failed", "skipped"]:
-        """063: run S5 on a single prepared item. Single-lane (065 adds lanes).
+        """063: run S5 on a single prepared item.
 
-        The existing ``_upload_one`` already handles the auto-tune
-        semaphore, pool-stats, and coordinator — this is a thin
-        public wrapper.
+        ``lane`` (065) selects between the single-pool semaphore +
+        worker-pool-stats (``None``) and the per-lane semaphore inside
+        the :class:`LaneController` (``"heavy"`` / ``"light"``). The
+        existing ``_upload_one`` handles both paths uniformly — this
+        is a thin public wrapper.
         """
-        return self._upload_one(item, batch_id, recorder, None)
+        return self._upload_one(item, batch_id, recorder, lane)
 
     def warm_upload_pool(self, workers: int) -> None:
         """063: pre-open the S5 connection pool to ``workers`` sockets."""

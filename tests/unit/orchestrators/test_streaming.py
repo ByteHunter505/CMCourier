@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmcourier.config.schema import (
+    HeavyLightLanesConfig,
     ObservabilityConfig,
     PipelineConfig,
     ProcessingConfig,
@@ -40,6 +41,7 @@ class _FakePipeline:
         prep_returns_none_indexes: tuple[int, ...] = (),
         upload_outcome_by_idx: dict[int, str] | None = None,
         pool_ceiling: int = 2,
+        size_bytes_by_idx: dict[int, int] | None = None,
     ) -> None:
         self._triggers = triggers
         self._prep_sleep = prep_sleep_s
@@ -47,8 +49,10 @@ class _FakePipeline:
         self._prep_returns_none = set(prep_returns_none_indexes)
         self._upload_outcomes = upload_outcome_by_idx or {}
         self._pool_ceiling_value = pool_ceiling
+        self._size_bytes_by_idx = size_bytes_by_idx or {}
         self.prep_calls: list[str] = []
         self.upload_calls: list[str] = []
+        self.lane_calls: list[tuple[str, str]] = []
         self.warm_calls: list[int] = []
         self.lock = threading.Lock()
         self._batch_counter = 0
@@ -84,21 +88,25 @@ class _FakePipeline:
             self.prep_calls.append(getattr(trigger, "shortname", str(idx)))
         if idx in self._prep_returns_none:
             return None, 0, 0
+        size = self._size_bytes_by_idx.get(idx, 0)
         return (
             SimpleNamespace(
                 __idx__=idx,
                 document=SimpleNamespace(txn_num=f"TXN_{idx}"),
+                staged_file=SimpleNamespace(size_bytes=size),
             ),
             0,
             0,
         )
 
-    def streaming_upload_one(self, item, batch_id: str, recorder):  # noqa: ARG002
+    def streaming_upload_one(self, item, batch_id: str, recorder, lane=None):  # noqa: ARG002
         if self._upload_sleep:
             time.sleep(self._upload_sleep)
         idx = item.__idx__
         with self.lock:
             self.upload_calls.append(item.document.txn_num)
+            if lane is not None:
+                self.lane_calls.append((item.document.txn_num, lane))
         return self._upload_outcomes.get(idx, "done")
 
 
@@ -112,6 +120,8 @@ def _build_orch(
     *,
     bucket_size: int = 8,
     prep_workers: int = 1,
+    lanes_enabled: bool = False,
+    heavy_threshold_bytes: int = 10 * 1024 * 1024,
 ) -> StreamingOrchestrator:
     cfg = MagicMock(spec=PipelineConfig)
     cfg.observability = ObservabilityConfig(log_dir=tmp_path)
@@ -119,6 +129,10 @@ def _build_orch(
         mode="streaming",
         streaming=StreamingConfig(bucket_size=bucket_size),
         prep_workers=prep_workers,
+        heavy_light_lanes=HeavyLightLanesConfig(
+            enabled=lanes_enabled,
+            heavy_threshold_bytes=heavy_threshold_bytes,
+        ),
     )
     return StreamingOrchestrator(pipeline=pipeline, config=cfg, log_dir=tmp_path)
 
@@ -302,3 +316,50 @@ class TestStreamingSnapshot:
         t.join()
         # At some point during the run, prep_in_flight was > 0.
         assert max(observed_in_flight) >= 1
+
+
+class TestStreamingHeavyLightLanes:
+    def test_dispatcher_routes_by_size(self, tmp_path: Path) -> None:
+        # 10 triggers, sizes interleaving: half heavy (20 MB), half light (1 MB)
+        triggers = _make_triggers(10)
+        sizes = {i: (20 * 1024 * 1024 if i % 2 == 0 else 1 * 1024 * 1024) for i in range(10)}
+        pipeline = _FakePipeline(triggers=triggers, pool_ceiling=4, size_bytes_by_idx=sizes)
+        orch = _build_orch(
+            pipeline,
+            tmp_path,
+            bucket_size=4,
+            prep_workers=2,
+            lanes_enabled=True,
+            heavy_threshold_bytes=10 * 1024 * 1024,
+        )
+        report = orch.run(
+            source_descriptor="",
+            batch_size=100,
+            batches_in_flight=2,
+        )
+        assert report.chunks[0].s5_done == 10
+        # Each upload call was tagged with a lane: heavy items in heavy, light in light.
+        heavy_txns = {txn for txn, lane in pipeline.lane_calls if lane == "heavy"}
+        light_txns = {txn for txn, lane in pipeline.lane_calls if lane == "light"}
+        assert heavy_txns == {f"TXN_{i}" for i in range(0, 10, 2)}
+        assert light_txns == {f"TXN_{i}" for i in range(1, 10, 2)}
+
+    def test_clean_shutdown_with_lanes_empty_source(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers=[], pool_ceiling=2)
+        orch = _build_orch(pipeline, tmp_path, bucket_size=2, prep_workers=2, lanes_enabled=True)
+        report = orch.run(source_descriptor="", batch_size=10, batches_in_flight=2)
+        assert report.chunks[0].s5_done == 0
+        assert report.chunks[0].total_triggers == 0
+
+    def test_streaming_snapshot_carries_lane_snapshot_when_enabled(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers=_make_triggers(2), pool_ceiling=2)
+        orch = _build_orch(pipeline, tmp_path, lanes_enabled=True)
+        snap = orch.streaming_snapshot()
+        assert snap.lane_snapshot is not None
+        assert snap.lane_snapshot.total_budget >= 2
+
+    def test_streaming_snapshot_lane_none_when_disabled(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers=_make_triggers(2), pool_ceiling=2)
+        orch = _build_orch(pipeline, tmp_path, lanes_enabled=False)
+        snap = orch.streaming_snapshot()
+        assert snap.lane_snapshot is None

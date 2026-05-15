@@ -50,6 +50,7 @@ from cmcourier.domain.models import Trigger
 from cmcourier.observability.metrics import MetricsRecorder
 from cmcourier.orchestrators.multi_batch import ChunkState, MultiBatchRunReport
 from cmcourier.orchestrators.staged import RunReport, StagedPipeline, _StageItem
+from cmcourier.services.lane_controller import Lane, LaneController, LaneSnapshot
 
 _log = logging.getLogger(__name__)
 
@@ -102,7 +103,11 @@ class _StreamingTally:
 
 @dataclass(frozen=True, slots=True)
 class StreamingSnapshot:
-    """064 — read-only snapshot of streaming-mode state for the TUI."""
+    """064 — read-only snapshot of streaming-mode state for the TUI.
+
+    065 adds ``lane_snapshot`` for dual heavy/light operation;
+    ``None`` in single-lane mode.
+    """
 
     bucket_level: int
     bucket_cap: int
@@ -112,6 +117,7 @@ class StreamingSnapshot:
     upload_workers: int
     prep_docs_per_s: float
     upload_docs_per_s: float
+    lane_snapshot: LaneSnapshot | None = None
 
 
 class _ThroughputWindow:
@@ -179,6 +185,19 @@ class StreamingOrchestrator:
         self._prep_in_flight_lock = threading.Lock()
         self._prep_window = _ThroughputWindow(window_s=5.0)
         self._upload_window = _ThroughputWindow(window_s=5.0)
+        # 065: heavy/light lanes. ``None`` keeps the 063 single-lane path
+        # byte-identical. When enabled, a LaneController owns the per-lane
+        # semaphore split + drain-driven rebalance, and a dispatcher
+        # thread routes items from the main bucket into per-lane queues.
+        self._lanes_config = config.processing.heavy_light_lanes
+        self._lane_controller: LaneController | None = None
+        if self._lanes_config.enabled:
+            self._lane_controller = LaneController(
+                total_budget=self._consumer_count,
+                heavy_initial_ratio=self._lanes_config.heavy_initial_ratio,
+                rebalance_interval_s=self._lanes_config.rebalance_interval_s,
+                idle_threshold_s=self._lanes_config.idle_threshold_s,
+            )
 
     # ------------------------------------------- TUI binding hooks (063)
 
@@ -229,7 +248,15 @@ class StreamingOrchestrator:
             upload_workers=self._consumer_count,
             prep_docs_per_s=self._prep_window.rate(),
             upload_docs_per_s=self._upload_window.rate(),
+            lane_snapshot=(
+                self._lane_controller.snapshot() if self._lane_controller is not None else None
+            ),
         )
+
+    @property
+    def lane_controller(self) -> LaneController | None:
+        """065: read-only handle for the TUI / tests. ``None`` in single-lane mode."""
+        return self._lane_controller
 
     # ----------------------------------------------------------- public API
 
@@ -313,28 +340,106 @@ class StreamingOrchestrator:
                 )
                 for i in range(self._prep_workers)
             ]
-            consumers = [
-                threading.Thread(
-                    target=self._upload_loop,
-                    args=(bucket, batch_id, recorder, tally, tally_lock),
-                    name=f"cmcourier-stream-upload-{i}",
+
+            if self._lane_controller is not None:
+                # 065: dual-lane mode. Two per-lane queues + a dispatcher
+                # thread + heavy and light consumer pools sharing the
+                # ``_pool_ceiling()`` total budget.
+                self._lane_controller.start()
+                heavy_queue: queue.Queue[_StageItem | object] = queue.Queue(
+                    maxsize=self._bucket_size
+                )
+                light_queue: queue.Queue[_StageItem | object] = queue.Queue(
+                    maxsize=self._bucket_size
+                )
+                heavy_consumers = [
+                    threading.Thread(
+                        target=self._lane_upload_loop,
+                        args=(
+                            heavy_queue,
+                            "heavy",
+                            batch_id,
+                            recorder,
+                            tally,
+                            tally_lock,
+                        ),
+                        name=f"cmcourier-stream-upload-heavy-{i}",
+                        daemon=False,
+                    )
+                    for i in range(self._consumer_count)
+                ]
+                light_consumers = [
+                    threading.Thread(
+                        target=self._lane_upload_loop,
+                        args=(
+                            light_queue,
+                            "light",
+                            batch_id,
+                            recorder,
+                            tally,
+                            tally_lock,
+                        ),
+                        name=f"cmcourier-stream-upload-light-{i}",
+                        daemon=False,
+                    )
+                    for i in range(self._consumer_count)
+                ]
+                dispatcher = threading.Thread(
+                    target=self._dispatcher_loop,
+                    args=(
+                        bucket,
+                        heavy_queue,
+                        light_queue,
+                        len(heavy_consumers),
+                        len(light_consumers),
+                    ),
+                    name="cmcourier-stream-dispatch",
                     daemon=False,
                 )
-                for i in range(self._consumer_count)
-            ]
-            for p in producers:
-                p.start()
-            for c in consumers:
-                c.start()
 
-            for p in producers:
-                p.join()
-            # Producers are done; ensure consumers get N poison pills.
-            for _ in range(self._consumer_count):
+                for p in producers:
+                    p.start()
+                dispatcher.start()
+                for c in heavy_consumers:
+                    c.start()
+                for c in light_consumers:
+                    c.start()
+
+                for p in producers:
+                    p.join()
+                # Signal end of stream to the dispatcher; it forwards
+                # `_POISON` to both lane queues × consumer count.
                 bucket.put(_POISON)
-            for c in consumers:
-                c.join()
+                dispatcher.join()
+                for c in heavy_consumers:
+                    c.join()
+                for c in light_consumers:
+                    c.join()
+            else:
+                consumers = [
+                    threading.Thread(
+                        target=self._upload_loop,
+                        args=(bucket, batch_id, recorder, tally, tally_lock),
+                        name=f"cmcourier-stream-upload-{i}",
+                        daemon=False,
+                    )
+                    for i in range(self._consumer_count)
+                ]
+                for p in producers:
+                    p.start()
+                for c in consumers:
+                    c.start()
+
+                for p in producers:
+                    p.join()
+                # Producers are done; ensure consumers get N poison pills.
+                for _ in range(self._consumer_count):
+                    bucket.put(_POISON)
+                for c in consumers:
+                    c.join()
         finally:
+            if self._lane_controller is not None:
+                self._lane_controller.stop()
             if controller is not None:
                 controller.stop(timeout=2.0)
             if sampler is not None:
@@ -484,6 +589,99 @@ class StreamingOrchestrator:
                 self._upload_window.record()
             finally:
                 bucket.task_done()
+
+    # ------------------------------------------------------ 065 dual-lane
+
+    def _dispatcher_loop(
+        self,
+        bucket: queue.Queue[_StageItem | object],
+        heavy_queue: queue.Queue[_StageItem | object],
+        light_queue: queue.Queue[_StageItem | object],
+        heavy_consumer_count: int,
+        light_consumer_count: int,
+    ) -> None:
+        """065: route prepared items from the main bucket into per-lane
+        queues based on ``staged_file.size_bytes``.
+
+        On ``_POISON`` from the main bucket: push N poison pills into
+        each lane queue (one per consumer) and exit.
+        """
+        threshold = self._lanes_config.heavy_threshold_bytes
+        heavy_depth = 0
+        light_depth = 0
+        while True:
+            item = bucket.get()
+            try:
+                if item is _POISON:
+                    for _ in range(heavy_consumer_count):
+                        heavy_queue.put(_POISON)
+                    for _ in range(light_consumer_count):
+                        light_queue.put(_POISON)
+                    return
+                stage_item: _StageItem = item  # type: ignore[assignment]
+                size_bytes = (
+                    stage_item.staged_file.size_bytes if stage_item.staged_file is not None else 0
+                )
+                if size_bytes >= threshold:
+                    heavy_queue.put(stage_item)
+                    heavy_depth += 1
+                    if self._lane_controller is not None:
+                        self._lane_controller.set_queue_depth("heavy", heavy_depth)
+                else:
+                    light_queue.put(stage_item)
+                    light_depth += 1
+                    if self._lane_controller is not None:
+                        self._lane_controller.set_queue_depth("light", light_depth)
+            finally:
+                bucket.task_done()
+
+    def _lane_upload_loop(
+        self,
+        lane_queue: queue.Queue[_StageItem | object],
+        lane: Lane,
+        batch_id: str,
+        recorder: MetricsRecorder,
+        tally: _StreamingTally,
+        tally_lock: threading.Lock,
+    ) -> None:
+        """065: per-lane S5 consumer. Acquires the lane semaphore via
+        ``streaming_upload_one(lane=...)`` so the LaneController caps
+        per-lane concurrency."""
+        while True:
+            item = lane_queue.get()
+            try:
+                if item is _POISON:
+                    return
+                stage_item: _StageItem = item  # type: ignore[assignment]
+                try:
+                    outcome = self._pipeline.streaming_upload_one(
+                        stage_item, batch_id, recorder, lane=lane
+                    )
+                except BaseException as exc:  # noqa: BLE001
+                    _log.exception(
+                        "streaming: upload crashed",
+                        extra={
+                            "batch_id": batch_id,
+                            "lane": lane,
+                            "reason": type(exc).__name__,
+                        },
+                    )
+                    with tally_lock:
+                        tally.s5_failed += 1
+                    continue
+                with tally_lock:
+                    if outcome == "done":
+                        tally.s5_done += 1
+                        recorder.record_upload_done()
+                    elif outcome == "failed":
+                        tally.s5_failed += 1
+                        recorder.record_upload_failed()
+                    elif outcome == "skipped":
+                        tally.s5_skipped += 1
+                        recorder.record_upload_skipped()
+                self._upload_window.record()
+            finally:
+                lane_queue.task_done()
 
     # ------------------------------------------------------ internals
 

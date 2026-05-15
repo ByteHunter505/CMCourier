@@ -42,25 +42,46 @@ def render_bucket(snap: TUISnapshot) -> str:
     b = snap.bucket
     cumulative = _summarise_chunks(snap)
 
-    return "\n".join(
+    lines: list[str] = [
+        "BUCKET",
+        "──────",
+        (
+            f"  level  {b.bucket_level:>5d} / {b.bucket_cap:<5d}  "
+            f"{_bar(b.bucket_level, b.bucket_cap)}"
+        ),
+        f"  peak   {b.bucket_peak:>5d} / {b.bucket_cap:<5d}",
+        "",
+        "THROUGHPUT (5s window)",
+        "──────────────────────",
+        f"  PREP   {b.prep_docs_per_s:>7.2f} docs/s",
+        f"  S5     {b.upload_docs_per_s:>7.2f} docs/s",
+        "",
+        "WORKERS",
+        "───────",
+        f"  PREP   {b.prep_in_flight:>3d} in-flight / {b.prep_workers:<3d} configured",
+        f"  S5     up to {b.upload_workers:<3d} consumer threads",
+    ]
+    # 065: per-lane block when heavy/light is active.
+    if b.lane_snapshot is not None:
+        lanes = b.lane_snapshot
+        lines.extend(
+            [
+                "",
+                "LANES (heavy/light, 065)",
+                "────────────────────────",
+                (
+                    f"  heavy  budget {lanes.heavy.pool_size:<3d}  busy {lanes.heavy.busy:<3d}  "
+                    f"queue {lanes.heavy.queue_depth:<4d}"
+                ),
+                (
+                    f"  light  budget {lanes.light.pool_size:<3d}  busy {lanes.light.busy:<3d}  "
+                    f"queue {lanes.light.queue_depth:<4d}"
+                ),
+                f"  total budget {lanes.total_budget:<3d}",
+            ]
+        )
+    lines.extend(
         [
-            "BUCKET",
-            "──────",
-            (
-                f"  level  {b.bucket_level:>5d} / {b.bucket_cap:<5d}  "
-                f"{_bar(b.bucket_level, b.bucket_cap)}"
-            ),
-            f"  peak   {b.bucket_peak:>5d} / {b.bucket_cap:<5d}",
-            "",
-            "THROUGHPUT (5s window)",
-            "──────────────────────",
-            f"  PREP   {b.prep_docs_per_s:>7.2f} docs/s",
-            f"  S5     {b.upload_docs_per_s:>7.2f} docs/s",
-            "",
-            "WORKERS",
-            "───────",
-            f"  PREP   {b.prep_in_flight:>3d} in-flight / {b.prep_workers:<3d} configured",
-            f"  S5     up to {b.upload_workers:<3d} consumer threads",
             "",
             "OUTCOMES (cumulative)",
             "─────────────────────",
@@ -70,6 +91,7 @@ def render_bucket(snap: TUISnapshot) -> str:
             f"  S1_SKIPPED  {cumulative['s1_skipped']:>6d}",
         ]
     )
+    return "\n".join(lines)
 
 
 def _summarise_chunks(snap: TUISnapshot) -> dict[str, int]:
