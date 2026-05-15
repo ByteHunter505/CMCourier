@@ -13,9 +13,13 @@ __all__ = ["render_detail"]
 
 from cmcourier.domain.models import DocDetail
 
-# A chunk is capped at ``batch_size`` docs (default 1000); the live
-# dashboard shows the head and points at the CLI for the full list.
-_MAX_ROWS = 100
+# A chunk is capped at ``batch_size`` docs (default 1000). 058 made the
+# DETAIL pane scrollable, so the operator can read past the screen
+# fold — the previous 100-row cap was a workaround for the missing
+# scroll. 2000 is a generous safety ceiling above the default
+# ``batch_size`` of 1000; the ``… N more — full list`` hint still fires
+# for genuinely huge chunks so the operator gets pointed at the CLI.
+_MAX_ROWS = 2000
 _DASH = "—"
 
 

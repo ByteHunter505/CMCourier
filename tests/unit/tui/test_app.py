@@ -95,3 +95,19 @@ class TestDetailPaneSelection:
                 assert app.query_one(TabbedContent).active == "detail"
 
         asyncio.run(_run())
+
+
+class TestDetailPaneScroll058:
+    def test_detail_body_is_inside_a_vertical_scroll(self) -> None:
+        # 058: the DETAIL pane is the only one that can produce more
+        # content than fits on screen. Its body must live inside a
+        # ``VerticalScroll`` so the operator can read past the fold.
+        async def _run() -> None:
+            from textual.containers import VerticalScroll
+
+            app = CMCourierTUI(_FakeProvider())  # type: ignore[arg-type]
+            async with app.run_test():
+                detail_body = app.query_one("#detail_body", Static)
+                assert isinstance(detail_body.parent, VerticalScroll)
+
+        asyncio.run(_run())

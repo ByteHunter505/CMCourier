@@ -564,3 +564,41 @@ class TestPrepWorkers056:
         assert _count_rows(pipeline_harness.db_path, report.batch_id, "S2_FAILED") == 1
         assert _count_rows(pipeline_harness.db_path, report.batch_id, "S3_FAILED") == 1
         assert _count_rows(pipeline_harness.db_path, report.batch_id, "S4_FAILED") == 1
+
+
+# ---------------------------------------------------------------------------
+# Group — 058: staged-file metadata persists to migration_log after S4
+# ---------------------------------------------------------------------------
+
+
+class TestStagedFileMetadataPersistence058:
+    @responses.activate
+    def test_s4_persists_staged_file_metadata_to_migration_log(
+        self,
+        pipeline_harness,  # type: ignore[no-untyped-def]
+        tmp_path: Path,
+    ) -> None:
+        # Pre-058, file_size_bytes / page_count / source_file_path stayed
+        # NULL forever: S1 inserted them as None (item.staged_file was
+        # None at S1), and the S4 INSERT-OR-IGNORE never updated the
+        # existing row. 058 adds an UPDATE after a successful assemble.
+        pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001"])
+        triggers = _write_trigger_csv(tmp_path, [("TESTCLIENT01", "123456", "1")])
+        report = pipeline_harness.build_pipeline(triggers).run(source_descriptor=str(triggers))
+        assert report.s5_done == 1
+
+        pipeline_harness.tracking_store.flush()
+        conn = sqlite3.connect(pipeline_harness.db_path)
+        try:
+            row = conn.execute(
+                "SELECT source_file_path, page_count, file_size_bytes "
+                "FROM migration_log WHERE rvabrep_txn_num = ? AND batch_id = ?",
+                ("TXN_PIPE_001", report.batch_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        source_file_path, page_count, file_size_bytes = row
+        assert source_file_path is not None and source_file_path.endswith(".pdf")
+        assert isinstance(page_count, int) and page_count > 0
+        assert isinstance(file_size_bytes, int) and file_size_bytes > 0

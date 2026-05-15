@@ -382,6 +382,26 @@ class SQLiteTrackingStore(ITrackingStore):
             (stage.value, error, txn_num, batch_id),
         )
 
+    def record_staged_file_metadata(
+        self,
+        txn_num: str,
+        batch_id: str,
+        *,
+        source_file_path: str,
+        page_count: int,
+        file_size_bytes: int,
+    ) -> None:
+        # 058: the row was first INSERT-OR-IGNORE'd in S1 when
+        # ``item.staged_file`` was still ``None``, so source_file_path /
+        # page_count / file_size_bytes all landed as NULL. S4 knows the
+        # real values — UPDATE them here. Idempotent.
+        self._enqueue(
+            "UPDATE migration_log "
+            "SET source_file_path = ?, page_count = ?, file_size_bytes = ? "
+            "WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            (source_file_path, page_count, file_size_bytes, txn_num, batch_id),
+        )
+
     def is_uploaded(self, txn_num: str) -> bool:
         try:
             with self._reader_lock:

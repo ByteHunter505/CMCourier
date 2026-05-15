@@ -157,6 +157,27 @@ class ITrackingStore(ABC):
         store the human-readable error message."""
 
     @abstractmethod
+    def record_staged_file_metadata(
+        self,
+        txn_num: str,
+        batch_id: str,
+        *,
+        source_file_path: str,
+        page_count: int,
+        file_size_bytes: int,
+    ) -> None:
+        """058: persist the staged-file metadata once S4 succeeds.
+
+        The metadata (``source_file_path``, ``page_count``,
+        ``file_size_bytes``) is unknown when S1 first INSERT-OR-IGNORE's
+        the row — ``item.staged_file`` is ``None`` until S4 assembles
+        the document. `mark_stage_pending` cannot retro-fill it because
+        the row already exists. This method UPDATEs the existing row
+        with the assembler's output. Idempotent — calling twice with
+        the same values is a no-op.
+        """
+
+    @abstractmethod
     def start_batch(self, total_records: int) -> str:
         """Create a new batch and return its identifier."""
 

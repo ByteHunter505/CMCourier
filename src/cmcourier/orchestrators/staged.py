@@ -759,6 +759,19 @@ class StagedPipeline:
             self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
             self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S4_DONE)
         item.staged_file = staged
+        # 058: the row was INSERT-OR-IGNORE'd in S1 with NULL metadata
+        # (item.staged_file was None then). Now that the assembler has
+        # produced the real values, persist them so the DETAIL tab and
+        # ``cmcourier batch show`` actually see the file's size + page
+        # count + path. Outside the is_stage_done guard so resume runs
+        # also backfill any pre-058 rows.
+        self._tracking_store.record_staged_file_metadata(
+            txn,
+            batch_id,
+            source_file_path=str(staged.path),
+            page_count=staged.page_count,
+            file_size_bytes=staged.size_bytes,
+        )
         return item, False
 
     def _stage_s5(

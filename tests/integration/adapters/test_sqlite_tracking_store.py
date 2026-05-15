@@ -292,6 +292,59 @@ class TestPerStageState:
         store.close()
         assert retry == 3
 
+    def test_record_staged_file_metadata_updates_existing_row(
+        self, store: SQLiteTrackingStore, tmp_path: Path
+    ) -> None:
+        # 058: the S1 INSERT-OR-IGNORE leaves source_file_path /
+        # page_count / file_size_bytes as NULL (item.staged_file is None
+        # at S1). After S4 succeeds, record_staged_file_metadata UPDATEs
+        # them. Without this fix the DETAIL tab shows "—" for size.
+        batch_id = store.start_batch(total_records=1)
+        record = _make_record(batch_id, "TXN_SIZE")
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        store.record_staged_file_metadata(
+            "TXN_SIZE",
+            batch_id,
+            source_file_path="/tmp/staged/TXN_SIZE.pdf",
+            page_count=3,
+            file_size_bytes=8192,
+        )
+        store.flush()
+        conn = sqlite3.connect(tmp_path / "tracking.db")
+        row = conn.execute(
+            "SELECT source_file_path, page_count, file_size_bytes "
+            "FROM migration_log WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            ("TXN_SIZE", batch_id),
+        ).fetchone()
+        conn.close()
+        store.close()
+        assert row == ("/tmp/staged/TXN_SIZE.pdf", 3, 8192)
+
+    def test_record_staged_file_metadata_is_idempotent(
+        self, store: SQLiteTrackingStore, tmp_path: Path
+    ) -> None:
+        batch_id = store.start_batch(total_records=1)
+        record = _make_record(batch_id, "TXN_IDEM")
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        for _ in range(3):
+            store.record_staged_file_metadata(
+                "TXN_IDEM",
+                batch_id,
+                source_file_path="/tmp/x.pdf",
+                page_count=1,
+                file_size_bytes=1024,
+            )
+        store.flush()
+        conn = sqlite3.connect(tmp_path / "tracking.db")
+        row = conn.execute(
+            "SELECT source_file_path, page_count, file_size_bytes "
+            "FROM migration_log WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            ("TXN_IDEM", batch_id),
+        ).fetchone()
+        conn.close()
+        store.close()
+        assert row == ("/tmp/x.pdf", 1, 1024)
+
 
 # ---------------------------------------------------------------------------
 # Group 4 — Queries (acceptance §4.8, §4.9, REQ-025..026)

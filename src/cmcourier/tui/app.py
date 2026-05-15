@@ -17,7 +17,7 @@ __all__ = ["CMCourierTUI"]
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, VerticalScroll
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 
 from cmcourier.domain.models import DocDetail
@@ -59,6 +59,10 @@ class CMCourierTUI(App[None]):
         height: 1fr;
         padding: 0 1;
     }
+    #detail_body {
+        height: auto;
+        padding: 0 1;
+    }
     """
 
     def __init__(self, data_provider: TUIDataProvider) -> None:
@@ -80,7 +84,11 @@ class CMCourierTUI(App[None]):
             with TabPane("CHUNKS", id="chunks"):
                 yield Container(Static(id="chunks_body", classes="tab_body"))
             with TabPane("DETAIL", id="detail"):
-                yield Container(Static(id="detail_body", classes="tab_body"))
+                # 058: VerticalScroll so chunks bigger than the visible
+                # height are scrollable. ``#detail_body`` is sized to
+                # ``height: auto`` (see CSS) so the inner Static grows
+                # with its content and the parent scrolls through it.
+                yield VerticalScroll(Static(id="detail_body"))
         yield Static(id="status_bar")
         yield Footer()
 

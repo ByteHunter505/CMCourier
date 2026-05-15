@@ -41,12 +41,23 @@ class TestRenderDetail:
         out = render_detail(chunk, [])
         assert "no per-doc rows yet" in out
 
-    def test_truncates_large_chunk_with_cli_pointer(self) -> None:
+    def test_renders_all_rows_when_under_max(self) -> None:
+        # 058: with the scrollable pane, the previous 100-row cap is gone
+        # (raised to 2000). 1500 docs all render — no truncation hint.
         chunk: dict[str, object] = {"chunk_idx": 0, "batch_id": "BIG", "status": "DONE"}
-        docs = [_doc(f"TXN_{i:04d}") for i in range(250)]
+        docs = [_doc(f"TXN_{i:04d}") for i in range(1500)]
+        out = render_detail(chunk, docs)
+        assert "TXN_0000" in out and "TXN_1499" in out
+        assert "more" not in out  # no truncation hint at 1500
+
+    def test_truncates_when_chunk_exceeds_max_rows(self) -> None:
+        # The CLI pointer is still there for genuinely huge chunks beyond
+        # the 2000-row safety ceiling.
+        chunk: dict[str, object] = {"chunk_idx": 0, "batch_id": "HUGE", "status": "DONE"}
+        docs = [_doc(f"TXN_{i:04d}") for i in range(2100)]
         out = render_detail(chunk, docs)
         assert "more" in out
-        assert "cmcourier batch show BIG" in out  # points at the CLI for the full list
+        assert "cmcourier batch show HUGE" in out
 
     def test_size_humanized(self) -> None:
         chunk: dict[str, object] = {"chunk_idx": 0, "batch_id": "B", "status": "DONE"}
