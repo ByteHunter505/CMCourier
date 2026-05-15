@@ -192,18 +192,14 @@ class StreamingOrchestrator:
         self._heavy_queue: queue.Queue[_StageItem | object] | None = None
         self._light_queue: queue.Queue[_StageItem | object] | None = None
         # 065: heavy/light lanes. ``None`` keeps the 063 single-lane path
-        # byte-identical. When enabled, a LaneController owns the per-lane
-        # semaphore split + drain-driven rebalance, and a dispatcher
-        # thread routes items from the main bucket into per-lane queues.
+        # byte-identical.
+        # 070: the LaneController is owned by StagedPipeline (036 wiring).
+        # Pre-070 the orchestrator built its OWN LaneController instance,
+        # which left the TUIDataProvider's lane_snapshot binding (which
+        # reads pipeline.lane_controller) reporting zeros forever — and
+        # silently broke AIMD's per-lane budget steering. Reusing the
+        # pipeline's instance unifies the data source.
         self._lanes_config = config.processing.heavy_light_lanes
-        self._lane_controller: LaneController | None = None
-        if self._lanes_config.enabled:
-            self._lane_controller = LaneController(
-                total_budget=self._consumer_count,
-                heavy_initial_ratio=self._lanes_config.heavy_initial_ratio,
-                rebalance_interval_s=self._lanes_config.rebalance_interval_s,
-                idle_threshold_s=self._lanes_config.idle_threshold_s,
-            )
 
     # ------------------------------------------- TUI binding hooks (063)
 
@@ -261,8 +257,19 @@ class StreamingOrchestrator:
 
     @property
     def lane_controller(self) -> LaneController | None:
-        """065: read-only handle for the TUI / tests. ``None`` in single-lane mode."""
-        return self._lane_controller
+        """065 + 070: read-only handle for the TUI / tests. ``None`` in
+        single-lane mode. 070: forwards to the pipeline's instance so
+        there is exactly one LaneController per run — see spec 070 for
+        the bug this fixes (UPLOAD-tab LANES queue stuck at 0)."""
+        return self._pipeline.lane_controller
+
+    @property
+    def _lane_controller(self) -> LaneController | None:
+        """070: internal read-through alias. The orchestrator wrote
+        ``self._lane_controller`` everywhere pre-070; the property keeps
+        those call sites unchanged while routing reads to the pipeline's
+        instance."""
+        return self._pipeline.lane_controller
 
     # ----------------------------------------------------- 067 live TUI bindings
 

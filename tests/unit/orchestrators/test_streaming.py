@@ -75,6 +75,12 @@ class _FakePipeline:
         from cmcourier.services.worker_pool_stats import WorkerPoolStats
 
         self.pool_stats = WorkerPoolStats()
+        # 070: the streaming orchestrator now reuses the pipeline's
+        # LaneController instead of constructing its own. The fake needs
+        # to expose one when the orchestrator's config has lanes enabled
+        # (the build_orch helper toggles it on the YAML side only — the
+        # fake supplies the actual controller instance here).
+        self.lane_controller = None
 
     def _fake_start_batch(self, *, total_records: int) -> str:  # noqa: ARG002
         self._batch_counter += 1
@@ -140,6 +146,18 @@ def _build_orch(
             heavy_threshold_bytes=heavy_threshold_bytes,
         ),
     )
+    # 070: the orchestrator now reads pipeline.lane_controller instead
+    # of building its own. Provision the fake to match production
+    # wiring (StagedPipeline owns the controller).
+    if lanes_enabled:
+        from cmcourier.services.lane_controller import LaneController
+
+        pipeline.lane_controller = LaneController(
+            total_budget=pipeline._pool_ceiling(),
+            heavy_initial_ratio=cfg.processing.heavy_light_lanes.heavy_initial_ratio,
+            rebalance_interval_s=cfg.processing.heavy_light_lanes.rebalance_interval_s,
+            idle_threshold_s=cfg.processing.heavy_light_lanes.idle_threshold_s,
+        )
     return StreamingOrchestrator(pipeline=pipeline, config=cfg, log_dir=tmp_path)
 
 
@@ -369,6 +387,21 @@ class TestStreamingHeavyLightLanes:
         orch = _build_orch(pipeline, tmp_path, lanes_enabled=False)
         snap = orch.streaming_snapshot()
         assert snap.lane_snapshot is None
+
+    def test_streaming_reuses_pipeline_lane_controller_when_enabled(self, tmp_path: Path) -> None:
+        # 070: pre-070 the orchestrator built its own LaneController and
+        # the pipeline kept its own — TUI saw the dead one. Now both
+        # paths must point at the same instance.
+        pipeline = _FakePipeline(triggers=_make_triggers(2), pool_ceiling=2)
+        orch = _build_orch(pipeline, tmp_path, lanes_enabled=True)
+        assert pipeline.lane_controller is not None
+        assert orch.lane_controller is pipeline.lane_controller
+
+    def test_streaming_lane_controller_none_when_disabled(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers=_make_triggers(2), pool_ceiling=2)
+        orch = _build_orch(pipeline, tmp_path, lanes_enabled=False)
+        assert orch.lane_controller is None
+        assert pipeline.lane_controller is None
 
 
 class TestStreaming067LiveTUIBindings:
