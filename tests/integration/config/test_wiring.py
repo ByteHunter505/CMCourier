@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import httpx
 import pytest
-import responses
+import respx
 
 from cmcourier.config.loader import Secrets, load_config
 from cmcourier.config.wiring import build_pipeline
@@ -100,29 +101,21 @@ def _secrets() -> Secrets:
 
 
 def _register_cmis_for_doc(txn: str) -> None:
-    responses.add(
-        responses.GET,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-        json={"ok": True},
-        status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+        return_value=httpx.Response(201, json={"ok": True})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-        json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}},
-        status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01").mock(
+        return_value=httpx.Response(
+            201, json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}}
+        )
     )
 
 
 class TestBuildPipeline:
-    @responses.activate
+    @respx.mock
     def test_returns_pipeline_runs_end_to_end(self, tmp_path: Path) -> None:
         yaml_path = _write_yaml(tmp_path)
         config = load_config(yaml_path)

@@ -13,8 +13,9 @@ import logging
 from pathlib import Path
 from textwrap import dedent
 
+import httpx
 import pytest
-import responses
+import respx
 from click.testing import CliRunner
 
 from cmcourier.cli.app import main
@@ -31,25 +32,17 @@ _CMIS_REPO_ID = "$x!testrepo"
 
 
 def _stub_cmis(txns: list[str]) -> None:
-    responses.add(
-        responses.GET,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-        json={"ok": True},
-        status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+        return_value=httpx.Response(201, json={"ok": True})
     )
     for txn in txns:
-        responses.add(
-            responses.POST,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-            json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}},
-            status=201,
+        respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01").mock(
+            return_value=httpx.Response(
+                201, json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}}
+            )
         )
 
 
@@ -142,7 +135,7 @@ def cmis_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestPipelineEmits:
-    @responses.activate
+    @respx.mock
     def test_pipeline_run_writes_app_log_and_metrics(self, tmp_path: Path, cmis_env: None) -> None:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path)
@@ -180,7 +173,7 @@ class TestPipelineEmits:
         assert "cmis_upload" in kinds
         assert "cmis_get" in kinds
 
-    @responses.activate
+    @respx.mock
     def test_slow_ops_file_created_with_low_threshold(self, tmp_path: Path, cmis_env: None) -> None:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path, slow_op_threshold_ms=0)
@@ -208,7 +201,7 @@ class TestPipelineEmits:
             assert "kind" in entry
             assert "duration_ms" in entry
 
-    @responses.activate
+    @respx.mock
     def test_pii_value_never_appears_in_app_log(self, tmp_path: Path, cmis_env: None) -> None:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path)

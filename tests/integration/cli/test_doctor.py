@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import httpx
 import pytest
-import responses
+import respx
 from click.testing import CliRunner
 
 from cmcourier.cli.app import main
@@ -123,28 +124,24 @@ def _secrets() -> Secrets:
 
 
 def _stub_warmup_ok() -> None:
-    responses.add(
-        responses.GET,
+    # 060: respx by default doesn't distinguish by querystring, but the doctor
+    # flow hits the SAME base URL for both `cmisselector=repositoryInfo` and
+    # `cmisselector=typeDefinition&typeId=...`. Use the params= kwarg so each
+    # stub matches a specific querystring.
+    respx.get(
         f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        params={"cmisselector": "repositoryInfo"},
+    ).mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
 
 
 def _stub_type_definitions_ok(types: tuple[str, ...] = _DISTINCT_TYPES) -> None:
     for type_id in types:
-        responses.add(
-            responses.GET,
+        respx.get(
             f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={"id": type_id},
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": type_id}
-                )
-            ],
-        )
+            params={"cmisselector": "typeDefinition", "typeId": type_id},
+        ).mock(return_value=httpx.Response(200, json={"id": type_id}))
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +249,7 @@ def _write_split_yaml(
 
 
 class TestRunDoctorHappyPath:
-    @responses.activate
+    @respx.mock
     def test_all_checks_pass(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -267,7 +264,7 @@ class TestRunDoctorHappyPath:
         # filesystem fixtures (also PASS here).
         assert report.passed_count >= 5
 
-    @responses.activate
+    @respx.mock
     def test_check_order_is_stable(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -295,14 +292,10 @@ class TestRunDoctorHappyPath:
 
 
 class TestCmisFailures:
-    @responses.activate
+    @respx.mock
     def test_cmis_unreachable(self, tmp_path: Path) -> None:
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={"error": "boom"},
-            status=503,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(503, json={"error": "boom"})
         )
         config = load_config(_write_yaml(tmp_path))
         report = run_doctor(config, _secrets())
@@ -314,7 +307,7 @@ class TestCmisFailures:
 
 
 class TestTrackingFailures:
-    @responses.activate
+    @respx.mock
     def test_tracking_db_in_non_creatable_path(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -333,7 +326,7 @@ class TestTrackingFailures:
 
 
 class TestMappingWarn:
-    @responses.activate
+    @respx.mock
     def test_empty_mapping_warns(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         # Empty mapping CSV (header only).
@@ -348,7 +341,7 @@ class TestMappingWarn:
 
 
 class TestMetadataWarn:
-    @responses.activate
+    @respx.mock
     def test_empty_metadata_source_warns(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -362,33 +355,21 @@ class TestMetadataWarn:
 
 
 class TestCmTypeMissing:
-    @responses.activate
+    @respx.mock
     def test_missing_type_fails(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         # Register only the FIRST type; the others 404.
-        responses.add(
-            responses.GET,
+        # Register only the FIRST type as 200; the rest 404, distinguished
+        # by the typeId query param so the warmup route stays clean.
+        respx.get(
             f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={"id": _DISTINCT_TYPES[0]},
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": _DISTINCT_TYPES[0]}
-                )
-            ],
-        )
+            params={"cmisselector": "typeDefinition", "typeId": _DISTINCT_TYPES[0]},
+        ).mock(return_value=httpx.Response(200, json={"id": _DISTINCT_TYPES[0]}))
         for type_id in _DISTINCT_TYPES[1:]:
-            responses.add(
-                responses.GET,
+            respx.get(
                 f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-                json={"error": "not found"},
-                status=404,
-                match=[
-                    responses.matchers.query_param_matcher(
-                        {"cmisselector": "typeDefinition", "typeId": type_id}
-                    )
-                ],
-            )
+                params={"cmisselector": "typeDefinition", "typeId": type_id},
+            ).mock(return_value=httpx.Response(404, json={"error": "not found"}))
         config = load_config(_write_yaml(tmp_path))
         report = run_doctor(config, _secrets())
         align = next(r for r in report.results if r.name == "cm_type_alignment")
@@ -399,7 +380,7 @@ class TestCmTypeMissing:
 
 
 class TestLogDirWritable:
-    @responses.activate
+    @respx.mock
     def test_writable_dir_passes(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -427,7 +408,7 @@ class TestLogDirWritable:
 
 
 class TestAs400Connectivity:
-    @responses.activate
+    @respx.mock
     def test_skips_when_source_is_csv(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -441,7 +422,7 @@ class TestAs400Connectivity:
 class TestAs400Sync:
     """034: doctor check for AS400 NIARVILOG sync."""
 
-    @responses.activate
+    @respx.mock
     def test_skips_when_disabled(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -454,7 +435,7 @@ class TestAs400Sync:
 
 
 class TestSampleDryRun:
-    @responses.activate
+    @respx.mock
     def test_dry_run_pass(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -464,7 +445,7 @@ class TestSampleDryRun:
         assert dry.status == CheckStatus.PASS
         assert dry.details["stages"] == "S1,S2,S3,S4"
 
-    @responses.activate
+    @respx.mock
     def test_dry_run_skip_on_empty_triggers(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -476,7 +457,7 @@ class TestSampleDryRun:
         assert dry.status == CheckStatus.SKIP
         assert dry.details["reason"] == "no_triggers"
 
-    @responses.activate
+    @respx.mock
     def test_dry_run_skip_on_single_doc_kind(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -502,7 +483,7 @@ class TestSampleDryRun:
 
 
 class TestCli:
-    @responses.activate
+    @respx.mock
     def test_doctor_exit_0_happy_path(
         self,
         cli_runner: CliRunner,
@@ -530,7 +511,7 @@ class TestCli:
         result = cli_runner.invoke(main, ["doctor", "--config", str(tmp_path / "nope.yaml")])
         assert result.exit_code == 2
 
-    @responses.activate
+    @respx.mock
     def test_doctor_exit_1_on_failure(
         self,
         cli_runner: CliRunner,
@@ -539,12 +520,8 @@ class TestCli:
     ) -> None:
         monkeypatch.setenv("CMIS_USERNAME", "tester")
         monkeypatch.setenv("CMIS_PASSWORD", "secret-not-real")
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={"error": "boom"},
-            status=503,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(503, json={"error": "boom"})
         )
         yaml_path = _write_yaml(tmp_path)
         result = cli_runner.invoke(main, ["doctor", "--config", str(yaml_path)])
@@ -558,7 +535,7 @@ class TestCli:
 
 
 class TestDoctorCheckFilter:
-    @responses.activate
+    @respx.mock
     def test_connections_runs_only_connection_checks(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         config = load_config(_write_yaml(tmp_path))
@@ -573,7 +550,7 @@ class TestDoctorCheckFilter:
             ]
         )
 
-    @responses.activate
+    @respx.mock
     def test_mapping_runs_only_mapping_check(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         config = load_config(_write_yaml(tmp_path))
@@ -581,7 +558,7 @@ class TestDoctorCheckFilter:
         names = [r.name for r in report.results]
         assert names == ["mapping_completeness"]
 
-    @responses.activate
+    @respx.mock
     def test_metadata_runs_metadata_sources_and_dry_run(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -590,7 +567,7 @@ class TestDoctorCheckFilter:
         names = sorted(r.name for r in report.results)
         assert names == sorted(["metadata_sources", "sample_dry_run"])
 
-    @responses.activate
+    @respx.mock
     def test_cm_types_runs_only_cm_type_alignment(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -599,7 +576,7 @@ class TestDoctorCheckFilter:
         names = [r.name for r in report.results]
         assert names == ["cm_type_alignment"]
 
-    @responses.activate
+    @respx.mock
     def test_all_runs_every_check(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -640,7 +617,7 @@ class TestDoctorCheckFilter:
 
 
 class TestUnmaskPiiWarning:
-    @responses.activate
+    @respx.mock
     def test_warning_emitted_when_unmask_pii_true(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -662,7 +639,7 @@ class TestUnmaskPiiWarning:
         assert warning is not None
         assert warning.status == CheckStatus.WARN
 
-    @responses.activate
+    @respx.mock
     def test_no_warning_when_default(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
@@ -678,7 +655,7 @@ class TestUnmaskPiiWarning:
 
 
 class TestCmisFoldersExist:
-    @responses.activate
+    @respx.mock
     def test_skip_when_no_cmis_folder_populated(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
@@ -700,7 +677,7 @@ class TestCmisFoldersExist:
         assert folders.status == CheckStatus.SKIP
         assert "no CMISFolder" in folders.message.lower() or "nothing to verify" in folders.message
 
-    @responses.activate
+    @respx.mock
     def test_pass_when_all_folders_exist(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
@@ -713,12 +690,10 @@ class TestCmisFoldersExist:
         )
         _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
         # Stub: verify_folder_exists for /cmcourier-staging/CN01 returns true.
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/CN01",
-            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/CN01").mock(
+            return_value=httpx.Response(
+                200, json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}}
+            )
         )
         _stub_type_definitions_ok(("$t!-2_BAC_01_01_01_01_01v-1",))
         config = load_config(
@@ -728,7 +703,7 @@ class TestCmisFoldersExist:
         folders = next(r for r in report.results if r.name == "cmis_folders_exist")
         assert folders.status == CheckStatus.PASS, f"{folders.message} / {folders.details}"
 
-    @responses.activate
+    @respx.mock
     def test_fail_when_folder_missing(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
@@ -740,12 +715,8 @@ class TestCmisFoldersExist:
             ],
         )
         _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/MISSING",
-            json={"error": "not found"},
-            status=404,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/MISSING").mock(
+            return_value=httpx.Response(404, json={"error": "not found"})
         )
         _stub_type_definitions_ok(("$t!-2_BAC_01_01_01_01_01v-1",))
         config = load_config(
@@ -763,7 +734,7 @@ class TestCmisFoldersExist:
 
 
 class TestCmisPropertiesAlignment:
-    @responses.activate
+    @respx.mock
     def test_skip_when_no_property_catalog(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
@@ -778,7 +749,7 @@ class TestCmisPropertiesAlignment:
         props = next(r for r in report.results if r.name == "cmis_properties_alignment")
         assert props.status == CheckStatus.SKIP
 
-    @responses.activate
+    @respx.mock
     def test_pass_when_all_align(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
@@ -796,22 +767,17 @@ class TestCmisPropertiesAlignment:
             ],
         )
         # The typeDefinition response declares both properties.
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={
-                "id": "D:cmcourier:bacDoc",
-                "propertyDefinitions": {
-                    "cmcourier:BAC_CIF": {"id": "cmcourier:BAC_CIF"},
-                    "cmcourier:Nombre_Cliente": {"id": "cmcourier:Nombre_Cliente"},
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "D:cmcourier:bacDoc",
+                    "propertyDefinitions": {
+                        "cmcourier:BAC_CIF": {"id": "cmcourier:BAC_CIF"},
+                        "cmcourier:Nombre_Cliente": {"id": "cmcourier:Nombre_Cliente"},
+                    },
                 },
-            },
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": "D:cmcourier:bacDoc"}
-                )
-            ],
+            )
         )
         config = load_config(
             _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)
@@ -820,7 +786,7 @@ class TestCmisPropertiesAlignment:
         props = next(r for r in report.results if r.name == "cmis_properties_alignment")
         assert props.status == CheckStatus.PASS, f"{props.message} / {props.details}"
 
-    @responses.activate
+    @respx.mock
     def test_fail_when_property_missing(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
@@ -837,21 +803,16 @@ class TestCmisPropertiesAlignment:
             ],
         )
         # typeDefinition declares only one of the two catalogued properties.
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={
-                "id": "D:cmcourier:bacDoc",
-                "propertyDefinitions": {
-                    "cmcourier:BAC_CIF": {"id": "cmcourier:BAC_CIF"},
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "D:cmcourier:bacDoc",
+                    "propertyDefinitions": {
+                        "cmcourier:BAC_CIF": {"id": "cmcourier:BAC_CIF"},
+                    },
                 },
-            },
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": "D:cmcourier:bacDoc"}
-                )
-            ],
+            )
         )
         config = load_config(
             _write_split_yaml(tmp_path, rvi_cm_csv=rvi_cm, metadatos_csv=metadatos)

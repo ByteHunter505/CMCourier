@@ -5,8 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import httpx
 import pytest
-import responses
+import respx
 from click.testing import CliRunner
 
 from cmcourier.cli.app import main
@@ -96,25 +97,28 @@ def _write_config_yaml(tmp_path: Path, triggers_csv: Path | None = None) -> Path
 
 
 def _register_cmis_for_docs(txn_nums: list[str]) -> None:
-    responses.add(
-        responses.GET,
+    # 060: warmup needs an explicit params= match because the doctor flow also
+    # hits the same base URL for typeDefinition lookups — without params, the
+    # last `.mock()` wins and the warmup response is shadowed.
+    respx.get(
         f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        params={"cmisselector": "repositoryInfo"},
+    ).mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-        json={"ok": True},
-        status=201,
+    # Doctor pre-flight also fetches every cm_object_type definition.
+    respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+        return_value=httpx.Response(200, json={"id": "$t!-2_BAC_04_01_01_01_01v-1"})
     )
-    for txn in txn_nums:
-        responses.add(
-            responses.POST,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-            json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}},
-            status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+        return_value=httpx.Response(201, json={"ok": True})
+    )
+    if txn_nums:
+        respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01").mock(
+            side_effect=[
+                httpx.Response(201, json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}})
+                for txn in txn_nums
+            ]
         )
 
 
@@ -154,7 +158,7 @@ class TestHelp:
 
 
 class TestRunHappyPath:
-    @responses.activate
+    @respx.mock
     def test_happy_path(
         self,
         cli_runner: CliRunner,
@@ -203,7 +207,7 @@ class TestRunErrors:
         # so exit code is Click's default 2.
         assert result.exit_code == 2
 
-    @responses.activate
+    @respx.mock
     def test_missing_env_var_exit_2(
         self,
         cli_runner: CliRunner,
@@ -227,7 +231,7 @@ class TestRunErrors:
         assert result.exit_code == 2
         assert "ConfigurationError" in result.stderr
 
-    @responses.activate
+    @respx.mock
     def test_stage_failures_exit_1(
         self,
         cli_runner: CliRunner,
@@ -260,7 +264,7 @@ class TestRunErrors:
 
 
 class TestRunOverrides:
-    @responses.activate
+    @respx.mock
     def test_triggers_override(
         self,
         cli_runner: CliRunner,
@@ -292,7 +296,7 @@ class TestRunOverrides:
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_log_level_debug(
         self,
         cli_runner: CliRunner,
@@ -341,21 +345,13 @@ def _stub_doctor_type_definitions() -> None:
     """Register typeDefinition responses for every cm_object_type the
     Modelo Documental fixture references."""
     for type_id in _DOCTOR_TYPES:
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={"id": type_id},
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": type_id}
-                )
-            ],
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(200, json={"id": type_id})
         )
 
 
 class TestAutoDoctor:
-    @responses.activate
+    @respx.mock
     def test_auto_doctor_pass_runs_pipeline(
         self,
         cli_runner: CliRunner,
@@ -376,7 +372,7 @@ class TestAutoDoctor:
         # Pipeline ran after doctor.
         assert "s5_done=1" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_auto_doctor_fail_blocks_pipeline(
         self,
         cli_runner: CliRunner,
@@ -385,12 +381,8 @@ class TestAutoDoctor:
     ) -> None:
         _set_cmis_env(monkeypatch)
         # CMIS endpoint returns 503 → cmis_connectivity FAILs.
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={"error": "boom"},
-            status=503,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(503, json={"error": "boom"})
         )
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(

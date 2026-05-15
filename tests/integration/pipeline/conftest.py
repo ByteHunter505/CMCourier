@@ -17,8 +17,9 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
 import pytest
-import responses
+import respx
 
 from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
 from cmcourier.adapters.sources import TabularDataSource
@@ -152,31 +153,36 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
         )
 
     def _register_cmis_for_docs(txn_nums: list[str], object_id_prefix: str = "cm-id-") -> None:
-        """Pre-stub warmup + folder creation + per-doc upload responses."""
-        responses.add(
-            responses.GET,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-            json={
-                "repositoryId": _CMIS_REPO_ID,
-                "productName": "IBM Content Manager",
-                "productVersion": "8.7",
-                "vendorName": "IBM",
-            },
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        """Pre-stub warmup + folder creation + per-doc upload responses.
+
+        060: migrated from ``responses`` to ``respx`` (httpx-native). Tests
+        must decorate with ``@respx.mock`` so the routes resolve against
+        the active mock router.
+        """
+        respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "repositoryId": _CMIS_REPO_ID,
+                    "productName": "IBM Content Manager",
+                    "productVersion": "8.7",
+                    "vendorName": "IBM",
+                },
+            )
         )
-        responses.add(
-            responses.POST,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-            json={"ok": True},
-            status=201,
+        respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+            return_value=httpx.Response(201, json={"ok": True})
         )
-        for txn in txn_nums:
-            responses.add(
-                responses.POST,
-                f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-                json={"succinctProperties": {"cmis:objectId": f"{object_id_prefix}{txn}"}},
-                status=201,
+        if txn_nums:
+            bac_url = f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01"
+            respx.post(bac_url).mock(
+                side_effect=[
+                    httpx.Response(
+                        201,
+                        json={"succinctProperties": {"cmis:objectId": f"{object_id_prefix}{txn}"}},
+                    )
+                    for txn in txn_nums
+                ]
             )
 
     harness = PipelineHarness(

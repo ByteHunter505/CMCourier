@@ -16,8 +16,9 @@ import logging
 import sqlite3
 from pathlib import Path
 
+import httpx
 import pytest
-import responses
+import respx
 
 from cmcourier.domain.models import RvabrepRowTrigger
 
@@ -106,7 +107,7 @@ class TestParameterValidation:
 
 
 class TestFreshFullRun:
-    @responses.activate
+    @respx.mock
     def test_happy_path_two_docs(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001", "TXN_PIPE_002"])
         triggers = _write_trigger_csv(
@@ -123,7 +124,7 @@ class TestFreshFullRun:
         assert report.elapsed_seconds >= 0.0
         assert len(report.batch_id) > 0
 
-    @responses.activate
+    @respx.mock
     def test_complete_batch_called(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001"])
         triggers = _write_trigger_csv(tmp_path, [("TESTCLIENT01", "123456", "1")])
@@ -131,7 +132,7 @@ class TestFreshFullRun:
         pipeline_harness.tracking_store.flush()
         assert _batch_completed_at(pipeline_harness.db_path, report.batch_id) is not None
 
-    @responses.activate
+    @respx.mock
     def test_migration_log_row_per_doc(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001", "TXN_PIPE_002"])
         triggers = _write_trigger_csv(
@@ -150,7 +151,7 @@ class TestFreshFullRun:
 
 
 class TestS1ErrorHandling:
-    @responses.activate
+    @respx.mock
     def test_trigger_not_in_rvabrep_logged_no_row(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -169,7 +170,7 @@ class TestS1ErrorHandling:
         total = _count_rows(pipeline_harness.db_path, report.batch_id, "S1_DONE")
         assert total == 0
 
-    @responses.activate
+    @respx.mock
     def test_mixed_trigger_results(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001"])
         triggers = _write_trigger_csv(
@@ -187,7 +188,7 @@ class TestS1ErrorHandling:
 
 
 class TestCrossBatchSkip:
-    @responses.activate
+    @respx.mock
     def test_doc_uploaded_in_prior_batch_skipped(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -208,7 +209,7 @@ class TestCrossBatchSkip:
         assert second.total_docs == 1
         assert second.s5_done == 0  # didn't upload again
 
-    @responses.activate
+    @respx.mock
     def test_cross_batch_skip_logged(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -230,7 +231,7 @@ class TestCrossBatchSkip:
 
 
 class TestStageFailures:
-    @responses.activate
+    @respx.mock
     def test_s2_unmapped_id_rvi(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         pipeline_harness.register_cmis_for_docs([])  # No upload expected.
         triggers = _write_trigger_csv(tmp_path, [("TESTUNMAPPED", "123456", "1")])
@@ -240,7 +241,7 @@ class TestStageFailures:
         pipeline_harness.tracking_store.flush()
         assert _count_rows(pipeline_harness.db_path, report.batch_id, "S2_FAILED") == 1
 
-    @responses.activate
+    @respx.mock
     def test_s3_metadata_source_failed(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         # CIF 999999 is not in clients.csv → BAC_Nombre_Cliente cannot resolve.
         pipeline_harness.register_cmis_for_docs([])
@@ -251,7 +252,7 @@ class TestStageFailures:
         pipeline_harness.tracking_store.flush()
         assert _count_rows(pipeline_harness.db_path, report.batch_id, "S3_FAILED") == 1
 
-    @responses.activate
+    @respx.mock
     def test_s4_source_file_missing(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         # TESTMISSFILES points to a non-existent image_path.
         pipeline_harness.register_cmis_for_docs([])
@@ -262,28 +263,20 @@ class TestStageFailures:
         pipeline_harness.tracking_store.flush()
         assert _count_rows(pipeline_harness.db_path, report.batch_id, "S4_FAILED") == 1
 
-    @responses.activate
+    @respx.mock
     def test_s5_cmis_4xx_fail_fast(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         # Warmup + folder OK, but upload returns 400.
-        responses.add(
-            responses.GET,
-            "http://cmis.example.test:9080/opencmcmis/browser/$x!testrepo",
-            json={"repositoryId": "$x!testrepo", "productName": "x"},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+        respx.get("http://cmis.example.test:9080/opencmcmis/browser/$x!testrepo").mock(
+            return_value=httpx.Response(
+                200, json={"repositoryId": "$x!testrepo", "productName": "x"}
+            )
         )
-        responses.add(
-            responses.POST,
-            "http://cmis.example.test:9080/opencmcmis/browser/$x!testrepo/root",
-            json={"ok": True},
-            status=201,
+        respx.post("http://cmis.example.test:9080/opencmcmis/browser/$x!testrepo/root").mock(
+            return_value=httpx.Response(201, json={"ok": True})
         )
-        responses.add(
-            responses.POST,
-            "http://cmis.example.test:9080/opencmcmis/browser/$x!testrepo/root/$type/BAC_04_01_01_01_01",
-            json={"error": "bad request"},
-            status=400,
-        )
+        respx.post(
+            "http://cmis.example.test:9080/opencmcmis/browser/$x!testrepo/root/$type/BAC_04_01_01_01_01"
+        ).mock(return_value=httpx.Response(400, json={"error": "bad request"}))
         triggers = _write_trigger_csv(tmp_path, [("TESTCLIENT01", "123456", "1")])
         report = pipeline_harness.build_pipeline(triggers).run(source_descriptor=str(triggers))
         assert report.s5_failed == 1
@@ -297,7 +290,7 @@ class TestStageFailures:
 
 
 class TestResume:
-    @responses.activate
+    @respx.mock
     def test_resume_from_stage_3_idempotent(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -322,7 +315,7 @@ class TestResume:
         # S5 still counts as done (we count skips into s5_done).
         assert second.s5_done == 1
 
-    @responses.activate
+    @respx.mock
     def test_resume_out_of_scope_doc_dropped(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -350,7 +343,7 @@ class TestResume:
         assert second.s5_done == 1  # only the in-scope doc counts
         assert any(r.__dict__.get("reason") == "resume_out_of_scope" for r in caplog.records)
 
-    @responses.activate
+    @respx.mock
     def test_idempotent_rerun_from_stage_1(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -376,7 +369,7 @@ class TestResume:
 
 
 class TestHeterogeneous:
-    @responses.activate
+    @respx.mock
     def test_one_success_three_failures(self, pipeline_harness, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
         # Configure CMIS only for the one success (TESTCLIENT01).
         pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001"])
@@ -420,7 +413,7 @@ class TestS0Failure:
 
 
 class TestHealedCIF:
-    @responses.activate
+    @respx.mock
     def test_healed_cif_reaches_upload(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]
@@ -436,11 +429,11 @@ class TestHealedCIF:
         # The captured upload request body contains the healed CIF.
         upload_calls = [
             c
-            for c in responses.calls
-            if c.request.method == "POST" and "BAC_04_01_01_01_01" in c.request.url
+            for c in respx.mock.calls
+            if c.request.method == "POST" and "BAC_04_01_01_01_01" in str(c.request.url)
         ]
         assert len(upload_calls) == 1
-        body = upload_calls[0].request.body
+        body = upload_calls[0].request.content
         if isinstance(body, bytes):
             body = body.decode("utf-8", errors="replace")
         assert "123456" in body  # the healed CIF appears as a property value
@@ -522,7 +515,7 @@ class TestS1FilteredOutcome051:
 
 
 class TestPrepWorkers056:
-    @responses.activate
+    @respx.mock
     @pytest.mark.parametrize("prep_workers", [1, 4])
     def test_prep_outcome_identical_serial_and_parallel(
         self,
@@ -572,7 +565,7 @@ class TestPrepWorkers056:
 
 
 class TestStagedFileMetadataPersistence058:
-    @responses.activate
+    @respx.mock
     def test_s4_persists_staged_file_metadata_to_migration_log(
         self,
         pipeline_harness,  # type: ignore[no-untyped-def]

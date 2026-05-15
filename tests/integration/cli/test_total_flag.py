@@ -10,8 +10,9 @@ from __future__ import annotations
 from pathlib import Path
 from textwrap import dedent
 
+import httpx
 import pytest
-import responses
+import respx
 from click.testing import CliRunner
 
 from cmcourier.cli.app import main
@@ -33,25 +34,17 @@ def _set_cmis_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _stub_cmis(txn_nums: list[str]) -> None:
-    responses.add(
-        responses.GET,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-        json={"ok": True},
-        status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+        return_value=httpx.Response(201, json={"ok": True})
     )
     for txn in txn_nums:
-        responses.add(
-            responses.POST,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-            json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}},
-            status=201,
+        respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01").mock(
+            return_value=httpx.Response(
+                201, json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}}
+            )
         )
 
 
@@ -123,7 +116,7 @@ def _write_yaml(tmp_path: Path, *, batches_in_flight: int = 2) -> Path:
 
 
 class TestTotalFlag:
-    @responses.activate
+    @respx.mock
     def test_total_caps_n_one(
         self,
         tmp_path: Path,
@@ -156,7 +149,7 @@ class TestTotalFlag:
         assert "s5_done=1" in result.stdout
         assert "total_triggers=1" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_total_caps_n_two_with_chunks(
         self,
         tmp_path: Path,
@@ -190,7 +183,7 @@ class TestTotalFlag:
         assert "TOTALS" not in result.stdout
         assert "s5_done=1" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_total_larger_than_source_is_noop(
         self,
         tmp_path: Path,

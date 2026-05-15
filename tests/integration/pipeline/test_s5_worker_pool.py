@@ -9,8 +9,9 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import pytest
-import responses
+import respx
 from click.testing import CliRunner
 
 from cmcourier.adapters.tracking import SQLiteTrackingStore
@@ -29,25 +30,17 @@ _CMIS_REPO_ID = "$x!testrepo"
 
 
 def _stub_cmis(txns: list[str]) -> None:
-    responses.add(
-        responses.GET,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-        json={"ok": True},
-        status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+        return_value=httpx.Response(201, json={"ok": True})
     )
     for txn in txns:
-        responses.add(
-            responses.POST,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-            json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}},
-            status=201,
+        respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01").mock(
+            return_value=httpx.Response(
+                201, json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}}
+            )
         )
 
 
@@ -127,7 +120,7 @@ def cli_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 class TestS5WorkerPool:
-    @responses.activate
+    @respx.mock
     def test_workers_1_sequential_equivalent(self, tmp_path: Path, cli_env: None) -> None:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path, workers=1)
@@ -145,7 +138,7 @@ class TestS5WorkerPool:
         assert result.exit_code == 0, result.stderr
         assert "s5_done=1" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_workers_4_parallel_happy_path(self, tmp_path: Path, cli_env: None) -> None:
         _stub_cmis(["TXN_PIPE_001"])
         yaml_path = _write_yaml(tmp_path, workers=4)
@@ -224,7 +217,7 @@ tracking:
         snap = stats.snapshot()
         assert snap.pool_size == 8
 
-    @responses.activate
+    @respx.mock
     def test_worker_label_logged_in_network_event(self, tmp_path: Path, cli_env: None) -> None:
         """A real workers=4 run writes network events with worker labels to disk."""
         import datetime as _dt
@@ -254,7 +247,7 @@ tracking:
 
 
 class TestAutoTuneIntegration:
-    @responses.activate
+    @respx.mock
     def test_auto_tune_logs_decision_when_enabled(self, tmp_path: Path, cli_env: None) -> None:
         """End-to-end: enable auto-tune with tight cadence + zero warmup;
         a real run emits at least one ``auto_tune_decision`` log line."""

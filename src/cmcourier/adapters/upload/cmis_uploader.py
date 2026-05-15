@@ -1,18 +1,23 @@
 """Stage S5 — :class:`CmisUploader` (REBIRTH §8).
 
 Concrete :class:`IUploader` for IBM Content Manager via the CMIS Browser
-Binding REST/JSON protocol. Single-threaded MVP: the adapter holds one
-:class:`requests.Session` shared across all calls. A follow-up change
-adds thread-local sessions when the orchestrator's worker pool lands.
+Binding REST/JSON protocol. The adapter holds one :class:`httpx.Client`
+shared across all calls. Sync client; the orchestrator's ``ThreadPoolExecutor``
+calls into it from N worker threads.
+
+060: migrated from ``requests`` to ``httpx[http2]``. When the server
+negotiates HTTP/2 via ALPN (Apache-fronted Alfresco in prod) the N
+concurrent workers multiplex over a single TCP connection — small-upload
+overhead drops. If the server only speaks HTTP/1.1 (Tomcat-direct
+staging) httpx transparently falls back, same behaviour as pre-060.
 
 Implements the full REBIRTH §8 contract:
 
 * JSESSIONID warmup (§8.2) — lazy, runs once per session lifetime.
 * Recursive folder creation with the in-memory cache and idempotent 409
   semantics (§8.3); ``$``-prefixed system folders are skipped.
-* Streaming multipart upload (§8.5) via
-  :class:`requests_toolbelt.MultipartEncoder`; the file is read from disk
-  on demand, never buffered.
+* Streaming multipart upload (§8.5) via httpx's ``files=`` / ``data=``
+  API; the file is read from disk on demand, never buffered whole.
 * Optional :class:`BandwidthLimiter` wrapping the file stream (§8.6) for
   throttled corporate networks.
 * Retry policy (§8.7): 401 → re-warmup + retry once; 5xx → exponential
@@ -21,12 +26,11 @@ Implements the full REBIRTH §8 contract:
   exhausted → :class:`RetriesExhaustedError`.
 * The 3-path ``cmis:objectId`` parser (§8.8).
 
-Constitution Principle I: this module imports ``requests``,
-``requests_toolbelt`` (both already declared in ``pyproject.toml``), and
-the standard library. Domain models are imported as types only.
-Principle VIII: logs identify operational keys (txn_num, folder_path,
-HTTP status, attempt) but never property values or response bodies
-beyond a truncation cap.
+Constitution Principle I: this module imports ``httpx`` (declared in
+``pyproject.toml``) and the standard library. Domain models are
+imported as types only. Principle VIII: logs identify operational keys
+(txn_num, folder_path, HTTP status, attempt) but never property values
+or response bodies beyond a truncation cap.
 """
 
 from __future__ import annotations
@@ -42,10 +46,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import IO, Any
 
-import requests
-from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from requests_toolbelt import MultipartEncoder
+import httpx
 
 from cmcourier.domain.exceptions import (
     CMISClientError,
@@ -83,10 +84,9 @@ class CmisConfig:
     max_bandwidth_mbps: float = 0.0
     retry_max_attempts: int = 3
     retry_base_delay_s: float = 2.0
-    # 038: requests' default HTTPAdapter ships pool_maxsize=10. When the
-    # S5 worker count exceeds this, urllib3 warns "Connection pool is
-    # full, discarding connection" and re-opens TCP every dispatch.
-    # Size the pool to match expected concurrency.
+    # 038: default httpx connection pool is small. When the S5 worker
+    # count exceeds the keepalive pool, httpx opens fresh TCP per
+    # request. Size the pool to match expected concurrency.
     pool_size: int = 10
     # 038: when True, ``s5_upload_attempt`` and ``s5_upload_failed``
     # events emit raw property values instead of PII-masked ones.
@@ -174,25 +174,24 @@ class BandwidthLimiter:
 
 
 class CmisUploader(IUploader):
-    """Concrete :class:`IUploader` over CMIS Browser Binding."""
+    """Concrete :class:`IUploader` over CMIS Browser Binding (httpx[http2])."""
 
     def __init__(self, config: CmisConfig) -> None:
         self._cfg = config
-        self._session = requests.Session()
-        self._session.auth = (config.username, config.password)
-        self._session.verify = config.verify_ssl
-        # 038: size the connection pool to S5 worker concurrency so
-        # each worker keeps its own TCP+TLS+JSESSIONID connection warm
-        # across requests instead of fighting for the urllib3 default
-        # pool_maxsize=10.
         pool_size = max(1, int(config.pool_size))
-        adapter = HTTPAdapter(
-            pool_connections=pool_size,
-            pool_maxsize=pool_size,
-            max_retries=0,  # our own retry policy handles this
+        # 060: HTTP/2 negotiated via ALPN; HTTP/1.1 fallback if the
+        # server doesn't advertise h2. Same wire behaviour as pre-060
+        # against Tomcat-direct; multiplexing kicks in vs Apache.
+        self._client = httpx.Client(
+            http2=True,
+            auth=(config.username, config.password),
+            verify=config.verify_ssl,
+            limits=httpx.Limits(
+                max_connections=pool_size,
+                max_keepalive_connections=pool_size,
+            ),
+            timeout=httpx.Timeout(config.timeout_seconds),
         )
-        self._session.mount("http://", adapter)
-        self._session.mount("https://", adapter)
         self._warm = False
         # 025: S5 worker pool calls upload concurrently. The per-instance
         # state above is shared across worker threads.
@@ -255,7 +254,7 @@ class CmisUploader(IUploader):
                 try:
                     fut.result()
                     successes += 1
-                except (CMISServerError, CMISClientError, RequestsConnectionError):
+                except (CMISServerError, CMISClientError, httpx.RequestError):
                     _log.warning("cmis: warmup attempt failed", exc_info=True)
         _log.info(
             "cmis: connection pool warmed",
@@ -275,7 +274,7 @@ class CmisUploader(IUploader):
             self._warmup_session()
         url = self._service_url()
         t0 = time.monotonic()
-        resp = self._session.get(
+        resp = self._client.get(
             url,
             params={"cmisselector": "typeDefinition", "typeId": object_type_id},
             timeout=self._timeout_s,
@@ -318,7 +317,7 @@ class CmisUploader(IUploader):
         normalized = folder_path.strip("/")
         url = self._service_url(f"root/{normalized}")
         t0 = time.monotonic()
-        resp = self._session.get(
+        resp = self._client.get(
             url,
             params={"cmisselector": "object"},
             timeout=self._timeout_s,
@@ -395,16 +394,17 @@ class CmisUploader(IUploader):
                 if self._cfg.max_bandwidth_mbps > 0
                 else fh
             )
-            encoder = self._build_multipart_for_upload(
+            data_fields, file_field = self._build_multipart_for_upload(
                 stream, document_name, mime_type, object_type_id, properties
             )
             try:
                 resp = self._post_with_retries(
                     url,
-                    encoder,
-                    {"Content-Type": encoder.content_type},
+                    data_fields=data_fields,
+                    file_field=file_field,
                     txn_num=document_name,
                     kind="cmis_upload",
+                    size_bytes=file.size_bytes,
                     batch_id=batch_id,
                 )
             except (CMISClientError, CMISServerError) as exc:
@@ -471,7 +471,7 @@ class CmisUploader(IUploader):
         )
         try:
             existing_id = self._lookup_existing_object_id(folder_url, document_name)
-        except (CMISClientError, CMISServerError, RequestsConnectionError):
+        except (CMISClientError, CMISServerError, httpx.RequestError):
             # Lookup itself failed — fall through to the original failure
             # path so the operator sees the underlying upload error.
             self._emit_409_event(
@@ -513,7 +513,7 @@ class CmisUploader(IUploader):
     def _lookup_existing_object_id(self, folder_url: str, document_name: str) -> str | None:
         """List ``folder_url``'s children, return the matching cmis:objectId."""
         t0 = time.monotonic()
-        resp = self._session.get(
+        resp = self._client.get(
             folder_url,
             params={"cmisselector": "children", "maxItems": "5000"},
             timeout=self._timeout_s,
@@ -724,7 +724,7 @@ class CmisUploader(IUploader):
     def _warmup_session(self) -> dict[str, Any]:
         url = self._service_url()
         t0 = time.monotonic()
-        resp = self._session.get(
+        resp = self._client.get(
             url,
             params={"cmisselector": "repositoryInfo"},
             timeout=self._timeout_s,
@@ -752,26 +752,42 @@ class CmisUploader(IUploader):
     def _post_with_retries(
         self,
         url: str,
-        data: MultipartEncoder,
-        headers: dict[str, str],
+        *,
+        data_fields: dict[str, str],
+        file_field: tuple[str, IO[bytes], str],
         txn_num: str,
         kind: str = "cmis_post",
-        *,
+        size_bytes: int | None = None,
         batch_id: str,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         auth_retried = False
         last_exc: Exception | None = None
         real_attempts = 0
-        size_bytes = int(getattr(data, "len", 0)) or None
         t0 = time.monotonic()
+        # 060: the file stream may have been consumed by a previous attempt
+        # (httpx reads it whole on POST). Seek to 0 before each retry — but
+        # only the underlying file handle, since BandwidthLimiter forwards
+        # seek() to it.
+        stream = file_field[1]
         while real_attempts < self._cfg.retry_max_attempts:
             with self._warm_lock:
                 need_warmup = not self._warm
             if need_warmup:
                 self._warmup_session()
             try:
-                resp = self._session.post(url, data=data, headers=headers, timeout=self._timeout_s)
-            except RequestsConnectionError as exc:
+                if real_attempts > 0:
+                    stream.seek(0)
+                resp = self._client.post(
+                    url,
+                    data=data_fields,
+                    files={"content": file_field},
+                    timeout=self._timeout_s,
+                )
+            except httpx.RequestError as exc:
+                # httpx.RequestError covers ConnectError, ReadError,
+                # RemoteProtocolError, TimeoutException — every transport
+                # failure that would previously have come up as
+                # requests.exceptions.ConnectionError.
                 real_attempts += 1
                 last_exc = exc
                 doubled = _WINDOWS_ABORT_MARKER in str(exc)
@@ -855,17 +871,24 @@ class CmisUploader(IUploader):
         mime_type: str,
         object_type_id: str,
         properties: Mapping[str, str],
-    ) -> MultipartEncoder:
-        # 040: IBM CM requires ``cmis:contentStreamMimeType`` as an
-        # explicit property (per the legacy cmis_services.py — "Mime
-        # Type (explicitly required by IBM CMIS)"). Alfresco rejects
-        # that same property with 400 "is read-only!" because it
-        # infers the mime type from the multipart Content-Type. The
-        # convention follows the same Alfresco-vs-IBM-CM heuristic as
-        # the URL builder: empty ``repo_id`` means Alfresco mode →
-        # omit the explicit property; the multipart part still carries
-        # the right Content-Type.
-        fields: dict[str, Any] = {
+    ) -> tuple[dict[str, str], tuple[str, IO[bytes], str]]:
+        """Build the multipart body for `client.post(..., data=..., files=...)`.
+
+        060: httpx separates text fields (``data``) from file fields
+        (``files``). Returns ``(data_fields, file_field)`` so the caller
+        can assemble the POST. The text fields carry every CMIS property
+        (``cmisaction``, ``propertyId[N]`` / ``propertyValue[N]``) and the
+        file field carries the staged stream.
+
+        040: IBM CM requires ``cmis:contentStreamMimeType`` as an explicit
+        property; Alfresco rejects that same property with 400 because it
+        infers the mime type from the multipart Content-Type. The
+        convention follows the same Alfresco-vs-IBM-CM heuristic as the
+        URL builder: empty ``repo_id`` means Alfresco mode → omit the
+        explicit property; the multipart part still carries the right
+        Content-Type.
+        """
+        data_fields: dict[str, str] = {
             "cmisaction": "createDocument",
             "propertyId[0]": "cmis:objectTypeId",
             "propertyValue[0]": object_type_id,
@@ -874,17 +897,17 @@ class CmisUploader(IUploader):
         }
         next_idx = 2
         if self._cfg.repo_id:
-            fields[f"propertyId[{next_idx}]"] = "cmis:contentStreamMimeType"
-            fields[f"propertyValue[{next_idx}]"] = mime_type
+            data_fields[f"propertyId[{next_idx}]"] = "cmis:contentStreamMimeType"
+            data_fields[f"propertyValue[{next_idx}]"] = mime_type
             next_idx += 1
         for i, (key, value) in enumerate(properties.items()):
-            fields[f"propertyId[{next_idx + i}]"] = key
-            fields[f"propertyValue[{next_idx + i}]"] = value
-        fields["content"] = (document_name, stream, mime_type)
-        return MultipartEncoder(fields=fields)
+            data_fields[f"propertyId[{next_idx + i}]"] = key
+            data_fields[f"propertyValue[{next_idx + i}]"] = value
+        file_field = (document_name, stream, mime_type)
+        return data_fields, file_field
 
     @staticmethod
-    def _parse_object_id(response: requests.Response) -> str:
+    def _parse_object_id(response: httpx.Response) -> str:
         try:
             data = response.json()
         except ValueError:

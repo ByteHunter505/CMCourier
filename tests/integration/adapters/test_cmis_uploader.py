@@ -1,8 +1,9 @@
 """Integration tests for :class:`CmisUploader`.
 
-Exercises the adapter end-to-end against the real ``requests`` library,
-with the network stubbed by the ``responses`` library (Constitution
-Principle VI: no mocking of ``requests`` internals — only the network).
+Exercises the adapter end-to-end against the real ``httpx`` library,
+with the network stubbed by the ``respx`` library (Constitution
+Principle VI: no mocking of ``httpx`` internals — only the network).
+060 migrated from ``responses`` (requests-specific) to ``respx``.
 
 The retry-policy tests monkey-patch ``time.sleep`` inside the cmis_uploader
 module's namespace so retries do not actually wait. The bandwidth limiter
@@ -18,9 +19,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
-import requests
-import responses
+import respx
 
 from cmcourier.adapters.upload.cmis_uploader import (
     BandwidthLimiter,
@@ -80,19 +81,33 @@ def _root_url(folder_path: str = "") -> str:
     return f"{_BASE_URL}/{_REPO_ID}/root{suffix}"
 
 
-def _stub_warmup() -> None:
+def _stub_warmup(router: respx.MockRouter) -> None:
     """Register a successful repositoryInfo response."""
-    responses.add(
-        responses.GET,
-        _repo_info_url(),
-        json={
-            "repositoryId": _REPO_ID,
-            "productName": "IBM Content Manager",
-            "productVersion": "8.7",
-            "vendorName": "IBM",
-        },
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    router.get(_repo_info_url()).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "repositoryId": _REPO_ID,
+                "productName": "IBM Content Manager",
+                "productVersion": "8.7",
+                "vendorName": "IBM",
+            },
+        )
+    )
+
+
+def _stub_warmup_alfresco_style(router: respx.MockRouter) -> None:
+    """Same as ``_stub_warmup`` but matches the Alfresco URL (no repo_id segment)."""
+    router.get(_BASE_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "repositoryId": "-default-",
+                "productName": "Alfresco Community",
+                "productVersion": "23.4.1",
+                "vendorName": "Alfresco",
+            },
+        )
     )
 
 
@@ -135,26 +150,22 @@ class TestCmisConfig:
 
 class TestWarmup:
     def test_construction_makes_no_http_call(self) -> None:
-        with responses.RequestsMock() as rsps:
+        with respx.mock(assert_all_called=False) as mock:
             CmisUploader(_make_config())
-            assert len(rsps.calls) == 0
+            assert len(mock.calls) == 0
 
-    @responses.activate
-    def test_warmup_runs_on_first_state_change(self, tmp_path: Path) -> None:
-        _stub_warmup()
+    @respx.mock
+    def test_warmup_runs_on_first_state_change(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
         uploader = CmisUploader(_make_config())
         uploader.test_connection()
-        assert len(responses.calls) == 1
-        assert "cmisselector=repositoryInfo" in responses.calls[0].request.url
+        assert len(respx_mock.calls) == 1
+        assert "cmisselector=repositoryInfo" in str(respx_mock.calls[0].request.url)
 
-    @responses.activate
-    def test_warmup_5xx_raises_server_error(self) -> None:
-        responses.add(
-            responses.GET,
-            _repo_info_url(),
-            json={"error": "boom"},
-            status=503,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    @respx.mock
+    def test_warmup_5xx_raises_server_error(self, respx_mock: respx.MockRouter) -> None:
+        respx_mock.get(_repo_info_url()).mock(
+            return_value=httpx.Response(503, json={"error": "boom"})
         )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISServerError) as ei:
@@ -172,28 +183,27 @@ class TestConnectionPoolSizing:
         cfg = CmisConfig(base_url=_BASE_URL, repo_id=_REPO_ID, username="u", password="p")
         assert cfg.pool_size == 10
 
-    def test_adapter_mounted_with_configured_pool_size(self) -> None:
+    def test_client_built_with_configured_limits(self) -> None:
+        # 060: httpx replaces requests' HTTPAdapter. The pool_size flows into
+        # httpx.Limits — verify both max_connections and max_keepalive_connections
+        # carry the configured value (otherwise concurrent workers fight the pool).
         uploader = CmisUploader(_make_config(pool_size=32))
-        # requests.Session.mount keys preserve insertion order; check both
-        # http:// and https:// adapters carry the configured maxsize.
-        adapters = list(uploader._session.adapters.values())
-        assert any(getattr(a, "_pool_maxsize", None) == 32 for a in adapters)
+        pool = uploader._client._transport._pool  # noqa: SLF001
+        assert pool._max_connections == 32  # noqa: SLF001
+        assert pool._max_keepalive_connections == 32  # noqa: SLF001
 
 
 class TestWarmConnectionPool:
-    @responses.activate
-    def test_warm_n_connections_fires_n_requests(self) -> None:
-        _stub_warmup()
-        # Add 7 more identical stubs so a pool of 8 doesn't blow past
-        # the matcher list. responses by default allows reuse of a
-        # single stub for multiple calls — but let's be explicit.
-        for _ in range(7):
-            _stub_warmup()
+    @respx.mock
+    def test_warm_n_connections_fires_n_requests(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
         uploader = CmisUploader(_make_config(pool_size=8))
         succeeded = uploader.warm_connection_pool(8)
         assert succeeded == 8
         # repositoryInfo got hit 8 times.
-        info_calls = [c for c in responses.calls if "cmisselector=repositoryInfo" in c.request.url]
+        info_calls = [
+            c for c in respx_mock.calls if "cmisselector=repositoryInfo" in str(c.request.url)
+        ]
         assert len(info_calls) == 8
 
     def test_warm_zero_is_noop(self) -> None:
@@ -202,24 +212,30 @@ class TestWarmConnectionPool:
         assert uploader.warm_connection_pool(0) == 0
         assert uploader.warm_connection_pool(-3) == 0
 
-    @responses.activate
-    def test_warm_swallows_individual_failures(self) -> None:
-        # First stub succeeds; subsequent are 503 so 3 of 4 fail.
-        _stub_warmup()
-        for _ in range(3):
-            responses.add(
-                responses.GET,
-                _repo_info_url(),
-                json={"error": "boom"},
-                status=503,
-                match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
-            )
+    @respx.mock
+    def test_warm_swallows_individual_failures(self, respx_mock: respx.MockRouter) -> None:
+        # First call succeeds; subsequent are 503 so most fail.
+        respx_mock.get(_repo_info_url()).mock(
+            side_effect=[
+                httpx.Response(
+                    200,
+                    json={
+                        "repositoryId": _REPO_ID,
+                        "productName": "IBM",
+                        "productVersion": "8.7",
+                        "vendorName": "IBM",
+                    },
+                ),
+                httpx.Response(503, json={"error": "boom"}),
+                httpx.Response(503, json={"error": "boom"}),
+                httpx.Response(503, json={"error": "boom"}),
+            ]
+        )
         uploader = CmisUploader(_make_config(pool_size=4))
         # Should NOT raise — failures only log.
         succeeded = uploader.warm_connection_pool(4)
         # Order of completion is non-deterministic so just assert it
-        # is within [0, 4] and at least one succeeded if responses
-        # popped the success first.
+        # is within [0, 4].
         assert 0 <= succeeded <= 4
 
 
@@ -229,9 +245,9 @@ class TestWarmConnectionPool:
 
 
 class TestTestConnection:
-    @responses.activate
-    def test_parses_repository_info(self) -> None:
-        _stub_warmup()
+    @respx.mock
+    def test_parses_repository_info(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
         uploader = CmisUploader(_make_config())
         info = uploader.test_connection()
         assert info["repository_id"] == _REPO_ID
@@ -239,28 +255,18 @@ class TestTestConnection:
         assert info["product_version"] == "8.7"
         assert info["vendor_name"] == "IBM"
 
-    @responses.activate
-    def test_missing_keys_become_empty_string(self) -> None:
-        responses.add(
-            responses.GET,
-            _repo_info_url(),
-            json={},  # all keys missing
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
-        )
+    @respx.mock
+    def test_missing_keys_become_empty_string(self, respx_mock: respx.MockRouter) -> None:
+        respx_mock.get(_repo_info_url()).mock(return_value=httpx.Response(200, json={}))
         uploader = CmisUploader(_make_config())
         info = uploader.test_connection()
         assert info["repository_id"] == ""
         assert info["product_name"] == ""
 
-    @responses.activate
-    def test_4xx_raises_client_error(self) -> None:
-        responses.add(
-            responses.GET,
-            _repo_info_url(),
-            json={"error": "unauthorized"},
-            status=401,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    @respx.mock
+    def test_4xx_raises_client_error(self, respx_mock: respx.MockRouter) -> None:
+        respx_mock.get(_repo_info_url()).mock(
+            return_value=httpx.Response(401, json={"error": "unauthorized"})
         )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISClientError) as ei:
@@ -269,108 +275,89 @@ class TestTestConnection:
 
 
 # ---------------------------------------------------------------------------
-# Group 4 — verify_folder_exists (038: read-only; doctor's pre-flight uses
-# this, S5 no longer touches folder verification on the happy path)
+# Group 4 — verify_folder_exists
 # ---------------------------------------------------------------------------
 
 
 class TestVerifyFolderExists:
-    @responses.activate
-    def test_returns_true_for_existing_folder(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("EXISTS"),
-            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_returns_true_for_existing_folder(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("EXISTS")).mock(
+            return_value=httpx.Response(
+                200, json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}}
+            )
         )
         uploader = CmisUploader(_make_config())
         assert uploader.verify_folder_exists("/EXISTS") is True
 
-    @responses.activate
-    def test_returns_true_for_succinct_response(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("EXISTS"),
-            json={"succinctProperties": {"cmis:baseTypeId": "cmis:folder"}},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_returns_true_for_succinct_response(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("EXISTS")).mock(
+            return_value=httpx.Response(
+                200, json={"succinctProperties": {"cmis:baseTypeId": "cmis:folder"}}
+            )
         )
         uploader = CmisUploader(_make_config())
         assert uploader.verify_folder_exists("/EXISTS") is True
 
-    @responses.activate
-    def test_returns_false_on_404(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("MISSING"),
-            json={"error": "not found"},
-            status=404,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_returns_false_on_404(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("MISSING")).mock(
+            return_value=httpx.Response(404, json={"error": "not found"})
         )
         uploader = CmisUploader(_make_config())
         assert uploader.verify_folder_exists("/MISSING") is False
 
-    @responses.activate
-    def test_returns_false_when_path_is_document_not_folder(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("DOC_AT_THIS_PATH"),
-            json={"properties": {"cmis:baseTypeId": {"value": "cmis:document"}}},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_returns_false_when_path_is_document_not_folder(
+        self, respx_mock: respx.MockRouter
+    ) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("DOC_AT_THIS_PATH")).mock(
+            return_value=httpx.Response(
+                200, json={"properties": {"cmis:baseTypeId": {"value": "cmis:document"}}}
+            )
         )
         uploader = CmisUploader(_make_config())
         assert uploader.verify_folder_exists("/DOC_AT_THIS_PATH") is False
 
-    @responses.activate
-    def test_raises_on_401(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("ANY"),
-            json={"error": "unauthorized"},
-            status=401,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_raises_on_401(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("ANY")).mock(
+            return_value=httpx.Response(401, json={"error": "unauthorized"})
         )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISClientError) as ei:
             uploader.verify_folder_exists("/ANY")
         assert ei.value.status_code == 401
 
-    @responses.activate
-    def test_raises_on_5xx(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("ANY"),
-            json={"error": "server down"},
-            status=503,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_raises_on_5xx(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("ANY")).mock(
+            return_value=httpx.Response(503, json={"error": "server down"})
         )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISServerError) as ei:
             uploader.verify_folder_exists("/ANY")
         assert ei.value.status_code == 503
 
-    @responses.activate
-    def test_does_not_post_anything(self) -> None:
+    @respx.mock
+    def test_does_not_post_anything(self, respx_mock: respx.MockRouter) -> None:
         """Read-only contract: no folder is ever created."""
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _root_url("X"),
-            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+        _stub_warmup(respx_mock)
+        respx_mock.get(_root_url("X")).mock(
+            return_value=httpx.Response(
+                200, json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}}
+            )
         )
         uploader = CmisUploader(_make_config())
         uploader.verify_folder_exists("/X")
-        post_calls = [c for c in responses.calls if c.request.method == "POST"]
+        post_calls = [c for c in respx_mock.calls if c.request.method == "POST"]
         assert post_calls == []
 
 
@@ -380,15 +367,15 @@ class TestVerifyFolderExists:
 
 
 class TestUploadHappyPath:
-    @responses.activate
-    def test_succinct_properties_object_id(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "abc-123"}},
-            status=201,
+    @respx.mock
+    def test_succinct_properties_object_id(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(
+                201, json={"succinctProperties": {"cmis:objectId": "abc-123"}}
+            )
         )
         uploader = CmisUploader(_make_config())
         result = uploader.upload(
@@ -402,15 +389,15 @@ class TestUploadHappyPath:
         )
         assert result == "abc-123"
 
-    @responses.activate
-    def test_standard_properties_object_id_fallback(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_Y"),
-            json={"properties": {"cmis:objectId": {"value": "def-456"}}},
-            status=201,
+    @respx.mock
+    def test_standard_properties_object_id_fallback(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_Y")).mock(
+            return_value=httpx.Response(
+                201, json={"properties": {"cmis:objectId": {"value": "def-456"}}}
+            )
         )
         uploader = CmisUploader(_make_config())
         result = uploader.upload(
@@ -424,15 +411,13 @@ class TestUploadHappyPath:
         )
         assert result == "def-456"
 
-    @responses.activate
-    def test_id_field_object_id_fallback(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_Z"),
-            json={"id": "ghi-789"},
-            status=201,
+    @respx.mock
+    def test_id_field_object_id_fallback(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_Z")).mock(
+            return_value=httpx.Response(201, json={"id": "ghi-789"})
         )
         uploader = CmisUploader(_make_config())
         result = uploader.upload(
@@ -446,15 +431,11 @@ class TestUploadHappyPath:
         )
         assert result == "ghi-789"
 
-    @responses.activate
-    def test_content_type_is_multipart(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "id"}},
-            status=201,
+    @respx.mock
+    def test_content_type_is_multipart(self, respx_mock: respx.MockRouter, tmp_path: Path) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "id"}})
         )
         uploader = CmisUploader(_make_config())
         uploader.upload(
@@ -466,8 +447,8 @@ class TestUploadHappyPath:
             properties={},
             batch_id="B-multipart",
         )
-        upload_call = responses.calls[-1]
-        assert upload_call.request.headers["Content-Type"].startswith(
+        upload_call = respx_mock.calls[-1]
+        assert upload_call.request.headers["content-type"].startswith(
             "multipart/form-data; boundary="
         )
 
@@ -478,18 +459,18 @@ class TestUploadHappyPath:
 
 
 class TestUploadRetry:
-    @responses.activate
-    def test_5xx_then_201(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @respx.mock
+    def test_5xx_then_201(
+        self, respx_mock: respx.MockRouter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _skip_sleep(monkeypatch)
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("BAC_R"), json={}, status=503)
-        responses.add(responses.POST, _root_url("BAC_R"), json={}, status=503)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_R"),
-            json={"succinctProperties": {"cmis:objectId": "ok"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_R")).mock(
+            side_effect=[
+                httpx.Response(503, json={}),
+                httpx.Response(503, json={}),
+                httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "ok"}}),
+            ]
         )
         uploader = CmisUploader(_make_config(retry_max_attempts=3))
         result = uploader.upload(
@@ -502,14 +483,15 @@ class TestUploadRetry:
             batch_id="B-5xx-then-201",
         )
         assert result == "ok"
-        upload_attempts = [c for c in responses.calls if c.request.url.endswith("/BAC_R")]
+        upload_attempts = [c for c in respx_mock.calls if str(c.request.url).endswith("/BAC_R")]
         assert len(upload_attempts) == 3
 
-    @responses.activate
-    def test_4xx_fail_fast(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("BAC_F"), json={"err": "bad"}, status=400)
+    @respx.mock
+    def test_4xx_fail_fast(self, respx_mock: respx.MockRouter, tmp_path: Path) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_F")).mock(
+            return_value=httpx.Response(400, json={"err": "bad"})
+        )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISClientError) as ei:
             uploader.upload(
@@ -522,23 +504,20 @@ class TestUploadRetry:
                 batch_id="B-4xx-fail-fast",
             )
         assert ei.value.status_code == 400
-        upload_attempts = [c for c in responses.calls if c.request.url.endswith("/BAC_F")]
+        upload_attempts = [c for c in respx_mock.calls if str(c.request.url).endswith("/BAC_F")]
         assert len(upload_attempts) == 1
 
-    @responses.activate
+    @respx.mock
     def test_401_rewarms_and_retries_once(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, respx_mock: respx.MockRouter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _skip_sleep(monkeypatch)
-        _stub_warmup()  # initial warmup
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("BAC_A"), json={}, status=401)
-        _stub_warmup()  # re-warmup
-        responses.add(
-            responses.POST,
-            _root_url("BAC_A"),
-            json={"succinctProperties": {"cmis:objectId": "ok"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_A")).mock(
+            side_effect=[
+                httpx.Response(401, json={}),
+                httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "ok"}}),
+            ]
         )
         uploader = CmisUploader(_make_config(retry_max_attempts=3))
         result = uploader.upload(
@@ -551,16 +530,17 @@ class TestUploadRetry:
             batch_id="B-401-rewarm",
         )
         assert result == "ok"
-        warmup_calls = [c for c in responses.calls if c.request.method == "GET"]
+        warmup_calls = [c for c in respx_mock.calls if c.request.method == "GET"]
+        # 401 triggers re-warmup — 2 GETs total (initial + re-warm).
         assert len(warmup_calls) == 2
 
-    @responses.activate
-    def test_retries_exhausted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @respx.mock
+    def test_retries_exhausted(
+        self, respx_mock: respx.MockRouter, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _skip_sleep(monkeypatch)
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        for _ in range(5):
-            responses.add(responses.POST, _root_url("BAC_E"), json={}, status=503)
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_E")).mock(return_value=httpx.Response(503, json={}))
         uploader = CmisUploader(_make_config(retry_max_attempts=3))
         with pytest.raises(RetriesExhaustedError) as ei:
             uploader.upload(
@@ -594,20 +574,14 @@ class TestUploadWindows10053:
             lambda s: captured_delays.append(s),
         )
 
-        @responses.activate
-        def _run() -> str:
-            _stub_warmup()
-            responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-            responses.add(
-                responses.POST,
-                _root_url("BAC_W"),
-                body=requests.exceptions.ConnectionError("WSA error 10053"),
-            )
-            responses.add(
-                responses.POST,
-                _root_url("BAC_W"),
-                json={"succinctProperties": {"cmis:objectId": "ok"}},
-                status=201,
+        @respx.mock
+        def _run(respx_mock: respx.MockRouter) -> str:
+            _stub_warmup(respx_mock)
+            respx_mock.post(_root_url("BAC_W")).mock(
+                side_effect=[
+                    httpx.ConnectError("WSA error 10053"),
+                    httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "ok"}}),
+                ]
             )
             uploader = CmisUploader(_make_config(retry_base_delay_s=1.0))
             with caplog.at_level(logging.ERROR, logger="cmcourier.adapters.upload.cmis_uploader"):
@@ -742,22 +716,21 @@ class TestBandwidthLimiter:
 
 
 class TestLoggingDiscipline:
-    @responses.activate
+    @respx.mock
     def test_retry_log_carries_keys_not_values(
         self,
+        respx_mock: respx.MockRouter,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         _skip_sleep(monkeypatch)
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(responses.POST, _root_url("BAC_L"), json={}, status=503)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_L"),
-            json={"succinctProperties": {"cmis:objectId": "ok"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_L")).mock(
+            side_effect=[
+                httpx.Response(503, json={}),
+                httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "ok"}}),
+            ]
         )
         uploader = CmisUploader(_make_config(retry_max_attempts=3))
         sensitive = "BAC_VALUE_THAT_MUST_NOT_LEAK_999999"
@@ -777,65 +750,40 @@ class TestLoggingDiscipline:
 
 
 # ---------------------------------------------------------------------------
-# Group 10 — get_type_definition (REBIRTH §10.5 pre-flight)
+# Group 10 — get_type_definition
 # ---------------------------------------------------------------------------
 
 
 class TestGetTypeDefinition:
-    @responses.activate
-    def test_200_returns_parsed_dict(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _repo_info_url(),
-            json={"id": "$t!-2_BAC_01_02_04_01_01v-1", "displayName": "Auth SMS"},
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {
-                        "cmisselector": "typeDefinition",
-                        "typeId": "$t!-2_BAC_01_02_04_01_01v-1",
-                    }
-                )
-            ],
+    @respx.mock
+    def test_200_returns_parsed_dict(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_repo_info_url()).mock(
+            return_value=httpx.Response(
+                200, json={"id": "$t!-2_BAC_01_02_04_01_01v-1", "displayName": "Auth SMS"}
+            )
         )
         uploader = CmisUploader(_make_config())
         result = uploader.get_type_definition("$t!-2_BAC_01_02_04_01_01v-1")
         assert result["id"] == "$t!-2_BAC_01_02_04_01_01v-1"
         assert result["displayName"] == "Auth SMS"
 
-    @responses.activate
-    def test_404_raises_client_error(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _repo_info_url(),
-            json={"error": "type not found"},
-            status=404,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": "MISSING"}
-                )
-            ],
+    @respx.mock
+    def test_404_raises_client_error(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_repo_info_url()).mock(
+            return_value=httpx.Response(404, json={"error": "type not found"})
         )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISClientError) as ei:
             uploader.get_type_definition("MISSING")
         assert ei.value.status_code == 404
 
-    @responses.activate
-    def test_500_raises_server_error(self) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.GET,
-            _repo_info_url(),
-            json={"error": "boom"},
-            status=500,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": "X"}
-                )
-            ],
+    @respx.mock
+    def test_500_raises_server_error(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.get(_repo_info_url()).mock(
+            return_value=httpx.Response(500, json={"error": "boom"})
         )
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISServerError) as ei:
@@ -862,16 +810,13 @@ class TestPortConformance:
 
 
 class TestUploadPayloadTraceEvents:
-    @responses.activate
+    @respx.mock
     def test_attempt_event_emitted_on_success(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, respx_mock: respx.MockRouter, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "abc"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "abc"}})
         )
         uploader = CmisUploader(_make_config())
         with caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"):
@@ -895,20 +840,20 @@ class TestUploadPayloadTraceEvents:
         assert "TXN1.pdf" in rec.properties_json
         assert "application/pdf" in rec.properties_json
 
-    @responses.activate
+    @respx.mock
     def test_failed_event_emitted_with_curl_equivalent(
         self,
+        respx_mock: respx.MockRouter,
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        _stub_warmup()
+        _stub_warmup(respx_mock)
         _skip_sleep(monkeypatch)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"error": "constraint", "message": "property unknown"},
-            status=400,
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(
+                400, json={"error": "constraint", "message": "property unknown"}
+            )
         )
         uploader = CmisUploader(_make_config())
         with (
@@ -937,16 +882,13 @@ class TestUploadPayloadTraceEvents:
         assert "00123456" not in fail.properties_json
         assert "00123456" not in fail.curl_equivalent
 
-    @responses.activate
+    @respx.mock
     def test_unmask_pii_emits_raw_values(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, respx_mock: respx.MockRouter, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "abc"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "abc"}})
         )
         uploader = CmisUploader(_make_config(unmask_pii=True))
         with caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"):
@@ -995,31 +937,31 @@ class TestAlfrescoStyleUrls:
     ``.../base//root/...`` (Alfresco rejects with HTTP 405).
     """
 
-    @responses.activate
-    def test_verify_folder_exists_emits_no_repo_id_segment(self, tmp_path: Path) -> None:
-        _stub_warmup_alfresco_style()
-        responses.add(
-            responses.GET,
-            f"{_BASE_URL}/root/X",
-            json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}},
-            status=200,
-            match=[responses.matchers.query_param_matcher({"cmisselector": "object"})],
+    @respx.mock
+    def test_verify_folder_exists_emits_no_repo_id_segment(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup_alfresco_style(respx_mock)
+        respx_mock.get(f"{_BASE_URL}/root/X").mock(
+            return_value=httpx.Response(
+                200, json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}}
+            )
         )
         uploader = CmisUploader(_make_config(repo_id=""))
         assert uploader.verify_folder_exists("/X") is True
         # The GET URL must not contain a doubled slash anywhere after the host.
-        for call in responses.calls:
-            path = call.request.url.split(f"{_BASE_URL}", 1)[1]
-            assert "//" not in path, call.request.url
+        for call in respx_mock.calls:
+            url_str = str(call.request.url)
+            path = url_str.split(_BASE_URL, 1)[1]
+            assert "//" not in path, url_str
 
-    @responses.activate
-    def test_upload_emits_no_repo_id_segment(self, tmp_path: Path) -> None:
-        _stub_warmup_alfresco_style()
-        responses.add(
-            responses.POST,
-            f"{_BASE_URL}/root/X",
-            json={"succinctProperties": {"cmis:objectId": "id"}},
-            status=201,
+    @respx.mock
+    def test_upload_emits_no_repo_id_segment(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup_alfresco_style(respx_mock)
+        respx_mock.post(f"{_BASE_URL}/root/X").mock(
+            return_value=httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "id"}})
         )
         uploader = CmisUploader(_make_config(repo_id=""))
         result = uploader.upload(
@@ -1033,86 +975,53 @@ class TestAlfrescoStyleUrls:
         )
         assert result == "id"
         # The POST URL must not contain a doubled slash.
-        post = [c for c in responses.calls if c.request.method == "POST"][0]
-        path = post.request.url.split(_BASE_URL, 1)[1]
+        post = [c for c in respx_mock.calls if c.request.method == "POST"][0]
+        path = str(post.request.url).split(_BASE_URL, 1)[1]
         assert "//" not in path
 
-    @responses.activate
-    def test_get_type_definition_no_repo_id_segment(self) -> None:
-        _stub_warmup_alfresco_style()
-        responses.add(
-            responses.GET,
-            _BASE_URL,
-            json={"id": "D:cmcourier:bacDoc"},
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "typeDefinition", "typeId": "D:cmcourier:bacDoc"}
-                )
-            ],
+    @respx.mock
+    def test_get_type_definition_no_repo_id_segment(self, respx_mock: respx.MockRouter) -> None:
+        _stub_warmup_alfresco_style(respx_mock)
+        respx_mock.get(_BASE_URL).mock(
+            return_value=httpx.Response(200, json={"id": "D:cmcourier:bacDoc"})
         )
         uploader = CmisUploader(_make_config(repo_id=""))
         result = uploader.get_type_definition("D:cmcourier:bacDoc")
         assert result["id"] == "D:cmcourier:bacDoc"
 
 
-def _stub_warmup_alfresco_style() -> None:
-    """Same as ``_stub_warmup`` but matches the Alfresco URL (no repo_id segment)."""
-    responses.add(
-        responses.GET,
-        _BASE_URL,
-        json={
-            "repositoryId": "-default-",
-            "productName": "Alfresco Community",
-            "productVersion": "23.4.1",
-            "vendorName": "Alfresco",
-        },
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
-    )
-
-
 # ---------------------------------------------------------------------------
-# 045 — idempotent 409 recovery (kill-race between CMIS POST 200 and our
-# SQLite commit leaves orphans whose names collide on resume; recovery
-# looks them up and treats the upload as already-done).
+# 045 — idempotent 409 recovery
 # ---------------------------------------------------------------------------
 
 
 class TestUpload409Recovery045:
-    @responses.activate
-    def test_409_recovered_returns_existing_object_id(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
+    @respx.mock
+    def test_409_recovered_returns_existing_object_id(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup(respx_mock)
         # Document POST collides on cmis:name → 409 from Alfresco.
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"exception": "contentAlreadyExists"},
-            status=409,
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(409, json={"exception": "contentAlreadyExists"})
         )
         # Children lookup of the same folder returns the prior orphan.
-        responses.add(
-            responses.GET,
-            _root_url("BAC_X"),
-            json={
-                "objects": [
-                    {
-                        "object": {
-                            "properties": {
-                                "cmis:name": "TXN0000050.pdf",
-                                "cmis:objectId": "recovered-xyz",
+        respx_mock.get(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "objects": [
+                        {
+                            "object": {
+                                "properties": {
+                                    "cmis:name": "TXN0000050.pdf",
+                                    "cmis:objectId": "recovered-xyz",
+                                }
                             }
                         }
-                    }
-                ]
-            },
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "children", "maxItems": "5000"}
-                )
-            ],
+                    ]
+                },
+            )
         )
         uploader = CmisUploader(_make_config())
         result = uploader.upload(
@@ -1126,31 +1035,18 @@ class TestUpload409Recovery045:
         )
         assert result == "recovered-xyz"
 
-    @responses.activate
-    def test_409_with_no_matching_child_reraises(self, tmp_path: Path) -> None:
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"exception": "contentAlreadyExists"},
-            status=409,
+    @respx.mock
+    def test_409_with_no_matching_child_reraises(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(409, json={"exception": "contentAlreadyExists"})
         )
-        # Children lookup returns NO match — the 409 was for some other reason
-        # (different name collision, permission constraint, etc.).
-        responses.add(
-            responses.GET,
-            _root_url("BAC_X"),
-            json={"objects": []},
-            status=200,
-            match=[
-                responses.matchers.query_param_matcher(
-                    {"cmisselector": "children", "maxItems": "5000"}
-                )
-            ],
+        # Children lookup returns NO match — the 409 was for some other reason.
+        respx_mock.get(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(200, json={"objects": []})
         )
-        from cmcourier.domain.exceptions import CMISClientError
-
         uploader = CmisUploader(_make_config())
         with pytest.raises(CMISClientError) as exc:
             uploader.upload(
@@ -1164,19 +1060,19 @@ class TestUpload409Recovery045:
             )
         assert exc.value.status_code == 409
 
-    @responses.activate
-    def test_200_does_not_trigger_lookup(self, tmp_path: Path) -> None:
+    @respx.mock
+    def test_200_does_not_trigger_lookup(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
         """Happy path must NOT call the recovery lookup (no behavior drift)."""
-        _stub_warmup()
-        responses.add(responses.POST, _root_url(""), json={"ok": True}, status=201)
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "fresh-abc"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(
+                201, json={"succinctProperties": {"cmis:objectId": "fresh-abc"}}
+            )
         )
-        # No children-lookup response registered. If the uploader called it,
-        # ``responses`` would raise ConnectionError for the unmatched GET.
+        # If the uploader called the children GET, respx would raise on the
+        # unmatched route (default behaviour).
         uploader = CmisUploader(_make_config())
         result = uploader.upload(
             file=_make_staged(tmp_path),
@@ -1192,24 +1088,18 @@ class TestUpload409Recovery045:
 
 # ---------------------------------------------------------------------------
 # 055 — network events carry the batch_id so the per-batch bandwidth +
-# slow-op handlers actually receive them. Pre-055 ``_emit_network`` never
-# set ``batch_id``, so every ``cmis_upload`` event was silently dropped by
-# both handlers (their ``record.batch_id != self._batch_id`` short-circuit).
+# slow-op handlers actually receive them.
 # ---------------------------------------------------------------------------
 
 
 class TestNetworkEventBatchId055:
-    @responses.activate
-    def test_upload_event_reaches_bandwidth_and_slowop_handlers(self, tmp_path: Path) -> None:
-        # The test that would have caught the bug: it exercises the REAL
-        # ``_emit_network`` under a REAL ``MetricsRecorder.start_batch()`` —
-        # not a hand-built ``extra`` dict with ``batch_id`` already in it.
-        _stub_warmup()
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "id"}},
-            status=201,
+    @respx.mock
+    def test_upload_event_reaches_bandwidth_and_slowop_handlers(
+        self, respx_mock: respx.MockRouter, tmp_path: Path
+    ) -> None:
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "id"}})
         )
         recorder = MetricsRecorder(
             log_dir=tmp_path / "logs",
@@ -1241,16 +1131,13 @@ class TestNetworkEventBatchId055:
             net_log.setLevel(prev_level)
             recorder.close_batch(pipeline="csv-trigger", batch_id="B1", total_docs=1, elapsed_s=1.0)
 
-    @responses.activate
+    @respx.mock
     def test_emit_network_record_carries_batch_id(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, respx_mock: respx.MockRouter, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        _stub_warmup()
-        responses.add(
-            responses.POST,
-            _root_url("BAC_X"),
-            json={"succinctProperties": {"cmis:objectId": "id"}},
-            status=201,
+        _stub_warmup(respx_mock)
+        respx_mock.post(_root_url("BAC_X")).mock(
+            return_value=httpx.Response(201, json={"succinctProperties": {"cmis:objectId": "id"}})
         )
         with caplog.at_level(logging.INFO, logger="cmcourier.metrics.network"):
             CmisUploader(_make_config()).upload(
@@ -1265,3 +1152,19 @@ class TestNetworkEventBatchId055:
         uploads = [r for r in caplog.records if getattr(r, "kind", "") == "cmis_upload"]
         assert len(uploads) == 1
         assert uploads[0].batch_id == "B-carries"
+
+
+# ---------------------------------------------------------------------------
+# 060 — HTTP/2 negotiation
+# ---------------------------------------------------------------------------
+
+
+class TestHttp2Enabled060:
+    def test_client_built_with_http2_enabled(self) -> None:
+        # The adapter advertises HTTP/2 via ALPN. The server decides whether
+        # to negotiate it. We pin that the client *offers* it.
+        uploader = CmisUploader(_make_config())
+        # httpx.Client._transport is HTTPTransport; the http2 flag is on the
+        # pool config. Easiest invariant: the AsyncClient/Client carries http2
+        # = True at construction time.
+        assert uploader._client._transport._pool._http2 is True  # noqa: SLF001

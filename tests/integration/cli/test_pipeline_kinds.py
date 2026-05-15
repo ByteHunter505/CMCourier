@@ -6,8 +6,9 @@ import logging
 from pathlib import Path
 from textwrap import dedent
 
+import httpx
 import pytest
-import responses
+import respx
 from click.testing import CliRunner
 
 from cmcourier.cli.app import main
@@ -29,25 +30,17 @@ def _set_cmis_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _stub_cmis_for_docs(txn_nums: list[str]) -> None:
-    responses.add(
-        responses.GET,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
-        json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"},
-        status=200,
-        match=[responses.matchers.query_param_matcher({"cmisselector": "repositoryInfo"})],
+    respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
+        return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    responses.add(
-        responses.POST,
-        f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root",
-        json={"ok": True},
-        status=201,
+    respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root").mock(
+        return_value=httpx.Response(201, json={"ok": True})
     )
     for txn in txn_nums:
-        responses.add(
-            responses.POST,
-            f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01",
-            json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}},
-            status=201,
+        respx.post(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/$type/BAC_04_01_01_01_01").mock(
+            return_value=httpx.Response(
+                201, json={"succinctProperties": {"cmis:objectId": f"cm-{txn}"}}
+            )
         )
 
 
@@ -153,13 +146,13 @@ def _write_as400_yaml(tmp_path: Path) -> Path:
 
 
 class TestRvabrepPipeline:
-    @responses.activate
+    @respx.mock
     def test_help(self, cli_runner: CliRunner) -> None:
         result = cli_runner.invoke(main, ["rvabrep-pipeline", "run", "--help"])
         assert result.exit_code == 0
         assert "--config" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_happy_path(
         self,
         cli_runner: CliRunner,
@@ -344,7 +337,7 @@ class TestRvabrepPipelineAs400Source:
         assert result.exit_code == 2
         assert "AS400" in result.stderr
 
-    @responses.activate
+    @respx.mock
     def test_happy_path(
         self,
         cli_runner: CliRunner,
@@ -437,7 +430,7 @@ class TestLocalScanPipeline:
         assert result.exit_code == 2
         assert "trigger.kind" in result.stderr
 
-    @responses.activate
+    @respx.mock
     def test_happy_path(
         self,
         cli_runner: CliRunner,
@@ -510,7 +503,7 @@ class TestSingleDocPipeline:
         assert result.exit_code == 2
         assert "single_doc" in result.stderr
 
-    @responses.activate
+    @respx.mock
     def test_happy_path(
         self,
         cli_runner: CliRunner,
@@ -679,7 +672,7 @@ class TestResumeFlag:
         assert result.exit_code == 0
         assert "Nothing to resume" in result.stdout
 
-    @responses.activate
+    @respx.mock
     def test_resume_picks_lowest_failed_stage(
         self,
         cli_runner: CliRunner,
