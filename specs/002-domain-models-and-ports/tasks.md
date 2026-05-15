@@ -67,7 +67,7 @@ Helpers (`parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder`, `compute_cm_obj
 - [ ] **3.2 (G)** Implement `parse_cymmdd` per `plan.md §3.2`. Confirm green.
 - [ ] **3.3 (R)** Add `TestIsPdfFilename` covering `"0AAAUI0K.PDF"` (true), `"DAAAH9X4.001"` (false), case insensitivity. Confirm fails.
 - [ ] **3.4 (G)** Implement `is_pdf_filename`. Confirm green.
-- [ ] **3.5 (R)** Add `TestComputeCmFolder` and `TestComputeCmObjectType` covering the REBIRTH §4.2 example (`"01.02.04.01.01"` → `"/$type/BAC_01_02_04_01_01"` and `"$t!-2_BAC_01_02_04_01_01v-1"`). Confirm fails.
+- [ ] **3.5 (R)** Add `TestComputeCmFolder` and `TestComputeCmObjectType` covering the the spec example (`"01.02.04.01.01"` → `"/$type/BAC_01_02_04_01_01"` and `"$t!-2_BAC_01_02_04_01_01v-1"`). Confirm fails.
 - [ ] **3.6 (G)** Implement `compute_cm_folder` and `compute_cm_object_type`. Confirm green.
 - [ ] **3.7 (R)** Add `TestTriggerRecord` covering: construction with valid inputs, empty `shortname` raises `ValueError`, empty `system_id` raises `ValueError`, `cif=None` allowed, frozen-ness (assignment raises `FrozenInstanceError`).
 - [ ] **3.8 (G)** Implement `TriggerRecord` per `plan.md §3.1` with a `__post_init__` that validates non-empty `shortname` and `system_id`. Confirm green.
@@ -179,7 +179,7 @@ Replace the current docstring-only `domain/__init__.py` with the full re-export 
   arrived via Strict TDD (red test → green code → refactor). Coverage
   on src/cmcourier/domain/ is XX% (target ≥95%).
 
-  Models (REBIRTH §3, §4, §6, §9): TriggerRecord, RVABREPDocument
+  Models (the spec): TriggerRecord, RVABREPDocument
   (with is_pdf / is_deleted properties), CMMapping (with computed
   cm_folder + cm_object_type), ResolvedMetadata (read-only mapping
   via MappingProxyType), StagedFile, MigrationRecord, plus the
@@ -188,7 +188,7 @@ Replace the current docstring-only `domain/__init__.py` with the full re-export 
   compute_cm_object_type live alongside the models so services and
   pre-flight validation share one source of truth.
 
-  Ports (REBIRTH §14.3 + §10): IDataSource, ITrackingStore (with the
+  Ports (the spec + §10): IDataSource, ITrackingStore (with the
   stage-aware methods mark_stage_pending / mark_stage_done /
   mark_stage_failed plus the cross-batch is_uploaded idempotency
   anchor), IAssembler, IUploader, and S0Strategy (the new abstraction

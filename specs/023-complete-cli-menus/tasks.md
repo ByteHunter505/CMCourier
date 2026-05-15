@@ -77,10 +77,10 @@
   - Remove the three commands from Planned.
   - Add `[0.25.0] — 2026-05-10` entry.
 - [ ] **4.8** Update `README.md` Status checklist: tick
-  "Twenty-third change: complete REBIRTH §11 menus".
+  "Twenty-third change: complete the spec menus".
 - [ ] **4.9** PII grep on new content.
 - [ ] **4.10** Stage. Commit:
-  `feat(cli): inspect trigger + inspect mapping-stats + batch export-report (REBIRTH §11)`.
+  `feat(cli): inspect trigger + inspect mapping-stats + batch export-report`.
 - [ ] **4.11** `git checkout main && git merge --ff-only feat/023-complete-cli-menus && git branch -d feat/023-complete-cli-menus`.
 
 ---

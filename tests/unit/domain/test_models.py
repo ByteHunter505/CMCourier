@@ -68,8 +68,8 @@ class TestStageStatus:
 
 
 class TestParseCymmdd:
-    def test_canonical_example_from_rebirth(self) -> None:
-        # REBIRTH §3.3: "1251117" = 2025-11-17
+    def test_canonical_example(self) -> None:
+        # "1251117" = 2025-11-17 in the CYYMMDD format.
         assert parse_cymmdd("1251117") == datetime(2025, 11, 17)
 
     def test_century_zero_means_1900s(self) -> None:
@@ -112,8 +112,8 @@ class TestIsPdfFilename:
 
 
 class TestComputeCmFolder:
-    def test_rebirth_example(self) -> None:
-        # REBIRTH §4.2: "01.02.04.01.01" -> "/$type/BAC_01_02_04_01_01"
+    def test_canonical_example(self) -> None:
+        # "01.02.04.01.01" -> "/$type/BAC_01_02_04_01_01"
         assert compute_cm_folder("01.02.04.01.01") == "/$type/BAC_01_02_04_01_01"
 
     def test_no_dots(self) -> None:
@@ -121,8 +121,8 @@ class TestComputeCmFolder:
 
 
 class TestComputeCmObjectType:
-    def test_rebirth_example(self) -> None:
-        # REBIRTH §4.2: "01.02.04.01.01" -> "$t!-2_BAC_01_02_04_01_01v-1"
+    def test_canonical_example(self) -> None:
+        # "01.02.04.01.01" -> "$t!-2_BAC_01_02_04_01_01v-1"
         assert compute_cm_object_type("01.02.04.01.01") == "$t!-2_BAC_01_02_04_01_01v-1"
 
 

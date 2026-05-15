@@ -12,7 +12,7 @@
 
 ## 1. Intent
 
-Implement `cmcourier.services.metadata.MetadataService`: per-field metadata resolution with **fallback chain**, **validation regex**, **default-value fallback**, **CIF self-healing**, **field alias normalization**, and **eager pre-fetching** of source tables (REBIRTH §6.6).
+Implement `cmcourier.services.metadata.MetadataService`: per-field metadata resolution with **fallback chain**, **validation regex**, **default-value fallback**, **CIF self-healing**, **field alias normalization**, and **eager pre-fetching** of source tables.
 
 This is the engine of stage S3 (Metadata Resolution) in every pipeline. Without it, no document can be uploaded with correct metadata.
 
@@ -24,7 +24,7 @@ After this change merges, the only remaining services for an MVP pipeline are th
 
 - `MappingService` (004) tells us which `BAC_*` fields each document class requires. We have to resolve those fields' values.
 - The CMIS upload adapter (later change) needs a `Mapping[str, str]` of CMIS property values; that mapping is what `MetadataService` produces.
-- Pre-fetching is performance-critical for production scale (REBIRTH §6.6: "tens of thousands of AS400 queries" without it). Including it now means the service ships production-ready, not "good for testing then we revisit".
+- Pre-fetching is performance-critical for production scale (the spec: "tens of thousands of AS400 queries" without it). Including it now means the service ships production-ready, not "good for testing then we revisit".
 
 ---
 
@@ -199,17 +199,17 @@ After this change merges, the only remaining services for an MVP pipeline are th
 
 - **Given** the merged change
 - **When** the contributor greps for known PII patterns under `src/cmcourier/services/metadata.py`, `tests/unit/services/test_metadata.py`, `tests/fixtures/services/metadata/`
-- **Then** only synthetic identifiers (per REBIRTH samples convention)
+- **Then** only synthetic identifiers (per the samples convention)
 
 ---
 
 ## 5. Out of Scope
 
 - AS400 source adapter (`as400:<alias>`). Raises `NotImplementedError` until its adapter ships.
-- TTL-based cache invalidation (REBIRTH §6.6 mentions). Pre-fetch is one-shot at construction; if config files change, the process restarts. TTL becomes relevant when AS400 sources are pre-fetched (data on a live DB can change). Post-MVP.
-- `metadata_prefetch_max_rows` skip-large-tables guard (REBIRTH §6.6). Useful in production with huge AS400 tables; not relevant for CSV. Post-MVP.
+- TTL-based cache invalidation (the spec mentions). Pre-fetch is one-shot at construction; if config files change, the process restarts. TTL becomes relevant when AS400 sources are pre-fetched (data on a live DB can change). Post-MVP.
+- `metadata_prefetch_max_rows` skip-large-tables guard. Useful in production with huge AS400 tables; not relevant for CSV. Post-MVP.
 - `metadata_prefetch_exclude` list. Same reasoning. Post-MVP.
-- TriggerService (REBIRTH §5) and DocumentService (REBIRTH §3). Land in subsequent changes.
+- TriggerService and DocumentService. Land in subsequent changes.
 - The `doctor` command's metadata-resolvability check. Will use `MetadataService.validate_field_resolvability(...)` (a method we may add later, NOT in this change unless it surfaces naturally).
 - Pydantic config schema that loads `config.yaml` into `MetadataConfig`. Lands in a separate change.
 
@@ -238,7 +238,7 @@ After this change merges, the only remaining services for an MVP pipeline are th
 
 ### 7.2 Open questions (resolved in plan.md)
 
-- For `csv:<alias>` lookup, what is the "lookup key value"? **Plan**: `trigger.cif` (the canonical join key in REBIRTH §6 examples). If a future field needs to lookup by something else, we add `SourceConfig.lookup_key_value_from: str` (`"trigger.cif"`, `"trigger.shortname"`, etc.) — out of scope here.
+- For `csv:<alias>` lookup, what is the "lookup key value"? **Plan**: `trigger.cif` (the canonical join key in the spec examples). If a future field needs to lookup by something else, we add `SourceConfig.lookup_key_value_from: str` (`"trigger.cif"`, `"trigger.shortname"`, etc.) — out of scope here.
 - Should `validate_field_resolvability` exist now (for doctor command)? **Plan**: NO. The doctor command can call `resolve` with a sample document and catch errors. If profile shows that's slow, we add the explicit method later.
 - Should we support per-field validation override on `default_value`? **Plan**: NO. Default uses the first source's validation. Documented in REQ-019.
 
@@ -264,6 +264,6 @@ After this change merges, the only remaining services for an MVP pipeline are th
 
 - Predecessor changes: 002, 003, 004
 - Constitution Principles I, III, V, VI, VII, VIII, IX
-- REBIRTH §6 (entire section), §10.1 (S3 stage), §12 (config metadata block)
+- the spec (entire section), §10.1 (S3 stage), §12 (config metadata block)
 - Plan: `specs/005-metadata-service/plan.md`
 - Tasks: `specs/005-metadata-service/tasks.md`

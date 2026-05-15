@@ -1,4 +1,4 @@
-"""Stage S5 — :class:`CmisUploader` (REBIRTH §8).
+"""Stage S5 — :class:`CmisUploader`.
 
 Concrete :class:`IUploader` for IBM Content Manager via the CMIS Browser
 Binding REST/JSON protocol. The adapter holds one :class:`httpx.Client`
@@ -11,20 +11,20 @@ concurrent workers multiplex over a single TCP connection — small-upload
 overhead drops. If the server only speaks HTTP/1.1 (Tomcat-direct
 staging) httpx transparently falls back, same behaviour as pre-060.
 
-Implements the full REBIRTH §8 contract:
+Implements the full S5 upload contract:
 
-* JSESSIONID warmup (§8.2) — lazy, runs once per session lifetime.
+* JSESSIONID warmup — lazy, runs once per session lifetime.
 * Recursive folder creation with the in-memory cache and idempotent 409
-  semantics (§8.3); ``$``-prefixed system folders are skipped.
-* Streaming multipart upload (§8.5) via httpx's ``files=`` / ``data=``
-  API; the file is read from disk on demand, never buffered whole.
-* Optional :class:`BandwidthLimiter` wrapping the file stream (§8.6) for
+  semantics; ``$``-prefixed system folders are skipped.
+* Streaming multipart upload via httpx's ``files=`` / ``data=`` API;
+  the file is read from disk on demand, never buffered whole.
+* Optional :class:`BandwidthLimiter` wrapping the file stream for
   throttled corporate networks.
-* Retry policy (§8.7): 401 → re-warmup + retry once; 5xx → exponential
+* Retry policy: 401 → re-warmup + retry once; 5xx → exponential
   backoff capped at 60 s; Windows-10053 connection abort → doubled
   sleep; 4xx → fail-fast :class:`CMISClientError`; retry budget
   exhausted → :class:`RetriesExhaustedError`.
-* The 3-path ``cmis:objectId`` parser (§8.8).
+* The 3-path ``cmis:objectId`` parser.
 
 Constitution Principle I: this module imports ``httpx`` (declared in
 ``pyproject.toml``) and the standard library. Domain models are
@@ -100,7 +100,7 @@ class CmisConfig:
 
 
 class TokenBucket:
-    """Process-shared token bucket (REBIRTH §8.6, fixed in 029).
+    """Process-shared token bucket (fixed in 029).
 
     A single instance is owned by :class:`CmisUploader` and reused
     across every upload + every worker thread. Concurrent

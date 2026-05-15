@@ -198,7 +198,7 @@ The `mark_stage_failed` `error: str` parameter MAY contain values from upstream 
 
 ### 3.10 PRAGMAs applied
 
-REBIRTH §9.3 specifies:
+the spec specifies:
 
 ```sql
 PRAGMA journal_mode = WAL;        -- on connection open (file-level)
@@ -223,7 +223,7 @@ def is_uploaded(self, txn_num: str) -> bool:
         ) from exc
 ```
 
-`TrackingError` per REBIRTH §10.1 S6 is **non-blocking** in the pipeline — the orchestrator catches and logs but does not abort.
+`TrackingError` per the spec, S6 is **non-blocking** in the pipeline — the orchestrator catches and logs but does not abort.
 
 ---
 
@@ -468,7 +468,7 @@ The SUT *is* the I/O. There is no port to mock against. Tests use real SQLite fi
 ## [0.9.0] — 2026-05-XX
 
 ### Added
-- `cmcourier.adapters.tracking.sqlite.SQLiteTrackingStore`: concrete `ITrackingStore` via stdlib `sqlite3`. WAL mode + tuned PRAGMAs (REBIRTH §9.3), per-stage state machine (§10.3), cross-batch `is_uploaded` idempotency anchor, async writer queue with batched commits (§9.4) for production performance.
+- `cmcourier.adapters.tracking.sqlite.SQLiteTrackingStore`: concrete `ITrackingStore` via stdlib `sqlite3`. WAL mode + tuned PRAGMAs, per-stage state machine (§10.3), cross-batch `is_uploaded` idempotency anchor, async writer queue with batched commits (§9.4) for production performance.
 - 2 tables: `migration_log` (per-record state) + `migration_batch` (batch lifecycle). Unique index on `(rvabrep_txn_num, batch_id)`; partial index on `rvabrep_txn_num WHERE status='S5_DONE'` for fast cross-batch idempotency queries.
 - Public `flush()` method for synchronizing reads with the async writer (used by tests + orchestrators).
 - ~20 integration tests in `tests/integration/adapters/test_sqlite_tracking_store.py`. Branch coverage on `sqlite.py`: XX% (target ≥90%).
@@ -483,7 +483,7 @@ The SUT *is* the I/O. There is no port to mock against. Tests use real SQLite fi
 
 ### Rationale
 - Stage S6 (Tracking) is transversal and required for any orchestrator to enforce idempotency. Without it, the MVP `rvabrep-pipeline` cannot run.
-- Async writer queue is included in this change (not deferred): REBIRTH §9.4 calls it "a major performance win" and 200k-document migrations are the target. Including it now matches the precedent from 005 (pre-fetching).
+- Async writer queue is included in this change (not deferred): the spec calls it "a major performance win" and 200k-document migrations are the target. Including it now matches the precedent from 005 (pre-fetching).
 - `MigrationRecord.batch_id` addition is a minor model evolution, not a constitutional amendment. The only existing consumer is `tests/unit/domain/test_models.py`, updated in this change.
 ```
 
@@ -518,5 +518,5 @@ The SUT *is* the I/O. There is no port to mock against. Tests use real SQLite fi
 - Spec: `specs/007-sqlite-tracking-store/spec.md`
 - Tasks: `specs/007-sqlite-tracking-store/tasks.md`
 - Constitution Principles I, II, III, V, VI, VII, VIII, IX
-- REBIRTH §9 (entire), §10.3 (state machine), §10.1 S6 (transversal stage)
+- the spec (entire), §10.3 (state machine), §10.1 S6 (transversal stage)
 - Predecessors: 002, 003, 004, 005, 006

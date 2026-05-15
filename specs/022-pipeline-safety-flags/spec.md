@@ -13,7 +13,7 @@
 The MVP can run end-to-end and the operator surface is wide enough
 to be useful, but three pre-dry-run safety gaps remain:
 
-1. **Pipelines bypass pre-flight.** REBIRTH §11 explicitly says
+1. **Pipelines bypass pre-flight.** the spec explicitly says
    "doctor is invoked automatically before any pipeline run
    unless `--skip-doctor` is passed." Today every pipeline
    command happily runs against a broken config — the operator
@@ -27,7 +27,7 @@ to be useful, but three pre-dry-run safety gaps remain:
 3. **`doctor` is all-or-nothing.** During triage an operator
    already knows the CMIS endpoint is fine but suspects the
    Modelo Documental — running every check (~10 s including dry
-   run) just to confirm wastes time. REBIRTH §11 specifies
+   run) just to confirm wastes time. the spec specifies
    `doctor --check connections|mapping|metadata|cm-types|all`.
 
 022 closes those three gaps. No new commands; just safety polish
@@ -62,12 +62,12 @@ on what already ships.
 ## 3. Non-goals
 
 - **NG1**: `--no-tui` / `--tui` flags. There is no TUI yet
-  (REBIRTH §10.6, separate change).
+  (the spec, separate change).
 - **NG2**: `background --pipeline` runner. Separate change.
 - **NG3**: Renaming `--from-stage` to `--from Sn` (the README
   shows the latter; we keep the existing flag name to avoid a
   break — they're semantic synonyms).
-- **NG4**: Selective check groups beyond the four REBIRTH names.
+- **NG4**: Selective check groups beyond the four canonical names.
   Adding new groups is a future change.
 - **NG5**: Parallelizing doctor checks. They run serially today;
   optimizing comes later if measured.
@@ -200,7 +200,7 @@ on what already ships.
   (`inspect trigger`, `inspect mapping-stats`,
   `batch export-report`).
 - Caching doctor results.
-- New doctor check groups beyond the 4 in REBIRTH §11.
+- New doctor check groups beyond the 4 in the spec.
 - `--from Sn` flag rename.
 - Parallelizing doctor checks.
 
@@ -208,8 +208,8 @@ on what already ships.
 
 ## 7. References
 
-- REBIRTH §11 — CLI surface ("doctor is invoked automatically…")
-- REBIRTH §10.3 — stage-by-stage resume
-- REBIRTH §10.5 — doctor pre-flight checks
+- the spec — CLI surface ("doctor is invoked automatically…")
+- the spec — stage-by-stage resume
+- the spec — doctor pre-flight checks
 - 013 — doctor implementation
 - 021 — `get_batch_details` port method (consumed by `--resume`)

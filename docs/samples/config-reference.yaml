@@ -244,7 +244,7 @@ cmis:
   retry_base_delay_s: 2.0                  # (default: 2.0)  >= 0  (exponential backoff base)
   workers: 4                               # (default: 4)  >= 1  (S5 upload pool size)
 
-  # auto_tune — AIMD adaptive worker pool (REBIRTH §12). When enabled, a
+  # auto_tune — AIMD adaptive worker pool. When enabled, a
   # background controller grows/shrinks the worker count (and optionally the
   # request timeout) based on observed S5 p95 latency vs target.
   auto_tune:
@@ -309,7 +309,7 @@ tracking:
 
 
 # -----------------------------------------------------------------------------
-# observability  (optional — has a full default)  — REBIRTH §17.4 logging.
+# observability  (optional — has a full default)  — the spec logging.
 # -----------------------------------------------------------------------------
 observability:
   enabled: true                            # (default: true)  master toggle

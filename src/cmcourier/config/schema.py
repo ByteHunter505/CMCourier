@@ -133,7 +133,7 @@ class RvabrepTriggerConfig(BaseModel):
 
 
 class LocalScanTriggerConfig(BaseModel):
-    """REBIRTH §5.1 mode ``local_scan``."""
+    """Mode ``local_scan``."""
 
     model_config = _STRICT
     kind: Literal["local_scan"]
@@ -141,7 +141,7 @@ class LocalScanTriggerConfig(BaseModel):
 
 
 class SingleDocTriggerConfig(BaseModel):
-    """REBIRTH §10.2 single-doc diagnostic pipeline.
+    """Single-doc diagnostic pipeline.
 
     No extra fields — the trigger (shortname / cif / system_id) comes
     from CLI args at run time, not from the YAML.
@@ -409,7 +409,7 @@ class AssemblyConfig(BaseModel):
 
 
 class AutoTuneConfig(BaseModel):
-    """AIMD auto-tune for the S5 worker pool (REBIRTH §12).
+    """AIMD auto-tune for the S5 worker pool.
 
     When ``enabled=True``, a background controller adjusts the
     thread count and (optionally) the CMIS request timeout based
@@ -650,7 +650,7 @@ class SystemMetricsConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
-    """REBIRTH §17.4 observability — per-tier toggles + log dir + thresholds.
+    """Observability — per-tier toggles + log dir + thresholds.
 
     Tiers 1-4 (app log, pipeline metrics, network metrics,
     slow-ops report) ship since 020. Tier 5 (system metrics via

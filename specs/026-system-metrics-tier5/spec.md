@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-Add the fifth observability tier promised by REBIRTH §17.4 — a
+Add the fifth observability tier promised by the spec — a
 background thread that samples host- and process-level system
 metrics via `psutil` at a configurable interval and emits one
 JSON line per sample to `./logs/system-{date}.jsonl`. Includes
@@ -259,7 +259,7 @@ POST-MVP §3 (`cmcourier analyze`), which depends on this.
 
 ## 7. Dependencies
 
-- **Hard**: REBIRTH §17.4 (tier 5 contract), 020 (the existing
+- **Hard**: the spec (tier 5 contract), 020 (the existing
   observability surface), 025 (WorkerPoolStats — for the
   `active_workers` field).
 - **Unblocks**: POST-MVP §3 (offline log analyzer), validation

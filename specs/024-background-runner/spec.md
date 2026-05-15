@@ -4,13 +4,13 @@
 **Owner**: bitBreaker
 **Date**: 2026-05-10
 **Predecessors**: 020 (observability), 022 (safety flags), 023 (CLI menus)
-**Successors**: TBD (TUI — REBIRTH §10.6)
+**Successors**: TBD (TUI — the spec)
 
 ---
 
 ## 1. Problem
 
-REBIRTH §11 commits to a `cmcourier background --pipeline <name>`
+the spec commits to a `cmcourier background --pipeline <name>`
 entry point designed for **unattended execution** (cron,
 systemd-timer, supervised service). The MVP today only ships the
 interactive `csv-trigger-pipeline run` / `rvabrep-pipeline run` /
@@ -48,7 +48,7 @@ unchanged.
   the run. Second instance for the same config exits 75
   (EX_TEMPFAIL) without running.
 - **G3**: Quiet on success: stdout silent, stderr only carries
-  doctor failures (REBIRTH §11 quiet semantics for cron).
+  doctor failures (the spec quiet semantics for cron).
   Observability tiers (app log, metrics, network, slow-ops) keep
   recording.
 - **G4**: Auto-doctor stays ON by default (cron NEEDS pre-flight
@@ -68,7 +68,7 @@ unchanged.
   operator misconfiguration, not a runner bug.
 - **NG3**: Lock-retry logic. Second instance exits immediately
   with 75. Operators handle retries via cron / systemd.
-- **NG4**: `single-doc` support. Out of scope (REBIRTH §11
+- **NG4**: `single-doc` support. Out of scope (the spec
   positions `single-doc` as ad-hoc, not scheduled).
 - **NG5**: Background-only flags (e.g., `--max-runtime`,
   `--checkpoint-interval`). The MVP runs to completion or
@@ -234,7 +234,7 @@ unchanged.
 
 ## 7. References
 
-- REBIRTH §11 — CLI Surface (`background` entry)
+- the spec — CLI Surface (`background` entry)
 - POSIX `fcntl(2)` and `flock(2)` semantics
 - `os.EX_TEMPFAIL` (75) — sysexits.h convention for
   "transient failure, retry later"

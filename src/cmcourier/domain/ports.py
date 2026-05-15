@@ -76,7 +76,7 @@ class IDataSource(ABC):
         """Fetch rows where *field* IN *values* AND every *fixed_filter* matches.
 
         The split between the IN-list and the fixed equality filters lets the
-        adapter chunk the IN clause efficiently (REBIRTH §10.1 batches of 50).
+        adapter chunk the IN clause efficiently (batches of 50).
         """
 
     @abstractmethod
@@ -93,7 +93,7 @@ class IDataSource(ABC):
 
 
 # ---------------------------------------------------------------------------
-# ITrackingStore — idempotency + per-stage state (REBIRTH §9, §10.3)
+# ITrackingStore — idempotency + per-stage state
 # ---------------------------------------------------------------------------
 
 
@@ -107,11 +107,11 @@ class ITrackingStore(ABC):
        skip-already-uploaded behavior at the start of any pipeline run.
     2. **Per-batch, per-stage state machine**: ``Sn_PENDING / Sn_DONE /
        Sn_FAILED`` for the current batch. Drives the resume / stage-by-stage
-       execution semantics of REBIRTH §10.3.
+       execution semantics for resumable batches.
 
     Tracking failures (raised by any of these methods) are non-blocking per
-    REBIRTH §10.1's stage S6 description — implementations log and convert
-    to ``TrackingError`` but the pipeline continues.
+    the stage S6 contract — implementations log and convert to
+    ``TrackingError`` but the pipeline continues.
     """
 
     @abstractmethod
@@ -169,7 +169,7 @@ class ITrackingStore(ABC):
         Used for the non-error outcomes that previously had no row in
         ``migration_log``: ``S1_FILTERED`` (delete-coded at source —
         spec 051) and ``S1_SKIPPED`` (already ``S5_DONE`` in a prior
-        batch — REBIRTH §10 cross-batch idempotency).
+        batch — cross-batch idempotency).
 
         Distinct from :meth:`mark_stage_failed`:
 
@@ -284,7 +284,7 @@ class ITrackingStore(ABC):
 
 
 # ---------------------------------------------------------------------------
-# IAssembler — stage S4 (REBIRTH §7)
+# IAssembler — stage S4
 # ---------------------------------------------------------------------------
 
 
@@ -301,7 +301,7 @@ class IAssembler(ABC):
 
 
 # ---------------------------------------------------------------------------
-# IUploader — stage S5 (REBIRTH §8)
+# IUploader — stage S5
 # ---------------------------------------------------------------------------
 
 
@@ -356,7 +356,7 @@ class IUploader(ABC):
     def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
         """Return the CMIS typeDefinition for *object_type_id*.
 
-        Used by the pre-flight ``doctor`` command (REBIRTH §10.5) to verify
+        Used by the pre-flight ``doctor`` command to verify
         that every ``cm_object_type`` referenced by the Modelo Documental
         exists on the CM server. Bypasses any retry policy — pre-flight
         prefers fail-loud over retry-quietly.
@@ -368,14 +368,14 @@ class IUploader(ABC):
 
 
 # ---------------------------------------------------------------------------
-# S0Strategy — stage S0 (REBIRTH §10.1)
+# S0Strategy — stage S0
 # ---------------------------------------------------------------------------
 
 
 class S0Strategy(ABC):
     """Stage S0 strategy: turn a source descriptor into a stream of triggers.
 
-    The trigger kinds from REBIRTH §5.1 each map to a concrete subclass:
+    The supported trigger kinds each map to a concrete subclass:
 
     * ``CsvTriggerStrategy`` — reads a trigger-list CSV (client tuples).
     * ``DirectRvabrepTriggerStrategy`` — discovers triggers by scanning the

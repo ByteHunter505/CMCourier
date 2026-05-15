@@ -34,7 +34,7 @@ This leaves two cracks:
    assert "this is a real IUploader" has to fall back to structural
    checks or skip the assertion entirely.
 
-REBIRTH §7 (assembler) and §8 (uploader) both explicitly reference
+the spec (assembler) and §8 (uploader) both explicitly reference
 the ports as the contract surface. This change closes the gap with
 zero behavioral changes — pure declarative cleanup.
 
@@ -151,5 +151,5 @@ zero behavioral changes — pure declarative cleanup.
 
 - 008 — PdfAssembler shipped
 - 009 — CmisUploader shipped
-- REBIRTH §7 (assembler), §8 (uploader)
+- the spec (assembler), §8 (uploader)
 - Constitution Principle I (hexagonal architecture / ports & adapters)

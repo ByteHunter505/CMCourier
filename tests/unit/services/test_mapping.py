@@ -60,7 +60,7 @@ class TestPublicApi:
 
     def test_get_mapping_propagates_computed_properties(self, service: MappingService) -> None:
         m = service.get_mapping("FF17")
-        # CMMapping computes cm_folder + cm_object_type from clase_id (REBIRTH §4.2).
+        # CMMapping computes cm_folder + cm_object_type from clase_id.
         assert m.cm_folder == "/$type/BAC_01_02_04_01_01"
         assert m.cm_object_type == "$t!-2_BAC_01_02_04_01_01v-1"
 

@@ -1,4 +1,4 @@
-"""Metadata resolution service - REBIRTH §6.
+"""Metadata resolution service.
 
 Per-field source fallback chain with validation regexes, default-value
 fallback, CIF self-healing, field alias normalization, and eager
@@ -97,7 +97,7 @@ class FieldSourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class MetadataConfig:
-    """Top-level metadata resolution config (REBIRTH §6.2 + §6.3 + §6.6)."""
+    """Top-level metadata resolution config."""
 
     field_aliases: Mapping[str, str]
     field_sources: Mapping[str, FieldSourceConfig]
@@ -200,7 +200,7 @@ class MetadataService:
         document: RVABREPDocument,
         mapping: CMMapping,
     ) -> MetadataResolution:
-        """Resolve every required metadata field per REBIRTH §6 rules."""
+        """Resolve every required metadata field."""
         canonical_fields, canonical_to_friendly = self._normalize_fields_with_friendly(
             mapping.required_metadata_fields
         )
@@ -412,7 +412,7 @@ class MetadataService:
                 "csv source requires lookup_key_column",
                 source_type=sc.source_type,
             )
-        # Convention: csv lookup keys against the trigger's CIF (REBIRTH §6).
+        # Convention: csv lookup keys against the trigger's CIF.
         # 046: ``cif_override`` carries the self-healed CIF from S3 when
         # the trigger started without one; falls back to the trigger's own
         # CIF projection. ClientTrigger.cif and row-based triggers'

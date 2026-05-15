@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-The current `BandwidthLimiter` (REBIRTH §8.6) is **per-stream**:
+The current `BandwidthLimiter` is **per-stream**:
 each `CmisUploader.upload(...)` call wraps the file stream in
 a fresh limiter with its own token bucket. With
 `cmis.workers=N` concurrent uploads, the effective network

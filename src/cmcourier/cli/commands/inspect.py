@@ -1,4 +1,4 @@
-"""``cmcourier inspect ...`` subcommands (REBIRTH §11).
+"""``cmcourier inspect ...`` subcommands.
 
 * ``inspect rvabrep <shortname> <system_id>`` — preview the
   RVABREPDocuments stage S1 would produce for one trigger.
@@ -53,7 +53,7 @@ from cmcourier.services.triggers import (
 
 @click.group(name="inspect")
 def inspect_group() -> None:
-    """Read-only previews of pipeline state (REBIRTH §11)."""
+    """Read-only previews of pipeline state."""
 
 
 @inspect_group.command(name="rvabrep")

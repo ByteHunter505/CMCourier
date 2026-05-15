@@ -14,7 +14,7 @@ as ``S5_FAILED`` in the migration log even though the docs are
 already in CMIS.
 
 The folder-creation path in ``CmisUploader`` already implements
-this idempotent-409 pattern (REBIRTH §8.3 / the docstring at line
+this idempotent-409 pattern (the spec / the docstring at line
 11): if a folder POST returns 409 because the folder already
 exists, the uploader proceeds with the cached id instead of
 failing. The document POST path has no such handling — 045 brings
@@ -71,7 +71,7 @@ visibility value at this scale. Recovered uploads count as
 ## Out of scope
 
 - 409 retry on folder creation. That path was already idempotent
-  pre-045 (REBIRTH §8.3).
+  pre-045.
 - Verifying the recovered doc's content/properties match what we
   intended to upload. The uniqueness contract is ``cmis:name``;
   if a different doc legitimately shares that name (e.g. operator

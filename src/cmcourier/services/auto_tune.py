@@ -1,6 +1,6 @@
 """AIMD auto-tune controller for the S5 worker pool (025 phase 2).
 
-Algorithm (REBIRTH §12, retuned for heavy-file workloads in 068):
+Algorithm (retuned for heavy-file workloads in 068):
 
 * **MI** (multiplicative increase) — when observed p95 latency falls
   below 80 % of the target, grow workers to

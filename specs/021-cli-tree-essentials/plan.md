@@ -178,7 +178,7 @@ substring in any status value is the suffix.
 ```python
 @main.group(name="batch")
 def batch_group():
-    """Batch lifecycle commands (REBIRTH §11)."""
+    """Batch lifecycle commands."""
 
 @batch_group.command(name="list")
 @click.option("--config", "-c", "config_path", required=True, type=click.Path(exists=True))
@@ -202,7 +202,7 @@ def batch_retry_failed_command(config_path, batch_id, stage): ...
 ```python
 @main.group(name="inspect")
 def inspect_group():
-    """Read-only previews of pipeline state (REBIRTH §11)."""
+    """Read-only previews of pipeline state."""
 
 @inspect_group.command(name="rvabrep")
 @click.option("--config", "-c", "config_path", required=True, type=click.Path(exists=True))

@@ -6,7 +6,7 @@
 **Constitution version**: v1.0.0
 **Depends on**: 002, 003, 004, 005, 006 (all merged)
 
-> Implements stage S6 (Tracking, transversal) of every pipeline. Concrete `ITrackingStore` over SQLite with WAL mode, an async writer queue (REBIRTH §9.4), and the per-stage state machine (REBIRTH §10.3).
+> Implements stage S6 (Tracking, transversal) of every pipeline. Concrete `ITrackingStore` over SQLite with WAL mode, an async writer queue, and the per-stage state machine.
 
 ---
 
@@ -17,10 +17,10 @@ Populate `src/cmcourier/adapters/tracking/sqlite.py` with `SQLiteTrackingStore` 
 - **Cross-batch idempotency anchor** (`is_uploaded(txn_num)` — has this document ever reached `S5_DONE`?).
 - **Per-batch, per-stage state machine** (`is_stage_done` / `mark_stage_pending` / `mark_stage_done` / `mark_stage_failed`).
 - **Batch lifecycle** (`start_batch` returns UUID; `complete_batch` finalizes).
-- **Async writer queue** (REBIRTH §9.4): a single background thread consumes a queue and commits in batches, decoupling worker threads from disk I/O.
-- **WAL mode + tuned PRAGMAs** (REBIRTH §9.3) for concurrent readers + one writer.
+- **Async writer queue**: a single background thread consumes a queue and commits in batches, decoupling worker threads from disk I/O.
+- **WAL mode + tuned PRAGMAs** for concurrent readers + one writer.
 
-Two tables ship in this change: `migration_log` and `migration_batch` (REBIRTH §9.2). The `preprocess_staging` and `document_cache` tables are post-MVP — deferred to later changes when the 3-phase pipeline and cross-mode metadata cache are implemented.
+Two tables ship in this change: `migration_log` and `migration_batch`. The `preprocess_staging` and `document_cache` tables are post-MVP — deferred to later changes when the 3-phase pipeline and cross-mode metadata cache are implemented.
 
 This change also makes one **minor model adjustment**: `MigrationRecord` (002) gains a `batch_id: str` field. This resolves an inconsistency in the `ITrackingStore` port where `mark_stage_pending(record, stage)` had no way to know which batch the record belonged to. Adding `batch_id` to the record is the cleanest path; no port amendment to 002 is required because the port's signature stays the same.
 
@@ -30,7 +30,7 @@ This change also makes one **minor model adjustment**: `MigrationRecord` (002) g
 
 - Stages S0..S3 have shipped (006 archive report). Stage S6 (tracking) is **transversal** to every other stage — without it, no pipeline can persist progress, enforce idempotency, or recover from interruptions.
 - The MVP `rvabrep-pipeline` cannot run end-to-end without idempotency; SQLite is the simplest viable backend.
-- REBIRTH §9.4 calls the async writer queue "a major performance win" — building it now means the store ships production-ready, matching the precedent set by 005 (pre-fetching) and 006 (deduplication).
+- the spec calls the async writer queue "a major performance win" — building it now means the store ships production-ready, matching the precedent set by 005 (pre-fetching) and 006 (deduplication).
 - The `MigrationRecord.batch_id` correction is best done *with* the first concrete tracking store, where its absence would surface as awkward APIs.
 
 ---
@@ -46,10 +46,10 @@ This change also makes one **minor model adjustment**: `MigrationRecord` (002) g
 ### 3.2 SQLiteTrackingStore class (REQ-004 through REQ-013)
 
 - **REQ-004** — A class `SQLiteTrackingStore` MUST exist in `src/cmcourier/adapters/tracking/sqlite.py` and inherit from `cmcourier.domain.ports.ITrackingStore`.
-- **REQ-005** — Constructor signature: `SQLiteTrackingStore(db_path: pathlib.Path, batch_size: int = 500, flush_interval_s: float = 1.0)`. Defaults match REBIRTH §9.4.
+- **REQ-005** — Constructor signature: `SQLiteTrackingStore(db_path: pathlib.Path, batch_size: int = 500, flush_interval_s: float = 1.0)`. Defaults match the spec.
 - **REQ-006** — At construction, the store MUST:
   - Open a **reader** connection (`check_same_thread=True`) and a **writer** connection (used by the writer thread, `check_same_thread=False`).
-  - Apply `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = OFF`, `PRAGMA cache_size = -64000` per REBIRTH §9.3 (on both connections where applicable).
+  - Apply `PRAGMA journal_mode = WAL`, `PRAGMA synchronous = OFF`, `PRAGMA cache_size = -64000` per the spec, (on both connections where applicable).
   - Create the two tables (`migration_log`, `migration_batch`) with `CREATE TABLE IF NOT EXISTS`.
   - Start the writer thread (daemon, named `cmcourier-tracking-writer`).
 - **REQ-007** — The writer thread MUST:
@@ -178,7 +178,7 @@ This change also makes one **minor model adjustment**: `MigrationRecord` (002) g
 ## 5. Out of Scope
 
 - AS400-backed tracking store. Same `ITrackingStore` port; later change.
-- `preprocess_staging` and `document_cache` tables. Post-MVP — required only for the 3-phase pipeline (REBIRTH §10.3) and the cross-mode metadata cache (REBIRTH §6.6 / POST-MVP.md §9).
+- `preprocess_staging` and `document_cache` tables. Post-MVP — required only for the 3-phase pipeline and the cross-mode metadata cache (the spec / POST-MVP.md §9).
 - Reader connection sharing across threads. The reader is single-threaded by SQLite design (`check_same_thread=True`); orchestrators that read from multiple threads need their own per-thread reader connection (or use the AS400 store post-MVP).
 - A `retry-failed` CLI command to reset `FAILED → PENDING`. Lives with the CLI commands change.
 - Batch-status enums (`RUNNING`, `COMPLETED`, `FAILED`). For now, `complete_batch` only sets `COMPLETED`; failure-mode batch status is post-MVP.
@@ -191,7 +191,7 @@ This change also makes one **minor model adjustment**: `MigrationRecord` (002) g
 - **Principle I**: `cmcourier.adapters.tracking.sqlite` imports `cmcourier.domain.*` + stdlib only. NO services / orchestrators / cli imports.
 - **Principle II**: idempotency is sacred. The unique index on `(rvabrep_txn_num, batch_id)` + `INSERT OR IGNORE` semantics + the partial index on `S5_DONE` are the structural guarantees.
 - **Principle III**: 50-line function cap. The writer loop is the longest method (~30 lines).
-- **Principle IV**: streaming over buffering — N/A for tracking writes; the queue *is* the buffer (intentional, REBIRTH §9.4).
+- **Principle IV**: streaming over buffering — N/A for tracking writes; the queue *is* the buffer (intentional, the spec).
 - **Principle V**: no env reads.
 - **Principle VI**: integration tests use real SQLite + `tmp_path`. NOT mocked.
 - **Principle VII**: spec/plan/tasks committed before implementation.
@@ -205,7 +205,7 @@ This change also makes one **minor model adjustment**: `MigrationRecord` (002) g
 ### 7.1 Known risks
 
 - **Async writer queue is genuine threading code**. Bugs are hard to reproduce. Mitigation: `flush()` makes tests deterministic; tests cover `close()` clean-shutdown explicitly.
-- **`synchronous = OFF`** trades durability for speed (REBIRTH §9.3 endorses this for tracking). A power loss could lose the last batch — acceptable for tracking (re-runnable migration).
+- **`synchronous = OFF`** trades durability for speed (the spec endorses this for tracking). A power loss could lose the last batch — acceptable for tracking (re-runnable migration).
 - **Per-thread connection contracts** are subtle. Tests run all reads on the construction thread; orchestrators MUST do the same OR open their own per-thread store.
 - **`MigrationRecord.batch_id` change is backward-incompatible** for code that constructed records before this change. The only such code today is in `tests/unit/domain/test_models.py` (002), which we update in this change.
 - **`INSERT OR IGNORE` on a unique-index conflict silently no-ops** — usually fine, but masks bugs where a developer accidentally calls `mark_stage_pending` twice for the same record. Mitigation: tests assert single-row count after duplicate call.
@@ -235,6 +235,6 @@ This change also makes one **minor model adjustment**: `MigrationRecord` (002) g
 
 - Predecessor changes: 002 (`MigrationRecord`, `ITrackingStore`, `StageStatus`, `TrackingError`), 003 (adapter pattern), 004-006 (services that will eventually call the store)
 - Constitution Principles I, II, III, V, VI, VII, VIII, IX
-- REBIRTH §9 (entire), §10.3 (state machine), §10.1 S6 (transversal)
+- the spec (entire), §10.3 (state machine), §10.1 S6 (transversal)
 - Plan: `specs/007-sqlite-tracking-store/plan.md`
 - Tasks: `specs/007-sqlite-tracking-store/tasks.md`

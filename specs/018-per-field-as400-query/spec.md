@@ -25,7 +25,7 @@ the metadata service or field-source wiring. The current escape
 hatch — pre-staging the data into a CSV — defeats the point of
 having native AS400 metadata sources at all.
 
-REBIRTH §6.4 explicitly notes that "prefetch queries SHOULD allow
+the spec explicitly notes that "prefetch queries SHOULD allow
 filtering and projection to scale to production data volumes."
 014 and 015 deferred this; 018 closes the gap.
 
@@ -187,6 +187,6 @@ filtering and projection to scale to production data volumes."
 
 - 014 — AS400 adapter base
 - 015 — AS400 metadata source (introduces `table` field)
-- REBIRTH §3.1 (AS400 ODBC), §6.4 (metadata prefetch)
+- the spec (AS400 ODBC), §6.4 (metadata prefetch)
 - Constitution Principles I (hexagonal), V (config validated at
   startup), VIII (PII discipline)

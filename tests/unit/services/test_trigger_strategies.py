@@ -208,7 +208,7 @@ class TestDirectRvabrepTriggerStrategy:
 
 
 # ---------------------------------------------------------------------------
-# LocalScanTriggerStrategy (REBIRTH §5.1 mode local_scan)
+# LocalScanTriggerStrategy (mode local_scan)
 # ---------------------------------------------------------------------------
 
 

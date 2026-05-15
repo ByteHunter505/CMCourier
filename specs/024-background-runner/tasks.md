@@ -81,7 +81,7 @@
   "Twenty-fourth change: background runner".
 - [ ] **4.9** PII grep on new content.
 - [ ] **4.10** Stage. Commit:
-  `feat(cli): add cron-friendly background runner with per-config lock (REBIRTH §11)`.
+  `feat(cli): add cron-friendly background runner with per-config lock`.
 - [ ] **4.11** `git checkout main && git merge --ff-only feat/024-background-runner && git branch -d feat/024-background-runner`.
 
 ---

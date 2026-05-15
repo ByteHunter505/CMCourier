@@ -86,7 +86,7 @@ class TestConstruction:
         assert assembler.temp_dir == expected
         assert expected.is_dir()
 
-    def test_default_image_type_map_matches_rebirth(self) -> None:
+    def test_default_image_type_map_matches_canonical_codes(self) -> None:
         cfg = AssemblerConfig(source_root=_FIXTURES, temp_dir=Path(tempfile.gettempdir()))
         assert cfg.image_type_map == {
             "B": "image/tiff",

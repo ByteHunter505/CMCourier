@@ -1,4 +1,4 @@
-"""Stage S0..S6 orchestrator for the ``csv-trigger-pipeline`` (REBIRTH §10.2).
+"""Stage S0..S6 orchestrator for the ``csv-trigger-pipeline``.
 
 Wires the seven collaborators (S0 trigger strategy + S1..S5 services /
 adapters + S6 tracking store) into one runnable pipeline. The orchestrator
@@ -7,13 +7,13 @@ counting (Constitution Principle III).
 
 Two top-level behaviors:
 
-* **Cross-batch idempotency** (REBIRTH §10): docs whose ``txn_num`` is
+* **Cross-batch idempotency**: docs whose ``txn_num`` is
   already at ``S5_DONE`` in any prior batch are skipped — they don't
-  re-upload, but 062 reversed §10's "silent skip" contract and the
+  re-upload, but 062 reversed the earlier "silent skip" contract and the
   current batch now writes a ``migration_log`` row with
   ``status=S1_SKIPPED`` so the DETAIL tab + analyzer + ``batch show``
   can identify which specific docs landed in this bucket.
-* **Stage-by-stage resume** (REBIRTH §10.3): ``run(batch_id=..., from_stage=N)``
+* **Stage-by-stage resume**: ``run(batch_id=..., from_stage=N)``
   re-uses an existing batch and SCOPES the run to its prior set of
   ``txn_num``s. Within each stage, ``is_stage_done`` per-doc short-circuits
   re-doing successful work — so re-running with ``from_stage=1`` against a
@@ -647,7 +647,7 @@ class StagedPipeline:
                 if not already_in_batch and self._tracking_store.is_uploaded(doc.txn_num):
                     # 062: persist a ``S1_SKIPPED`` row so the DETAIL tab +
                     # analyzer + `batch show` can see which docs were
-                    # cross-batch skipped (REBIRTH §10's "silently skipped"
+                    # cross-batch skipped (the prior "silently skipped"
                     # contract is intentionally reversed for traceability).
                     skipped_cross_batch += 1
                     skip_item = _StageItem(trigger=trigger, document=doc)

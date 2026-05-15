@@ -58,7 +58,7 @@
 ## Phase 6 — Docs + commit + merge FF
 
 - [ ] **6.1** Update `CHANGELOG.md`:
-  - "Planned for next release" → additional pipelines (rvabrep, as400, local-scan, single-doc) + REBIRTH §11 CLI tree.
+  - "Planned for next release" → additional pipelines (rvabrep, as400, local-scan, single-doc) + the spec CLI tree.
   - Add `[0.14.0] — 2026-05-10` entry: Added / Changed / Verification / Rationale. Milestone: **MVP CLI usable end-to-end**.
 - [ ] **6.2** Update `README.md` Status checklist: tick "Twelfth change: CLI + Pydantic config + YAML loader". Add a "Getting started — first run" subsection with the `export CMIS_USERNAME=... && cmcourier csv-trigger-pipeline run --config config/config.yaml` invocation.
 - [ ] **6.3** PII grep on new files. Synthetic only.

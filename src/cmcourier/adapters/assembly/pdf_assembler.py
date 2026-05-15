@@ -1,4 +1,4 @@
-"""Stage S4 — :class:`PdfAssembler` (REBIRTH §7).
+"""Stage S4 — :class:`PdfAssembler`.
 
 Concrete :class:`IAssembler` over the local file server. Two paths:
 
@@ -6,11 +6,11 @@ Concrete :class:`IAssembler` over the local file server. Two paths:
   ``temp_dir / "{txn_num}.pdf"``. ``StagedFile.page_count`` is read from
   the document's ``total_pages`` (we trust RVABREP, do not parse).
 * **Paged document** — glob ``FILECODE.*`` in the source directory, filter
-  to numeric extensions (REBIRTH §3.4), sort by ``int(extension)``, then
+  to numeric extensions, sort by ``int(extension)``, then
   try :func:`img2pdf.convert` as the fast path. On any exception, fall
   back to Pillow + :class:`PyPDF2.PdfMerger`.
 
-OneDrive temp-dir trap (REBIRTH §7.4) is handled in the constructor:
+The OneDrive temp-dir trap is handled in the constructor:
 configured paths matching ``./tmp`` variants are diverted to the system
 temp directory.
 
@@ -53,7 +53,7 @@ _DIVERTED_DIR_NAME = "cmcourier_tmp"
 
 
 def _default_image_type_map() -> dict[str, str]:
-    """REBIRTH §7.5 mapping: image_type code → MIME hint."""
+    """Mapping: image_type code → MIME hint."""
     return {"B": "image/tiff", "O": "application/pdf", "C": "image/jpeg"}
 
 

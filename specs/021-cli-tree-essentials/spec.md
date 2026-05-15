@@ -4,13 +4,13 @@
 **Owner**: bitBreaker
 **Date**: 2026-05-10
 **Predecessors**: 007 (SQLite tracking store), 012 (CLI bootstrap), 020 (observability)
-**Successors**: TBD (REBIRTH §11 background runner + TUI + export-report)
+**Successors**: TBD (the spec background runner + TUI + export-report)
 
 ---
 
 ## 1. Problem
 
-REBIRTH §11 commits to a CLI surface with five command groups: the
+the spec commits to a CLI surface with five command groups: the
 pipelines (already shipped), `doctor` (013), plus three operational
 families — `batch`, `inspect`, and the standalone `as400-query`. The
 project ships the pipelines but the operator side is incomplete:
@@ -66,7 +66,7 @@ TUI, and the background runner to later changes.
 - **NG5**: Pipeline `--skip-doctor / --resume / --from Sn / --no-tui`
   flags — separate change.
 - **NG6**: `background --pipeline` runner — separate change.
-- **NG7**: TUI (REBIRTH §10.6) — separate change.
+- **NG7**: TUI — separate change.
 - **NG8**: JSON output flag. MVP ships text only; `--json` can be
   bolted on later without surface break.
 - **NG9**: Pagination of batch list. Operators with thousands of
@@ -259,8 +259,8 @@ TUI, and the background runner to later changes.
 
 ## 7. References
 
-- REBIRTH §11 — CLI Surface
-- REBIRTH §9 / §10.3 — Tracking store + per-stage state
+- the spec — CLI Surface
+- the spec / §10.3 — Tracking store + per-stage state
 - 007 — SQLite tracking store
 - 020 — Observability setup
 - Constitution Principle I (ports & adapters) — extension via the

@@ -49,7 +49,7 @@ entirely and update `__init__.py` accordingly.
 
 ```python
 class LocalScanTriggerStrategy(S0Strategy):
-    """REBIRTH §5.1 `local_scan` mode.
+    """the spec `local_scan` mode.
 
     Lists *scan_path* non-recursively, filters to native PDFs
     (``*.PDF`` case-insensitive) and paged-doc first pages

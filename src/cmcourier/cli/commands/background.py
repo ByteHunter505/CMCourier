@@ -17,9 +17,9 @@ unattended-mode behaviors:
 Auto-doctor stays ON unless ``--skip-doctor`` is passed — cron
 benefits from pre-flight, not less.
 
-REBIRTH §11 names this command ``background``; it dispatches
-into the same ``_run_pipeline_command`` helper the four
-interactive run commands use, with ``quiet=True``.
+This command, named ``background``, dispatches into the same
+``_run_pipeline_command`` helper the four interactive run
+commands use, with ``quiet=True``.
 """
 
 from __future__ import annotations

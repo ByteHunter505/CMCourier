@@ -76,7 +76,7 @@
 
   Stage S6 (Tracking) for every CMCourier pipeline. Concrete
   ITrackingStore via stdlib sqlite3 with WAL mode + tuned PRAGMAs
-  (REBIRTH §9.3), the per-stage state machine (§10.3), the cross-batch
+, the per-stage state machine (§10.3), the cross-batch
   is_uploaded idempotency anchor, and the async writer queue with
   batched commits (§9.4) for production-scale workloads.
 

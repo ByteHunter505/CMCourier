@@ -9,7 +9,7 @@
 
 A single class `PdfAssembler` implementing `IAssembler`, constructed with
 an `AssemblerConfig` (source root + temp dir + image-type hint map). The
-constructor handles the OneDrive temp-dir diversion (REBIRTH §7.4) and
+constructor handles the OneDrive temp-dir diversion and
 ensures the temp dir exists. `assemble(doc)` dispatches on `doc.is_pdf`:
 native PDFs pass through via `shutil.copy2`; paged documents are routed
 through `_discover_pages` → `_img2pdf_fast_path` → `_pillow_pypdf2_fallback`.

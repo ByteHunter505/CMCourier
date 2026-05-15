@@ -16,7 +16,7 @@ documents fell into this bucket and why":
 1. **Filtered at S1 (spec 051)** — triggers whose RVABREP row carries
    a delete code raise `RVABREPDeletedError`; the orchestrator does
    `filtered += 1` + INFO log, no row in `migration_log`.
-2. **Cross-batch skipped (REBIRTH §10)** — docs whose `txn_num` is
+2. **Cross-batch skipped** — docs whose `txn_num` is
    already `S5_DONE` in a prior batch are *skipped silently — no new
    `migration_log` row, just a counter and an INFO log line*.
    `staged.py:10-12` documents this textually as a deliberate
@@ -83,7 +83,7 @@ them up.
   produce new docs. Out of scope here because it has a different
   semantic (filter by resume policy, not by data state). A future
   spec could persist these too if the operator asks.
-- **Reverting REBIRTH §10's "skip silently" contract** at the docstring
+- **Reverting the spec's "skip silently" contract** at the docstring
   level — we change the behaviour deliberately and update the
   docstring; we don't argue with §10's original intent (avoid disk
   bloat). The CHANGELOG explains the new trade.

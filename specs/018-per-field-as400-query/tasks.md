@@ -79,7 +79,7 @@
   "Eighteenth change: per-source AS400 query override".
 - [ ] **4.3** PII grep on new content. Synthetic only.
 - [ ] **4.4** Stage. Commit:
-  `feat(adapters,config): allow per-source AS400 query override (REBIRTH §6.4)`.
+  `feat(adapters,config): allow per-source AS400 query override`.
 - [ ] **4.5** `git checkout main && git merge --ff-only feat/018-per-field-as400-query && git branch -d feat/018-per-field-as400-query`.
 
 ---

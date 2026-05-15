@@ -3,8 +3,7 @@
 ``MockContentWriter`` produces real PDFs (via :mod:`img2pdf`), real TIFFs
 (LZW-compressed via :mod:`PIL`), and real JPEGs (via :mod:`PIL`) targeting a
 byte-count band. The S4 :class:`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler`
-must be able to re-open every file produced here without exceptions
-(REBIRTH §7).
+must be able to re-open every file produced here without exceptions.
 
 Size targeting is iterative, not closed-form: ``img2pdf`` × JPEG quality ×
 LZW × pixel entropy is non-linear. The writer iterates the fixed spectrum in

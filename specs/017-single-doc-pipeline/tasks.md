@@ -62,7 +62,7 @@
 ## Phase 4 — Docs + commit + merge FF
 
 - [ ] **4.1** Update `CHANGELOG.md`:
-  - "Planned for next release" → REBIRTH §11 CLI tree, observability
+  - "Planned for next release" → the spec CLI tree, observability
     tiers, port hygiene, per-field as400_query.
   - Add `[0.19.0] — 2026-05-10` entry: Added / Changed /
     Verification / Rationale. Milestone: 5th pipeline + diagnostic
@@ -71,7 +71,7 @@
   "Seventeenth change: single-doc-pipeline".
 - [ ] **4.3** PII grep on new content. Synthetic only.
 - [ ] **4.4** Stage. Commit:
-  `feat(services,cli): add single-doc-pipeline (REBIRTH §10.2 diagnostic)`.
+  `feat(services,cli): add single-doc-pipeline (the spec diagnostic)`.
 - [ ] **4.5** `git checkout main && git merge --ff-only feat/017-single-doc-pipeline && git branch -d feat/017-single-doc-pipeline`.
 
 ---

@@ -132,9 +132,9 @@ Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`)
 - [ ] **6.1** Update `README.md` "Getting started" section per `plan.md §8`.
 - [ ] **6.2** Update `README.md` Status checklist: tick the line about "Python skeleton bootstrap".
 - [ ] **6.3** Update `CHANGELOG.md` per `plan.md §9` — add the `[0.3.0]` block dated to the commit date, and adjust the `[Unreleased]` "Planned for next release" bullets.
-- [ ] **6.4** Create `docs/INDEX.md` following the template in `plan.md §13.5` — list every existing artifact (README, CHANGELOG, CONTRIBUTING, constitution, REBIRTH, POST-MVP, samples) with one-line descriptions; leave `how-to` and `explanation` sections empty with pointers to their READMEs.
+- [ ] **6.4** Create `docs/INDEX.md` following the template in `plan.md §13.5` — list every existing artifact (README, CHANGELOG, CONTRIBUTING, constitution, domain spec, POST-MVP, samples) with one-line descriptions; leave `how-to` and `explanation` sections empty with pointers to their READMEs.
 - [ ] **6.5** Create `docs/how-to/README.md` per `plan.md §13.4`: purpose statement (problem-oriented "How to use"), naming convention (`how-to/<task-slug>.md`, kebab-case), empty bullet list of available guides, link back to `docs/INDEX.md`.
-- [ ] **6.6** Create `docs/explanation/README.md` per `plan.md §13.4`: purpose statement (understanding-oriented "How it works"), naming convention (`explanation/<concept-slug>.md`), empty bullet list of available explanations, link to `docs/domain/CMCOURIER_REBIRTH.md` as canonical domain explanation, link back to `docs/INDEX.md`.
+- [ ] **6.6** Create `docs/explanation/README.md` per `plan.md §13.4`: purpose statement (understanding-oriented "How it works"), naming convention (`explanation/<concept-slug>.md`), empty bullet list of available explanations, link to the project's domain spec as canonical domain explanation, link back to `docs/INDEX.md`.
 - [ ] **6.7** Update `README.md` "Documentation map" section: add a top-row link to `docs/INDEX.md` as the canonical entry point. Keep the existing per-artifact rows for quick access.
 - [ ] **6.8** Run the full verification suite from `spec.md §8`:
   ```bash
@@ -171,7 +171,7 @@ Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`)
   ```
   feat: bootstrap Python skeleton with hexagonal layout and tooling
 
-  Phase 0 of the implementation order from REBIRTH §15. Ships
+  Phase 0 of the implementation order from the spec. Ships
   pyproject.toml (PEP 621) declaring all settled dependencies,
   src/cmcourier/ in src layout with the six hexagonal layers as
   empty packages, tests/ skeleton with a smoke test confirming
@@ -270,7 +270,7 @@ For traceability:
 - Phase 6: 30 minutes (docs structure + README/CHANGELOG updates + verification + commit)
 - **Total**: ~2 hours and 5 minutes of focused work for one contributor pair-programming with an agent.
 
-This is consistent with REBIRTH §15 estimating "Phase 0 — Bootstrap (1 day)" — we are well under that, because much of the prep (constitution, REBIRTH, docs) is already done.
+This is consistent with the spec estimating "Phase 0 — Bootstrap (1 day)" — we are well under that, because much of the prep (constitution, domain spec, docs) is already done.
 
 ---
 

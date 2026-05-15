@@ -1,9 +1,9 @@
-"""Stage S1 — :class:`IndexingService` (REBIRTH §10.1, §3.2).
+"""Stage S1 — :class:`IndexingService`.
 
 Given a :class:`TriggerRecord`, find every non-deleted
 :class:`RVABREPDocument` that matches it on ``(shortname, system_id)``. CIF
 is intentionally NOT a filter here — CIF self-healing is the responsibility
-of Stage S3 (Metadata, REBIRTH §6.5).
+of Stage S3 (Metadata).
 
 Two public APIs:
 
@@ -50,7 +50,7 @@ _log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Column configuration (REBIRTH §3.2 physical names by default)
+# Column configuration (RVABREP physical names by default)
 # ---------------------------------------------------------------------------
 
 
@@ -58,7 +58,7 @@ _log = logging.getLogger(__name__)
 class IndexingColumnsConfig:
     """Column-name map between adapter rows and :class:`RVABREPDocument`.
 
-    Defaults match the AS400 RVABREP physical column names from REBIRTH §3.2.
+    Defaults match the AS400 RVABREP physical column names.
     Tests and non-AS400 deployments override individual columns.
     """
 

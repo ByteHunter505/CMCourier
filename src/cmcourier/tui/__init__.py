@@ -1,4 +1,4 @@
-"""REBIRTH §10.6 two-tab live TUI for in-flight pipeline runs (025)."""
+"""Two-tab live TUI for in-flight pipeline runs (025)."""
 
 from __future__ import annotations
 

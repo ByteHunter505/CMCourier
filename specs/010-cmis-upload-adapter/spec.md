@@ -1,7 +1,7 @@
 # Spec — 010-cmis-upload-adapter
 
 **Status**: Draft
-**Stage**: S5 — Upload (REBIRTH §8, §10.1)
+**Stage**: S5 — Upload (the spec)
 **Constitution alignment**: Principle I (hexagonal — concrete `IUploader`),
 II (idempotency surfaces: 409 = OK), III (single-responsibility),
 IV (streaming via `MultipartEncoder`), VI (real test pyramid via the
@@ -13,7 +13,7 @@ IV (streaming via `MultipartEncoder`), VI (real test pyramid via the
 
 Implement `CmisUploader` — the concrete `IUploader` that ships staged
 PDFs to IBM Content Manager via the **CMIS Browser Binding** REST/JSON
-protocol. Handles the IBM-specific quirks documented in REBIRTH §8:
+protocol. Handles the IBM-specific quirks documented in the spec:
 JSESSIONID warmup, recursive folder creation with idempotent 409, streaming
 multipart uploads, exponential-backoff retries on 5xx, fail-fast on 4xx,
 and a 3-path `objectId` parser for the response shape variants.
@@ -34,15 +34,15 @@ orchestrator can run end-to-end against staging.
   - `CmisUploader` (the `IUploader` implementation).
 - `ensure_folder(path)` — recursive creation walking from root, idempotent
   via HTTP 409 = success AND via an in-memory `set` cache; skips system
-  folders that start with `$` (REBIRTH §8.3).
+  folders that start with `$`.
 - `upload(file, folder_path, object_type_id, document_name, mime_type, properties)`
   — streaming multipart POST via `requests-toolbelt.MultipartEncoder`,
-  followed by `cmis:objectId` parse with 3-fallback (REBIRTH §8.8).
+  followed by `cmis:objectId` parse with 3-fallback.
 - `test_connection()` — GET `repositoryInfo` and return a dict of
   diagnostics (also doubles as the JSESSIONID warmup).
 - **JSESSIONID warmup** lazily on first call to any state-changing
-  method (REBIRTH §8.2).
-- **Retry policy** (REBIRTH §8.7):
+  method.
+- **Retry policy**:
   - HTTP 201 → success.
   - HTTP 401 → re-warmup session, retry ONCE.
   - HTTP 409 (folder creation only) → success.
@@ -60,11 +60,11 @@ orchestrator can run end-to-end against staging.
 
 ### Out of scope
 
-- **Thread-local sessions** (REBIRTH §8.2 "Per thread"). MVP is
+- **Thread-local sessions** (the spec "Per thread"). MVP is
   single-threaded. The adapter holds ONE `requests.Session`. A follow-up
   change refactors to `threading.local()` when the orchestrator wants
   worker pools.
-- Pre-flight `doctor` integration (REBIRTH §10.5). The doctor command
+- Pre-flight `doctor` integration. The doctor command
   uses `test_connection()` directly; cmocking the doctor itself ships
   with the orchestrator.
 - AIMD auto-tuning of bandwidth or worker count (post-MVP per
@@ -150,7 +150,7 @@ orchestrator can run end-to-end against staging.
   with `Content-Type: m.content_type`; the adapter MUST NOT call
   `file.read()` directly (Constitution Principle IV).
 - **REQ-016** On HTTP 201, the adapter MUST parse the response JSON and
-  return the `cmis:objectId` as `str`, using REBIRTH §8.8's three-path
+  return the `cmis:objectId` as `str`, using the spec's three-path
   fallback: (1) `succinctProperties["cmis:objectId"]`; (2)
   `properties["cmis:objectId"]["value"]`; (3) `str(data.get("id", "unknown"))`.
 
@@ -172,7 +172,7 @@ orchestrator can run end-to-end against staging.
 - **REQ-021** On HTTP 4xx OTHER than 401, the adapter MUST raise
   `CMISClientError(status_code=..., response_body=...)` immediately
   without retrying. The response body MUST be truncated to the first
-  1024 chars for the exception context (REBIRTH §8.7: "log full payload
+  1024 chars for the exception context (the spec: "log full payload
   as curl-equivalent" — full logging is the orchestrator's job).
 
 ### BandwidthLimiter
@@ -352,5 +352,5 @@ orchestrator can run end-to-end against staging.
   methods exist.
 - **Open question**: should the uploader expose a `metrics` hook
   (request timings, retry counts) for the future observability tier
-  (REBIRTH §17.4)? **Resolved**: no — observability wraps the adapter
+? **Resolved**: no — observability wraps the adapter
   in a decorator; the adapter only logs.

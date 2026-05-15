@@ -26,7 +26,7 @@ The structure follows the [Diátaxis framework](https://diataxis.fr): documentat
 
 | Document | Purpose |
 |----------|---------|
-| [`docs/domain/CMCOURIER_REBIRTH.md`](domain/CMCOURIER_REBIRTH.md) | Full domain specification — RVI source system, CMIS target system, RVABREP schema, stage architecture, metadata resolution, file assembly, idempotency, observability tiers |
+| the project's domain spec | Full domain specification — RVI source system, CMIS target system, RVABREP schema, stage architecture, metadata resolution, file assembly, idempotency, observability tiers |
 
 ## Project planning
 
@@ -53,7 +53,7 @@ See [`docs/how-to/README.md`](how-to/README.md) for the index of how-to guides a
 
 See [`docs/explanation/README.md`](explanation/README.md) for the index of explanations and the naming convention.
 
-- *(none yet — this section grows as architectural concepts get standalone walkthroughs; the comprehensive explanation lives in `docs/domain/CMCOURIER_REBIRTH.md`)*
+- *(none yet — this section grows as architectural concepts get standalone walkthroughs; the comprehensive explanation lives in the project's domain spec)*
 - Future: `docs/explanation/tabular-data-source.md` (deferred — the spec/plan in `specs/003-tabular-data-source-adapter/` is sufficient for now)
 
 ---

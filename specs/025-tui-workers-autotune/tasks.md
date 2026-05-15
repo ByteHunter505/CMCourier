@@ -169,7 +169,7 @@
   "Twenty-fifth change: TUI + worker pool + auto-tune".
 - [ ] **5.9** PII grep on new content.
 - [ ] **5.10** Stage. Commit:
-  `feat(orchestrator,services,tui): S5 worker pool + AIMD auto-tune + textual TUI (REBIRTH §10.6, §10.7 MVP, §12)`.
+  `feat(orchestrator,services,tui): S5 worker pool + AIMD auto-tune + textual TUI (the spec MVP, §12)`.
 - [ ] **5.11** `git checkout main && git merge --ff-only feat/025-tui-workers-autotune && git branch -d feat/025-tui-workers-autotune`.
 
 ---

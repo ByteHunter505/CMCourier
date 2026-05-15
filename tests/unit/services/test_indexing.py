@@ -124,9 +124,9 @@ class TestConstruction:
         assert counting.get_by_fields_calls == 0
         assert counting.get_by_fields_in_calls == 0
 
-    def test_default_column_config_matches_rebirth_section_3_2(self) -> None:
+    def test_default_column_config_matches_rvabrep_aba_codes(self) -> None:
         cfg = IndexingColumnsConfig()
-        # Filter / lookup columns (REBIRTH §3.2).
+        # Filter / lookup columns (canonical RVABREP ABA codes).
         assert cfg.shortname_column == "ABABCD"
         assert cfg.system_id_column == "ABAACD"
         assert cfg.txn_num_column == "ABAANB"

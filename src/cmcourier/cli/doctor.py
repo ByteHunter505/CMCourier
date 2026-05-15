@@ -1,4 +1,4 @@
-"""Pre-flight validation for the CMCourier pipeline (REBIRTH §10.5).
+"""Pre-flight validation for the CMCourier pipeline.
 
 Six checks run in order, each as a private function returning a
 :class:`CheckResult`. Exceptions inside a check are caught and turned
@@ -120,7 +120,7 @@ class DoctorReport:
 # ---------------------------------------------------------------------------
 
 
-# REBIRTH §11 group → check names. ``all`` is the sentinel.
+# Check group → check names. ``all`` is the sentinel.
 _CHECK_GROUPS: dict[str, frozenset[str]] = {
     "connections": frozenset(
         {
@@ -158,7 +158,7 @@ def run_doctor(
     *,
     selected: str = "all",
 ) -> DoctorReport:
-    """Run pre-flight checks. ``selected`` filters by REBIRTH §11 group."""
+    """Run pre-flight checks. ``selected`` filters by check group."""
     start = time.monotonic()
     results: list[CheckResult] = []
     if config.observability.unmask_pii:

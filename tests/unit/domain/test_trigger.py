@@ -42,7 +42,7 @@ class TestClientTrigger:
             ClientTrigger(shortname="A", cif="x", system_id="")
 
     def test_cif_may_be_none(self) -> None:
-        # CIF self-healing (REBIRTH §6.5) needs cif=None as a first-class state.
+        # CIF self-healing needs cif=None as a first-class state.
         t = ClientTrigger(shortname="A", cif=None, system_id="1")
         assert t.cif is None
 
@@ -57,7 +57,7 @@ class TestClientTrigger:
 
 class TestRvabrepRowTrigger:
     def test_audit_row_projects_from_default_rvabrep_columns(self) -> None:
-        """Default column names are the AS400 physical schema (REBIRTH §3.2)."""
+        """Default column names are the AS400 physical schema."""
         row = {
             "ABABCD": "ACME-001",  # shortname
             "ABACCD": "987654",  # cif

@@ -922,7 +922,7 @@ python -c "import json,sys,pathlib; lines=[l for l in pathlib.Path(sys.argv[1]).
 ### J.2 — Estructura real de los logs
 
 CMCourier emite events distribuidos en **5 archivos por tier**
-(REBIRTH §17.4 + spec 027). La pestaña abajo lista cada archivo,
+(the spec + spec 027). La pestaña abajo lista cada archivo,
 los msg/event canónicos que aparecen, y cómo grepearlos. Los
 records son JSON-line (jsonl) excepto `app-*.log` que es JSON
 sobre líneas también.

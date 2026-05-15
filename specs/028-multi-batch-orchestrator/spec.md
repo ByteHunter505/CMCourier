@@ -34,8 +34,8 @@ change closes that gap.
 ## 2. Motivation
 
 - **Operator mental model mismatch.** Operators expect the
-  producer-consumer overlap described in REBIRTH and
-  POST-MVP §7; the code did not match. Migrating 20 k docs
+  producer-consumer overlap described in the domain spec
+  and POST-MVP §7; the code did not match. Migrating 20 k docs
   in 1 k batches today is one big sequential pass, not 20
   overlapped batches.
 - **Throughput**: while CMIS is uploading batch N, S0–S4 of

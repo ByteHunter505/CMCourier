@@ -85,7 +85,7 @@ def build_pipeline(
 
     Pass ``trigger_strategy_override`` to bypass the schema-driven
     dispatch — used by the single-doc CLI to inject a strategy built
-    from CLI args (REBIRTH §10.2).
+    from CLI args.
     """
     # 048: the RVABREP source is pluggable (CSV ↔ AS400). Built once here
     # and shared by S0 (DirectRvabrepTriggerStrategy / LocalScanTriggerStrategy)

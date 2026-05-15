@@ -44,7 +44,7 @@ _log = logging.getLogger(__name__)
 
 @click.group(name="analyze")
 def analyze_group() -> None:
-    """Offline log-analysis tooling (REBIRTH §17.4 tier 5 + tiers 1–4)."""
+    """Offline log-analysis tooling (observability tier 5 + tiers 1–4)."""
 
 
 # ---------------------------------------------------------------------------

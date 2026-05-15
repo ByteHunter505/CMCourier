@@ -1,4 +1,4 @@
-"""Local-scan trigger strategy. REBIRTH §5.1 mode ``local_scan``.
+"""Local-scan trigger strategy. Mode ``local_scan``.
 
 Lists ``scan_path`` non-recursively and yields one
 :class:`TriggerRecord` per RVABREP row that matches a filename in
@@ -10,7 +10,7 @@ Algorithm:
 
 1. List ``scan_path`` non-recursively (``Path.iterdir``).
 2. Keep entries whose name has extension ``.PDF`` (case-insensitive)
-   OR ends in ``.001`` (paged-doc first page per REBIRTH §3.4).
+   OR ends in ``.001`` (paged-doc first page).
 3. For each survivor, query the RVABREP source via
    ``get_by_fields({file_name_column: name})``.
 4. For each matched row, yield ``TriggerRecord(shortname, cif,
@@ -53,7 +53,7 @@ def _clean(value: object) -> str | None:
 
 
 class LocalScanTriggerStrategy(S0Strategy):
-    """REBIRTH §5.1 mode ``local_scan``."""
+    """Mode ``local_scan``."""
 
     def __init__(
         self,

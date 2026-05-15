@@ -67,7 +67,7 @@
 ## Phase 4 — Docs + commit + merge FF
 
 - [ ] **4.1** Update `CHANGELOG.md`:
-  - "Planned for next release" → single-doc, REBIRTH §11 batch/
+  - "Planned for next release" → single-doc, the spec batch/
     inspect CLI, observability tiers, port hygiene cleanup.
   - Add `[0.18.0] — 2026-05-10` entry: Added / Changed /
     Verification / Rationale. Milestone: all four production
@@ -76,7 +76,7 @@
   change: local-scan-pipeline".
 - [ ] **4.3** PII grep on new content. Synthetic only.
 - [ ] **4.4** Stage all files. Commit:
-  `feat(services,cli): add local-scan-pipeline (REBIRTH §5.1 mode 4)`.
+  `feat(services,cli): add local-scan-pipeline (the spec mode 4)`.
 - [ ] **4.5** `git checkout main && git merge --ff-only feat/016-local-scan-pipeline && git branch -d feat/016-local-scan-pipeline`.
 
 ---
@@ -111,7 +111,7 @@
   not stable across platforms. Tests use sets for the trigger
   emission assertions.
 - The two-extension filter (`.PDF` + `.001`) is hard-coded —
-  REBIRTH §3.4 guarantees these are the only first-page identifiers.
+  the spec guarantees these are the only first-page identifiers.
   A future per-pattern flag is out of scope.
 - `stubs.py` is fully retired. The historical 006-trigger-service
   spec is unchanged; that history stands.

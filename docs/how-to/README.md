@@ -49,5 +49,5 @@ A how-to is **not** a tutorial. Tutorials teach a concept by walking the reader 
 
 - [`docs/INDEX.md`](../INDEX.md) — canonical map of all documentation
 - [`docs/explanation/README.md`](../explanation/README.md) — for "how it works"
-- [`docs/domain/CMCOURIER_REBIRTH.md`](../domain/CMCOURIER_REBIRTH.md) — domain ground truth
+- the project's domain spec — domain ground truth
 - [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — workflow conventions

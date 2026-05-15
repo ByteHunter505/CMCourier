@@ -36,7 +36,7 @@ the pipeline runners, `doctor`).
 
 ## §1 — What gets generated
 
-Per the REBIRTH §3.2 column shape:
+Per the the spec column shape:
 
 | ABA code | Friendly meaning | Generation rule |
 | --- | --- | --- |

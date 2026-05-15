@@ -84,14 +84,14 @@
   `cmcourier as400-query --help` show their sub-commands /
   args.
 - [ ] **4.7** Update `CHANGELOG.md`:
-  - Remove "REBIRTH §11 CLI tree" from Planned.
+  - Remove "the spec CLI tree" from Planned.
   - Add `[0.23.0] — 2026-05-10` entry: Added / Changed /
     Verification / Rationale.
 - [ ] **4.8** Update `README.md` Status checklist: tick
-  "Twenty-first change: operator CLI essentials (REBIRTH §11)".
+  "Twenty-first change: operator CLI essentials".
 - [ ] **4.9** PII grep on new content.
 - [ ] **4.10** Stage. Commit:
-  `feat(cli): add operator essentials (batch/inspect/as400-query) (REBIRTH §11)`.
+  `feat(cli): add operator essentials (batch/inspect/as400-query)`.
 - [ ] **4.11** `git checkout main && git merge --ff-only feat/021-cli-tree-essentials && git branch -d feat/021-cli-tree-essentials`.
 
 ---

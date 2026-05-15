@@ -1,4 +1,4 @@
-"""Four-tab textual App (REBIRTH §10.6, 025 phase 3 + 052).
+"""Four-tab textual App (025 phase 3 + 052).
 
 The TUI runs on the main thread; the pipeline runs in a worker
 thread. Communication is one-way (the TUI polls the provider every

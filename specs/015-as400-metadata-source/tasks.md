@@ -50,7 +50,7 @@
 ## Phase 4 — Docs + commit + merge FF
 
 - [ ] **4.1** Update `CHANGELOG.md`:
-  - "Planned for next release" → local-scan-pipeline, single-doc, REBIRTH §11 batch/inspect, port hygiene cleanup.
+  - "Planned for next release" → local-scan-pipeline, single-doc, the spec batch/inspect, port hygiene cleanup.
   - Add `[0.17.0] — 2026-05-10` entry: Added / Changed / Verification / Rationale. Milestone: AS400 metadata sources.
 - [ ] **4.2** Update `README.md` Status checklist: tick "Fifteenth change: AS400 metadata source".
 - [ ] **4.3** PII grep on new content. Synthetic only.

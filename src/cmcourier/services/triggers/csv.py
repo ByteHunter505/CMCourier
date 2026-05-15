@@ -1,4 +1,4 @@
-"""CSV-driven trigger strategy. REBIRTH §5.1 mode csv:<alias>."""
+"""CSV-driven trigger strategy. Mode csv:<alias>."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ _logger = logging.getLogger(__name__)
 class CsvTriggerColumnsConfig:
     """Column-name overrides for a CSV trigger source.
 
-    Defaults match the canonical layout in REBIRTH §12 trigger config.
+    Defaults match the canonical trigger CSV layout.
     """
 
     col_shortname: str = "ShortName"
@@ -37,7 +37,7 @@ class CsvTriggerStrategy(S0Strategy):
     The first row is checked against required columns ``col_shortname`` and
     ``col_system_id``. ``col_cif`` is optional — its absence (or per-row
     blank cells) yields ``TriggerRecord.cif=None`` so CIF self-healing in
-    stage S3 (REBIRTH §6.5) can populate it later.
+    stage S3 can populate it later.
     """
 
     def __init__(

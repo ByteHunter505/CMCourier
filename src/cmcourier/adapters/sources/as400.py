@@ -4,7 +4,7 @@ Lazy ``pyodbc`` import inside :meth:`_connect` so importing this module
 in environments without unixODBC headers does not crash (the failure
 surfaces on first real call instead).
 
-REBIRTH §3.1: AS400 ODBC driver is NOT thread-safe; future change adds
+The AS400 ODBC driver is NOT thread-safe; a future change will add
 ``threading.local()`` connections when the orchestrator's worker pool
 lands. 014 ships ONE connection per :class:`As400DataSource` instance.
 

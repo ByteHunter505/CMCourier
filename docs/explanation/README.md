@@ -12,7 +12,7 @@ If you want practical step-by-step instructions, see [`../how-to/README.md`](../
 
 The single most important explanation document is **outside** this directory:
 
-- **[`docs/domain/CMCOURIER_REBIRTH.md`](../domain/CMCOURIER_REBIRTH.md)** — comprehensive specification of the source and target systems, the RVABREP schema, the stage-based pipeline architecture, metadata resolution cascade, CMIS quirks, idempotency model, and observability tiers.
+- **the project's domain spec** — comprehensive specification of the source and target systems, the RVABREP schema, the stage-based pipeline architecture, metadata resolution cascade, CMIS quirks, idempotency model, and observability tiers.
 
 It stays where it is because moving it would invalidate cross-references in already-shipped artifacts (the constitution, CONTRIBUTING, plans). Treat it as canonical when no smaller explanation exists for the topic you care about.
 
@@ -35,7 +35,7 @@ Examples (illustrative, not currently shipped):
 
 ## Available explanations
 
-*(none yet — this section grows as architectural concepts deserve standalone walkthroughs beyond REBIRTH)*
+*(none yet — this section grows as architectural concepts deserve standalone walkthroughs beyond the domain spec)*
 
 | Explanation | Concept | Depth |
 |-------------|---------|-------|
@@ -51,7 +51,7 @@ When adding an explanation:
 2. Open with the *problem* the concept solves. Why does it exist?
 3. Walk through the concept, building from first principles. Diagrams, tables, code excerpts welcome.
 4. Compare with alternatives where useful. Why this design and not another?
-5. Cross-link to the relevant section of the constitution, REBIRTH, or specs that codify the concept.
+5. Cross-link to the relevant section of the constitution, the domain spec, or specs that codify the concept.
 6. Add the explanation to the table above and to `docs/INDEX.md`.
 
 An explanation is **not** a tutorial (no curated walkthrough), **not** a how-to (no practical steps), **not** a reference (not a dry list of facts). It is reasoning, expressed as prose the reader thinks alongside.
@@ -62,5 +62,5 @@ An explanation is **not** a tutorial (no curated walkthrough), **not** a how-to 
 
 - [`docs/INDEX.md`](../INDEX.md) — canonical map of all documentation
 - [`docs/how-to/README.md`](../how-to/README.md) — for practical recipes
-- [`docs/domain/CMCOURIER_REBIRTH.md`](../domain/CMCOURIER_REBIRTH.md) — canonical domain explanation
+- the project's domain spec — canonical domain explanation
 - [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) — engineering law (the *why* behind every architectural rule)

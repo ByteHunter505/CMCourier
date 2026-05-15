@@ -18,7 +18,7 @@ The change ships:
 - **Models** in `models.py` — frozen dataclasses for `TriggerRecord`, `RVABREPDocument`, `CMMapping`, `ResolvedMetadata`, `StagedFile`, `MigrationRecord`, plus the `StageStatus` enum.
 - **Ports** in `ports.py` — abstract interfaces for `IDataSource`, `ITrackingStore`, `IAssembler`, `IUploader`, and `S0Strategy` (per stage architecture).
 - **Exceptions** in `exceptions.py` — typed exception hierarchy rooted at `CMCourierError`, organized by stage and failure mode.
-- **Helper functions** strictly in support of the models: `parse_cymmdd()` (REBIRTH §3.3), `compute_cm_folder()` and `compute_cm_object_type()` (REBIRTH §4.2), `is_pdf_filename()` (REBIRTH §3.4).
+- **Helper functions** strictly in support of the models: `parse_cymmdd()`, `compute_cm_folder()` and `compute_cm_object_type()`, `is_pdf_filename()`.
 
 All under Constitution Principle I (zero external deps in `domain/`) and Strict TDD (Red → Green per type).
 
@@ -38,20 +38,20 @@ All under Constitution Principle I (zero external deps in `domain/`) and Strict 
 
 ### 3.1 Domain models (REQ-001 through REQ-018)
 
-- **REQ-001** — A `TriggerRecord` dataclass MUST exist exposing `shortname: str`, `cif: str | None`, `system_id: str`. It MUST be frozen, slotted, and accept a non-empty `shortname` and non-empty `system_id` (raised as `ValueError` otherwise). `cif` MAY be `None` to support the CIF self-healing rule (REBIRTH §6.5).
-- **REQ-002** — An `RVABREPDocument` dataclass MUST exist exposing every RVABREP column listed in REBIRTH §3.2 (`system_code`, `txn_num`, `index1` … `index7`, `image_type`, `image_path`, `file_name`, `creation_date`, `last_view_date`, `total_pages`, `delete_code`). Field types MUST follow REBIRTH (e.g., `creation_date` is a `datetime`, `total_pages` is an `int`, `delete_code` is a `str`). It MUST be frozen and slotted.
-- **REQ-003** — `RVABREPDocument` MUST expose a `is_pdf: bool` property derived from `file_name.upper().endswith('.PDF')` (REBIRTH §3.4).
-- **REQ-004** — `RVABREPDocument` MUST expose an `is_deleted: bool` property that returns `True` when `delete_code` is non-empty (REBIRTH §3.2).
-- **REQ-005** — A module-level helper `parse_cymmdd(date_str: str) -> datetime` MUST exist that parses the AS400 7-digit `CYYMMDD` format (REBIRTH §3.3). Invalid inputs MUST raise `ValueError`. The function lives in `domain/models.py` because it is intrinsic to the model.
+- **REQ-001** — A `TriggerRecord` dataclass MUST exist exposing `shortname: str`, `cif: str | None`, `system_id: str`. It MUST be frozen, slotted, and accept a non-empty `shortname` and non-empty `system_id` (raised as `ValueError` otherwise). `cif` MAY be `None` to support the CIF self-healing rule.
+- **REQ-002** — An `RVABREPDocument` dataclass MUST exist exposing every RVABREP column listed in the spec (`system_code`, `txn_num`, `index1` … `index7`, `image_type`, `image_path`, `file_name`, `creation_date`, `last_view_date`, `total_pages`, `delete_code`). Field types MUST follow the domain spec (e.g., `creation_date` is a `datetime`, `total_pages` is an `int`, `delete_code` is a `str`). It MUST be frozen and slotted.
+- **REQ-003** — `RVABREPDocument` MUST expose a `is_pdf: bool` property derived from `file_name.upper().endswith('.PDF')`.
+- **REQ-004** — `RVABREPDocument` MUST expose an `is_deleted: bool` property that returns `True` when `delete_code` is non-empty.
+- **REQ-005** — A module-level helper `parse_cymmdd(date_str: str) -> datetime` MUST exist that parses the AS400 7-digit `CYYMMDD` format. Invalid inputs MUST raise `ValueError`. The function lives in `domain/models.py` because it is intrinsic to the model.
 - **REQ-006** — A module-level helper `is_pdf_filename(name: str) -> bool` MUST exist returning `name.upper().endswith('.PDF')` so `RVABREPDocument.is_pdf` and other call sites can share a single source of truth.
 - **REQ-007** — A `CMMapping` dataclass MUST exist exposing `clase_id: str`, `id_rvi: str`, `id_corto: str`, `clase_name: str`, `required_metadata_fields: tuple[str, ...]`. It MUST be frozen and slotted.
-- **REQ-008** — `CMMapping` MUST expose computed read-only properties `cm_folder: str` and `cm_object_type: str`, derived per REBIRTH §4.2 (`f"/$type/BAC_{normalized}"` and `f"$t!-2_BAC_{normalized}v-1"` where `normalized = clase_id.replace('.', '_')`).
+- **REQ-008** — `CMMapping` MUST expose computed read-only properties `cm_folder: str` and `cm_object_type: str`, derived per the spec, (`f"/$type/BAC_{normalized}"` and `f"$t!-2_BAC_{normalized}v-1"` where `normalized = clase_id.replace('.', '_')`).
 - **REQ-009** — Module-level helpers `compute_cm_folder(clase_id)` and `compute_cm_object_type(clase_id)` MUST exist so the same logic is reusable outside the model (e.g., for pre-flight validation).
 - **REQ-010** — A `ResolvedMetadata` dataclass MUST exist exposing `properties: Mapping[str, str]` (a read-only view; the underlying type is a `dict[str, str]` but stored as a `MappingProxyType` for safety). It MUST be frozen and slotted. It MUST expose `__getitem__`, `__contains__`, `__iter__`, `__len__` as a read-only mapping.
 - **REQ-011** — A `StagedFile` dataclass MUST exist exposing `path: Path`, `size_bytes: int`, `page_count: int`. It MUST be frozen and slotted. `size_bytes` and `page_count` MUST be non-negative (raise `ValueError` otherwise).
-- **REQ-012** — A `StageStatus` enum MUST exist with the per-stage state machine values from REBIRTH §10.3: `S1_PENDING`, `S1_DONE`, `S1_FAILED`, `S2_PENDING`, `S2_DONE`, `S2_FAILED`, `S3_PENDING`, `S3_DONE`, `S3_FAILED`, `S4_PENDING`, `S4_DONE`, `S4_FAILED`, `S5_PENDING`, `S5_DONE`, `S5_FAILED`, plus `SKIPPED` (idempotency: already uploaded). Each value MUST be a string equal to its name (e.g., `StageStatus.S1_DONE.value == "S1_DONE"`) so persistence layers can store it directly.
+- **REQ-012** — A `StageStatus` enum MUST exist with the per-stage state machine values from the spec: `S1_PENDING`, `S1_DONE`, `S1_FAILED`, `S2_PENDING`, `S2_DONE`, `S2_FAILED`, `S3_PENDING`, `S3_DONE`, `S3_FAILED`, `S4_PENDING`, `S4_DONE`, `S4_FAILED`, `S5_PENDING`, `S5_DONE`, `S5_FAILED`, plus `SKIPPED` (idempotency: already uploaded). Each value MUST be a string equal to its name (e.g., `StageStatus.S1_DONE.value == "S1_DONE"`) so persistence layers can store it directly.
 - **REQ-013** — `StageStatus` MUST expose a class method `terminal_for_stage(stage: int) -> tuple["StageStatus", "StageStatus"]` returning `(Sn_DONE, Sn_FAILED)` for the given stage number. Invalid stage MUST raise `ValueError`.
-- **REQ-014** — A `MigrationRecord` dataclass MUST exist exposing the fields documented in REBIRTH §9.2 (`trigger_shortname`, `trigger_cif`, `trigger_system_id`, `rvabrep_txn_num`, `rvabrep_file_name`, `cm_object_id` (`str | None`), `cm_folder` (`str | None`), `cm_object_type` (`str | None`), `status: StageStatus`, `error_message: str | None`, `source_file_path: str | None`, `page_count: int | None`, `file_size_bytes: int | None`, `started_at: datetime | None`, `completed_at: datetime | None`, `retry_count: int`, `created_at: datetime`).
+- **REQ-014** — A `MigrationRecord` dataclass MUST exist exposing the fields documented in the spec (`trigger_shortname`, `trigger_cif`, `trigger_system_id`, `rvabrep_txn_num`, `rvabrep_file_name`, `cm_object_id` (`str | None`), `cm_folder` (`str | None`), `cm_object_type` (`str | None`), `status: StageStatus`, `error_message: str | None`, `source_file_path: str | None`, `page_count: int | None`, `file_size_bytes: int | None`, `started_at: datetime | None`, `completed_at: datetime | None`, `retry_count: int`, `created_at: datetime`).
 - **REQ-015** — `MigrationRecord` MUST be frozen and slotted. Required fields are `trigger_shortname`, `trigger_cif`, `trigger_system_id`, `rvabrep_txn_num`, `rvabrep_file_name`, `status`, `created_at`. All others have explicit `None` / zero defaults.
 - **REQ-016** — All dataclasses MUST be frozen (immutable) and slotted (`@dataclass(frozen=True, slots=True)`) to make accidental mutation impossible and to keep memory footprint small at scale (200,000 documents in flight is plausible).
 - **REQ-017** — `domain/models.py` MUST import nothing outside the Python standard library. No `pydantic`, no `pandas`, no third-party module of any kind. The only `from` imports allowed are `dataclasses`, `datetime`, `enum`, `pathlib`, `types`, `collections.abc`, and standard typing.
@@ -59,11 +59,11 @@ All under Constitution Principle I (zero external deps in `domain/`) and Strict 
 
 ### 3.2 Ports — abstract interfaces (REQ-019 through REQ-026)
 
-- **REQ-019** — `IDataSource` (abstract base class) MUST exist with the methods listed in REBIRTH §14.3: `query`, `query_stream`, `get_by_fields`, `get_by_fields_in`, `get_all`, `count`, `close`. Signatures match REBIRTH exactly.
-- **REQ-020** — `ITrackingStore` (abstract base class) MUST exist with stage-aware methods that match the new architecture in REBIRTH §10.3: `is_stage_done(txn_num: str, batch_id: str, stage: StageStatus) -> bool`, `mark_stage_pending(record: MigrationRecord, stage: StageStatus) -> None`, `mark_stage_done(txn_num: str, batch_id: str, stage: StageStatus) -> None`, `mark_stage_failed(txn_num: str, batch_id: str, stage: StageStatus, error: str) -> None`, plus batch lifecycle methods `start_batch(total_records: int) -> str`, `complete_batch(batch_id: str) -> None`, `is_uploaded(txn_num: str) -> bool` (idempotency anchor across batches), `close() -> None`.
+- **REQ-019** — `IDataSource` (abstract base class) MUST exist with the methods listed in the spec: `query`, `query_stream`, `get_by_fields`, `get_by_fields_in`, `get_all`, `count`, `close`. Signatures match the domain spec exactly.
+- **REQ-020** — `ITrackingStore` (abstract base class) MUST exist with stage-aware methods that match the new architecture in the spec: `is_stage_done(txn_num: str, batch_id: str, stage: StageStatus) -> bool`, `mark_stage_pending(record: MigrationRecord, stage: StageStatus) -> None`, `mark_stage_done(txn_num: str, batch_id: str, stage: StageStatus) -> None`, `mark_stage_failed(txn_num: str, batch_id: str, stage: StageStatus, error: str) -> None`, plus batch lifecycle methods `start_batch(total_records: int) -> str`, `complete_batch(batch_id: str) -> None`, `is_uploaded(txn_num: str) -> bool` (idempotency anchor across batches), `close() -> None`.
 - **REQ-021** — `IAssembler` MUST exist with `assemble(document: RVABREPDocument) -> StagedFile` (raises `AssemblyError` on failure).
 - **REQ-022** — `IUploader` MUST exist with `ensure_folder(folder_path: str) -> None`, `upload(file: StagedFile, folder_path: str, object_type_id: str, document_name: str, mime_type: str, properties: Mapping[str, str]) -> str` (returns CM `objectId`; raises `UploadError` on failure), and `test_connection() -> Mapping[str, str]`.
-- **REQ-023** — `S0Strategy` (abstract base class) MUST exist with `acquire(source_descriptor: str) -> Iterator[TriggerRecord]`. Concrete strategies map to the four trigger source modes from REBIRTH §5.1 (`csv:`, `as400:`, `direct_rvabrep`, `local_scan`). Implementation of those concrete strategies is NOT in this change — only the interface.
+- **REQ-023** — `S0Strategy` (abstract base class) MUST exist with `acquire(source_descriptor: str) -> Iterator[TriggerRecord]`. Concrete strategies map to the four trigger source modes from the spec (`csv:`, `as400:`, `direct_rvabrep`, `local_scan`). Implementation of those concrete strategies is NOT in this change — only the interface.
 - **REQ-024** — Every port MUST be defined as an `abc.ABC` with `@abstractmethod` decorators. Concrete subclasses (built in 003+) implement them.
 - **REQ-025** — `domain/ports.py` MUST import nothing outside the standard library plus `cmcourier.domain.models` (for type hints). No `pydantic`, no `requests`, no `pyodbc`.
 - **REQ-026** — `domain/__init__.py` MUST re-export every port name so callers write `from cmcourier.domain import IDataSource`.
@@ -78,7 +78,7 @@ All under Constitution Principle I (zero external deps in `domain/`) and Strict 
 - **REQ-032** — `MetadataError(CMCourierError)` MUST exist for stage S3 failures, with subclasses `SourceFailedError(MetadataError)` and `DefaultValidationFailedError(MetadataError)`.
 - **REQ-033** — `AssemblyError(CMCourierError)` MUST exist for stage S4 failures, with subclasses `SourceFileMissingError(AssemblyError)` and `PDFAssemblyFailedError(AssemblyError)`.
 - **REQ-034** — `UploadError(CMCourierError)` MUST exist for stage S5 failures, with subclasses `CMISClientError(UploadError)` (HTTP 4xx, fail-fast), `CMISServerError(UploadError)` (HTTP 5xx, retry), and `RetriesExhaustedError(UploadError)`.
-- **REQ-035** — `TrackingError(CMCourierError)` MUST exist for tracking store failures (S6). It is **never** raised in a way that blocks the pipeline — it is logged and tracked separately, per REBIRTH §10.1's stage S6 description.
+- **REQ-035** — `TrackingError(CMCourierError)` MUST exist for tracking store failures (S6). It is **never** raised in a way that blocks the pipeline — it is logged and tracked separately, per the spec's stage S6 description.
 
 Each exception class MUST accept an optional structured context (e.g., `txn_num`, `batch_id`, `id_rvi`) as keyword arguments and store them on the instance for downstream logging. The base `CMCourierError.__init__` formats the context into the message; subclasses inherit this behavior.
 
@@ -104,13 +104,13 @@ Each exception class MUST accept an optional structured context (e.g., `txn_num`
 
 ### 4.2 Round-trip CYYMMDD
 
-- **Given** the CYYMMDD example from REBIRTH §3.3 (`"1251117"`)
+- **Given** the CYYMMDD example from the spec (`"1251117"`)
 - **When** the contributor calls `parse_cymmdd("1251117")`
 - **Then** the result is `datetime(2025, 11, 17)`
 
 ### 4.3 CM folder and object type
 
-- **Given** a `clase_id` of `"01.02.04.01.01"` (REBIRTH §4.2 example)
+- **Given** a `clase_id` of `"01.02.04.01.01"` (the spec example)
 - **When** a `CMMapping(clase_id="01.02.04.01.01", ...)` is constructed
 - **Then** its `cm_folder` is `"/$type/BAC_01_02_04_01_01"`
 - **And** its `cm_object_type` is `"$t!-2_BAC_01_02_04_01_01v-1"`
@@ -163,7 +163,7 @@ Each exception class MUST accept an optional structured context (e.g., `txn_num`
 - Configuration schema (`config/schema.py` with Pydantic). Lands in 005.
 - The Click CLI commands beyond the `app.py` placeholder. Lands per pipeline change.
 - Docker compose for Alfresco. Lands when the CMIS adapter is built.
-- A `docs/explanation/` document about the domain — the existing `docs/domain/CMCOURIER_REBIRTH.md` covers it. We may add a focused `docs/explanation/stage-architecture.md` later.
+- A `docs/explanation/` document about the domain — the existing the project's domain spec covers it. We may add a focused `docs/explanation/stage-architecture.md` later.
 - A real CHANGELOG entry version like `0.4.0` until this change actually merges. Until then, the entry stays under `[Unreleased]`.
 
 ---
@@ -214,7 +214,7 @@ Each exception class MUST accept an optional structured context (e.g., `txn_num`
 ## 9. Cross-References
 
 - Spec Kit conventions: `.specify/memory/constitution.md`, `CONTRIBUTING.md`
-- Domain ground truth: `docs/domain/CMCOURIER_REBIRTH.md` (especially §3 RVABREP, §4 Modelo Documental, §6 Metadata Resolution, §9 Tracking, §10 Stages, §14.3 Port Definitions)
+- Domain ground truth: the project's domain spec (especially §3 RVABREP, §4 Modelo Documental, §6 Metadata Resolution, §9 Tracking, §10 Stages, §14.3 Port Definitions)
 - Constitution Principles I, III, VI, VII, VIII, IX bind this change
 - Plan: `specs/002-domain-models-and-ports/plan.md`
 - Tasks: `specs/002-domain-models-and-ports/tasks.md`

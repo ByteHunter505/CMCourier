@@ -1,7 +1,7 @@
 # Spec — 017-single-doc-pipeline
 
 **Status**: Draft
-**Pipeline**: `single-doc` (REBIRTH §10.2 — debug / ad-hoc).
+**Pipeline**: `single-doc` (the spec — debug / ad-hoc).
 **Constitution alignment**: I (`SingleDocTriggerStrategy` implements
 `S0Strategy`), III (the strategy is < 30 LOC, the CLI command body
 ≤ 50 lines), V (the trigger comes from CLI args, not config — the
@@ -11,7 +11,7 @@ config still drives every other adapter).
 
 ## 1. Intent
 
-Ship the diagnostic pipeline from REBIRTH §10.2:
+Ship the diagnostic pipeline from the spec:
 
 > `single-doc` — `S1 → S2 → S3 → S4 → S5 → S7` (one
 > shortname/system) — Debugging, ad-hoc operator pushes
@@ -45,7 +45,7 @@ from CLI args; the rest of the pipeline is identical.
   - `--shortname TEXT` (required).
   - `--system TEXT` (required) — the trigger's system_id.
   - `--cif TEXT` (optional, default None — triggers CIF
-    self-healing per REBIRTH §6.5).
+    self-healing per the spec).
   - `--batch-id`, `--from-stage`, `--batch-size`, `--log-level`
     — same shape as other pipeline commands.
 - **Doctor `_check_sample_dry_run` SKIPS** when
@@ -254,7 +254,7 @@ from CLI args; the rest of the pipeline is identical.
   Adding a keyword-only parameter is backwards-compatible.
 - **Open question**: should the kind tag be `"single_doc"` or
   `"diagnostic"` or `"adhoc"`? **Resolved**: `single_doc` matches
-  REBIRTH §10.2's naming.
+  the spec's naming.
 - **Open question**: should the command be `cmcourier single-doc
   run` (sub-command) or just `cmcourier single-doc <args>`?
   **Resolved**: sub-command for consistency with the other

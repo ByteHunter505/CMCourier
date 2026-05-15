@@ -17,8 +17,7 @@ CMCourier/
 │       └── constitution.md          # Ratified engineering law (v1.0.0)
 │
 ├── docs/
-│   ├── domain/
-│   │   └── CMCOURIER_REBIRTH.md     # Domain ground truth (1300+ lines)
+│   ├── domain/                     # Domain ground truth (1300+ lines)
 │   ├── roadmap/
 │   │   └── POST-MVP.md              # Everything deferred beyond the MVP
 │   └── samples/
@@ -44,10 +43,10 @@ The canonical entry point is **[`docs/INDEX.md`](docs/INDEX.md)** — a single p
 | [`docs/INDEX.md`](docs/INDEX.md) | **Anytime** | Canonical map of all documentation, organized by purpose (Diátaxis-inspired) |
 | [`README.md`](README.md) | First | What the project is, current status, where to look for what |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Before writing anything | The 9 immutable engineering principles. Spec, design, code that violates these is rejected |
-| [`docs/domain/CMCOURIER_REBIRTH.md`](docs/domain/CMCOURIER_REBIRTH.md) | Before writing anything domain-related | The full domain context: source system (RVI/AS400), target system (CMIS/Content Manager), file formats, metadata resolution, CMIS integration quirks, stage architecture |
+| The project's domain spec under `docs/domain/` | Before writing anything domain-related | The full domain context: source system (RVI/AS400), target system (CMIS/Content Manager), file formats, metadata resolution, CMIS integration quirks, stage architecture |
 | [`docs/roadmap/POST-MVP.md`](docs/roadmap/POST-MVP.md) | When asking "did we forget X?" | Every feature deferred beyond MVP, with intent + design + acceptance criteria |
 | [`docs/how-to/README.md`](docs/how-to/README.md) | When you need to *do* something | Index of recipes (problem-oriented). Empty at MVP start; grows as commands ship |
-| [`docs/explanation/README.md`](docs/explanation/README.md) | When you need to *understand* something | Index of explanations (understanding-oriented). Pairs with the canonical domain explanation in REBIRTH |
+| [`docs/explanation/README.md`](docs/explanation/README.md) | When you need to *understand* something | Index of explanations (understanding-oriented). Pairs with the canonical domain explanation |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Before opening a PR | SDD workflow, commit rules, PR standards |
 | [`CHANGELOG.md`](CHANGELOG.md) | Anytime | Versioned history of every meaningful change to the project |
 
@@ -65,7 +64,7 @@ End to end:
 6. **Upload** to Content Manager via the CMIS Browser Binding REST API with proper metadata.
 7. **Track** every document so re-runs are idempotent.
 
-The full design is described in [`docs/domain/CMCOURIER_REBIRTH.md`](docs/domain/CMCOURIER_REBIRTH.md).
+The full design is described in the project's domain spec under `docs/domain/`.
 
 ---
 
@@ -73,7 +72,7 @@ The full design is described in [`docs/domain/CMCOURIER_REBIRTH.md`](docs/domain
 
 **Hexagonal Architecture (Ports & Adapters)** with four layers: `domain` (pure Python, no external deps), `services` (business logic depending only on ports), `orchestrators` (thin coordinators), `adapters` (concrete implementations of ports — pyodbc for AS400, requests for CMIS, pandas for CSV, SQLite for tracking, img2pdf/Pillow for PDF assembly). Pipelines are **named compositions of atomic stages** (`S0`–`S7`), each pipeline a CLI command, never a config flag.
 
-See Constitution Principle I and `CMCOURIER_REBIRTH.md §10` for details.
+See Constitution Principle I and the project's domain spec for details.
 
 ---
 
@@ -189,10 +188,10 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 
 - [x] Constitution ratified (v1.0.0)
 - [x] Project structure laid out
-- [x] Domain ground truth documented (`CMCOURIER_REBIRTH.md`)
-- [x] Stage-based pipeline architecture defined (`§10`)
-- [x] Pre-flight validation defined (`§10.5`)
-- [x] Observability tiers defined (`§17.4`)
+- [x] Domain ground truth documented (under `docs/domain/`)
+- [x] Stage-based pipeline architecture defined
+- [x] Pre-flight validation defined
+- [x] Observability tiers defined
 - [x] Post-MVP roadmap captured
 - [x] SDD context registered (`/sdd-init`)
 - [x] First change: Python skeleton bootstrap
@@ -207,19 +206,19 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Tenth change: CmisUploader (S5 — CMIS Browser Binding + retry policy + bandwidth limiter)
 - [x] Eleventh change: CsvTriggerPipeline orchestrator (S0..S6 end-to-end, library) — **MVP pipeline complete**
 - [x] Twelfth change: CLI + Pydantic config + YAML loader — **MVP CLI usable end-to-end**
-- [x] Thirteenth change: `cmcourier doctor` pre-flight (REBIRTH §10.5)
+- [x] Thirteenth change: `cmcourier doctor` pre-flight
 - [x] Fourteenth change: AS400 adapter + rvabrep-pipeline + as400-trigger-pipeline — **multi-pipeline + AS400 production-ready**
 - [x] Fifteenth change: AS400 metadata sources (closes the 014 gap)
-- [x] Sixteenth change: local-scan-pipeline (4th production pipeline; REBIRTH §5.1 set complete)
-- [x] Seventeenth change: single-doc-pipeline (REBIRTH §10.2 diagnostic — CLI-driven one-shot)
+- [x] Sixteenth change: local-scan-pipeline (4th production pipeline; trigger mode set complete)
+- [x] Seventeenth change: single-doc-pipeline (diagnostic — CLI-driven one-shot)
 - [x] Eighteenth change: per-source AS400 query override (closes the 015 scale gap)
 - [x] Nineteenth change: adapter port-hygiene cleanup (every adapter now declares its port)
-- [x] Twentieth change: observability tiers 1-4 (REBIRTH §17.4) — JSON app log + pipeline + network + slow-ops
-- [x] Twenty-first change: operator CLI essentials (REBIRTH §11) — batch list/show/retry-failed + inspect rvabrep/mapping + as400-query
+- [x] Twentieth change: observability tiers 1-4 — JSON app log + pipeline + network + slow-ops
+- [x] Twenty-first change: operator CLI essentials — batch list/show/retry-failed + inspect rvabrep/mapping + as400-query
 - [x] Twenty-second change: pipeline safety flags — auto-doctor + --resume + doctor --check
-- [x] Twenty-third change: complete REBIRTH §11 menus — inspect trigger / mapping-stats + batch export-report
+- [x] Twenty-third change: complete operator-CLI menus — inspect trigger / mapping-stats + batch export-report
 - [x] Twenty-fourth change: background runner — cron-friendly entry point with per-config fcntl lock
-- [x] Twenty-fifth change: live two-tab TUI + S5 worker pool + AIMD auto-tune (REBIRTH §10.6, §17.4)
+- [x] Twenty-fifth change: live two-tab TUI + S5 worker pool + AIMD auto-tune
 - [x] Twenty-sixth change: tier-5 system metrics (POST-MVP §2 — psutil sampling, ~0.1% CPU cost)
 - [x] Twenty-seventh change: offline log analyzer `cmcourier analyze batch/compare/trends` (POST-MVP §3)
 - [x] Twenty-eighth change: multi-batch orchestrator with N=2 producer-consumer overlap (POST-MVP §7, N=2)
@@ -256,7 +255,7 @@ No code lands without a spec. No spec contradicts the constitution. See [`CONTRI
 - [x] Sixtieth change (058): DETAIL tab fixes — (a) the per-doc `size` column always read `—` because `file_size_bytes` was never persisted: the row was first INSERT-OR-IGNORE'd in S1 (when `item.staged_file` was still `None`) and the S4 INSERT was silently ignored, so the column stayed NULL forever; a new `ITrackingStore.record_staged_file_metadata` UPDATEs the row after S4 assembles, idempotent so resume runs also backfill; (b) the DETAIL pane was wrapped in a plain `Container` that crops overflow instead of scrolling — now a `VerticalScroll` with `#detail_body { height: auto }` and `_MAX_ROWS` raised to 2000, so chunks larger than the visible height read past the fold
 - [x] Sixty-first change (060): HTTP client migrated from `requests` to `httpx[http2]` — `CmisUploader` now negotiates HTTP/2 via ALPN, so the N concurrent S5 workers share a single TCP connection (Apache-fronted Alfresco in prod), dropping small-upload overhead; transparent fallback to HTTP/1.1 when the server doesn't advertise h2 (Tomcat-direct staging), so behaviour is unchanged there; 56 adapter integration tests migrated from `responses` to `respx`
 - [x] Sixty-second change (061): AIMD `min_samples` guard — the controller halved the worker pool a few seconds into the first chunk because the nearest-rank p95 with ~5 samples was dominated by a single cold-connection outlier; new `cmis.auto_tune.min_samples` config (default 20) short-circuits the decision to a new `insufficient_data` action when too few samples have accumulated, leaving workers/timeout untouched until the observation is trustworthy
-- [x] Sixty-third change (062): persist S1 filtered + cross-batch-skipped docs to `migration_log` — two new `StageStatus` values (`S1_FILTERED`, `S1_SKIPPED`) + a `mark_stage_terminal` port method, so the DETAIL tab / `analyze batch` / `cmcourier batch show` can identify which specific docs were filtered (delete-coded at source, spec 051) or skipped cross-batch (REBIRTH §10 idempotency); §10's "silent skip" contract intentionally reversed for traceability
+- [x] Sixty-third change (062): persist S1 filtered + cross-batch-skipped docs to `migration_log` — two new `StageStatus` values (`S1_FILTERED`, `S1_SKIPPED`) + a `mark_stage_terminal` port method, so the DETAIL tab / `analyze batch` / `cmcourier batch show` can identify which specific docs were filtered (delete-coded at source, spec 051) or skipped cross-batch (idempotency); the prior "silent skip" contract intentionally reversed for traceability
 - [x] Sixty-fourth change (063): streaming orchestrator (core, single-lane) — new `processing.mode: "batched" | "streaming"` selects the orchestrator; `"streaming"` runs a continuous producer-consumer pipeline driven by a bounded **bucket** (`processing.streaming.bucket_size`, default 100) between PREP (S1–S4 producers, sized by `prep_workers`) and S5 consumers (sized to `_pool_ceiling()`). Memory peak collapses to `bucket_size` (independent of total trigger count) and S5 never idles waiting for a chunk's PREP. Resume is rejected in streaming mode — re-run + 062's `S1_SKIPPED` rows provide traceability. Heavy/light lanes (036) and a real TUI BUCKET tab are deferred to 065 / 064
 - [x] Sixty-fifth change (064): TUI BUCKET tab for streaming mode — new `b` keybind opens a dedicated tab showing bucket level vs cap (ASCII bar), peak level since run start, 5s sliding-window throughput on PREP + S5, producer in-flight count, configured worker totals, and cumulative `S5_DONE` / `S5_FAILED` / `S1_FILTERED` / `S1_SKIPPED`. The orchestrator exposes a `streaming_snapshot()` reader and a `_ThroughputWindow` (deque+lock) feeds the rates. Batched mode is unchanged — the BUCKET tab prints a one-line stub pointing at CHUNKS
 - [x] Sixty-sixth change (065): heavy/light lanes in streaming mode — combining `processing.mode: "streaming"` with `heavy_light_lanes.enabled: true` now inserts a dispatcher thread between the main bucket and S5: it routes each item into a heavy or light per-lane queue by `staged_file.size_bytes >= heavy_threshold_bytes`, and each lane gets its own consumer pool gated by the existing `LaneController` (semaphore split + drain-driven rebalance from 036). The BUCKET tab gains a LANES sub-block showing heavy/light budget, busy, queue depth, and total budget. Eliminates head-of-line blocking caused by a single heavy doc starving lighter ones queued behind it

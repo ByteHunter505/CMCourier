@@ -56,7 +56,7 @@
   feat(services): add S0 trigger strategies (CSV, RVABREP, stubs)
 
   Concrete S0Strategy implementations for stage S0 (Trigger Acquisition)
-  per REBIRTH §5.1.
+  per the spec.
 
   CsvTriggerStrategy reads triggers from any tabular IDataSource. Validates
   required columns at first row; yields TriggerRecord per non-blank row;
@@ -64,7 +64,7 @@
 
   DirectRvabrepTriggerStrategy scans RVABREP itself with optional filters
   (systems + document_types). Deduplicates (shortname, system_id) pairs
-  with first-occurrence-wins (matches REBIRTH §4.3 / MappingService
+  with first-occurrence-wins (matches the spec / MappingService
   precedent).
 
   As400TriggerStrategy and LocalScanTriggerStrategy are concrete

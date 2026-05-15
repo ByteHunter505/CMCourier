@@ -123,7 +123,7 @@ for canonical_field, fsc in config.field_sources.items():
                     cache.setdefault(cache_key, str(value))  # first wins (no overwrite)
 ```
 
-`setdefault` (instead of `cache[k] = v`) means the **first** row wins on duplicate keys, matching the precedent of `MappingService` (REBIRTH §4.3).
+`setdefault` (instead of `cache[k] = v`) means the **first** row wins on duplicate keys, matching the precedent of `MappingService`.
 
 If `prefetch_enabled=False`, the cache stays empty and `_fetch_csv` falls back to `source.get_by_fields(...)` per call.
 
@@ -231,7 +231,7 @@ The masking helper (`cli/ui/logging.py`, forthcoming) will sit in front of the s
 
 ### 3.8 `ResolvedMetadata` keys are canonical (`BAC_*`), not aliases
 
-The cache returned in `MetadataResolution.metadata` has keys like `BAC_CIF`, `BAC_Nombre_Cliente` — never `CIF` or `Nombre_Cliente`. This is the format the CMIS uploader expects (REBIRTH §6.1: `clbNonGroup.BAC_*`); the upload adapter trivially prefixes `clbNonGroup.` to produce the property catalog.
+The cache returned in `MetadataResolution.metadata` has keys like `BAC_CIF`, `BAC_Nombre_Cliente` — never `CIF` or `Nombre_Cliente`. This is the format the CMIS uploader expects (the spec: `clbNonGroup.BAC_*`); the upload adapter trivially prefixes `clbNonGroup.` to produce the property catalog.
 
 ### 3.9 `_validates` helper
 
@@ -265,7 +265,7 @@ When the AS400 adapter ships in a later change, that change adds a new entry to 
 ## 4. Implementation Sketch (full)
 
 ```python
-"""Metadata resolution service - REBIRTH §6.
+"""Metadata resolution service - the spec.
 
 Per-field source fallback chain with validation regexes, default-value
 fallback, CIF self-healing, field alias normalization, and eager pre-fetching
@@ -319,7 +319,7 @@ _AS400_PREFIX = "as400:"
 
 
 class MetadataService:
-    """REBIRTH §6 metadata resolution. See plan.md for detailed flow."""
+    """the spec metadata resolution. See plan.md for detailed flow."""
 
     def __init__(
         self,
@@ -535,7 +535,7 @@ This is the one place where a "wrapper" (not a mock) is justified — we want to
 | `healed_trigger` ignored by orchestrator | Tests assert behavior; orchestrator change (later) explicitly threads `healed_trigger` forward. Documented in CONTRIBUTING.md when the orchestrator change ships. |
 | Pre-fetch builds a large dict | CSV sources are tiny in practice (<1000 rows). AS400 sources (when they ship) will need the prefetch_max_rows guard — post-MVP. |
 | `as400:<alias>` accidentally configured | Tests assert NotImplementedError fires with a clear message. Doctor command (later) will surface this in pre-flight. |
-| Pre-fetch first-wins vs caller expectation | `setdefault` preserves first occurrence, matching MappingService's first-wins precedent (REBIRTH §4.3). Documented. |
+| Pre-fetch first-wins vs caller expectation | `setdefault` preserves first occurrence, matching MappingService's first-wins precedent. Documented. |
 | Re-running with different config across sessions yields different cache | Acceptable — the service is ephemeral per-process; no persistence concerns. |
 
 ---
@@ -556,5 +556,5 @@ This is the one place where a "wrapper" (not a mock) is justified — we want to
 - Spec: `specs/005-metadata-service/spec.md`
 - Tasks: `specs/005-metadata-service/tasks.md`
 - Constitution Principles I, III, V, VI, VII, VIII, IX
-- REBIRTH §6 (entire), §10.1 (S3), §12 (config layout)
+- the spec (entire), §10.1 (S3), §12 (config layout)
 - Predecessors: 002, 003, 004

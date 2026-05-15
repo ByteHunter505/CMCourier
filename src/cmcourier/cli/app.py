@@ -81,7 +81,7 @@ main.add_command(cache_group)
 
 @main.group(name="csv-trigger-pipeline")
 def csv_trigger_pipeline_group() -> None:
-    """csv-trigger-pipeline subcommands (REBIRTH §10.2)."""
+    """csv-trigger-pipeline subcommands."""
 
 
 @csv_trigger_pipeline_group.command(name="run")
@@ -172,7 +172,7 @@ def csv_run_command(
 
 @main.group(name="rvabrep-pipeline")
 def rvabrep_pipeline_group() -> None:
-    """rvabrep-pipeline subcommands (REBIRTH §10.2)."""
+    """rvabrep-pipeline subcommands."""
 
 
 @rvabrep_pipeline_group.command(name="run")
@@ -238,7 +238,7 @@ def rvabrep_run_command(
 
 @main.group(name="local-scan-pipeline")
 def local_scan_pipeline_group() -> None:
-    """local-scan-pipeline subcommands (REBIRTH §10.2)."""
+    """local-scan-pipeline subcommands."""
 
 
 @local_scan_pipeline_group.command(name="run")
@@ -298,13 +298,13 @@ def local_scan_run_command(
 
 
 # ---------------------------------------------------------------------------
-# single-doc (REBIRTH §10.2 diagnostic pipeline)
+# single-doc (diagnostic pipeline)
 # ---------------------------------------------------------------------------
 
 
 @main.group(name="single-doc")
 def single_doc_group() -> None:
-    """single-doc subcommands (REBIRTH §10.2 — debug / ad-hoc)."""
+    """single-doc subcommands (debug / ad-hoc)."""
 
 
 @single_doc_group.command(name="run")
@@ -436,11 +436,11 @@ def single_doc_run_command(
     "selected_check",
     type=click.Choice(["connections", "mapping", "metadata", "cm-types", "cm-targets", "all"]),
     default="all",
-    help="Run only the named REBIRTH §11 check group (default: all).",
+    help="Run only the named check group (default: all).",
 )
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def doctor_command(config_path: Path, selected_check: str, log_level: str) -> None:
-    """Run pre-flight validation (REBIRTH §10.5)."""
+    """Run pre-flight validation."""
     configure_logging(log_level)
     try:
         config = load_config(config_path)

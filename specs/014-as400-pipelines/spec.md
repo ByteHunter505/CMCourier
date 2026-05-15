@@ -14,7 +14,7 @@ pyodbc boundary — no real CMIS AND no real AS400 in tests).
 
 ## 1. Intent
 
-The MVP today ships ONE pipeline (`csv-trigger-pipeline`). REBIRTH §10.2
+The MVP today ships ONE pipeline (`csv-trigger-pipeline`). the spec
 lists FOUR production pipelines + one debug. Each differs only in S0.
 014 unlocks two more pipelines (`rvabrep`, `as400-trigger`) by:
 
@@ -36,7 +36,7 @@ lists FOUR production pipelines + one debug. Each differs only in S0.
 - `MetadataService.as400:<alias>` source resolution — needs an AS400
   connection registered as a metadata source. Today it
   `raise NotImplementedError`; 014 keeps that, the future change wires it.
-- Thread-local AS400 connections (post-MVP per REBIRTH §3.1 — current
+- Thread-local AS400 connections (post-MVP per the spec, — current
   pipeline is single-threaded).
 - `local-scan-pipeline` and `single-doc` — separate changes each.
 
@@ -50,7 +50,7 @@ lists FOUR production pipelines + one debug. Each differs only in S0.
   `IDataSource` over pyodbc. Constructor takes the connection params
   + a target `table` (used by `get_all` / `count` / `get_by_fields`).
   Methods: `query`, `query_stream`, `get_by_fields`, `get_by_fields_in`
-  (with IN-list chunking per REBIRTH §10.1), `get_all`, `count`, `close`.
+  (with IN-list chunking per the spec), `get_all`, `count`, `close`.
 - **Rename `CsvTriggerPipeline` → `StagedPipeline`** in a new module
   `cmcourier/orchestrators/staged.py` (the old module name
   `csv_trigger.py` re-exports for backwards compatibility within the

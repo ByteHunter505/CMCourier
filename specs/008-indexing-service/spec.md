@@ -1,7 +1,7 @@
 # Spec — 008-indexing-service
 
 **Status**: Draft
-**Stage**: S1 — RVABREP Indexing (REBIRTH §10.1)
+**Stage**: S1 — RVABREP Indexing
 **Constitution alignment**: Principle I (hexagonal), II (idempotency surfaces but not authority), III (single-responsibility service), VI (real test pyramid via TabularDataSource).
 
 ---
@@ -29,10 +29,10 @@ wired.
 - Single-trigger lookup: `find_documents(trigger) -> list[RVABREPDocument]`.
 - Batched lookup: `find_documents_batch(triggers) -> Iterator[tuple[TriggerRecord, list[RVABREPDocument]]]`
   — uses `IDataSource.get_by_fields_in()` to chunk shortnames in IN-lists of
-  50 (REBIRTH §10.1).
+  50.
 - Deleted-row filtering: rows where `delete_code != ""` are excluded.
 - Duplicate `txn_num` handling: WARNING log + first-wins (matches
-  `MappingService` precedent for duplicate `ID RVI`, REBIRTH §4.3).
+  `MappingService` precedent for duplicate `ID RVI`, the spec).
 - Typed error raising: `RVABREPNotFoundError`, `RVABREPDeletedError`.
 - A configurable column map (`IndexingColumnsConfig`) so the same service
   works against AS400 (physical names `ABABCD`, `ABAACD`, …) and against a
@@ -45,7 +45,7 @@ wired.
 - AS400 ODBC adapter — that change ships separately (post-MVP per
   `docs/roadmap/POST-MVP.md`).
 - CIF filtering: the trigger's `cif` field is **not** used in the WHERE
-  clause. Reason: REBIRTH §6.5 designates CIF self-healing as a Stage S3
+  clause. Reason: the spec designates CIF self-healing as a Stage S3
   responsibility. Filtering by CIF here would either reject legitimate docs
   when the trigger's CIF is missing, or duplicate CIF resolution logic
   across two stages.
@@ -71,7 +71,7 @@ wired.
 - **REQ-003** `IndexingColumnsConfig` MUST be a `frozen=True, slots=True`
   dataclass exposing field names for: `shortname_column`, `system_id_column`,
   `txn_num_column`, `delete_code_column`, plus every other column the
-  service maps onto `RVABREPDocument`. Defaults MUST match REBIRTH §3.2
+  service maps onto `RVABREPDocument`. Defaults MUST match the spec
   physical column names (`ABABCD`, `ABAACD`, `ABAANB`, `ABACST`, …).
 
 ### Single-trigger lookup
@@ -91,7 +91,7 @@ wired.
 - **REQ-009** If two or more rows share the same `txn_num`, the service MUST
   log a `WARNING` naming the duplicate `txn_num`, the trigger shortname, and
   the count; the FIRST occurrence is kept and subsequent occurrences are
-  dropped silently (matches `MappingService` REBIRTH §4.3 precedent).
+  dropped silently (matches `MappingService` the spec precedent).
 
 ### Batched lookup
 
@@ -214,11 +214,11 @@ wired.
 - Then `creation_date == datetime(2025, 11, 17)`, `last_view_date is None`,
   `total_pages == 540`.
 
-### 4.12 Config defaults match REBIRTH §3.2
+### 4.12 Config defaults match the spec
 - Given an `IndexingColumnsConfig()` with no overrides.
 - Then `shortname_column == 'ABABCD'`, `system_id_column == 'ABAACD'`,
   `txn_num_column == 'ABAANB'`, `delete_code_column == 'ABACST'`, …
-  (matching REBIRTH §3.2).
+  (matching the spec).
 
 ---
 
@@ -250,7 +250,7 @@ wired.
 ## 7. Open questions / risks
 
 - **Risk**: AS400 ODBC adapter does not exist yet. Mitigation: tests use
-  `TabularDataSource` over CSV fixtures (REBIRTH §3.2 column names are just
+  `TabularDataSource` over CSV fixtures (the spec column names are just
   strings; the test fixture can use them verbatim or the friendly names via
   `IndexingColumnsConfig` overrides — both paths are tested).
 - **Risk**: `get_by_fields_in` on `TabularDataSource` is the first real

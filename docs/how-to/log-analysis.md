@@ -1,7 +1,7 @@
 # How to: analyze a batch's logs offline (`cmcourier analyze`)
 
 > Available since change **027** (2026-05-11). Reads the five
-> observability tiers (REBIRTH §17.4) and produces a
+> observability tiers and produces a
 > per-batch report, pairwise compare, or trend series.
 
 ---
@@ -393,6 +393,6 @@ about.
 ## Cross-references
 
 - POST-MVP roadmap entry: `docs/roadmap/POST-MVP.md` §3.
-- Tier 5 contract: `docs/domain/CMCOURIER_REBIRTH.md` §17.4
+- Tier 5 contract: the project's domain spec §17.4
   + `specs/026-system-metrics-tier5/`.
 - This change's spec: `specs/027-log-analyzer/`.

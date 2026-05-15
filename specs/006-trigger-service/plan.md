@@ -68,7 +68,7 @@ A constitutional amendment to refine the port (drop the parameter) is out of sco
 
 ### 3.4 CIF defaulting to `None`
 
-`TriggerRecord.cif: str | None`. Per REBIRTH §6.5, `None` is the sentinel for "needs CIF self-healing in stage S3". Strategies extract the cell value if non-blank, otherwise yield `None`. The blank-vs-`None` distinction is irrelevant downstream — anything falsy means "self-heal".
+`TriggerRecord.cif: str | None`. Per the spec, `None` is the sentinel for "needs CIF self-healing in stage S3". Strategies extract the cell value if non-blank, otherwise yield `None`. The blank-vs-`None` distinction is irrelevant downstream — anything falsy means "self-heal".
 
 ### 3.5 RVABREP filter combination
 
@@ -83,7 +83,7 @@ If profiling later shows this is slow for AS400, an optimization is to issue two
 
 ### 3.6 Deduplication for RVABREP
 
-Each `(shortname, system_id)` pair yields exactly one trigger. Dedup is in-memory `set[tuple[str, str]]` — small (max ~tens of thousands) so memory is fine. First-occurrence wins, matching the REBIRTH §4.3 / MappingService precedent.
+Each `(shortname, system_id)` pair yields exactly one trigger. Dedup is in-memory `set[tuple[str, str]]` — small (max ~tens of thousands) so memory is fine. First-occurrence wins, matching the the spec / MappingService precedent.
 
 ### 3.7 Stubs raise at `acquire`, not construction
 
@@ -99,7 +99,7 @@ The strategies MUST NOT log `cif` values. CIF is PII. If a future maintainer add
 
 ### 3.9 Lazy iteration
 
-Every strategy yields via generator. Trigger lists may be very large (REBIRTH §10.4 mentions 200k+). The current `IDataSource.get_all()` from `TabularDataSource` (003) is technically eager (whole DataFrame in memory) but the iteration over it is lazy via generator semantics. The contract is preserved at the strategy level.
+Every strategy yields via generator. Trigger lists may be very large (the spec mentions 200k+). The current `IDataSource.get_all()` from `TabularDataSource` (003) is technically eager (whole DataFrame in memory) but the iteration over it is lazy via generator semantics. The contract is preserved at the strategy level.
 
 ---
 
@@ -108,7 +108,7 @@ Every strategy yields via generator. Trigger lists may be very large (REBIRTH §
 ### 4.1 `csv.py`
 
 ```python
-"""CSV-driven trigger strategy. REBIRTH §5.1 mode csv:<alias>."""
+"""CSV-driven trigger strategy. the spec mode csv:<alias>."""
 
 from __future__ import annotations
 
@@ -182,7 +182,7 @@ class CsvTriggerStrategy(S0Strategy):
 ### 4.2 `direct_rvabrep.py`
 
 ```python
-"""Direct-RVABREP trigger strategy. REBIRTH §5.1 mode direct_rvabrep."""
+"""Direct-RVABREP trigger strategy. the spec mode direct_rvabrep."""
 
 from __future__ import annotations
 
@@ -301,7 +301,7 @@ from cmcourier.domain.ports import IDataSource, S0Strategy
 
 
 class As400TriggerStrategy(S0Strategy):
-    """REBIRTH §5.1 mode as400:<alias>. Activates when the AS400 adapter ships."""
+    """the spec mode as400:<alias>. Activates when the AS400 adapter ships."""
 
     def __init__(self, query: str) -> None:
         self._query = query
@@ -316,7 +316,7 @@ class As400TriggerStrategy(S0Strategy):
 
 
 class LocalScanTriggerStrategy(S0Strategy):
-    """REBIRTH §5.1 mode local_scan. Activates when the folder-scanner module ships."""
+    """the spec mode local_scan. Activates when the folder-scanner module ships."""
 
     def __init__(
         self,
@@ -501,5 +501,5 @@ class TestStubStrategies:
 - Spec: `specs/006-trigger-service/spec.md`
 - Tasks: `specs/006-trigger-service/tasks.md`
 - Constitution Principles I, III, V, VI, VII, VIII, IX
-- REBIRTH §3.2, §5, §10.1, §12
+- the spec
 - Predecessors: 002, 003, 004, 005

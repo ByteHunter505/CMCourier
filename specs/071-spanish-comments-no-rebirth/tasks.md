@@ -1,14 +1,14 @@
 # 071 — Tasks
 
-Branch: `feat/071-spanish-comments-no-rebirth`.
+Branch: the 071 feature branch on `main`.
 
-## Fase 1 — Quitar REBIRTH
+## Fase 1 — Quitar el code-name antiguo
 
-- [ ] T1. Listar archivos con `REBIRTH` en código, specs, CHANGELOG, README, docs/
+- [ ] T1. Listar archivos con menciones (case-insensitive) en código, specs, CHANGELOG, README, docs/
 - [ ] T2. Por archivo, reemplazar / quitar las menciones
-- [ ] T3. `rg -i "rebirth" .` → cero hits
+- [ ] T3. Grep case-insensitive → cero hits
 - [ ] T4. Verificación: `pytest -q`, `ruff check`, `mypy`
-- [ ] T5. Commit `refactor: remove REBIRTH references (071 Phase 1)`
+- [ ] T5. Commit `refactor: remove legacy code-name references (071 Phase 1)`
 
 ## Fase 2 — Traducir orchestrators + adapters (yo)
 
@@ -37,7 +37,7 @@ Branch: `feat/071-spanish-comments-no-rebirth`.
 
 ## Fase 6 — Verificación + release
 
-- [ ] T19. `rg -i "rebirth" .` → cero
+- [ ] T19. Grep case-insensitive del code-name antiguo → cero
 - [ ] T20. Pytest completo verde
 - [ ] T21. ruff + mypy limpios
 - [ ] T22. CHANGELOG `[0.73.0]`

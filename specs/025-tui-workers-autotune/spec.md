@@ -17,11 +17,11 @@ dry run with operator visibility:
    a plain `for item in items:` loop. Every upload blocks the
    batch. Production-scale runs (10k+ docs) take wall-clock-hours
    when the CMIS server can sustain 5–10 concurrent uploads.
-2. **No adaptive tuning.** REBIRTH §12 documents an `auto_tune:`
+2. **No adaptive tuning.** the spec documents an `auto_tune:`
    block (AIMD on thread count + timeout). It does not exist in
    code. Static `cmis.workers` is good MVP; AIMD lets long-running
    batches react to backpressure.
-3. **No live TUI.** REBIRTH §10.6 says "Every pipeline displays a
+3. **No live TUI.** the spec says "Every pipeline displays a
    Rich TUI with two switchable tabs (PREP / UPLOAD)". Today the
    operator stares at scrolling stderr or `tail -f logs/`. The
    observability tiers (020) capture everything, but live attended
@@ -33,7 +33,7 @@ needs the worker pool to control; the worker pool needs the
 adapter thread-safety review to be safe.
 
 Post-MVP §1 (slow/fast lanes) is explicitly **deferred** to a
-future change — confirmed by REBIRTH §10.7. 025 ships a single
+future change — confirmed by the spec. 025 ships a single
 adaptive pool.
 
 ---
@@ -49,26 +49,26 @@ adaptive pool.
 - **G3**: Optional AIMD auto-tune controller adjusts worker
   count and CMIS request timeout based on observed p95 latency
   vs `target_p95_ms`. Configurable via `cmis.auto_tune:` YAML
-  block matching REBIRTH §12.
+  block matching the spec.
 - **G4**: Two-tab `textual` TUI (PREP / UPLOAD) displays live
   per-stage progress, percentiles, throughput, worker state,
   auto-tune state, bandwidth chart (1Hz, 60s rolling), recent
   uploads, slow-ops drawers. Tab navigation via `[P]` / `[U]`
   keys; `[Q]` quits.
 - **G5**: TUI default-ON for `*-pipeline run` and `single-doc run`
-  commands (REBIRTH §10.6). `--no-tui` opt-out for headless
+  commands. `--no-tui` opt-out for headless
   shells. `background` command (024) keeps TUI off (per
-  REBIRTH §10.6 final sentence — "exception is `cmcourier
+  the spec final sentence — "exception is `cmcourier
   background`").
 - **G6**: TUI bandwidth chart y-axis is `0 → cmis.max_bandwidth_mbps`
   when set (config-known ceiling); falls back to auto-scale to
   the rolling-window peak when ceiling is 0/unset.
-- **G7**: Slow/Fast lanes are explicitly NOT implemented (REBIRTH
-  §10.7 post-MVP). The TUI WORKERS panel shows a single pool.
+- **G7**: Slow/Fast lanes are explicitly NOT implemented (post-MVP).
+  The TUI WORKERS panel shows a single pool.
 
 ## 3. Non-goals
 
-- **NG1**: Adaptive heavy/light lanes (REBIRTH §10.7 post-MVP).
+- **NG1**: Adaptive heavy/light lanes (the spec post-MVP).
 - **NG2**: Auto-detected network interface theoretical max
   (frágil cross-host; use config ceiling).
 - **NG3**: GUI / web dashboard. CLI-only.
@@ -91,7 +91,7 @@ adaptive pool.
   `workers: int = Field(default=4, ge=1)`.
 - **REQ-002**: `CmisConfigModel` MUST add field
   `auto_tune: AutoTuneConfig = Field(default_factory=AutoTuneConfig)`.
-- **REQ-003**: New `AutoTuneConfig` model mirrors REBIRTH §12:
+- **REQ-003**: New `AutoTuneConfig` model mirrors the spec:
   - `enabled: bool = False`
   - `min_threads: int = Field(default=2, ge=1)`
   - `max_threads: int = Field(default=50, ge=1)`
@@ -338,7 +338,7 @@ adaptive pool.
 
 ## 6. Out of scope (explicit)
 
-- Adaptive slow/fast lanes (REBIRTH §10.7 post-MVP).
+- Adaptive slow/fast lanes (the spec post-MVP).
 - Auto-detected network interface theoretical max.
 - TUI hot-reload of config.
 - Web / GUI dashboard.
@@ -350,11 +350,11 @@ adaptive pool.
 
 ## 7. References
 
-- REBIRTH §10.3 — pipeline stages
-- REBIRTH §10.6 — TUI by Default (two tabs)
-- REBIRTH §10.7 — Adaptive Heavy / Light Upload Lanes (Post-MVP)
-- REBIRTH §12 — `auto_tune:` config block specification
-- REBIRTH §17.4 — Observability tiers (we hook into them)
+- the spec — pipeline stages
+- the spec — TUI by Default (two tabs)
+- the spec — Adaptive Heavy / Light Upload Lanes (Post-MVP)
+- the spec — `auto_tune:` config block specification
+- the spec — Observability tiers (we hook into them)
 - POST-MVP §1 — Adaptive lanes (deferred)
 - 020 — Observability (MetricsRecorder, BandwidthLimiter)
 - 022 — Auto-doctor + safety flags (--no-tui follows same pattern)

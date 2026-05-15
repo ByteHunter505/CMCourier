@@ -1,6 +1,6 @@
 """Mapping service - in-memory cache + lookup over the Modelo Documental.
 
-REBIRTH §4. Loads every row from any :class:`IDataSource` at construction
+Loads every row from any :class:`IDataSource` at construction
 and builds an ``id_rvi -> CMMapping`` dict for O(1) lookup. Subsequent
 ``get_mapping`` calls hit the cache. The service does no I/O after
 construction.
@@ -122,11 +122,11 @@ def _is_required(value: object, custom_marker: str) -> bool:
 
 
 class MappingService:
-    """In-memory cache + lookup over the Modelo Documental (REBIRTH §4).
+    """In-memory cache + lookup over the Modelo Documental.
 
     Construction iterates the entire source once, validates required columns,
     and builds a dict keyed by ``id_rvi``. First occurrence of a duplicate
-    ``id_rvi`` wins (REBIRTH §4.3); subsequent occurrences are dropped with a
+    ``id_rvi`` wins; subsequent occurrences are dropped with a
     ``WARNING`` log entry. Rows whose ``id_rvi`` is blank are silently
     skipped, with an ``INFO`` log entry summarizing the count.
 

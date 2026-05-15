@@ -1,4 +1,4 @@
-"""SQLite-backed :class:`ITrackingStore` (REBIRTH §9, §10.3).
+"""SQLite-backed :class:`ITrackingStore`.
 
 Two connections coexist over the same WAL-mode database file:
 
@@ -10,7 +10,7 @@ Two connections coexist over the same WAL-mode database file:
 
 The reader / writer split is enabled by SQLite's WAL journal mode: a
 writer connection never blocks readers and vice versa. ``synchronous=OFF``
-and a 64 MiB page cache (REBIRTH §9.3) keep throughput high under
+and a 64 MiB page cache keep throughput high under
 production-scale workloads.
 
 Constitution Principle I: this module only depends on the standard library
@@ -117,7 +117,7 @@ ON document_cache (cached_at)
 
 
 # ---------------------------------------------------------------------------
-# PRAGMAs (REBIRTH §9.3)
+# PRAGMAs
 # ---------------------------------------------------------------------------
 
 

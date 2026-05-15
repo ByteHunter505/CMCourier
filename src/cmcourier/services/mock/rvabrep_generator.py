@@ -1,7 +1,7 @@
 """Synthetic RVABREP CSV generator (039).
 
-Streams a deterministic RVABREP CSV with the column shape documented
-in REBIRTH §3.2. One ``random.Random(seed)`` drives every choice so
+Streams a deterministic RVABREP CSV with the canonical column shape.
+One ``random.Random(seed)`` drives every choice so
 the same seed always produces byte-identical output. The output is
 consumed by the existing ``cmcourier mock generate`` (031) which
 materializes the physical files on disk.
@@ -36,7 +36,7 @@ from cmcourier.domain.models import parse_cymmdd
 # ---------------------------------------------------------------------------
 
 
-# Output column order — REBIRTH §3.2 ABA codes. Matches
+# Output column order — canonical ABA codes. Matches
 # IndexingColumnsModel defaults so the output is consumed by
 # ``mock generate`` and every downstream pipeline without a config
 # override.
@@ -60,7 +60,7 @@ _HEADER: tuple[str, ...] = (
 )
 
 
-# REBIRTH §3.2 image-type physical codes.
+# RVABREP image-type physical codes.
 _IMAGE_TYPE_CODE: dict[str, str] = {
     "tiff": "B",
     "pdf": "O",
@@ -96,7 +96,7 @@ _NAME_LEXICON: tuple[str, ...] = (
 )
 
 
-# system_id distribution observed in RVILIB_RVABREP.xlsx + REBIRTH §3.2.
+# system_id distribution observed in RVILIB_RVABREP.xlsx.
 _SYSTEM_ID_WEIGHTS: tuple[tuple[str, float], ...] = (
     ("1", 0.70),
     ("5", 0.15),

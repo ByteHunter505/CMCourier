@@ -116,7 +116,7 @@
 
 - [ ] **6.1** Update `CHANGELOG.md`:
   - "Planned for next release" → AS400 metadata source `as400:*`
-    support, `local-scan-pipeline`, `single-doc`, REBIRTH §11 batch/
+    support, `local-scan-pipeline`, `single-doc`, the spec batch/
     inspect tree.
   - Add `[0.16.0] — 2026-05-10` entry: Added / Changed / Verification
     / Rationale. Milestone: **multi-pipeline + AS400 production-ready**.

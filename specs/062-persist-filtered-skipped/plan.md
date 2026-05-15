@@ -85,7 +85,7 @@ feat(s1): persist filtered + cross-batch-skipped docs to migration_log (062 Phas
 ### Files
 
 - `CHANGELOG.md` `[0.64.0]` — Changed: cross-batch skipped docs now
-  produce a `S1_SKIPPED` row (REBIRTH §10's "silent skip" contract
+  produce a `S1_SKIPPED` row (the spec's "silent skip" contract
   intentionally reversed for traceability; mention disk implications
   on repeated re-runs). Added: `S1_FILTERED` rows for delete-coded
   source docs.

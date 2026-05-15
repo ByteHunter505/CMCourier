@@ -62,7 +62,7 @@
   First service-layer class in CMCourier. Caches the Modelo Documental
   from any IDataSource at construction and exposes get_mapping(id_rvi),
   get_all(), count(), and __contains__. Duplicate ID RVI rows obey
-  the REBIRTH §4.3 first-wins rule and emit a WARNING log entry.
+  the the spec first-wins rule and emit a WARNING log entry.
   Empty-ID-RVI rows are silently skipped (counted at INFO level).
 
   Validates the hexagonal architecture end-to-end: services/mapping.py
@@ -72,7 +72,7 @@
 
   METADATOS parsing handles whitespace, trailing commas, doubled
   commas, and empty cells consistently. Field aliases (CIF → BAC_CIF
-  per REBIRTH §6.2) are NOT handled here — that is metadata service
+  per the spec) are NOT handled here — that is metadata service
   responsibility (later change).
 
   Verification:

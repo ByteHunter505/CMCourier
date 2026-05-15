@@ -10,7 +10,7 @@
 
 ## 1. Problem
 
-Today the CLI ships a single stderr text-format logger. REBIRTH §17.4
+Today the CLI ships a single stderr text-format logger. the spec
 defines a tiered observability surface that operators need before the
 first real dry run: structured JSON logs, per-stage timing
 aggregates, network-level latency for AS400 and CMIS, and a top-N
@@ -53,7 +53,7 @@ and the central PII masking helper.
 - **NG1**: System metrics (tier 5, `psutil`). Explicitly deferred
   to POST-MVP §2.
 - **NG2**: Offline log analyzer. POST-MVP §3.
-- **NG3**: Live TUI dashboard. REBIRTH §10.6, separate change.
+- **NG3**: Live TUI dashboard. the spec, separate change.
 - **NG4**: Log rotation by size. We use Python's
   `RotatingFileHandler` with the configured `rotation_mb` cap
   (built-in, no extra work); rotation strategy beyond that is
@@ -74,7 +74,7 @@ and the central PII masking helper.
 ### Schema
 
 - **REQ-001**: `cmcourier.config.schema` MUST add
-  `ObservabilityConfig` with fields per REBIRTH §17.4:
+  `ObservabilityConfig` with fields per the spec:
   - `enabled: bool = True`
   - `pipeline_metrics: bool = True`
   - `network_metrics: bool = True`
@@ -284,7 +284,7 @@ and the central PII masking helper.
 
 - System metrics (`psutil` sampling) — POST-MVP §2
 - Offline log analyzer — POST-MVP §3
-- Live TUI dashboard — REBIRTH §10.6
+- Live TUI dashboard — the spec
 - Custom rotation/retention policies beyond `RotatingFileHandler`
 - Per-environment log routing
 - Log shipper integration (Splunk, ELK, Application Insights)
@@ -310,8 +310,8 @@ and the central PII masking helper.
 
 ## 8. References
 
-- REBIRTH §17.4 — Observability
-- REBIRTH §10.3 — pipeline stage definitions (S0..S6)
+- the spec — Observability
+- the spec — pipeline stage definitions (S0..S6)
 - POST-MVP §2 — System Metrics (deferred)
 - POST-MVP §3 — Offline Log Analyzer (deferred)
 - Constitution Principle VIII — PII discipline

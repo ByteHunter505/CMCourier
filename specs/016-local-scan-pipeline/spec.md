@@ -1,7 +1,7 @@
 # Spec — 016-local-scan-pipeline
 
 **Status**: Draft
-**Pipeline**: `local-scan-pipeline` (REBIRTH §10.2, §5.1).
+**Pipeline**: `local-scan-pipeline` (the spec).
 **Constitution alignment**: I (the new trigger strategy implements
 the existing `S0Strategy` port and consumes the existing
 `IDataSource` for RVABREP), III (the strategy is one focused class
@@ -13,7 +13,7 @@ fits the discriminated-union pattern).
 ## 1. Intent
 
 Ship the fourth and final production pipeline composition from
-REBIRTH §10.2: `local-scan-pipeline`. With this change, the project
+the spec: `local-scan-pipeline`. With this change, the project
 covers every trigger source mode the rewrite committed to.
 
 The strategy is:
@@ -39,7 +39,7 @@ rather than off RVABREP scans or trigger CSVs.
   promoted).
 - **Algorithm**: list `scan_path` (non-recursive), filter entries
   whose name matches `*.PDF` (native PDFs, case-insensitive) OR
-  `*.001` (the first page of a paged document — REBIRTH §3.4
+  `*.001` (the first page of a paged document — the spec
   guarantees paged docs always have a `.001` page). For each
   surviving filename, query the RVABREP source via
   `get_by_fields({file_name_column: name})`. For every matched
@@ -75,7 +75,7 @@ rather than off RVABREP scans or trigger CSVs.
   stub had this parameter). 016 simplifies: the CIF comes from
   RVABREP.index2, identical to how the rvabrep-pipeline resolves
   it. The metadata service's existing CIF self-healing rule
-  (REBIRTH §6.5) catches trigger.cif=None cases.
+ catches trigger.cif=None cases.
 - **`source_descriptor` overrides**. The pipeline's vestigial
   `source_descriptor` parameter is ignored; the scan path comes
   from config.
@@ -98,7 +98,7 @@ rather than off RVABREP scans or trigger CSVs.
   )
   ```
   - `columns` defaults to `RvabrepColumnsConfig()` (the defaults
-    match REBIRTH §3.2 physical names — `ABABCD` for shortname,
+    match the spec physical names — `ABABCD` for shortname,
     etc.). Production configs (with friendly column names) pass an
     explicit `columns`.
 - **REQ-003** `acquire(source_descriptor: str = "")` MUST:
@@ -162,7 +162,7 @@ rather than off RVABREP scans or trigger CSVs.
 ### `RvabrepColumnsConfig` amendment
 
 - **REQ-011** `RvabrepColumnsConfig` MUST gain a `file_name_column`
-  field (default `"ABAJCD"`, matching REBIRTH §3.2). The
+  field (default `"ABAJCD"`, matching the spec). The
   LocalScanStrategy uses this to drive
   `get_by_fields({file_name_column: ...})`.
 
@@ -297,5 +297,5 @@ rather than off RVABREP scans or trigger CSVs.
   `file_pattern` glob (e.g., `*.001` or `DAAA*.*`) for operators
   with multiple sources mixed in one folder?
   **Resolved**: no. The two-extension filter (`.PDF` + `.001`)
-  matches REBIRTH §3.4's naming convention. Operators with custom
+  matches the spec's naming convention. Operators with custom
   layouts can curate the folder in advance.

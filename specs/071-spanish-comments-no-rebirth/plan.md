@@ -1,17 +1,17 @@
 # 071 — Plan
 
-## Fase 1 — Quitar REBIRTH
+## Fase 1 — Quitar el code-name antiguo
 
-* Listar todos los archivos con menciones: `rg -l "REBIRTH"` en
-  `src/`, `tests/`, `specs/`, `CHANGELOG.md`, `README.md`,
+* Listar todos los archivos con menciones (case-insensitive grep)
+  en `src/`, `tests/`, `specs/`, `CHANGELOG.md`, `README.md`,
   `docs/`.
 * Para cada archivo, reemplazar las menciones:
-  * `REBIRTH §X.Y` → eliminar la referencia (o reemplazar por
-    contexto útil cuando la oración la necesita).
-  * `CMCOURIER_REBIRTH.md` → quitar enlace; si el contexto pide
-    una referencia genérica, "el spec arquitectónico".
-* Verificar: `rg -i "rebirth" .` retorna cero.
-* Commit: `refactor: remove REBIRTH references (071 Phase 1)`.
+  * `<code-name antiguo> §X.Y` → eliminar la referencia (o
+    reemplazar por contexto útil cuando la oración la necesita).
+  * Enlace al `.md` del code-name → quitar enlace; si el contexto
+    pide una referencia genérica, "el spec arquitectónico".
+* Verificar: grep case-insensitive retorna cero.
+* Commit: `refactor: remove legacy code-name references (071 Phase 1)`.
 
 ## Fase 2 — Traducir `orchestrators/` + `adapters/` (yo, en serie)
 
@@ -79,7 +79,7 @@ Commit: `docs: translate specs + CHANGELOG + README to Spanish (071 Phase 5)`.
 
 ## Fase 6 — Verificación + release
 
-* `rg -i "rebirth" .` → cero hits.
+* Grep case-insensitive del code-name antiguo → cero hits.
 * `pytest tests/unit tests/integration -q` → verde.
 * `ruff check src tests` → limpio.
 * `ruff format src tests --check` → limpio.

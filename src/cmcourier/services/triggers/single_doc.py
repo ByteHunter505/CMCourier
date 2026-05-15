@@ -1,4 +1,4 @@
-"""Single-doc trigger strategy (REBIRTH §10.2 diagnostic pipeline).
+"""Single-doc trigger strategy (diagnostic pipeline).
 
 Yields exactly one :class:`TriggerRecord` built from caller-provided
 ``shortname``, ``system_id``, and optional ``cif``. The trigger

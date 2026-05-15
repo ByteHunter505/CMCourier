@@ -1,7 +1,7 @@
 # Spec — 009-pdf-assembly-adapter
 
 **Status**: Draft
-**Stage**: S4 — File Verification & Assembly (REBIRTH §7, §10.1)
+**Stage**: S4 — File Verification & Assembly (the spec)
 **Constitution alignment**: Principle I (hexagonal — concrete `IAssembler`),
 III (single-responsibility), IV (streaming — single-pass disk write), VI
 (real test pyramid — no img2pdf mocking, real binary fixtures).
@@ -15,7 +15,7 @@ Implement `PdfAssembler` — the concrete `IAssembler` that turns a
 through unchanged; paged documents are merged from their numbered page
 files into one multi-page PDF.
 
-This adapter is the engine of Stage S4 (REBIRTH §7) and a precondition for
+This adapter is the engine of Stage S4 and a precondition for
 Stage S5 (Upload). Combined with the service triangle and the tracking
 store, it leaves only S5 + the orchestrator before the MVP pipeline runs.
 
@@ -34,8 +34,8 @@ store, it leaves only S5 + the orchestrator before the MVP pipeline runs.
 - **Primary path**: `img2pdf.convert` over the sorted page list.
 - **Fallback path**: Pillow `Image.save(..., format='PDF')` per page +
   PyPDF2 `PdfMerger` to combine — used when img2pdf raises (mixed image +
-  embedded-PDF pages per REBIRTH §7.2).
-- OneDrive temp-dir trap (REBIRTH §7.4): if the configured `temp_dir` is
+  embedded-PDF pages per the spec).
+- OneDrive temp-dir trap: if the configured `temp_dir` is
   any variant of `./tmp`, divert to `tempfile.gettempdir() / "cmcourier_tmp"`.
 - Page-count consistency check: emit a `WARNING` if the discovered page
   count differs from `doc.total_pages`; do NOT raise.
@@ -51,8 +51,8 @@ store, it leaves only S5 + the orchestrator before the MVP pipeline runs.
   adapter accepts a `source_root` path.
 - Page-by-page validation (e.g., readable image, non-zero size). The
   adapter trusts the file system. Corrupted images surface as PDFAssemblyFailedError.
-- Cleanup of staged files. REBIRTH §10.1's Stage S7 owns cleanup.
-- Adaptive heavy/light lane awareness (post-MVP, REBIRTH §10.7).
+- Cleanup of staged files. the spec's Stage S7 owns cleanup.
+- Adaptive heavy/light lane awareness (post-MVP, the spec).
 
 ---
 
@@ -66,7 +66,7 @@ store, it leaves only S5 + the orchestrator before the MVP pipeline runs.
 - **REQ-002** `AssemblerConfig` MUST be a `frozen=True, slots=True`
   dataclass also exposing `image_type_map: Mapping[str, str]` with the
   default `{"B": "image/tiff", "O": "application/pdf", "C": "image/jpeg"}`
-  (REBIRTH §7.5).
+.
 - **REQ-003** If `temp_dir` is any of `Path('tmp')`, `Path('./tmp')`,
   `Path('.\\tmp')`, or `Path('tmp/')`, the assembler MUST divert to
   `Path(tempfile.gettempdir()) / "cmcourier_tmp"`. The diversion path
@@ -210,7 +210,7 @@ store, it leaves only S5 + the orchestrator before the MVP pipeline runs.
 - When `assemble(doc)` is called for the paged doc.
 - Then the `.PDF` file is NOT included in the merged output.
 
-### 4.12 image_type_map default matches REBIRTH §7.5
+### 4.12 image_type_map default matches the spec
 - Given an `AssemblerConfig()` (no override).
 - Then `image_type_map == {"B": "image/tiff", "O": "application/pdf",
   "C": "image/jpeg"}`.

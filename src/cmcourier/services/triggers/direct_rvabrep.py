@@ -1,4 +1,4 @@
-"""Direct-RVABREP trigger strategy. REBIRTH §5.1 mode direct_rvabrep."""
+"""Direct-RVABREP trigger strategy. Mode direct_rvabrep."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class RvabrepColumnsConfig:
-    """RVABREP physical column-name overrides (REBIRTH §3.2)."""
+    """RVABREP physical column-name overrides."""
 
     col_shortname: str = "ABABCD"  # index1
     col_cif: str = "ABACCD"  # index2

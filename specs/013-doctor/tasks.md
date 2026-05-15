@@ -78,7 +78,7 @@
 - [ ] **4.6** Smoke: `cmcourier doctor --help` lists `--config` and
   `--log-level`.
 - [ ] **4.7** Update `CHANGELOG.md`:
-  - "Planned for next release" → additional pipelines + REBIRTH §11
+  - "Planned for next release" → additional pipelines + the spec
     CLI tree (`batch list/status/retry-failed`, `inspect`).
   - Add `[0.15.0] — 2026-05-10` entry: Added / Changed / Verification
     / Rationale. Milestone: pre-flight validation.
@@ -99,7 +99,7 @@
   modified: tests/integration/cli/conftest.py    # only if shared YAML extracted
   added:    specs/013-doctor/{spec,plan,tasks}.md
   ```
-- [ ] **4.11** Commit `feat(cli): add doctor pre-flight command (REBIRTH §10.5)` (full body per template).
+- [ ] **4.11** Commit `feat(cli): add doctor pre-flight command` (full body per template).
 - [ ] **4.12** `git checkout main && git merge --ff-only feat/013-doctor && git branch -d feat/013-doctor`.
 
 ---

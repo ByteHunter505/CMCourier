@@ -1,4 +1,4 @@
-"""``cmcourier batch ...`` subcommands (REBIRTH §11).
+"""``cmcourier batch ...`` subcommands.
 
 * ``batch list`` — enumerate batches with status + counts.
 * ``batch show <id>`` — per-stage counts + failed records.
@@ -39,7 +39,7 @@ _STAGES_FOR_TABLE = ("S0", "S1", "S2", "S3", "S4", "S5")
 
 @click.group(name="batch")
 def batch_group() -> None:
-    """Batch lifecycle commands (REBIRTH §11)."""
+    """Batch lifecycle commands."""
 
 
 # ---------------------------------------------------------------------------

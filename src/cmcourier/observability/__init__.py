@@ -1,4 +1,4 @@
-"""REBIRTH §17.4 observability package.
+"""Tiered observability package.
 
 Tiered structured logging for CMCourier. Layers:
 

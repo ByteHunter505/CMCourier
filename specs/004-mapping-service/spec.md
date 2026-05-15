@@ -12,7 +12,7 @@
 
 ## 1. Intent
 
-Implement `cmcourier.services.mapping.MappingService`: the in-memory cache and lookup over the **Modelo Documental** (REBIRTH §4). It loads the mapping table once at construction via any `IDataSource`, builds an `id_rvi → CMMapping` dict, and exposes lookups for stage S2 (Document Class Mapping).
+Implement `cmcourier.services.mapping.MappingService`: the in-memory cache and lookup over the **Modelo Documental**. It loads the mapping table once at construction via any `IDataSource`, builds an `id_rvi → CMMapping` dict, and exposes lookups for stage S2 (Document Class Mapping).
 
 This is the **first service** in CMCourier. It validates that the hexagonal architecture established by 001-003 works end-to-end:
 
@@ -26,8 +26,8 @@ After this change merges, the next service (`MetadataService`) and the pre-fligh
 
 ## 2. Why now
 
-- Stage S2 of every pipeline (REBIRTH §10.1) needs a mapping lookup to convert `RVABREPDocument.id_rvi` into a `CMMapping`. Without a service implementing the lookup, no orchestrator can move past S1.
-- The `doctor` command (REBIRTH §10.5) needs to enumerate all mappings to validate "every ID RVI in the upcoming batch has a mapping" — it needs `get_all`.
+- Stage S2 of every pipeline needs a mapping lookup to convert `RVABREPDocument.id_rvi` into a `CMMapping`. Without a service implementing the lookup, no orchestrator can move past S1.
+- The `doctor` command needs to enumerate all mappings to validate "every ID RVI in the upcoming batch has a mapping" — it needs `get_all`.
 - The mapping is the smallest and most isolated service. Building it first surfaces architectural friction (if any) before more complex services like metadata resolution.
 
 ---
@@ -37,12 +37,12 @@ After this change merges, the next service (`MetadataService`) and the pre-fligh
 ### 3.1 Class shape (REQ-001 through REQ-008)
 
 - **REQ-001** — A class `MappingService` MUST exist in `src/cmcourier/services/mapping.py`.
-- **REQ-002** — The constructor `MappingService(source: IDataSource, columns: MappingColumnsConfig | None = None)` MUST accept any concrete `IDataSource`. If `columns` is `None`, sensible defaults matching REBIRTH §4.1 column names MUST be used.
-- **REQ-003** — A dataclass `MappingColumnsConfig` MUST exist (module-level, in the same file) carrying the column-name overrides: `col_clase_id`, `col_id_rvi`, `col_id_corto`, `col_clase_name`, `col_metadata_list`. All default to the REBIRTH §4.1 strings (`"ID CLASE DOCUMENTAL"`, `"ID RVI"`, `"ID Corto"`, `"CLASE DOCUMENTAL"`, `"METADATOS"`). The dataclass MUST be `frozen=True, slots=True`.
+- **REQ-002** — The constructor `MappingService(source: IDataSource, columns: MappingColumnsConfig | None = None)` MUST accept any concrete `IDataSource`. If `columns` is `None`, sensible defaults matching the spec column names MUST be used.
+- **REQ-003** — A dataclass `MappingColumnsConfig` MUST exist (module-level, in the same file) carrying the column-name overrides: `col_clase_id`, `col_id_rvi`, `col_id_corto`, `col_clase_name`, `col_metadata_list`. All default to the the spec strings (`"ID CLASE DOCUMENTAL"`, `"ID RVI"`, `"ID Corto"`, `"CLASE DOCUMENTAL"`, `"METADATOS"`). The dataclass MUST be `frozen=True, slots=True`.
 - **REQ-004** — At construction, the service MUST iterate every row from `source.get_all()` once and build an internal `dict[str, CMMapping]` keyed by `id_rvi`.
 - **REQ-005** — At construction, the service MUST validate that every required column (per `MappingColumnsConfig`) is present in the first row received from `source`. Missing column MUST raise `ConfigurationError` with the missing column name in context.
 - **REQ-006** — If a row's `id_rvi` is empty or missing (`None` after `NaN` normalization, empty string), the row MUST be skipped silently (it is malformed, not a duplicate; loggers note the count of skipped rows at `INFO` level).
-- **REQ-007** — If the same `id_rvi` appears in more than one row, the **first occurrence wins** (REBIRTH §4.3 hard business rule). Subsequent occurrences MUST be discarded AND a `WARNING` MUST be logged for each via the standard library `logging` module, including the `id_rvi` and a count.
+- **REQ-007** — If the same `id_rvi` appears in more than one row, the **first occurrence wins** (the spec hard business rule). Subsequent occurrences MUST be discarded AND a `WARNING` MUST be logged for each via the standard library `logging` module, including the `id_rvi` and a count.
 - **REQ-008** — The service MUST NOT mutate the constructor-provided source after construction. Calling `source.close()` is the caller's responsibility; the service does not own its lifecycle.
 
 ### 3.2 Public API (REQ-009 through REQ-014)
@@ -150,12 +150,12 @@ After this change merges, the next service (`MetadataService`) and the pre-fligh
 
 ## 5. Out of Scope
 
-- `MetadataService` — REBIRTH §6 (metadata resolution, fallback chain, validation, CIF self-healing). Lands in 005.
-- `TriggerService` (REBIRTH §5) and `DocumentService` (REBIRTH §3). Land in later changes.
+- `MetadataService` — the spec (metadata resolution, fallback chain, validation, CIF self-healing). Lands in 005.
+- `TriggerService` and `DocumentService`. Land in later changes.
 - The `doctor` command's mapping-completeness check, which uses this service. Lands when the doctor command is built.
-- Field aliases (REBIRTH §6.2). Mapping service exposes raw names; aliasing is metadata's job.
-- AS400-backed Modelo Documental (REBIRTH §4 mentions CSV or AS400). Once the AS400 adapter ships, the same service works against it without changes — the port is the adapter-agnostic contract.
-- `mapping-stats` CLI command (REBIRTH §11 `inspect mapping-stats`). Service exposes `get_all()`; the command is built later.
+- Field aliases. Mapping service exposes raw names; aliasing is metadata's job.
+- AS400-backed Modelo Documental (the spec mentions CSV or AS400). Once the AS400 adapter ships, the same service works against it without changes — the port is the adapter-agnostic contract.
+- `mapping-stats` CLI command (the spec `inspect mapping-stats`). Service exposes `get_all()`; the command is built later.
 
 ---
 
@@ -182,7 +182,7 @@ After this change merges, the next service (`MetadataService`) and the pre-fligh
 ### 7.2 Open questions (resolved in plan.md)
 
 - Should `MappingService` be a `@dataclass` or a regular class? **Plan**: regular class. Dataclasses are for data; this is behavior with state.
-- Should the constructor sort the cache for deterministic `get_all` ordering? **Plan**: no. Insertion order (dict order in Python 3.7+) is deterministic and matches the source row order, which is meaningful (REBIRTH §4.3 first-wins implies source order is the contract).
+- Should the constructor sort the cache for deterministic `get_all` ordering? **Plan**: no. Insertion order (dict order in Python 3.7+) is deterministic and matches the source row order, which is meaningful (the spec first-wins implies source order is the contract).
 - Should `get_mapping` accept normalization (e.g., uppercase) for case-insensitive lookup? **Plan**: NO. ID RVI is a precise code (`"FF17"`, `"FB01"`); case-insensitivity would be a footgun if the source has mixed case (it does not in practice). Keep it strict.
 
 ---
@@ -204,6 +204,6 @@ After this change merges, the next service (`MetadataService`) and the pre-fligh
 
 - Predecessor changes: `specs/002-domain-models-and-ports/`, `specs/003-tabular-data-source-adapter/`
 - Constitution Principles I, III, V, VI, VII, VIII, IX
-- REBIRTH §4 (Modelo Documental), §6.2 (field aliases — out of scope here), §10.1 (S2 stage uses this service)
+- the spec (Modelo Documental), §6.2 (field aliases — out of scope here), §10.1 (S2 stage uses this service)
 - Plan: `specs/004-mapping-service/plan.md`
 - Tasks: `specs/004-mapping-service/tasks.md`

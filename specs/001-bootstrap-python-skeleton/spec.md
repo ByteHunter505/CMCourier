@@ -15,13 +15,13 @@ Stand up the Python project skeleton so that all subsequent changes have a worki
 
 This change does **not** implement any business logic. It is the andamiaje (scaffolding) — `pyproject.toml`, layout, configs, hooks, smoke test. Once it merges, the next change can begin writing real code immediately, with full tooling enforcement from the first line.
 
-This change corresponds to **Phase 0** in `docs/domain/CMCOURIER_REBIRTH.md §15` ("Implementation Order"), now executed under the SDD discipline established in the project constitution.
+This change corresponds to **Phase 0** in `docs/domain/the project's domain spec §15` ("Implementation Order"), now executed under the SDD discipline established in the project constitution.
 
 ---
 
 ## 2. Why now
 
-- The constitution and the REBIRTH have been ratified. The engineering ground rules are settled.
+- The constitution and the domain spec have been ratified. The engineering ground rules are settled.
 - Without `pyproject.toml`, the Constitution's Principle VI (Real Test Pyramid) is unenforceable — nothing runs.
 - Without `mypy --strict`, Principle I (Hexagonal Architecture, zero deps in `domain/`) is unenforceable at type level.
 - Without pre-commit hooks, Principle III (50-line function cap) and the no-`Co-Authored-By` rule are enforced manually, which means inconsistently.
@@ -46,7 +46,7 @@ This change corresponds to **Phase 0** in `docs/domain/CMCOURIER_REBIRTH.md §15
 
 ### 3.3 Source layout
 
-- **REQ-008**: The repository MUST follow the layout described in `docs/domain/CMCOURIER_REBIRTH.md §14.2` for `src/cmcourier/` and `tests/`, with one deviation: only the directories that are required for the skeleton smoke test must be created in this change. Sub-modules that will be filled in later (e.g., `models.py`, `ports.py`) ARE created with docstring-only placeholders, so the hexagonal layering is visible immediately.
+- **REQ-008**: The repository MUST follow the layout described in `docs/domain/the project's domain spec §14.2` for `src/cmcourier/` and `tests/`, with one deviation: only the directories that are required for the skeleton smoke test must be created in this change. Sub-modules that will be filled in later (e.g., `models.py`, `ports.py`) ARE created with docstring-only placeholders, so the hexagonal layering is visible immediately.
 - **REQ-009**: The package layout MUST use a `src/` directory (PEP 420 src layout) — `src/cmcourier/__init__.py` is the package root, not a top-level `cmcourier/` directory.
 - **REQ-010**: Every directory under `src/cmcourier/` MUST contain an `__init__.py` (no implicit namespace packages).
 
@@ -84,7 +84,7 @@ This change corresponds to **Phase 0** in `docs/domain/CMCOURIER_REBIRTH.md §15
 
 ### 3.9 Documentation architecture
 
-- **REQ-026**: The repo MUST contain a top-level `docs/INDEX.md` that maps every documentation artifact (constitution, REBIRTH, roadmap, README, CHANGELOG, CONTRIBUTING, how-to, explanation, samples) with a one-line description and a link. The INDEX is the canonical entry point for documentation discovery.
+- **REQ-026**: The repo MUST contain a top-level `docs/INDEX.md` that maps every documentation artifact (constitution, domain spec, roadmap, README, CHANGELOG, CONTRIBUTING, how-to, explanation, samples) with a one-line description and a link. The INDEX is the canonical entry point for documentation discovery.
 - **REQ-027**: The repo MUST contain `docs/how-to/README.md` describing the purpose of how-to guides (problem-oriented, practical steps for "how to use"), the naming convention (`how-to/<task-slug>.md`), and listing currently-available guides (empty bullet list at MVP start).
 - **REQ-028**: The repo MUST contain `docs/explanation/README.md` describing the purpose of explanation documents (understanding-oriented, "how it works"), the naming convention (`explanation/<concept-slug>.md`), and listing currently-available explanations (empty bullet list at MVP start).
 - **REQ-029**: The "Documentation map" section in `README.md` MUST link to `docs/INDEX.md` as the canonical entry point. Individual artifact links remain in the README map for quick access; INDEX.md is the navigable single-page mirror.
@@ -151,7 +151,7 @@ Scenarios use Given/When/Then format. Each is independently verifiable.
 - **Given** the change is merged
 - **When** the contributor greps for known PII patterns (real-looking 6-digit CIFs, common Argentine names) under `src/`, `tests/`, `docs/samples/`
 - **Then** no matches are found
-- **And** any sample files use synthetic identifiers like `JUANPEREZ01` (already documented as synthetic in REBIRTH)
+- **And** any sample files use synthetic identifiers like `JUANPEREZ01` (already documented as synthetic in the domain spec)
 
 ### 4.9 Documentation index discoverable
 
@@ -242,7 +242,7 @@ Verification of this spec happens in `/sdd-verify` (or its manual equivalent) by
 ## 9. Cross-References
 
 - Constitution: `.specify/memory/constitution.md`
-- Domain ground truth: `docs/domain/CMCOURIER_REBIRTH.md` (especially §14.2 "Project Layout" and §15 "Implementation Order")
+- Domain ground truth: the project's domain spec (especially §14.2 "Project Layout" and §15 "Implementation Order")
 - Post-MVP roadmap: `docs/roadmap/POST-MVP.md`
 - Project workflow: `CONTRIBUTING.md`
 - Current changelog: `CHANGELOG.md`

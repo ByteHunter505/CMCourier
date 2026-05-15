@@ -9,7 +9,7 @@ This document captures every feature, optimization, and design intent that is **
 
 ## What "MVP" Means in This Project
 
-The **MVP** delivers end-to-end document migration to IBM Content Manager across **three production pipelines** (`csv-trigger`, `rvabrep`, `local-scan`) plus the `single-doc` diagnostic, with all eight atomic stages (`S0`–`S7`, see `docs/domain/CMCOURIER_REBIRTH.md §10.1`), a single resizable S5 upload worker pool with **AIMD auto-tune**, batch-based execution with stage-by-stage resumability, default two-tab textual TUI, structured logging at the application + pipeline + network + slow-ops tiers, idempotent SQLite tracking, the `doctor` pre-flight command, and the cron-friendly `background` runner.
+The **MVP** delivers end-to-end document migration to IBM Content Manager across **three production pipelines** (`csv-trigger`, `rvabrep`, `local-scan`) plus the `single-doc` diagnostic, with all eight atomic stages (`S0`–`S7`, see `docs/domain/the project's domain spec §10.1`), a single resizable S5 upload worker pool with **AIMD auto-tune**, batch-based execution with stage-by-stage resumability, default two-tab textual TUI, structured logging at the application + pipeline + network + slow-ops tiers, idempotent SQLite tracking, the `doctor` pre-flight command, and the cron-friendly `background` runner.
 
 > **Note (048)**: there is no separate `as400-trigger` pipeline anymore. "AS400" is a *source* choice on the `rvabrep` pipeline (`indexing.source.kind: as400`), not its own pipeline — the `rvabrep` pipeline serves both a CSV file and a live AS400 query. See `CHANGELOG.md [0.51.0]`.
 
@@ -84,7 +84,7 @@ When one lane drains, its workers migrate to the other. When one lane is empty, 
 - Rebalance rule: if one lane is empty for `idle_threshold_s` (default 15s), migrate all its workers to the other lane.
 
 **Bandwidth sharing**:
-- The `BandwidthLimiter` from `CMCOURIER_REBIRTH.md §8.6` becomes a **shared token bucket** between lanes.
+- The `BandwidthLimiter` from `the project's domain spec §8.6` becomes a **shared token bucket** between lanes.
 - Heavy lane requests larger token chunks (matches its per-doc transfer size); light lane requests smaller chunks.
 - No per-lane reserved quota — both compete for the same global budget.
 
@@ -240,7 +240,7 @@ The `ITrackingStore` port has two implementations: `SQLiteTrackingStore` (MVP) a
 
 - Implements the same `ITrackingStore` contract as SQLite.
 - Connection management via the same thread-local pyodbc pattern as `AS400DataSource`.
-- The schema mirrors the SQLite schema in `CMCOURIER_REBIRTH.md §9.2` adapted for DB2 for i (column types: `CHAR`, `TIMESTAMP`, `INTEGER`, etc.).
+- The schema mirrors the SQLite schema in `the project's domain spec §9.2` adapted for DB2 for i (column types: `CHAR`, `TIMESTAMP`, `INTEGER`, etc.).
 - The async writer queue concept (`§9.4`) is preserved, but commits are batched into AS400 inserts via `executemany`.
 - Configuration: `tracking.backend: "as400:default"`.
 
@@ -336,7 +336,7 @@ The MVP runs S5 with a fixed worker count from config. Post-MVP, an **AIMD (Addi
 
 ### Intent
 
-The MVP ships with `rvabrep-pipeline` and `single-doc`. The remaining three pipelines from `CMCOURIER_REBIRTH.md §10.2` are additive — same stages, different `S0` strategy.
+The MVP ships with `rvabrep-pipeline` and `single-doc`. The remaining three pipelines from `the project's domain spec §10.2` are additive — same stages, different `S0` strategy.
 
 ### Pipelines deferred
 
@@ -471,18 +471,18 @@ Global bandwidth policy only. The other policies error with a roadmap pointer.
 
 ### Intent
 
-The old codebase has a `document_cache` table (see `CMCOURIER_REBIRTH.md §9.2`) that stores resolved metadata per `txn_num` so a re-run in a different mode reuses prior resolution work. Post-MVP, formalize this as a cross-mode cache so the same document does not pay AS400 query costs twice.
+The old codebase has a `document_cache` table (see `the project's domain spec §9.2`) that stores resolved metadata per `txn_num` so a re-run in a different mode reuses prior resolution work. Post-MVP, formalize this as a cross-mode cache so the same document does not pay AS400 query costs twice.
 
 ### Design
 
 - After S3 (Metadata Resolution) succeeds for a document, the resolved metadata is upserted into `document_cache`.
 - Before S3 begins, the cache is consulted; on hit (and TTL valid), S3 is skipped and the cached metadata is used.
-- Cache invalidation: TTL (`metadata_cache_ttl_minutes` from `CMCOURIER_REBIRTH.md §6.6`, default 60) plus manual `cmcourier cache clear --txn <num>`.
+- Cache invalidation: TTL (`metadata_cache_ttl_minutes` from `the project's domain spec §6.6`, default 60) plus manual `cmcourier cache clear --txn <num>`.
 - Persists across pipeline invocations via SQLite (or AS400 in §4 environments).
 
 ### MVP placeholder
 
-S3 always queries fresh. The `document_cache` table is created in the schema with a comment stating it is reserved for §9. The in-memory metadata pre-fetch from `CMCOURIER_REBIRTH.md §6.6` is MVP — that is per-process, not cross-batch.
+S3 always queries fresh. The `document_cache` table is created in the schema with a comment stating it is reserved for §9. The in-memory metadata pre-fetch from `the project's domain spec §6.6` is MVP — that is per-process, not cross-batch.
 
 ### Why deferred
 
@@ -531,8 +531,8 @@ Remaining open: **items 1, 4, 5** — none with a hard date; each waits on a rea
 ## Cross-References
 
 - Constitution: `.specify/memory/constitution.md`
-- Domain ground truth: `docs/domain/CMCOURIER_REBIRTH.md`
-- Stage architecture: `docs/domain/CMCOURIER_REBIRTH.md §10`
-- Observability tiers: `docs/domain/CMCOURIER_REBIRTH.md §17.4`
-- Tracking schema: `docs/domain/CMCOURIER_REBIRTH.md §9`
+- Domain ground truth: the project's domain spec
+- Stage architecture: `docs/domain/the project's domain spec §10`
+- Observability tiers: `docs/domain/the project's domain spec §17.4`
+- Tracking schema: `docs/domain/the project's domain spec §9`
 - Changelog: `CHANGELOG.md`

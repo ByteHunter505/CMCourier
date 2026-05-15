@@ -43,7 +43,7 @@ No changes to `pyproject.toml`. No new dependencies — `logging` is stdlib.
 
 ### 3.2 Eager load + dict cache
 
-REBIRTH §4 + §10.1 (S2) imply Modelo Documental is small (< 1000 rows in practice). Eager load:
+the spec + §10.1 (S2) imply Modelo Documental is small (< 1000 rows in practice). Eager load:
 - O(N) one-time cost at construction
 - O(1) lookup per `get_mapping` thereafter
 - Insertion order preserved (Python 3.7+ dict semantics) → matches source row order, which is meaningful for first-wins
@@ -69,7 +69,7 @@ These use stdlib `logging`. They will be picked up by the central handler config
 
 PII discipline (Constitution Principle VIII) does not apply here — `id_rvi` is a document-class code, not customer data. No CIF, no name. Safe to log.
 
-### 3.4 `MappingColumnsConfig` defaults match REBIRTH §4.1
+### 3.4 `MappingColumnsConfig` defaults match the spec
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -151,7 +151,7 @@ What if the source is empty? The service constructs successfully with an empty c
 ## 4. Implementation Sketch
 
 ```python
-"""Mapping service — Modelo Documental cache + lookup (REBIRTH §4)."""
+"""Mapping service — Modelo Documental cache + lookup."""
 
 from __future__ import annotations
 
@@ -170,7 +170,7 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class MappingColumnsConfig:
-    """Column-name overrides for the Modelo Documental source. Defaults match REBIRTH §4.1."""
+    """Column-name overrides for the Modelo Documental source. Defaults match the spec."""
     col_clase_id: str = "ID CLASE DOCUMENTAL"
     col_id_rvi: str = "ID RVI"
     col_id_corto: str = "ID Corto"
@@ -200,7 +200,7 @@ class MappingService:
 
     Loads everything at construction via ``source.get_all()``; subsequent
     ``get_mapping`` calls are O(1). First occurrence of a duplicate
-    ``id_rvi`` wins (REBIRTH §4.3); duplicates after the first emit a
+    ``id_rvi`` wins; duplicates after the first emit a
     ``WARNING`` log entry.
     """
 
@@ -364,8 +364,8 @@ This matches "unit test" intent — fast, isolated, no external systems. The fac
 
 ### Added
 
-- `cmcourier.services.mapping.MappingService`: first service in CMCourier. Caches the Modelo Documental from any `IDataSource` and exposes `get_mapping(id_rvi)`, `get_all()`, `count()`, and `__contains__`. Duplicate `ID RVI` rows obey the REBIRTH §4.3 first-wins rule and emit a `WARNING` log entry.
-- `cmcourier.services.mapping.MappingColumnsConfig`: frozen dataclass for column-name overrides. Defaults match REBIRTH §4.1.
+- `cmcourier.services.mapping.MappingService`: first service in CMCourier. Caches the Modelo Documental from any `IDataSource` and exposes `get_mapping(id_rvi)`, `get_all()`, `count()`, and `__contains__`. Duplicate `ID RVI` rows obey the the spec first-wins rule and emit a `WARNING` log entry.
+- `cmcourier.services.mapping.MappingColumnsConfig`: frozen dataclass for column-name overrides. Defaults match the spec.
 - `tests/unit/services/test_mapping.py`: ~16 unit tests using a real `TabularDataSource` against `tests/fixtures/services/modelo_documental.csv`. Coverage on `mapping.py`: 95%+.
 - `tests/fixtures/services/modelo_documental.csv`: 8-row fixture covering vanilla mappings, METADATOS parsing edge cases (empty, whitespace, trailing/doubled commas), duplicates, and empty-ID rows.
 
@@ -405,4 +405,4 @@ This matches "unit test" intent — fast, isolated, no external systems. The fac
 - Tasks: `specs/004-mapping-service/tasks.md`
 - Constitution: `.specify/memory/constitution.md`
 - Predecessor changes: 001, 002, 003
-- REBIRTH §4 (Modelo Documental), §10.1 (S2)
+- the spec (Modelo Documental), §10.1 (S2)

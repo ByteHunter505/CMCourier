@@ -40,7 +40,7 @@ causes.
 cmcourier doctor -c config-staging.yaml
 ```
 
-The six pre-flight checks (REBIRTH §10.5):
+The six pre-flight checks:
 
 1. `log_dir_writable` — ./logs is writable.
 2. `cmis_connectivity` — staging CMIS responds.
@@ -182,7 +182,7 @@ After enough dry-runs you start seeing patterns:
 ## Cross-references
 
 - Specific Alfresco simulation: `docs/how-to/local-staging-simulation.md`.
-- Doctor command: REBIRTH §10.5, `src/cmcourier/cli/doctor.py`.
+- Doctor command: the spec, `src/cmcourier/cli/doctor.py`.
 - Cache observability: `docs/how-to/document-cache.md`.
 - Multi-batch observability: `docs/how-to/multi-batch.md`.
 - Log analysis: `docs/how-to/log-analysis.md`.

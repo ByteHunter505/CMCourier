@@ -387,4 +387,4 @@ If a future change adds a third-party library that **changes architectural direc
 - Tasks: `specs/003-tabular-data-source-adapter/tasks.md`
 - Constitution: `.specify/memory/constitution.md`
 - Predecessor change: `specs/002-domain-models-and-ports/`
-- REBIRTH §5.1 (trigger source modes), §6.6 (metadata pre-fetch), §12 (datasources registry)
+- the spec (trigger source modes), §6.6 (metadata pre-fetch), §12 (datasources registry)

@@ -1,7 +1,7 @@
 # Spec — 011-csv-trigger-pipeline
 
 **Status**: Draft
-**Pipeline**: `csv-trigger-pipeline` (REBIRTH §10.2): `S0(csv) → S1 → S2 → S3 → S4 → S5 → S6 (transversal)`.
+**Pipeline**: `csv-trigger-pipeline`: `S0(csv) → S1 → S2 → S3 → S4 → S5 → S6 (transversal)`.
 **Constitution alignment**: I (hexagonal — orchestrator wires ports only, no
 direct I/O), II (idempotency — `is_uploaded` and `is_stage_done` skip
 short-circuits), III (single-responsibility — orchestrator is pure
@@ -36,17 +36,17 @@ change so port + first consumer ship together.
   `s1_done`, `s1_skipped_cross_batch`, `s2_done`, `s2_failed`, `s3_done`,
   `s3_failed`, `s4_done`, `s4_failed`, `s5_done`, `s5_failed`,
   `elapsed_seconds`.
-- **Cross-batch idempotency skip** (REBIRTH §10): after S1 emits a doc,
+- **Cross-batch idempotency skip**: after S1 emits a doc,
   if `is_uploaded(txn_num)` returns True, skip the doc entirely (no
   `migration_log` row for this batch). Counts toward
   `s1_skipped_cross_batch`.
-- **Per-stage state machine** (REBIRTH §10.3): for every doc that
+- **Per-stage state machine**: for every doc that
   reaches S1_DONE, the orchestrator transitions through S2_PENDING →
   S2_DONE → ... → S5_DONE via `mark_stage_pending` /
   `mark_stage_done` / `mark_stage_failed`. Doc-level errors do NOT halt
   the batch; they are tracked and the orchestrator continues with
   remaining docs.
-- **Stage-by-stage resume** (REBIRTH §10.3): `run(batch_id=..., from_stage=N)`
+- **Stage-by-stage resume**: `run(batch_id=..., from_stage=N)`
   reuses an existing batch and skips stages 1..N-1. Within a single run,
   every stage skip-checks `is_stage_done(txn, batch_id, S(stage)_DONE)`
   per doc — so re-runs are idempotent regardless of where the orchestrator
@@ -67,11 +67,11 @@ change so port + first consumer ship together.
   invoke it directly.
 - Pydantic config + YAML loader — deferred (the test harness wires
   adapters by hand).
-- TUI (REBIRTH §10.6) — deferred. Logging goes through stdlib `logging`.
-- Two-batch producer-consumer (REBIRTH §10.4) — deferred. 011 processes
+- TUI — deferred. Logging goes through stdlib `logging`.
+- Two-batch producer-consumer — deferred. 011 processes
   one batch end-to-end before returning.
-- Pre-flight `doctor` validation (REBIRTH §10.5) — deferred.
-- Adaptive heavy/light upload lanes (REBIRTH §10.7) — post-MVP.
+- Pre-flight `doctor` validation — deferred.
+- Adaptive heavy/light upload lanes — post-MVP.
 - Other pipelines (`rvabrep-pipeline`, `as400-trigger-pipeline`,
   `local-scan-pipeline`, `single-doc`) — each lands as its own change.
   All four follow the SAME stage chain; they differ only in S0.
@@ -187,7 +187,7 @@ change so port + first consumer ship together.
   - Call `metadata_service.resolve(trigger, doc, mapping)`.
   - On success: `mark_stage_done(..., S3_DONE)`. The resulting
     `MetadataResolution.healed_trigger` REPLACES the original trigger
-    for subsequent stages (REBIRTH §6.5).
+    for subsequent stages.
   - On `SourceFailedError` / `DefaultValidationFailedError`:
     `mark_stage_failed(..., S3_FAILED, str(exc))`. Drop the doc.
 

@@ -14,8 +14,8 @@
 
 Populate `src/cmcourier/services/triggers/` with two concrete `S0Strategy` implementations:
 
-- **`CsvTriggerStrategy`** — reads triggers from any tabular `IDataSource` (matches REBIRTH §5.1 mode `csv:alias`).
-- **`DirectRvabrepTriggerStrategy`** — discovers triggers by scanning RVABREP itself, optionally filtered by system codes and/or document types, and deduplicates `(shortname, system_id)` pairs (matches REBIRTH §5.1 mode `direct_rvabrep`).
+- **`CsvTriggerStrategy`** — reads triggers from any tabular `IDataSource` (matches the spec mode `csv:alias`).
+- **`DirectRvabrepTriggerStrategy`** — discovers triggers by scanning RVABREP itself, optionally filtered by system codes and/or document types, and deduplicates `(shortname, system_id)` pairs (matches the spec mode `direct_rvabrep`).
 
 Plus two stub strategies for the modes that depend on infrastructure not yet shipped:
 
@@ -28,7 +28,7 @@ After this change merges, **stage S0 is implementable for every pipeline whose d
 
 ## 2. Why now
 
-- Stage S0 is the entry point of every pipeline (REBIRTH §10.1). With S0 unimplemented, no orchestrator can run.
+- Stage S0 is the entry point of every pipeline. With S0 unimplemented, no orchestrator can run.
 - The `S0Strategy` port has existed since 002. Two concrete implementations are needed for the MVP pipelines; this change ships both.
 - The `as400` and `local_scan` stubs honor the contract today and document the expected future shape, so the orchestrator can dispatch to them by command and surface a clear "not yet" error to operators.
 
@@ -51,28 +51,28 @@ After this change merges, **stage S0 is implementable for every pipeline whose d
 ### 3.2 `CsvTriggerStrategy` (REQ-006 through REQ-013)
 
 - **REQ-006** — `CsvTriggerStrategy(source: IDataSource, columns: CsvTriggerColumnsConfig | None = None)` constructor accepts the data source and optional column-name overrides.
-- **REQ-007** — `CsvTriggerColumnsConfig` is a frozen+slots dataclass with `col_shortname: str = "ShortName"`, `col_cif: str = "CIF"`, `col_system_id: str = "SystemID"` (defaults match REBIRTH §12 trigger config).
-- **REQ-008** — On `acquire()`, the strategy iterates `source.get_all()`. The first row's keys MUST be checked against required columns (`col_shortname`, `col_system_id`); missing column raises `ConfigurationError` with the missing column name in context. **`col_cif` is NOT required** because the CSV may legitimately not carry CIF (the CIF self-healing rule from REBIRTH §6.5 / 005 covers that).
+- **REQ-007** — `CsvTriggerColumnsConfig` is a frozen+slots dataclass with `col_shortname: str = "ShortName"`, `col_cif: str = "CIF"`, `col_system_id: str = "SystemID"` (defaults match the spec trigger config).
+- **REQ-008** — On `acquire()`, the strategy iterates `source.get_all()`. The first row's keys MUST be checked against required columns (`col_shortname`, `col_system_id`); missing column raises `ConfigurationError` with the missing column name in context. **`col_cif` is NOT required** because the CSV may legitimately not carry CIF (the CIF self-healing rule from the spec / 005 covers that).
 - **REQ-009** — For each row, the strategy yields a `TriggerRecord` with:
   - `shortname` = `str(row[col_shortname]).strip()`
   - `cif` = `str(row[col_cif]).strip()` if the column is present and non-blank; `None` otherwise
   - `system_id` = `str(row[col_system_id]).strip()`
 - **REQ-010** — Rows where `shortname` or `system_id` is blank (`None`, empty string, whitespace-only) MUST be silently skipped. The strategy MAY log an `INFO` line summarizing the skipped count when the iterator is exhausted.
-- **REQ-011** — The strategy MUST yield `TriggerRecord` lazily (generator), not materialize a list. Trigger lists may be very large (REBIRTH §10.4 mentions 200k+).
+- **REQ-011** — The strategy MUST yield `TriggerRecord` lazily (generator), not materialize a list. Trigger lists may be very large (the spec mentions 200k+).
 - **REQ-012** — The strategy MUST NOT close `source` — its lifecycle is the caller's.
 - **REQ-013** — The strategy MUST NOT deduplicate (CSV consumers expect every row through; deduplication is a different concern).
 
 ### 3.3 `DirectRvabrepTriggerStrategy` (REQ-014 through REQ-021)
 
 - **REQ-014** — `DirectRvabrepTriggerStrategy(rvabrep_source: IDataSource, filters: RvabrepFilters | None = None, columns: RvabrepColumnsConfig | None = None)` constructor accepts the RVABREP-shaped data source, optional filters, and optional column-name overrides.
-- **REQ-015** — `RvabrepColumnsConfig` is a frozen+slots dataclass with `col_shortname: str = "ABABCD"`, `col_cif: str = "ABACCD"`, `col_system_id: str = "ABAACD"`, `col_id_rvi: str = "ABAHCD"` (RVABREP physical column names per REBIRTH §3.2).
+- **REQ-015** — `RvabrepColumnsConfig` is a frozen+slots dataclass with `col_shortname: str = "ABABCD"`, `col_cif: str = "ABACCD"`, `col_system_id: str = "ABAACD"`, `col_id_rvi: str = "ABAHCD"` (RVABREP physical column names per the spec).
 - **REQ-016** — `RvabrepFilters` is a frozen+slots dataclass with `systems: tuple[str, ...] = ()` and `document_types: tuple[str, ...] = ()`. Empty tuple = "no filter" (return everything).
 - **REQ-017** — On `acquire()`, the strategy iterates the RVABREP source filtered by `(systems, document_types)`:
   - If both filters are empty, iterate `rvabrep_source.get_all()`.
   - If only `systems` set, use `rvabrep_source.get_by_fields_in(field=col_system_id, values=list(systems), fixed_filters={})`.
   - If only `document_types` set, use `get_by_fields_in(field=col_id_rvi, values=list(document_types), fixed_filters={})`.
   - If both set, query the cross-product. The simplest implementation iterates once with one filter and rejects the other in Python — documented in plan.md.
-- **REQ-018** — For each filtered RVABREP row, the strategy extracts the trigger tuple `(shortname=row[col_shortname], cif=row[col_cif] or None, system_id=row[col_system_id])` and **deduplicates by `(shortname, system_id)`**: each unique pair yields exactly ONE `TriggerRecord`. First occurrence wins (matches REBIRTH §4.3 first-wins precedent).
+- **REQ-018** — For each filtered RVABREP row, the strategy extracts the trigger tuple `(shortname=row[col_shortname], cif=row[col_cif] or None, system_id=row[col_system_id])` and **deduplicates by `(shortname, system_id)`**: each unique pair yields exactly ONE `TriggerRecord`. First occurrence wins (matches the spec first-wins precedent).
 - **REQ-019** — Rows with blank `shortname` or `system_id` MUST be silently skipped (same as `CsvTriggerStrategy`).
 - **REQ-020** — `cif` extraction: if `col_cif` is present and non-blank, populate `TriggerRecord.cif`. Otherwise `None` (CIF self-healing in 005 will resolve it).
 - **REQ-021** — The strategy MUST yield lazily.
@@ -226,7 +226,7 @@ After this change merges, **stage S0 is implementable for every pipeline whose d
 ### 7.2 Open questions (resolved in plan.md)
 
 - Should `acquire(source_descriptor)` raise if a non-empty descriptor is passed? **Plan**: NO. Silently ignore. Future port refinement will remove the parameter cleanly; raising now would break callers later.
-- Should `RvabrepFilters` accept regex/glob patterns instead of equality lists? **Plan**: NO. Equality lists match REBIRTH §12 config shape (`filters.systems: []`, `filters.document_types: []`). If glob/regex is ever needed, that's a new field.
+- Should `RvabrepFilters` accept regex/glob patterns instead of equality lists? **Plan**: NO. Equality lists match the spec config shape (`filters.systems: []`, `filters.document_types: []`). If glob/regex is ever needed, that's a new field.
 - Does deduplication preserve insertion order? **Plan**: YES. Use a `set` for `seen` membership check + a generator that yields the first occurrence in source order.
 
 ---
@@ -248,6 +248,6 @@ After this change merges, **stage S0 is implementable for every pipeline whose d
 
 - Predecessor changes: 002 (S0Strategy port), 003 (TabularDataSource), 004 (services pattern), 005 (logging discipline + stub pattern)
 - Constitution Principles I, III, V, VI, VII, VIII, IX
-- REBIRTH §3.2 (RVABREP columns), §5 (Trigger List + 4 modes), §10.1 (S0 in stage architecture), §12 (config)
+- the spec (RVABREP columns), §5 (Trigger List + 4 modes), §10.1 (S0 in stage architecture), §12 (config)
 - Plan: `specs/006-trigger-service/plan.md`
 - Tasks: `specs/006-trigger-service/tasks.md`

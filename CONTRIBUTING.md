@@ -14,14 +14,14 @@ Constitution → Spec → Plan / Design → Tasks → Code → Verify → Archiv
 
 You do not write code first and document later. You define the contract, then implement against it. **Skipping phases is not "moving fast"** — it is incurring debt that will be paid in confusion.
 
-If this feels heavy: read the [REBIRTH document](docs/domain/CMCOURIER_REBIRTH.md). The previous tool was built bottom-up and ended as a 1341-line God Object. SDD is the antidote.
+If this feels heavy: read the domain spec under `docs/domain/`. The previous tool was built bottom-up and ended as a 1341-line God Object. SDD is the antidote.
 
 ---
 
 ## Before you start
 
 1. **Read the [constitution](.specify/memory/constitution.md)**. Nine principles. None are decorative. Specs and code that violate them are rejected without debate.
-2. **Read the [REBIRTH document](docs/domain/CMCOURIER_REBIRTH.md) for any domain you are touching**. The CMIS quirks, the AS400 driver behavior, the CYYMMDD date format, the file naming convention — they were learned the hard way and are documented.
+2. **Read the project's domain spec under `docs/domain/` for any domain you are touching**. The CMIS quirks, the AS400 driver behavior, the CYYMMDD date format, the file naming convention — they were learned the hard way and are documented.
 3. **Check the [post-MVP roadmap](docs/roadmap/POST-MVP.md)**. If your idea is already there, you have most of the design done.
 4. **Check the [CHANGELOG](CHANGELOG.md)** for recent changes that may affect your work.
 
@@ -55,7 +55,7 @@ Numbering is **append-only**: never reuse a slot.
 
 | Phase | Artifact | Reads | Writes | Goal |
 |-------|----------|-------|--------|------|
-| Specification | `spec.md` | Constitution, REBIRTH | requirements + scenarios | Establish the contract |
+| Specification | `spec.md` | Constitution, domain spec | requirements + scenarios | Establish the contract |
 | Plan / Design | `plan.md` | spec | architecture + decomposition | Establish the approach |
 | Tasks | `tasks.md` | spec + plan | implementation checklist | Make implementation mechanical |
 | Code | source under `src/` and `tests/` | tasks + spec + plan | actual code | Implement |
@@ -217,8 +217,8 @@ Hooks are not optional. If a hook fails, fix the cause, re-stage, and create a n
 
 ## Where to ask questions
 
-- **Domain question** → re-read `docs/domain/CMCOURIER_REBIRTH.md` first. If still unclear, open an issue tagged `domain` with the section reference.
-- **Architecture question** → re-read `docs/domain/CMCOURIER_REBIRTH.md §10` (stages) and `§14` (architecture). Then constitution Principle I.
+- **Domain question** → re-read the domain spec under `docs/domain/` first. If still unclear, open an issue tagged `domain` with the section reference.
+- **Architecture question** → re-read the domain spec's §10 (stages) and §14 (architecture). Then constitution Principle I.
 - **Process question** → re-read this file, then constitution `§Workflow Discipline`.
 - **Stuck on an SDD phase** → search engram for similar phases of past changes; if none, open an issue tagged `process`.
 

@@ -10,7 +10,7 @@
 
 ## 1. Problem
 
-REBIRTH §11 lists three more menu entries the project hasn't
+the spec lists three more menu entries the project hasn't
 shipped: `inspect trigger`, `inspect mapping-stats`,
 `batch export-report`. Each is a small, focused command that
 closes a real triage / post-run-analysis gap:
@@ -66,7 +66,7 @@ extensions on top of the existing surfaces.
 - **NG4**: No `--output-format` aliasing (e.g., yaml, tsv).
   CSV + JSON is the entire menu.
 - **NG5**: No `inspect document <shortname> <system>` (already
-  shipped as `inspect rvabrep` in 021, REBIRTH names differ).
+  shipped as `inspect rvabrep` in 021; legacy names differ).
 
 ---
 
@@ -214,7 +214,7 @@ extensions on top of the existing surfaces.
 
 ## 7. References
 
-- REBIRTH §11 — CLI Surface
+- the spec — CLI Surface
 - 021 — `get_batch_details` + `cli/commands/` subpackage
 - 022 — auto-doctor (commands here do NOT auto-doctor — they
   are read-only / offline)

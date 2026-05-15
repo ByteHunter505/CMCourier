@@ -287,7 +287,7 @@ CMCourier/
 ├── README.md                          (Getting started filled in)
 ├── pyproject.toml                     (NEW)
 ├── docs/
-│   ├── domain/CMCOURIER_REBIRTH.md
+│   ├── domain/the project's domain spec
 │   ├── roadmap/POST-MVP.md
 │   └── samples/{csv,excel,responses}/
 ├── scripts/
@@ -519,7 +519,7 @@ For this change we materialize **only the two quadrants the user explicitly requ
 docs/
 ├── INDEX.md                     # The map of all documentation (NEW)
 ├── domain/                       # already exists — explanation-class but special
-│   └── CMCOURIER_REBIRTH.md     # domain ground truth (precedence #4)
+│   └── the project's domain spec     # domain ground truth (precedence #4)
 ├── roadmap/                      # already exists
 │   └── POST-MVP.md
 ├── samples/                      # already exists — reference fixtures
@@ -530,7 +530,7 @@ docs/
     └── README.md                 # purpose + naming convention + index of explanations
 ```
 
-`docs/domain/CMCOURIER_REBIRTH.md` stays where it is despite being explanation-class. It is the **domain ground truth** with precedence #4 in the constitution; moving it would invalidate cross-references in already-shipped artifacts (constitution, README, plan files). It is linked from `docs/explanation/README.md` as canonical domain explanation.
+the project's domain spec stays where it is despite being explanation-class. It is the **domain ground truth** with precedence #4 in the constitution; moving it would invalidate cross-references in already-shipped artifacts (constitution, README, plan files). It is linked from `docs/explanation/README.md` as canonical domain explanation.
 
 ### 13.3 Naming conventions
 
@@ -565,7 +565,7 @@ The single map of every document in the project. Pick the quadrant that matches 
 - .specify/memory/constitution.md — 9 immutable principles
 
 ## Domain ground truth
-- docs/domain/CMCOURIER_REBIRTH.md — full domain specification (RVI, CMIS, stages, metadata)
+- docs/domain/the project's domain spec — full domain specification (RVI, CMIS, stages, metadata)
 
 ## Project planning
 - docs/roadmap/POST-MVP.md — features deferred beyond MVP
@@ -598,6 +598,6 @@ The INDEX is updated by every change that adds or moves a documentation artifact
 - Spec: `specs/001-bootstrap-python-skeleton/spec.md`
 - Tasks: `specs/001-bootstrap-python-skeleton/tasks.md`
 - Constitution: `.specify/memory/constitution.md`
-- REBIRTH §14.2 (Project Layout), §15 (Implementation Order)
+- the spec (Project Layout), §15 (Implementation Order)
 - CONTRIBUTING.md (workflow conventions this change enforces via hooks)
 - Diátaxis framework: https://diataxis.fr

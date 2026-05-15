@@ -7,7 +7,7 @@ documents in a batch. On heterogeneous batches (a few 50 MB PDFs +
 many 200 KB JPEGs), the large docs **hog workers** while the small
 docs starve — classic head-of-line blocking.
 
-REBIRTH §10.7 + POST-MVP §1 describe a two-lane upload model that
+the spec + POST-MVP §1 describe a two-lane upload model that
 splits the batch by file size, runs each lane in its own slice of
 the worker budget, and rebalances as one lane drains.
 

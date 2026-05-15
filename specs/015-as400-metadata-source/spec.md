@@ -76,14 +76,14 @@ in memory.
 
 ### Out of scope
 
-- **Per-field `as400_query`**: REBIRTH §12 documents
+- **Per-field `as400_query`**: the spec documents
   `as400_query: "SELECT NOMBRE FROM RVILIB.CLIENT_TABLE WHERE CIF = ?"`
   on each `FieldSourceItem` so different fields can target different
   AS400 tables/joins via the same connection. 015 simplifies: each
   AS400 metadata source maps to ONE table; prefetch is
   `SELECT * FROM <table>`. Per-field custom SQL is a follow-up
   change.
-- **Lazy AS400 fetch**: REBIRTH §12's
+- **Lazy AS400 fetch**: the spec's
   `metadata_prefetch_exclude: ["RVABREP"]` default explicitly
   excludes AS400 from prefetch. 015 prefetches AS400 sources
   by default (per user direction). A future change can add a

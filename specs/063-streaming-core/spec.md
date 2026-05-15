@@ -135,7 +135,7 @@ already uploaded in any prior run. `from_stage=N` and operator-named
 - Shutdown is clean: every consumer thread joins, no zombies.
 - `from_stage > 1` or non-None `batch_id` with `mode="streaming"`
   raises `ValueError`.
-- Cross-batch idempotency (spec 062 / REBIRTH §10) works in streaming
+- Cross-batch idempotency (spec 062 / the spec) works in streaming
   exactly as in batched — a re-run of the same triggers produces
   `S1_SKIPPED` rows.
 - The wiring layer picks the right orchestrator and surfaces a clear

@@ -228,6 +228,6 @@ The adapter handles:
 
 - Predecessor change: 002-domain-models-and-ports (defines `IDataSource`, `ConfigurationError`)
 - Constitution Principles I, III, V, VI, VII, VIII, IX
-- REBIRTH §5.1 (trigger source modes — CSV is mode 1), §6.6 (metadata pre-fetch — sources are CSV / AS400 tables), §12 (datasources registry)
+- the spec (trigger source modes — CSV is mode 1), §6.6 (metadata pre-fetch — sources are CSV / AS400 tables), §12 (datasources registry)
 - Plan: `specs/003-tabular-data-source-adapter/plan.md`
 - Tasks: `specs/003-tabular-data-source-adapter/tasks.md`

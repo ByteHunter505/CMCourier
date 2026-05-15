@@ -34,7 +34,7 @@ files (TLS + multipart + server commit). With 4-8 workers ×
 ~3 MB/s each = 12-24 MB/s aggregate. Matches the observed peak.
 
 The AIMD shape is correct for **small, latency-sensitive** uploads
-(its design comes from REBIRTH §12, before 030 introduced batched
+(its design comes from the spec, before 030 introduced batched
 heavy-file workloads). For 30 MB files, growth is too slow and
 halve is too aggressive.
 

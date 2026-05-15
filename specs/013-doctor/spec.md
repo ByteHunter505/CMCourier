@@ -1,7 +1,7 @@
 # Spec — 013-doctor
 
 **Status**: Draft
-**Command**: `cmcourier doctor --config <yaml>` (REBIRTH §10.5).
+**Command**: `cmcourier doctor --config <yaml>`.
 **Constitution alignment**: V (config validated upfront), VIII
 (credentials read once, never echoed), III (single-responsibility per
 check function).
@@ -17,7 +17,7 @@ side effects have started. Doctor moves every reachable failure to the
 front: an exit code in under 5 seconds, with a structured report
 naming the specific check that failed.
 
-REBIRTH §10.5 lists 5 check classes. 013 ships all 5 (per user
+the spec lists 5 check classes. 013 ships all 5 (per user
 direction):
 
 1. **Connectivity** — CMIS reachable, repo_id valid, JSESSIONID
@@ -76,7 +76,7 @@ Plus structural checks not in §10.5 but free to add:
   summary line).
 - `cmcourier <pipeline> run --skip-doctor` flag (deferred — the run
   command doesn't auto-invoke doctor; operators run them separately).
-- Per-batch doctor (REBIRTH §10.5 mentions doctor can run against an
+- Per-batch doctor (the spec mentions doctor can run against an
   arbitrary batch; 013 only runs against the config, not a specific
   trigger CSV). Per-trigger CMIS getTypeDefinition iteration is covered
   by check 3 across the full mapping.

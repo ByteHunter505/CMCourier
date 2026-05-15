@@ -19,7 +19,7 @@ Without a generator the operator either:
 
 039 closes that gap with a small additive CLI surface:
 `cmcourier mock rvabrep` writes a CSV honoring the column shape
-documented in `REBIRTH §3.2`, with seed-deterministic distributions
+documented in `the spec`, with seed-deterministic distributions
 that match observed bank patterns.
 
 ## What

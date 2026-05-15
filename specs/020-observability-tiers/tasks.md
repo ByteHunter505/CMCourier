@@ -120,14 +120,14 @@
   `log_dir_writable` check; `cmcourier csv-trigger-pipeline run`
   produces `./logs/app-{date}.log` + `metrics-{date}.jsonl`.
 - [ ] **4.7** Update `CHANGELOG.md`:
-  - Remove "Observability tiers (REBIRTH §17.4)" from Planned.
+  - Remove "Observability tiers" from Planned.
   - Add `[0.22.0] — 2026-05-10` entry: Added / Changed /
     Verification / Rationale.
 - [ ] **4.8** Update `README.md` Status checklist: tick
-  "Twentieth change: observability tiers 1-4 (REBIRTH §17.4)".
+  "Twentieth change: observability tiers 1-4".
 - [ ] **4.9** PII grep on new content. Synthetic only.
 - [ ] **4.10** Stage. Commit:
-  `feat(observability): add tiered structured logging (REBIRTH §17.4 tiers 1-4)`.
+  `feat(observability): add tiered structured logging (the spec tiers 1-4)`.
 - [ ] **4.11** `git checkout main && git merge --ff-only feat/020-observability-tiers && git branch -d feat/020-observability-tiers`.
 
 ---

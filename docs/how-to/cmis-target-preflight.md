@@ -38,7 +38,7 @@ pipeline. The doctor exits non-zero so any CI / cron wrapper aborts.
 
 | Column | Behavior when set | Behavior when blank / absent |
 | --- | --- | --- |
-| `CMISFolder` | S5's upload URL becomes `{base}/{repo}/root/{CMISFolder}`. The doctor's `cmis_folders_exist` check verifies every unique non-empty value is a folder on the CMIS server. | S5 falls back to the derived `cm_folder` (`/$type/BAC_<clase_id>` per REBIRTH §4.2). `cmis_folders_exist` SKIPs the check entirely. |
+| `CMISFolder` | S5's upload URL becomes `{base}/{repo}/root/{CMISFolder}`. The doctor's `cmis_folders_exist` check verifies every unique non-empty value is a folder on the CMIS server. | S5 falls back to the derived `cm_folder` (`/$type/BAC_<clase_id>` per the spec). `cmis_folders_exist` SKIPs the check entirely. |
 
 The column is **fully additive** — pre-038 CSVs work unchanged.
 

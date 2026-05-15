@@ -84,11 +84,11 @@ cmcourier csv-trigger-pipeline run --config config/config.yaml
 - Other pipelines (`rvabrep-pipeline`, `as400-trigger-pipeline`,
   `local-scan-pipeline`, `single-doc`) — each lands as its own change
   but reuses 011's stage skeleton and 012's CLI / config plumbing.
-- The full REBIRTH §11 CLI tree (`batch list/status/retry-failed`,
+- The full the spec CLI tree (`batch list/status/retry-failed`,
   `doctor`, `inspect`) — separate change.
 - `pydantic-settings` library — secrets read manually per user
   direction.
-- Logging tiers (REBIRTH §17.4 application/pipeline/network/system/
+- Logging tiers (the spec application/pipeline/network/system/
   slow-ops) — separate change. 012 ships a single stderr handler.
 - AS400 ODBC adapter — config schema reserves `as400` fields as
   optional but the adapter does not yet exist; passing AS400 source
@@ -189,7 +189,7 @@ cmcourier csv-trigger-pipeline run --config config/config.yaml
   be registered as the `cmcourier` console script in `pyproject.toml`
   (already wired).
 - **REQ-018** The sub-group MUST be `csv-trigger-pipeline` (matching
-  REBIRTH §11 pipeline-as-command convention).
+  the spec pipeline-as-command convention).
 - **REQ-019** The `run` command MUST accept the following Click
   options:
   - `--config PATH` — required; passed to `load_config`.

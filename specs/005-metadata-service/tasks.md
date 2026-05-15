@@ -89,7 +89,7 @@
   the cache is keyed by (alias, key_column, key_value, value_column)
   so a single CSV source serves multiple fields without re-iterating.
   setdefault preserves first-occurrence on duplicate keys, matching
-  MappingService's REBIRTH §4.3 first-wins precedent.
+  MappingService's the spec first-wins precedent.
 
   Five frozen+slots dataclasses (MetadataConfig, FieldSourceConfig,
   SourceConfig, ValidationConfig, MetadataResolution) carry the

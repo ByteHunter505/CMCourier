@@ -36,7 +36,7 @@ Constitution Principle I forbids `pydantic` in `domain/`. Period. So the choice 
 ### 3.1 Top-level shape
 
 ```python
-"""Domain models — pure stdlib, frozen dataclasses, REBIRTH §3-§10 source of truth."""
+"""Domain models — pure stdlib, frozen dataclasses, the spec-§10 source of truth."""
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
@@ -46,7 +46,7 @@ from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 
-# Helpers (REBIRTH §3.3, §3.4, §4.2) ---------------------------------
+# Helpers (the spec) ---------------------------------
 
 def parse_cymmdd(date_str: str) -> datetime: ...
 def is_pdf_filename(name: str) -> bool: ...
@@ -76,9 +76,9 @@ class StageStatus(str, Enum): ...
 class MigrationRecord: ...
 ```
 
-### 3.2 `parse_cymmdd` (REBIRTH §3.3)
+### 3.2 `parse_cymmdd`
 
-The reference implementation in REBIRTH:
+The reference implementation in the domain spec:
 
 ```python
 def parse_cymmdd(date_str: str) -> datetime:
@@ -182,7 +182,7 @@ class MigrationRecord:
 `@dataclass(slots=True)` adds `__slots__` to the generated class, which:
 - Reduces per-instance memory by ~30-50%.
 - Prevents accidental `record.unknown_attr = ...` (raises `AttributeError`).
-- Is mandatory for instances stored at scale (REBIRTH talks about 200k+ documents per migration).
+- Is mandatory for instances stored at scale (200k+ documents per migration).
 
 ### 3.8 Module-level re-exports
 
@@ -329,7 +329,7 @@ Database row values are heterogeneous (`str | int | datetime | None | Decimal | 
 
 ### 4.4 Decision: `S0Strategy.acquire` returns `Iterator`, not `list`
 
-Trigger lists can be huge (hundreds of thousands of rows). REBIRTH §10.2 ("trigger lists are iterated, never fully loaded into memory") demands streaming.
+Trigger lists can be huge (hundreds of thousands of rows). the spec ("trigger lists are iterated, never fully loaded into memory") demands streaming.
 
 ---
 
@@ -445,8 +445,8 @@ class TestParseCymmdd:
 
 class TestCMMapping:
     # construction
-    # cm_folder (REBIRTH §4.2 example)
-    # cm_object_type (REBIRTH §4.2 example)
+    # cm_folder (the spec example)
+    # cm_object_type (the spec example)
     ...
 
 class TestResolvedMetadata: ...
@@ -510,7 +510,7 @@ After this change merges:
 
 ### Added
 
-- `cmcourier.domain.models`: frozen dataclasses for `TriggerRecord`, `RVABREPDocument`, `CMMapping`, `ResolvedMetadata`, `StagedFile`, `MigrationRecord`. The `StageStatus` enum encodes the per-stage state machine from REBIRTH §10.3. Helper functions `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder`, `compute_cm_object_type` are exposed for direct use by services.
+- `cmcourier.domain.models`: frozen dataclasses for `TriggerRecord`, `RVABREPDocument`, `CMMapping`, `ResolvedMetadata`, `StagedFile`, `MigrationRecord`. The `StageStatus` enum encodes the per-stage state machine from the spec. Helper functions `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder`, `compute_cm_object_type` are exposed for direct use by services.
 - `cmcourier.domain.ports`: abstract interfaces `IDataSource`, `ITrackingStore`, `IAssembler`, `IUploader`, and `S0Strategy`. Concrete implementations land in 003+.
 - `cmcourier.domain.exceptions`: typed exception hierarchy rooted at `CMCourierError`, with stage-specific subclasses and structured context fields for logging.
 - `tests/unit/domain/{test_models,test_ports,test_exceptions}.py`: full unit coverage of the domain layer (≥95% branches).
@@ -519,7 +519,7 @@ After this change merges:
 
 - Provides the stable contract that every adapter (003+) and service (004+) will build against. Without this layer, no concrete code can be written without inventing types ad-hoc.
 - All dataclasses are `frozen=True, slots=True` to make accidental mutation impossible and reduce per-instance memory footprint at scale.
-- Exceptions carry structured context (`txn_num`, `id_rvi`, `batch_id`) for structured logging in the observability layer (REBIRTH §17.4).
+- Exceptions carry structured context (`txn_num`, `id_rvi`, `batch_id`) for structured logging in the observability layer.
 ```
 
 ---
@@ -556,5 +556,5 @@ Phases 1-5 are **strict TDD per type**: red test → green code → refactor.
 - Spec: `specs/002-domain-models-and-ports/spec.md`
 - Tasks: `specs/002-domain-models-and-ports/tasks.md`
 - Constitution: `.specify/memory/constitution.md` (Principles I, III, VI, VII, VIII, IX)
-- Domain ground truth: `docs/domain/CMCOURIER_REBIRTH.md` §3, §4, §6, §9, §10, §14.3
+- Domain ground truth: the project's domain spec §3, §4, §6, §9, §10, §14.3
 - Predecessor change: `specs/001-bootstrap-python-skeleton/`

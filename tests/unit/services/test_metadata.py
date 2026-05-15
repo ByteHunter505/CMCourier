@@ -2,7 +2,7 @@
 
 Real ``TabularDataSource`` instances over CSV fixtures (no IDataSource
 mocks for the SUT itself). A small ``_CountingSource`` wrapper is used
-ONLY to verify pre-fetch behavior (REBIRTH §6.6) — it delegates every
+ONLY to verify pre-fetch behavior — it delegates every
 call to a real adapter and increments counters; it is not a stub.
 """
 

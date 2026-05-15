@@ -66,7 +66,7 @@ class IndexingColumnsConfig:
     total_pages_column:    str = "ABABUN"
 ```
 
-Defaults match REBIRTH §3.2 verbatim. Tests override columns to use the
+Defaults match the spec verbatim. Tests override columns to use the
 friendly names in the CSV fixture (`shortname`, `system_id`, `txn_num`, …)
 and a second test verifies defaults are correct.
 
@@ -225,7 +225,7 @@ New file `tests/fixtures/services/rvabrep_index_sample.csv`:
 
 Tests use `IndexingColumnsConfig(shortname_column='shortname', ...)` to
 override every column name. One test instantiates the default config and
-asserts the AS400 physical names match REBIRTH §3.2.
+asserts the AS400 physical names match the spec.
 
 ### 5.3 Instrumentation for "exactly N calls"
 
@@ -271,7 +271,7 @@ tests).
 
 ## 8. Risks
 
-- **Risk**: `last_view_date` semantics. REBIRTH §3.2 says `"0"` if never
+- **Risk**: `last_view_date` semantics. the spec says `"0"` if never
   viewed. The CSV fixture may also produce `""` from pandas. Both must map
   to `None`. **Mitigation**: explicit test for both values.
 - **Risk**: Duplicate WARNING may flood logs in production. **Mitigation**:

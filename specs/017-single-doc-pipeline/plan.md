@@ -35,7 +35,7 @@ src/cmcourier/cli/doctor.py                        # +SKIP branch in sample_dry_
 
 ```python
 class SingleDocTriggerStrategy(S0Strategy):
-    """REBIRTH §10.2 single-doc pipeline.
+    """the spec single-doc pipeline.
 
     Yields exactly one TriggerRecord built from caller-provided
     shortname, system_id, and optional cif.
@@ -84,7 +84,7 @@ def build_pipeline(
 ```python
 @main.group(name="single-doc")
 def single_doc_group() -> None:
-    """single-doc subcommands (REBIRTH §10.2 — debug / ad-hoc)."""
+    """single-doc subcommands (the spec — debug / ad-hoc)."""
 
 
 @single_doc_group.command(name="run")

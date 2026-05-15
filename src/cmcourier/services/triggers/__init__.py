@@ -1,8 +1,8 @@
 """Concrete S0Strategy implementations for stage S0 (Trigger Acquisition).
 
 Four production strategies (CSV, direct RVABREP, AS400, local scan)
-covering REBIRTH §5.1's four trigger source modes, plus one
-diagnostic strategy (single-doc, REBIRTH §10.2).
+cover the four trigger source modes, plus one diagnostic strategy
+(single-doc).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Domain models — frozen dataclasses, REBIRTH §3-§10 source of truth.
+"""Domain models — frozen dataclasses, source of truth for core entities.
 
 Pure Python standard library only. Constitution Principle I: domain has zero
 external dependencies. Every dataclass is ``frozen=True, slots=True`` so
@@ -6,7 +6,7 @@ mutation is impossible and per-instance memory is minimal at scale.
 
 This module owns the helpers ``parse_cymmdd``, ``is_pdf_filename``,
 ``compute_cm_folder``, and ``compute_cm_object_type`` because they are tightly
-bound to the model semantics (REBIRTH §3.3, §3.4, §4.2).
+bound to the model semantics.
 """
 
 from __future__ import annotations
@@ -43,12 +43,12 @@ from types import MappingProxyType
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Helpers (REBIRTH §3.3, §3.4, §4.2)
+# Helpers
 # ---------------------------------------------------------------------------
 
 
 def parse_cymmdd(date_str: str) -> datetime:
-    """Parse the AS400 7-digit ``CYYMMDD`` date format (REBIRTH §3.3).
+    """Parse the AS400 7-digit ``CYYMMDD`` date format.
 
     ``C`` is the century flag: ``0`` = 1900s, ``1`` = 2000s. ``YY`` is the
     year within century, ``MM`` the month, ``DD`` the day.
@@ -69,22 +69,22 @@ def parse_cymmdd(date_str: str) -> datetime:
 
 
 def is_pdf_filename(name: str) -> bool:
-    """Return ``True`` when *name* is a native PDF (REBIRTH §3.4)."""
+    """Return ``True`` when *name* is a native PDF."""
     return name.upper().endswith(".PDF")
 
 
 def compute_cm_folder(clase_id: str) -> str:
-    """Compute the CMIS folder path from a Modelo Documental ``clase_id`` (REBIRTH §4.2)."""
+    """Compute the CMIS folder path from a Modelo Documental ``clase_id``."""
     return f"/$type/BAC_{clase_id.replace('.', '_')}"
 
 
 def compute_cm_object_type(clase_id: str) -> str:
-    """Compute the CMIS ``cmis:objectTypeId`` from a ``clase_id`` (REBIRTH §4.2)."""
+    """Compute the CMIS ``cmis:objectTypeId`` from a ``clase_id``."""
     return f"$t!-2_BAC_{clase_id.replace('.', '_')}v-1"
 
 
 # ---------------------------------------------------------------------------
-# Stage state machine (REBIRTH §10.3)
+# Stage state machine
 # ---------------------------------------------------------------------------
 
 
@@ -146,14 +146,14 @@ class Trigger(ABC):
 
     * ``ClientTrigger`` — a client tuple (shortname, cif, system_id). S1
       expands it to every RVABREP doc owned by that client. Used by
-      csv-trigger and single-doc pipelines (REBIRTH §5.1 csv mode).
+      csv-trigger and single-doc pipelines (csv mode).
     * ``RvabrepRowTrigger`` — a single RVABREP row, already-known. S1 wraps
       it into one ``RVABREPDocument`` without re-querying. Used by
       rvabrep-direct and as400-trigger pipelines (the SQL/scan already
       delivered the row).
     * ``LocalScanTrigger`` — a file on disk + the RVABREP row that
       describes it. S1 emits one ``RVABREPDocument`` for that exact file.
-      Used by local-scan pipeline (REBIRTH §5.1 local_scan mode).
+      Used by local-scan pipeline (local_scan mode).
 
     Every concrete subtype implements ``audit_row()`` to produce best-effort
     ``{shortname, cif, system_id}`` strings for the migration_log trigger_*
@@ -173,7 +173,7 @@ class Trigger(ABC):
 # ``LocalScanTrigger`` defaults so the production AS400 path "just works".
 # Strategies that read CSVs with friendly column names (typical for tests +
 # the integration fixtures) override the defaults at construction time.
-# Matches ``RvabrepColumnsConfig`` defaults (REBIRTH §3.2). Lives in domain
+# Matches ``RvabrepColumnsConfig`` defaults. Lives in domain
 # (not services) because the audit-row projection is a domain concern;
 # strategies pass their column names in but don't own the lookup.
 _DEFAULT_COL_SHORTNAME = "ABABCD"
@@ -206,9 +206,9 @@ def _project_audit_from_row(
 
 @dataclass(frozen=True, slots=True)
 class ClientTrigger(Trigger):
-    """One row of a client trigger list (REBIRTH §5, pre-046 ``TriggerRecord``).
+    """One row of a client trigger list (pre-046 ``TriggerRecord``).
 
-    ``cif`` may be ``None`` to support the CIF self-healing rule (REBIRTH §6.5):
+    ``cif`` may be ``None`` to support the CIF self-healing rule:
     in modes where the trigger source does not provide a CIF, the metadata
     layer resolves it from RVABREP and writes back the resolved value.
     """
@@ -288,7 +288,7 @@ TriggerRecord = ClientTrigger
 
 @dataclass(frozen=True, slots=True)
 class RVABREPDocument:
-    """One row of the AS400 RVABREP master index (REBIRTH §3.2)."""
+    """One row of the AS400 RVABREP master index."""
 
     system_code: str
     txn_num: str
@@ -309,18 +309,18 @@ class RVABREPDocument:
 
     @property
     def is_pdf(self) -> bool:
-        """Return ``True`` if this document is a native PDF (REBIRTH §3.4)."""
+        """Return ``True`` if this document is a native PDF."""
         return is_pdf_filename(self.file_name)
 
     @property
     def is_deleted(self) -> bool:
-        """Return ``True`` if the row has been marked deleted (REBIRTH §3.2)."""
+        """Return ``True`` if the row has been marked deleted."""
         return bool(self.delete_code)
 
 
 @dataclass(frozen=True, slots=True)
 class CMMapping:
-    """One row of the Modelo Documental — RVI type to CM class (REBIRTH §4).
+    """One row of the Modelo Documental — RVI type to CM class.
 
     ``cmis_type`` (034) is the CMIS Type code that maps to AS400
     ``NIARVILOG.TIPIDN``. Defaults to ``""`` until change 035
@@ -361,7 +361,7 @@ class CMMapping:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedMetadata:
-    """Read-only snapshot of resolved BAC_* properties for one document (REBIRTH §6).
+    """Read-only snapshot of resolved BAC_* properties for one document.
 
     Construct via :meth:`from_dict`. The internal storage is a
     ``MappingProxyType`` over a copy, so mutating the source dict cannot
@@ -390,7 +390,7 @@ class ResolvedMetadata:
 
 @dataclass(frozen=True, slots=True)
 class StagedFile:
-    """The output of stage S4 — an assembled file ready for upload (REBIRTH §7)."""
+    """The output of stage S4 — an assembled file ready for upload."""
 
     path: Path
     size_bytes: int
@@ -405,7 +405,7 @@ class StagedFile:
 
 @dataclass(frozen=True, slots=True)
 class MigrationRecord:
-    """One row of the tracking store (REBIRTH §9.2).
+    """One row of the tracking store.
 
     Required fields capture the identity of the migration attempt and its
     current status. Optional fields are filled in as the document moves
@@ -438,7 +438,7 @@ class MigrationRecord:
 
 
 # ---------------------------------------------------------------------------
-# Batch summaries (REBIRTH §11 — operator CLI surface, change 021)
+# Batch summaries (operator CLI surface, change 021)
 # ---------------------------------------------------------------------------
 
 

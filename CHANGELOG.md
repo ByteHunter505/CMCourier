@@ -505,7 +505,7 @@ neither side ever waits for the other to finish a "batch".
 The operator inspected the DETAIL tab during a staging run and
 correctly noticed two gaps: the per-doc detail didn't show which docs
 were filtered at S1 (delete-coded at source, spec 051) and didn't show
-the docs skipped by cross-batch idempotency (REBIRTH §10). Both were
+the docs skipped by cross-batch idempotency. Both were
 counted but never persisted, so neither the DETAIL tab nor
 `analyze batch` nor `cmcourier batch show` could surface them.
 
@@ -527,7 +527,7 @@ counted but never persisted, so neither the DETAIL tab nor
 
 ### Changed
 
-- **REBIRTH §10's "silent skip" contract is intentionally reversed.**
+- **The prior "silent skip" contract is intentionally reversed.**
   Cross-batch skipped docs previously left no trace in `migration_log`
   to keep re-run disk growth bounded. 062 trades that for full
   traceability: the second run of a 1000-doc migration now writes
@@ -1291,7 +1291,7 @@ in the migration log even though the doc was already where it
 needed to be (we observed 4 such cases in the §H.1 live verify).
 
 045 brings the same idempotent-409 contract that has covered
-folder creation since 025 (REBIRTH §8.3) to the document upload
+folder creation since 025 to the document upload
 path: on 409 we look the object up by ``cmis:name`` and treat the
 upload as successful if a match exists.
 
@@ -1687,7 +1687,7 @@ to match ``IndexingColumnsModel`` defaults so the CSV is consumed
 by ``mock generate`` and every downstream pipeline without a
 config override.
 
-### Per-column rules (REBIRTH §3.2)
+### Per-column rules
 
 - ``ABABCD`` shortname: pool of ``--clients`` distinct identifiers
   from a banking lexicon + 2-digit suffix.
@@ -2674,12 +2674,12 @@ validate the AIMD target the 025 auto-tune controller assumes.
 
 ---
 
-## [0.27.0] — 2026-05-10 — **live TUI + S5 worker pool + AIMD auto-tune (REBIRTH §10.6, §17.4)**
+## [0.27.0] — 2026-05-10 — **live TUI + S5 worker pool + AIMD auto-tune**
 
 The S5 (CMIS upload) stage moves from a sequential loop to a real
 `ThreadPoolExecutor` worker pool, gains a textual two-tab live
 TUI, and grows an AIMD (Additive-Increase / Multiplicative-
-Decrease) auto-tune controller. This is the §10.6 "TUI by default"
+Decrease) auto-tune controller. This is the "TUI by default"
 commitment realized end-to-end.
 
 ### Added
@@ -2752,8 +2752,8 @@ commitment realized end-to-end.
 
 ### Notes
 
-- Slow / fast S5 lanes remain explicitly post-MVP per
-  REBIRTH §10.7 — they aren't in 025 by design. The current
+- Slow / fast S5 lanes remain explicitly post-MVP —
+  they aren't in 025 by design. The current
   pool is a single resizable pool sized by `cmis.workers`.
 - The bandwidth chart uses the operator-configured
   `cmis.max_bandwidth_mbps` rather than an autodetected
@@ -2761,11 +2761,11 @@ commitment realized end-to-end.
 
 ---
 
-## [0.26.0] — 2026-05-10 — **background runner (REBIRTH §11)**
+## [0.26.0] — 2026-05-10 — **background runner**
 
 Cron-friendly entry point for unattended pipeline execution.
-Closes the last operationally-meaningful gap from REBIRTH §11
-ahead of the real dry run.
+Closes the last operationally-meaningful CLI gap ahead of the
+real dry run.
 
 ### Added
 
@@ -2888,10 +2888,10 @@ siblings) from cron. That worked but leaked two problems:
 
 ---
 
-## [0.25.0] — 2026-05-10 — **complete REBIRTH §11 menus**
+## [0.25.0] — 2026-05-10 — **complete operator-CLI menus**
 
-Closes the §11 menus with three small commands. After this
-change the only §11 entries still missing are the `background`
+Closes the operator-CLI menus with three small commands. After
+this change the only entries still missing are the `background`
 runner and the TUI — both depend on a TUI design that's a
 separate change. Operators now have the full read-only triage +
 offline-analysis surface.
@@ -3007,7 +3007,7 @@ three gaps — none of them need new ports or schema changes.
 
 ---
 
-## [0.24.0] — 2026-05-10 — **pipeline safety flags (REBIRTH §11)**
+## [0.24.0] — 2026-05-10 — **pipeline safety flags**
 
 Closes the pre-dry-run safety polish: pipelines auto-run doctor
 before doing work, `--resume` infers the right `--from-stage`
@@ -3116,7 +3116,7 @@ still wins — `--resume` is sugar, never a constraint.
 operator already knows CMIS is fine but suspects Modelo
 Documental, running the full 7-check suite (~10 s) just to
 confirm wastes seconds. The group names come straight from
-REBIRTH §11; the internal check names map cleanly onto them.
+the operator-CLI surface; the internal check names map cleanly onto them.
 
 **Key architectural decisions:**
 
@@ -3142,7 +3142,7 @@ REBIRTH §11; the internal check names map cleanly onto them.
 
 ---
 
-## [0.23.0] — 2026-05-10 — **operator CLI essentials (REBIRTH §11)**
+## [0.23.0] — 2026-05-10 — **operator CLI essentials**
 
 Adds the six commands an operator needs between pipeline runs:
 batch lifecycle (list/show/retry-failed), preview commands (inspect
@@ -3259,7 +3259,7 @@ dry run that gets bogged down in tooling.
 
 ---
 
-## [0.22.0] — 2026-05-10 — **observability tiers 1-4 (REBIRTH §17.4)**
+## [0.22.0] — 2026-05-10 — **observability tiers 1-4**
 
 Full-MVP observability surface. Operators now get structured JSON
 logs, per-batch pipeline timing percentiles (p50/p95/p99), per-request
@@ -3274,8 +3274,8 @@ parseable by `jq` or any log shipper. The dry run is no longer blind.
   `pii.py` (PiiMaskingFilter + denylist), `metrics.py`
   (StageTimer, BatchSummary, MetricsRecorder, SlowOpAggregator,
   NetworkEvent), `setup.py` (`configure(config, log_level)`).
-- **`ObservabilityConfig`** in `config/schema.py` with REBIRTH
-  §17.4 fields: `enabled`, `pipeline_metrics`, `network_metrics`,
+- **`ObservabilityConfig`** in `config/schema.py` with the
+  observability fields: `enabled`, `pipeline_metrics`, `network_metrics`,
   `system_metrics`, `log_dir`, `log_format`, `rotation_mb`,
   `retention_days`, `slow_op_threshold_ms`, `slow_op_top_n`.
   `system_metrics=true` raises ValidationError — deferred to
@@ -3379,8 +3379,8 @@ parseable by `jq` or any log shipper. The dry run is no longer blind.
 ### Rationale
 
 The MVP was running on a single stderr text handler — fine for
-unit-test feedback, blind for a real dry run. REBIRTH §17.4
-specified the multi-tier surface; 020 ships the four cheap tiers
+unit-test feedback, blind for a real dry run. The multi-tier
+surface was specified up front; 020 ships the four cheap tiers
 and explicitly defers the expensive one (`psutil` sampling).
 With these tiers an operator can answer the questions that
 matter during a real migration:
@@ -3596,7 +3596,7 @@ sees a single polymorphic adapter.
 
 ---
 
-## [0.19.0] — 2026-05-10 — **single-doc-pipeline (REBIRTH §10.2 diagnostic surface)**
+## [0.19.0] — 2026-05-10 — **single-doc-pipeline (diagnostic surface)**
 
 Completes the pipeline surface: 4 production pipelines + 1 diagnostic
 pipeline. Operators can now push a specific shortname/system/cif
@@ -3669,7 +3669,7 @@ config against a known target.
 
 ### Rationale
 
-Closes the REBIRTH §10.2 pipeline catalog: four production pipelines
+Closes the pipeline catalog: four production pipelines
 (csv-trigger, rvabrep, as400-trigger, local-scan) + one diagnostic
 pipeline (single-doc). The override pattern keeps the schema layer
 honest — `_build_trigger_strategy` still raises for any caller that
@@ -3683,15 +3683,15 @@ a narrow, well-documented seam for CLI-driven dispatch.
 ## [0.18.0] — 2026-05-10 — **local-scan-pipeline (4th production pipeline)**
 
 Closes the production-pipeline set. With 016, the project covers
-every trigger source mode REBIRTH §5.1 commits to: csv, direct
-rvabrep, as400, local_scan.
+every committed trigger source mode: csv, direct rvabrep, as400,
+local_scan.
 
 ### Added
 
 - **`cmcourier.services.triggers.local_scan.LocalScanTriggerStrategy`**
   — real implementation. Lists `scan_path` non-recursively, filters
   to `*.PDF` (case-insensitive) and `*.001` (paged-doc first page
-  per REBIRTH §3.4), and for each file queries the RVABREP source
+  for the paged-doc first page), and for each file queries the RVABREP source
   via `get_by_fields({file_name_column: name})`. Yields one
   `TriggerRecord` per matched row. Files with no RVABREP match are
   logged at WARNING (`file_name`, `scan_path` in `extra`) and
@@ -3706,7 +3706,7 @@ rvabrep, as400, local_scan.
   `config.trigger.kind == "local_scan"` and exits 2 on mismatch.
 - **`RvabrepColumnsConfig.file_name_column: str = "ABAJCD"`** — new
   field on the existing dataclass. Drives the local_scan strategy's
-  per-file query into RVABREP. Default matches REBIRTH §3.2
+  per-file query into RVABREP. Default matches the RVABREP
   physical name; production configs override to the friendly name.
 - **10 new unit tests** for `LocalScanTriggerStrategy` covering:
   happy path, non-trigger filename filtering (`.002` / `.txt` /
@@ -3750,8 +3750,8 @@ rvabrep, as400, local_scan.
 
 ### Rationale
 
-- **Closes the production-pipeline set**. REBIRTH §5.1 listed four
-  trigger source modes; 016 ships the fourth. No more stubs in the
+- **Closes the production-pipeline set**. Four trigger source
+  modes were committed up front; 016 ships the fourth. No more stubs in the
   trigger strategies module — `services/triggers/stubs.py` is
   retired entirely.
 - **One trigger record per matched ROW, not per FILE**. A single
@@ -3760,14 +3760,14 @@ rvabrep, as400, local_scan.
   shortname). The downstream `IndexingService` dedupes by
   `(shortname, system_id)` already; emitting per row preserves
   information.
-- **`*.PDF` + `*.001` filter is hard-coded** per REBIRTH §3.4: paged
+- **`*.PDF` + `*.001` filter is hard-coded**: paged
   documents always have a `.001` first page, native PDFs end in
   `.PDF`. Custom filename patterns (e.g., `.JPG` directly archived)
   are out of scope; operators curate the folder.
 - **No `cif_lookup_source` parameter**. The original stub had it as
-  a hint at REBIRTH §5.1's "cif must be resolved" requirement.
-  Today's metadata service handles CIF self-healing centrally
-  (REBIRTH §6.5) — the strategy doesn't need its own CIF lookup.
+  a hint at the "cif must be resolved" requirement. Today's
+  metadata service handles CIF self-healing centrally — the
+  strategy doesn't need its own CIF lookup.
 - **Non-recursive scanning**. Recursive support is a one-line
   `Path.rglob` future change; the MVP keeps the iteration surface
   small.
@@ -3856,12 +3856,12 @@ metadata source kind.
   Constitution Principle I (hexagonal architecture) pays off
   exactly here: a new adapter slots in without rippling.
 - **Prefetch AS400 sources by default** (per user direction).
-  REBIRTH §12's `metadata_prefetch_exclude: ["RVABREP"]` excludes
+  the original `metadata_prefetch_exclude: ["RVABREP"]` excludes
   AS400 by default; 015 deviates because the operator-controlled
   table is usually `CLIENTS` or `ACCOUNTS` (~10s of thousands of
   rows, ~5-50 MB in RAM). A future change can add a per-source
   `prefetch: bool` flag if memory becomes a constraint.
-- **Per-field `as400_query` deferred**. REBIRTH §12 supports custom
+- **Per-field `as400_query` deferred**. The schema supports custom
   SQL per field (`as400_query: "SELECT NOMBRE FROM RVILIB.CLIENT_TABLE
   WHERE CIF = ?"`). 015 simplifies: each AS400 metadata source maps
   to ONE table. Operators who need joins / filters can pre-export
@@ -3905,7 +3905,7 @@ Largest change of the project. Five thrusts in one PR.
   exceptions are wrapped in `IndexingError` with SQLSTATE extracted from
   `exc.args[0]` when the format matches. IN-list queries chunked at 1000
   values. `query_stream` uses `fetchmany(500)`. Single connection per
-  instance (thread-local connections deferred per REBIRTH §3.1 + change
+  instance (thread-local connections deferred + change
   010's single-threaded decision).
 - **`cmcourier.services.triggers.as400.As400TriggerStrategy`** —
   real implementation replacing the 006 stub. Runs a configured SQL
@@ -4184,7 +4184,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 ### Added
 
 - **`cmcourier.orchestrators.csv_trigger.CsvTriggerPipeline`** — the first
-  runnable orchestrator. Implements REBIRTH §10.2's `csv-trigger-pipeline`
+  runnable orchestrator. Implements the `csv-trigger-pipeline`
   composition: `S0(csv) → S1 → S2 → S3 → S4 → S5 → S6 (transversal)`.
   Constructor takes the seven collaborators by keyword (`trigger_strategy`,
   `indexing_service`, `mapping_service`, `metadata_service`, `assembler`,
@@ -4194,14 +4194,14 @@ every collaborator it imports has been on `main` since changes 003-010.
   dataclass with `batch_id`, `total_triggers`, `total_docs`, per-stage
   `_done` / `_failed` counters, `s1_skipped_cross_batch`, and
   `elapsed_seconds`. Counter invariant: `s(N)_done + s(N)_failed == s(N-1)_done`.
-- **Cross-batch idempotency** (REBIRTH §10): docs that are already at
+- **Cross-batch idempotency**: docs that are already at
   `S5_DONE` in any **prior** batch are skipped silently — no
   `migration_log` row in the new batch, no CMIS calls. Counts toward
   `RunReport.s1_skipped_cross_batch` with an INFO log carrying
   `reason="cross_batch_uploaded"`. If the doc is already at S5_DONE in
   the **current** batch (idempotent rerun), the cross-batch skip does
   NOT fire and the doc flows through stages with per-stage skip-checks.
-- **Stage-by-stage resume** (REBIRTH §10.3): `run(batch_id=..., from_stage=N)`
+- **Stage-by-stage resume**: `run(batch_id=..., from_stage=N)`
   reuses an existing batch. S0+S1 still re-execute (re-read CSV, re-index
   RVABREP) but the orchestrator filters the fresh S1 output through
   `tracking_store.list_txn_nums_for_batch(batch_id)` — docs not in the
@@ -4319,13 +4319,13 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.adapters.upload.cmis_uploader.CmisUploader`** — concrete `IUploader` for IBM Content Manager via the CMIS Browser Binding REST/JSON protocol (REBIRTH §8). Single-threaded MVP: one `requests.Session` shared across calls; thread-local sessions deferred to a follow-up change when the orchestrator's worker pool lands. Holds an in-memory `set[str]` folder cache so a verified or created folder path is never re-POSTed within a process lifetime.
-- **Lazy JSESSIONID warmup** (REBIRTH §8.2): no HTTP at construction time; the first call to `test_connection`, `ensure_folder`, or `upload` issues `GET {base_url}/{repo_id}?cmisselector=repositoryInfo`. Re-warmup fires on any 401 from a subsequent POST.
-- **Recursive idempotent folder creation** (REBIRTH §8.3): `ensure_folder(path)` walks segments left-to-right, skips any segment starting with `$` (system folders like `$type`), and POSTs `createFolder` to the parent for the rest. HTTP 409 (Conflict) is treated as success; the resulting path is still added to the cache. Re-invocation after a successful walk issues zero HTTP calls.
-- **Streaming multipart upload** (REBIRTH §8.5) via `requests-toolbelt.MultipartEncoder`. The file is read from disk on demand by the encoder; the adapter never calls `.read()` on the whole stream. Property bag is laid out as `propertyId[N] / propertyValue[N]` pairs in insertion order, with three fixed slots for `cmis:objectTypeId`, `cmis:name`, `cmis:contentStreamMimeType` (the first three triples) and then the caller's `properties` mapping appended starting at index 3.
-- **`cmcourier.adapters.upload.cmis_uploader.BandwidthLimiter`** (REBIRTH §8.6) — token-bucket file-stream wrapper with `read`, `seek`, `tell`, `close`, `name`, `__enter__`, `__exit__`. `mbps <= 0` disables throttling (read passthrough). Positive `mbps` throttles to `mbps * 1_000_000` bytes per second via a `time.monotonic()` refill loop. Passthrough methods are required so `MultipartEncoder` introspection works.
-- **Complete retry policy** (REBIRTH §8.7): HTTP 201/2xx → success; HTTP 401 → re-warmup + retry exactly once (a second 401 raises `CMISClientError(status_code=401)`); HTTP 4xx (other) → fail-fast `CMISClientError`; HTTP 5xx → exponential backoff (`retry_base_delay_s * 2**(attempt-1)`, capped at 60 s), up to `retry_max_attempts`; `requests.exceptions.ConnectionError` whose message contains `"10053"` (Windows abort) → `ERROR` log + doubled sleep; retry budget exhausted → `RetriesExhaustedError(txn_num, attempts)` with the last `CMISServerError` as `__cause__`. 409 is handled as success ONLY in `_create_folder_segment`, never in the generic post path.
-- **Three-path `cmis:objectId` parser** (REBIRTH §8.8): `succinctProperties["cmis:objectId"]` → `properties["cmis:objectId"]["value"]` → `str(data.get("id", "unknown"))`. Each fallback is reachable from a real IBM response shape variant. Unparseable JSON returns `"unknown"`.
+- **`cmcourier.adapters.upload.cmis_uploader.CmisUploader`** — concrete `IUploader` for IBM Content Manager via the CMIS Browser Binding REST/JSON protocol. Single-threaded MVP: one `requests.Session` shared across calls; thread-local sessions deferred to a follow-up change when the orchestrator's worker pool lands. Holds an in-memory `set[str]` folder cache so a verified or created folder path is never re-POSTed within a process lifetime.
+- **Lazy JSESSIONID warmup**: no HTTP at construction time; the first call to `test_connection`, `ensure_folder`, or `upload` issues `GET {base_url}/{repo_id}?cmisselector=repositoryInfo`. Re-warmup fires on any 401 from a subsequent POST.
+- **Recursive idempotent folder creation**: `ensure_folder(path)` walks segments left-to-right, skips any segment starting with `$` (system folders like `$type`), and POSTs `createFolder` to the parent for the rest. HTTP 409 (Conflict) is treated as success; the resulting path is still added to the cache. Re-invocation after a successful walk issues zero HTTP calls.
+- **Streaming multipart upload** via `requests-toolbelt.MultipartEncoder`. The file is read from disk on demand by the encoder; the adapter never calls `.read()` on the whole stream. Property bag is laid out as `propertyId[N] / propertyValue[N]` pairs in insertion order, with three fixed slots for `cmis:objectTypeId`, `cmis:name`, `cmis:contentStreamMimeType` (the first three triples) and then the caller's `properties` mapping appended starting at index 3.
+- **`cmcourier.adapters.upload.cmis_uploader.BandwidthLimiter`** — token-bucket file-stream wrapper with `read`, `seek`, `tell`, `close`, `name`, `__enter__`, `__exit__`. `mbps <= 0` disables throttling (read passthrough). Positive `mbps` throttles to `mbps * 1_000_000` bytes per second via a `time.monotonic()` refill loop. Passthrough methods are required so `MultipartEncoder` introspection works.
+- **Complete retry policy**: HTTP 201/2xx → success; HTTP 401 → re-warmup + retry exactly once (a second 401 raises `CMISClientError(status_code=401)`); HTTP 4xx (other) → fail-fast `CMISClientError`; HTTP 5xx → exponential backoff (`retry_base_delay_s * 2**(attempt-1)`, capped at 60 s), up to `retry_max_attempts`; `requests.exceptions.ConnectionError` whose message contains `"10053"` (Windows abort) → `ERROR` log + doubled sleep; retry budget exhausted → `RetriesExhaustedError(txn_num, attempts)` with the last `CMISServerError` as `__cause__`. 409 is handled as success ONLY in `_create_folder_segment`, never in the generic post path.
+- **Three-path `cmis:objectId` parser**: `succinctProperties["cmis:objectId"]` → `properties["cmis:objectId"]["value"]` → `str(data.get("id", "unknown"))`. Each fallback is reachable from a real IBM response shape variant. Unparseable JSON returns `"unknown"`.
 - **`cmcourier.adapters.upload.cmis_uploader.CmisConfig`** — frozen+slots dataclass with `base_url`, `repo_id`, `username`, `password`, `timeout_seconds=300.0`, `verify_ssl=False`, `max_bandwidth_mbps=0.0`, `retry_max_attempts=3`, `retry_base_delay_s=2.0`.
 - **26 integration tests** in `tests/integration/adapters/test_cmis_uploader.py` across 9 groups: config, warmup, `test_connection`, `ensure_folder` (skip `$`, recursive, cache, 409, cached-after-409), upload happy path (3 objectId fallbacks + Content-Type assertion), retry (5xx-then-201, 4xx fail-fast, 401 re-warmup, retries exhausted), Windows-10053 (delay doubling + ERROR log), BandwidthLimiter (throttle + passthrough + passthrough methods), logging discipline. Branch coverage on `cmis_uploader.py`: **94%** (target ≥ 85%).
 
@@ -4346,9 +4346,9 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 - **Stage S5 closes the adapter set** for the MVP `rvabrep-pipeline`. With S0 (triggers), S1 (indexing), S2 (mapping), S3 (metadata), S4 (assembly), S5 (upload), and S6 (tracking) all real, the next change is the orchestrator — every adapter it cables will be production code, not a stub.
 - **MVP includes BandwidthLimiter and complete retry policy** (per user direction). Skipping these to ship the adapter faster would mean either a noticeable production retry hole or a flaky first-week dry-run on shared corporate networks. The retry policy is the most heavily-tested area of the adapter precisely because its failure modes are silent and expensive.
-- **Single-threaded MVP** (also per user direction): the adapter holds ONE `requests.Session`. REBIRTH §8.2's "per thread" note becomes load-bearing only when the orchestrator wants worker pools; refactoring to `threading.local()` is a focused, ~10-line change in a follow-up. Shipping it now would mean test fixtures and async patterns we'd be designing around a hypothetical orchestrator instead of a real one.
+- **Single-threaded MVP** (also per user direction): the adapter holds ONE `requests.Session`. The "per thread" requirement becomes load-bearing only when the orchestrator wants worker pools; refactoring to `threading.local()` is a focused, ~10-line change in a follow-up. Shipping it now would mean test fixtures and async patterns we'd be designing around a hypothetical orchestrator instead of a real one.
 - **`responses` chosen over `requests-mock`**: same author surface, but `responses` integrates as a pytest fixture / context manager rather than monkey-patching `requests.adapters`. The result is a flat top-down test reading: register stubs → run code → inspect calls. The `responses.add_callback` API also lets us inspect the multipart `Content-Type` boundary without parsing the body.
-- **`requests-toolbelt.MultipartEncoder` is non-negotiable**. Loading a 540-page TIFF into memory before POSTing is the production failure mode REBIRTH §8.5 explicitly warns against. The encoder reads the file stream on demand and computes content-length without buffering. Test 4.13 asserts the request header rather than the body bytes because `responses` does not faithfully reproduce multipart wire bytes anyway.
+- **`requests-toolbelt.MultipartEncoder` is non-negotiable**. Loading a 540-page TIFF into memory before POSTing is the production failure mode the domain spec explicitly warns against. The encoder reads the file stream on demand and computes content-length without buffering. Test 4.13 asserts the request header rather than the body bytes because `responses` does not faithfully reproduce multipart wire bytes anyway.
 - **409 lives in `_create_folder_segment`, not in `_post_with_retries`**: making the generic retry path treat 409 as success would mask conflicts on document creation (where 409 means a real cmis:name collision, not idempotency). Locality of decision-making beats DRY here.
 - **`assert last_exc is not None` before `RetriesExhaustedError(...) from last_exc`** is intentional. `mypy --strict` cannot prove the loop entered, so the assertion satisfies both the type checker and a future reader. The assertion is reachable only if `retry_max_attempts >= 1` (configured default 3); a misconfiguration `retry_max_attempts=0` falls through to the assert as a `AssertionError` — that is acceptable behavior, distinct from a runtime upload failure.
 - **Logging discipline (Constitution VIII)**: retry / warn / error logs carry `txn_num`, `attempt`, `status_code`, and `folder_path` via the `extra` dict; no property values, no response bodies beyond a 1024-char truncation. `TestLoggingDiscipline` verifies that a `clbNonGroup.BAC_CIF` value containing the sentinel `BAC_VALUE_THAT_MUST_NOT_LEAK_999999` never appears in any log record across an entire retry cycle.
@@ -4359,9 +4359,9 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler`** — concrete `IAssembler` for Stage S4 (REBIRTH §7). Dispatches on `RVABREPDocument.is_pdf`: native PDFs pass through via `shutil.copy2` to `{temp_dir}/{txn_num}.pdf` with `page_count` read from `doc.total_pages` (we trust RVABREP, do not parse the PDF); paged documents are glob-discovered, sorted by `int(extension)` to handle variable padding (REBIRTH §3.4), and merged via `img2pdf.convert` (fast path) with a `PIL.Image` + `PyPDF2.PdfMerger` fallback for mixed-content edge cases.
-- **`cmcourier.adapters.assembly.pdf_assembler.AssemblerConfig`** — frozen+slots dataclass exposing `source_root`, `temp_dir`, and `image_type_map` (defaults from REBIRTH §7.5 — `B → image/tiff`, `O → application/pdf`, `C → image/jpeg`).
-- **OneDrive temp-dir trap** (REBIRTH §7.4): if `temp_dir` resolves to a `./tmp` variant (`tmp`, `./tmp`, `tmp/`, `.\\tmp`), the assembler diverts to `Path(tempfile.gettempdir()) / "cmcourier_tmp"` and creates the dir at construction time. Constants `_ONEDRIVE_TRAP_VARIANTS` and `_DIVERTED_DIR_NAME` live as module-level frozensets.
+- **`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler`** — concrete `IAssembler` for Stage S4. Dispatches on `RVABREPDocument.is_pdf`: native PDFs pass through via `shutil.copy2` to `{temp_dir}/{txn_num}.pdf` with `page_count` read from `doc.total_pages` (we trust RVABREP, do not parse the PDF); paged documents are glob-discovered, sorted by `int(extension)` to handle variable padding, and merged via `img2pdf.convert` (fast path) with a `PIL.Image` + `PyPDF2.PdfMerger` fallback for mixed-content edge cases.
+- **`cmcourier.adapters.assembly.pdf_assembler.AssemblerConfig`** — frozen+slots dataclass exposing `source_root`, `temp_dir`, and `image_type_map` (defaults: `B → image/tiff`, `O → application/pdf`, `C → image/jpeg`).
+- **OneDrive temp-dir trap**: if `temp_dir` resolves to a `./tmp` variant (`tmp`, `./tmp`, `tmp/`, `.\\tmp`), the assembler diverts to `Path(tempfile.gettempdir()) / "cmcourier_tmp"` and creates the dir at construction time. Constants `_ONEDRIVE_TRAP_VARIANTS` and `_DIVERTED_DIR_NAME` live as module-level frozensets.
 - **Page discovery semantics**: glob `FILECODE.*` in the source directory, filter to entries whose extension is purely numeric (`str.isdigit`), sort by `int(extension)`. The native PDF extension `.PDF` is excluded by the digit filter. Missing source dir or zero numeric pages raises `SourceFileMissingError(file_path=...)`. A discovered/expected mismatch emits a `WARNING` log naming `txn_num` + counts but does NOT raise — the filesystem is the source of truth.
 - **Dual-path assembly**: img2pdf primary, Pillow + PyPDF2 fallback. The fallback opens each page via `PIL.Image`, converts to RGB if necessary (mode `1` TIFFs cannot save as PDF directly), writes each page as a single-page PDF into a `BytesIO`, and merges via `PdfMerger`. If both paths fail, the assembler raises `PDFAssemblyFailedError(txn_num=..., reason=...)` with the secondary exception as `__cause__`.
 - **18 integration tests** in `tests/integration/adapters/test_pdf_assembler.py` across 9 groups: construction, native passthrough, paged happy path (TIFF + JPEG + variable padding + unrelated-PDF exclusion), page-count mismatch WARNING, source-files missing, fallback path (monkey-patched img2pdf), both-paths-fail, output validation (PyPDF2 reader inspection), logging discipline. Branch coverage on `pdf_assembler.py`: **98%** (target ≥ 90%).
@@ -4396,10 +4396,10 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.services.indexing.IndexingService`** — concrete Stage S1 (REBIRTH §10.1). Given a `TriggerRecord`, returns every non-deleted `RVABREPDocument` matching `(shortname, system_id)`. CIF is intentionally NOT a filter — CIF self-healing is the responsibility of Stage S3 (REBIRTH §6.5).
-- **Two public APIs**: `find_documents(trigger) -> list[RVABREPDocument]` raises `RVABREPNotFoundError` / `RVABREPDeletedError` / `IndexingError`; `find_documents_batch(triggers) -> Iterator[(trigger, list)]` yields one pair per input trigger with empty lists on miss (silent — orchestrators decide semantics). Batched API chunks input into IN-list batches of 50 (REBIRTH §10.1) issuing one `get_by_fields_in` call per chunk.
-- **`cmcourier.services.indexing.IndexingColumnsConfig`** — frozen+slots dataclass mapping adapter row keys onto `RVABREPDocument` fields. Defaults match REBIRTH §3.2 physical column names verbatim (`ABABCD`, `ABAACD`, `ABAANB`, `ABACST`, `ABAHCD` = id_rvi, …); tests override every column to the CSV fixture's friendly names.
-- **Duplicate `txn_num` handling**: WARNING log + first-wins (mirrors MappingService's REBIRTH §4.3 precedent). No exception is raised. Production data quality issues surface in logs, not in the pipeline's error path.
+- **`cmcourier.services.indexing.IndexingService`** — concrete Stage S1. Given a `TriggerRecord`, returns every non-deleted `RVABREPDocument` matching `(shortname, system_id)`. CIF is intentionally NOT a filter — CIF self-healing is the responsibility of Stage S3.
+- **Two public APIs**: `find_documents(trigger) -> list[RVABREPDocument]` raises `RVABREPNotFoundError` / `RVABREPDeletedError` / `IndexingError`; `find_documents_batch(triggers) -> Iterator[(trigger, list)]` yields one pair per input trigger with empty lists on miss (silent — orchestrators decide semantics). Batched API chunks input into IN-list batches of 50 issuing one `get_by_fields_in` call per chunk.
+- **`cmcourier.services.indexing.IndexingColumnsConfig`** — frozen+slots dataclass mapping adapter row keys onto `RVABREPDocument` fields. Defaults match RVABREP physical column names verbatim (`ABABCD`, `ABAACD`, `ABAANB`, `ABACST`, `ABAHCD` = id_rvi, …); tests override every column to the CSV fixture's friendly names.
+- **Duplicate `txn_num` handling**: WARNING log + first-wins (mirrors MappingService's first-wins precedent). No exception is raised. Production data quality issues surface in logs, not in the pipeline's error path.
 - **Row coercion**: `creation_date` parses via `parse_cymmdd`; `last_view_date` of `'0'` or `''` becomes `None`; `total_pages` coerces to `int` with empty/`None` → `0`; every other field is `str()`-coerced defensively against pandas / pyodbc returning native ints.
 - **22 unit tests** in `tests/unit/services/test_indexing.py` across 7 groups (construction, single-trigger, duplicates, batched, coercion, error wrap, logging). Branch coverage on `services/indexing.py`: **96%** (target ≥ 95%).
 - **1 fixture CSV** under `tests/fixtures/services/rvabrep_index_sample.csv`: 15 synthetic rows covering vanilla multi-match, fully-deleted, mixed-deleted, duplicate txn_num, same-shortname-across-systems, `last_view_date='0'` / `''`, PDF and paged variants.
@@ -4420,7 +4420,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 ### Rationale
 
 - **Closes the service triangle**. Mapping (S2, change 004), Metadata (S3, change 005), and now Indexing (S1) are the three services every CMCourier pipeline relies on. With this change, the next milestone is the first orchestrator that wires S0..S6 end-to-end.
-- **CIF is NOT a filter here**. REBIRTH §6.5 makes CIF self-healing a Stage S3 responsibility — adding CIF to the WHERE clause would either reject legitimate documents (when the trigger's CIF is missing) or duplicate CIF resolution logic across two stages. Single source of truth wins.
+- **CIF is NOT a filter here**. CIF self-healing is a Stage S3 responsibility — adding CIF to the WHERE clause would either reject legitimate documents (when the trigger's CIF is missing) or duplicate CIF resolution logic across two stages. Single source of truth wins.
 - **Batched API yields empty on miss, not raises**. Single-trigger callers (single-doc pipeline, doctor command) want typed errors. Orchestrator callers want to keep processing the batch — a missing trigger becomes a tracking event, not an exception that aborts the iterator. The two APIs express the two semantics cleanly.
 - **One `get_by_fields_in` per chunk, Python-side grouping by `(shortname, system_id)`**: triggers in the same chunk may have different `system_id`s, so passing `system_id` as a fixed filter would over-restrict. The over-fetch is bounded (cardinality of shortnames across systems is small in practice).
 - **`RVABREPDeletedError` amendment is justified**: the exception's original `(txn_num, delete_code)` shape modeled a single-doc workflow that hadn't shipped. The set-semantic shape `(shortname, system_id, deleted_count)` matches the actual S1 use case where "every matching row is deleted" is the failure surface. The single-doc pipeline, when it lands, can introduce a separate exception (or extend this one additively) without churn.
@@ -4432,7 +4432,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.adapters.tracking.sqlite.SQLiteTrackingStore`** — concrete `ITrackingStore` over stdlib `sqlite3`. Two-connection model (sync reader + async writer daemon thread fed by a `queue.Queue`); WAL journal + `synchronous=OFF` + 64 MiB page cache + temp_store=MEMORY (REBIRTH §9.3); batched commits up to 500 writes or every 1 s (REBIRTH §9.4); cross-batch idempotency via the partial index `idx_migration_log_uploaded` on `rvabrep_txn_num WHERE status='S5_DONE'`; within-batch idempotency via the unique index `idx_migration_log_txn_batch` on `(rvabrep_txn_num, batch_id)` plus `INSERT OR IGNORE` on `mark_stage_pending`. `start_batch` is the only synchronous write (returns a UUID4 the caller needs immediately). `flush()` blocks on `queue.join()` for test determinism and orchestrators that need to read state they just wrote. `close()` is idempotent and drains pending writes.
+- **`cmcourier.adapters.tracking.sqlite.SQLiteTrackingStore`** — concrete `ITrackingStore` over stdlib `sqlite3`. Two-connection model (sync reader + async writer daemon thread fed by a `queue.Queue`); WAL journal + `synchronous=OFF` + 64 MiB page cache + temp_store=MEMORY; batched commits up to 500 writes or every 1 s; cross-batch idempotency via the partial index `idx_migration_log_uploaded` on `rvabrep_txn_num WHERE status='S5_DONE'`; within-batch idempotency via the unique index `idx_migration_log_txn_batch` on `(rvabrep_txn_num, batch_id)` plus `INSERT OR IGNORE` on `mark_stage_pending`. `start_batch` is the only synchronous write (returns a UUID4 the caller needs immediately). `flush()` blocks on `queue.join()` for test determinism and orchestrators that need to read state they just wrote. `close()` is idempotent and drains pending writes.
 - **`MigrationRecord.batch_id: str`** — new required field on the domain dataclass (`src/cmcourier/domain/models.py`) between `rvabrep_file_name` and `status`. Resolves a port inconsistency where `mark_stage_pending(record, stage)` had no way to know the record's batch — putting it on the record itself is cleaner than amending the port signature.
 - **`tests/integration/adapters/test_sqlite_tracking_store.py`** — 25 integration tests against a real per-test SQLite file (no mocks; Constitution Principle VI) across 7 groups: schema, batch lifecycle, per-stage state machine, queries, lifecycle, error wrapping, and the writer's 500-row batch cap. `_make_record(batch_id, txn_num, **overrides)` helper at module level.
 - **2 new unit tests** in `tests/unit/domain/test_models.py` covering the new `batch_id` field on `MigrationRecord` (default-value rejection + presence on construction). Existing `MigrationRecord` constructions in the file updated to pass `batch_id="batch-test-001"`.
@@ -4452,7 +4452,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 ### Rationale
 
 - Stage S6 (Tracking) is transversal — every pipeline depends on it. Without it, no orchestrator can resume after a crash, no `is_uploaded` skip-check is possible, and no per-stage retry can be scoped. This change ships the only tracking backend the MVP needs.
-- **Two SQLite connections, one writer thread** is the lightest design that simultaneously meets the throughput target (REBIRTH §9.4 calls out a 200 000-document target on a single process) and respects SQLite's threading rules. WAL coordinates the two connections so a writer never blocks a reader. `synchronous=OFF` is acceptable because every operation is idempotent (Constitution Principle II) — a crashed batch is replayed, not corrupted.
+- **Two SQLite connections, one writer thread** is the lightest design that simultaneously meets the throughput target (a 200 000-document target on a single process) and respects SQLite's threading rules. WAL coordinates the two connections so a writer never blocks a reader. `synchronous=OFF` is acceptable because every operation is idempotent (Constitution Principle II) — a crashed batch is replayed, not corrupted.
 - **`start_batch` is the only synchronous write** because the caller needs the UUID4 immediately to attach to records that flow into subsequent stages. Every other write is `enqueue + return` so orchestrators are not bottlenecked on disk.
 - **Idempotency is encoded in the schema**, not in Python: the unique index on `(rvabrep_txn_num, batch_id)` lets `INSERT OR IGNORE` be the entire body of `mark_stage_pending`'s SQL; the partial index on `WHERE status='S5_DONE'` makes `is_uploaded` an O(1) read regardless of how many batches have run. Constitution Principle II is structural in this adapter.
 - **`preprocess_staging` and `document_cache` tables are explicitly OUT OF SCOPE** for this change — the 3-phase pipeline and the cross-mode metadata cache that use them are deferred to post-MVP (`docs/roadmap/POST-MVP.md`). Shipping only the two tables the MVP actually needs avoids ALM debt later.
@@ -4465,9 +4465,9 @@ every collaborator it imports has been on `main` since changes 003-010.
 ### Added
 
 - **`cmcourier.services.triggers.csv.CsvTriggerStrategy`** — concrete `S0Strategy` over any tabular `IDataSource`. Validates required columns at first row; treats blank `CIF` as `None` (CIF self-healing in stage S3 covers it); skips rows with blank `shortname`/`system_id` with an INFO log of the count. Lazy iteration.
-- **`cmcourier.services.triggers.direct_rvabrep.DirectRvabrepTriggerStrategy`** — concrete `S0Strategy` that scans RVABREP itself, with optional `RvabrepFilters(systems, document_types)`. Picks the smaller filter for the IN-list query and rejects the other in Python during iteration. Deduplicates `(shortname, system_id)` pairs (first occurrence wins, matching REBIRTH §4.3 / MappingService precedent).
+- **`cmcourier.services.triggers.direct_rvabrep.DirectRvabrepTriggerStrategy`** — concrete `S0Strategy` that scans RVABREP itself, with optional `RvabrepFilters(systems, document_types)`. Picks the smaller filter for the IN-list query and rejects the other in Python during iteration. Deduplicates `(shortname, system_id)` pairs (first occurrence wins, matching the MappingService precedent).
 - **`cmcourier.services.triggers.stubs.{As400TriggerStrategy, LocalScanTriggerStrategy}`** — concrete `S0Strategy` placeholders. Constructor succeeds; `acquire()` raises `NotImplementedError` with messages naming the missing dependency. Same late-fail pattern used for `as400:<alias>` in 005.
-- **3 frozen+slots config dataclasses**: `CsvTriggerColumnsConfig` (defaults match REBIRTH §12 trigger config — `ShortName`, `CIF`, `SystemID`), `RvabrepColumnsConfig` (defaults match RVABREP physical columns from §3.2 — `ABABCD`, `ABACCD`, `ABAACD`, `ABAHCD`), `RvabrepFilters`.
+- **3 frozen+slots config dataclasses**: `CsvTriggerColumnsConfig` (defaults match the canonical trigger CSV — `ShortName`, `CIF`, `SystemID`), `RvabrepColumnsConfig` (defaults match RVABREP physical columns — `ABABCD`, `ABACCD`, `ABAACD`, `ABAHCD`), `RvabrepFilters`.
 - **21 unit tests** in `tests/unit/services/test_trigger_strategies.py` (3 test classes covering CSV, RVABREP, stubs). All using real `TabularDataSource` over CSV fixtures. Branch coverage on `services/triggers/*`: **100%**.
 - **4 fixture CSVs** under `tests/fixtures/services/triggers/`: `trigger_list.csv` (5 rows incl. blanks), `trigger_list_alt_columns.csv` (custom column names), `trigger_list_missing_col.csv` (validates required-column error), `rvabrep_export.csv` (8 rows, 4 unique pairs after dedup).
 
@@ -4496,11 +4496,11 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.services.metadata.MetadataService`** — most complex service in CMCourier so far; engine of stage S3 (Metadata Resolution) per REBIRTH §6. Per-field fallback chain with validation regexes (`re.fullmatch`), default-value fallback (validated against the first source's regex), CIF self-healing (returns a new `TriggerRecord` since the input is frozen), and field-alias normalization (case-insensitive forward map).
+- **`cmcourier.services.metadata.MetadataService`** — most complex service in CMCourier so far; engine of stage S3 (Metadata Resolution). Per-field fallback chain with validation regexes (`re.fullmatch`), default-value fallback (validated against the first source's regex), CIF self-healing (returns a new `TriggerRecord` since the input is frozen), and field-alias normalization (case-insensitive forward map).
 - **Five frozen+slots dataclasses**: `MetadataConfig`, `FieldSourceConfig`, `SourceConfig`, `ValidationConfig`, `MetadataResolution`. Carry the configuration shape and the resolution result.
 - **Source types supported**: `trigger` (read TriggerRecord attribute), `rvabrep` (read RVABREPDocument attribute), `csv:<alias>` (lookup via IDataSource). `as400:<alias>` raises `NotImplementedError` with an explicit message naming the missing AS400 adapter — that source type lights up when the AS400 adapter ships.
-- **Eager pre-fetching of CSV sources** at construction. Cache keyed by `(alias, key_column, key_value, value_column)` so a single CSV source serves multiple fields without re-iterating. `setdefault` preserves first-occurrence on duplicate keys (matches MappingService's REBIRTH §4.3 first-wins precedent).
-- **CIF self-healing** (REBIRTH §6.5): if `trigger.cif is None` and `BAC_CIF` is among the canonical fields to resolve, the service resolves `BAC_CIF` first and returns a new `TriggerRecord` with the resolved CIF. Subsequent CSV lookups (which use `trigger.cif` as the lookup key) see the resolved value.
+- **Eager pre-fetching of CSV sources** at construction. Cache keyed by `(alias, key_column, key_value, value_column)` so a single CSV source serves multiple fields without re-iterating. `setdefault` preserves first-occurrence on duplicate keys (matches MappingService's first-wins precedent).
+- **CIF self-healing**: if `trigger.cif is None` and `BAC_CIF` is among the canonical fields to resolve, the service resolves `BAC_CIF` first and returns a new `TriggerRecord` with the resolved CIF. Subsequent CSV lookups (which use `trigger.cif` as the lookup key) see the resolved value.
 - **`MetadataResolution`** as the typed return shape: `metadata: ResolvedMetadata` + `healed_trigger: TriggerRecord`. Callers (orchestrators, in later changes) MUST use `result.healed_trigger` for subsequent stages.
 - **32 unit tests** in `tests/unit/services/test_metadata.py` covering construction + pre-fetch (3), vanilla per source type (3), fallback chain (5), CIF self-healing (4), aliases (3), source dispatch (3), type immutability (2), and edge cases (9). Branch coverage on `metadata.py`: **99%** (target ≥95%).
 - **3 CSV fixtures** under `tests/fixtures/services/metadata/`: `clients.csv`, `accounts.csv`, `cards.csv`. Synthetic CIFs (`123456`, `234567`, `345678`) and synthetic names (`JUAN PEREZ TEST`, etc.).
@@ -4521,7 +4521,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 ### Rationale
 
 - The metadata layer is the heart of CMCourier's "configurability" promise: every CMIS property comes from the fallback chain, with validation per source and a safety-net default. Without this service, no document can be uploaded with correct metadata.
-- **Pre-fetching included in this change (not deferred)**: REBIRTH §6.6 explicitly notes that without it, a 200,000-document migration would fire tens of thousands of point queries against AS400. The pre-fetch is central to the architecture, not an optimization to bolt on later.
+- **Pre-fetching included in this change (not deferred)**: without it, a 200,000-document migration would fire tens of thousands of point queries against AS400. The pre-fetch is central to the architecture, not an optimization to bolt on later.
 - **CIF self-healing returns a new `TriggerRecord` instead of mutating**: domain models are `frozen=True`. The contract is documented and tested; orchestrators threading `healed_trigger` forward is the next change's responsibility.
 - **`as400:<alias>` raises `NotImplementedError` with explicit message**: cleaner than partially-implementing it. The handler will be added in one line when the AS400 adapter ships; tests pin the contract today.
 - **Logging discipline (Constitution Principle VIII)**: the service logs field NAMES (`BAC_CIF`, `BAC_Nombre_Cliente`) but NEVER field VALUES. Customer name, account number, and CIF VALUES are PII; field names are not.
@@ -4532,9 +4532,9 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.services.mapping.MappingService`** — the first service-layer class. Caches the Modelo Documental (REBIRTH §4) at construction from any `IDataSource` and exposes `get_mapping(id_rvi)`, `get_all()`, `count()`, and `__contains__`. Stage S2 of every pipeline depends on this lookup, as does the future `doctor` command's mapping-completeness check.
-- **`cmcourier.services.mapping.MappingColumnsConfig`** — frozen dataclass for column-name overrides. Defaults match REBIRTH §4.1 (`"ID CLASE DOCUMENTAL"`, `"ID RVI"`, `"ID Corto"`, `"CLASE DOCUMENTAL"`, `"METADATOS"`).
-- **Duplicate handling** per REBIRTH §4.3: first occurrence of a repeated `ID RVI` wins; subsequent occurrences are dropped with a `WARNING` log entry naming the duplicate value.
+- **`cmcourier.services.mapping.MappingService`** — the first service-layer class. Caches the Modelo Documental at construction from any `IDataSource` and exposes `get_mapping(id_rvi)`, `get_all()`, `count()`, and `__contains__`. Stage S2 of every pipeline depends on this lookup, as does the future `doctor` command's mapping-completeness check.
+- **`cmcourier.services.mapping.MappingColumnsConfig`** — frozen dataclass for column-name overrides. Defaults match the canonical Modelo Documental columns (`"ID CLASE DOCUMENTAL"`, `"ID RVI"`, `"ID Corto"`, `"CLASE DOCUMENTAL"`, `"METADATOS"`).
+- **Duplicate handling**: first occurrence of a repeated `ID RVI` wins; subsequent occurrences are dropped with a `WARNING` log entry naming the duplicate value.
 - **Empty-ID-RVI handling**: rows with blank or whitespace-only `ID RVI` cells are silently skipped; the constructor logs an `INFO` line with the skipped count.
 - **METADATOS parsing**: comma-separated, whitespace-tolerant, empty-fragment-filtering. `(""," CIF, NUM "," CIF , ", "CIF,", "CIF,,NUM_CUENTA")` all yield clean tuples without surprises.
 - **`tests/unit/services/test_mapping.py`** — 21 unit tests using a real `TabularDataSource` over `tests/fixtures/services/modelo_documental.csv` (no IDataSource mocks; the SUT does no I/O so the adapter is wiring, not the system under test). Coverage on `services/mapping.py`: **100 %**.
@@ -4556,7 +4556,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 - **First service layer in CMCourier**. Validates that the hexagonal architecture established by 001-003 holds together end-to-end: `services/mapping.py` imports only `cmcourier.domain.*` (Constitution Principle I); the test wires a real `TabularDataSource` adapter; the service raises the domain-defined `IDRViNotMappedError` on cache miss. Future services (metadata, trigger, document) follow the same shape.
 - **Eager-load + dict cache** chosen over lazy-with-cache-miss-query because the Modelo Documental is small (< 1000 rows in practice) and stage S2 needs O(1) lookup at pipeline scale.
-- **Field aliases (CIF → BAC_CIF, REBIRTH §6.2) NOT handled here**. They are the responsibility of the metadata service (next change). Mapping exposes raw names from the source.
+- **Field aliases (CIF → BAC_CIF) NOT handled here**. They are the responsibility of the metadata service (next change). Mapping exposes raw names from the source.
 - **Logging via stdlib `logging.getLogger(__name__)`** is PII-safe in this layer because `id_rvi` is a document-class code, not customer data. The PII masking helper (`cli/ui/logging.py`, forthcoming) routes the loggers properly when it lands.
 
 ---
@@ -4598,11 +4598,11 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Added
 
-- **`cmcourier.domain.models`** — frozen dataclasses (`@dataclass(frozen=True, slots=True)`) for `TriggerRecord`, `RVABREPDocument`, `CMMapping`, `ResolvedMetadata`, `StagedFile`, and `MigrationRecord`. The `StageStatus` enum (subclassing `enum.StrEnum` from Python 3.11) encodes the per-stage state machine from REBIRTH §10.3 with values matching member names so persistence layers can store them directly. Module-level helpers `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder`, and `compute_cm_object_type` live alongside the models because they are intrinsic to model semantics (REBIRTH §3.3, §3.4, §4.2).
-- **`cmcourier.domain.ports`** — abstract interfaces `IDataSource`, `ITrackingStore` (with stage-aware methods `is_stage_done`, `mark_stage_pending`, `mark_stage_done`, `mark_stage_failed`, plus the cross-batch `is_uploaded` idempotency anchor), `IAssembler`, `IUploader`, and `S0Strategy` (the new abstraction for the four trigger source modes from REBIRTH §5.1). All declared as `abc.ABC` with `@abstractmethod` decorators. Concrete implementations land in 003+.
+- **`cmcourier.domain.models`** — frozen dataclasses (`@dataclass(frozen=True, slots=True)`) for `TriggerRecord`, `RVABREPDocument`, `CMMapping`, `ResolvedMetadata`, `StagedFile`, and `MigrationRecord`. The `StageStatus` enum (subclassing `enum.StrEnum` from Python 3.11) encodes the per-stage state machine with values matching member names so persistence layers can store them directly. Module-level helpers `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder`, and `compute_cm_object_type` live alongside the models because they are intrinsic to model semantics.
+- **`cmcourier.domain.ports`** — abstract interfaces `IDataSource`, `ITrackingStore` (with stage-aware methods `is_stage_done`, `mark_stage_pending`, `mark_stage_done`, `mark_stage_failed`, plus the cross-batch `is_uploaded` idempotency anchor), `IAssembler`, `IUploader`, and `S0Strategy` (the new abstraction for the four trigger source modes). All declared as `abc.ABC` with `@abstractmethod` decorators. Concrete implementations land in 003+.
 - **`cmcourier.domain.exceptions`** — typed hierarchy rooted at `CMCourierError`, organized by stage (`TriggerError` S0, `IndexingError` S1 with `RVABREPNotFoundError` / `RVABREPDeletedError` / `RVABREPDuplicateError`, `MappingError` S2 with `IDRViNotMappedError`, `MetadataError` S3 with `SourceFailedError` / `DefaultValidationFailedError`, `AssemblyError` S4 with `SourceFileMissingError` / `PDFAssemblyFailedError`, `UploadError` S5 with `CMISClientError` / `CMISServerError` / `RetriesExhaustedError`, `TrackingError` S6) plus `ConfigurationError`. Every concrete subclass carries explicit named context parameters (`txn_num`, `id_rvi`, `batch_id`, etc.) for structured logging per Constitution Principle VIII.
 - **`cmcourier.domain.__init__`** re-exports every public name (35 symbols) so callers write `from cmcourier.domain import IDataSource` regardless of which submodule the symbol lives in. `__all__` is alphabetized.
-- **`tests/unit/domain/test_models.py`**, **`test_ports.py`**, **`test_exceptions.py`**, **`test_imports.py`** — 112 unit tests covering construction, validation rejection, frozen-ness, computed properties, helper edge cases (CYYMMDD round-trip, the REBIRTH §4.2 example, etc.), abstract-class semantics, exception hierarchy filtering, structured-context surfacing in `str(exc)`, and complete `__all__` re-export coverage.
+- **`tests/unit/domain/test_models.py`**, **`test_ports.py`**, **`test_exceptions.py`**, **`test_imports.py`** — 112 unit tests covering construction, validation rejection, frozen-ness, computed properties, helper edge cases (CYYMMDD round-trip, the canonical clase_id → folder/object-type example, etc.), abstract-class semantics, exception hierarchy filtering, structured-context surfacing in `str(exc)`, and complete `__all__` re-export coverage.
 
 ### Verification
 
@@ -4615,8 +4615,8 @@ every collaborator it imports has been on `main` since changes 003-010.
 ### Rationale
 
 - Provides the stable contract that every adapter (003+) and service (004+) will build against. Without this layer, no concrete code can be written without inventing types ad-hoc.
-- All dataclasses are `frozen=True, slots=True` to make accidental mutation impossible and to keep per-instance memory footprint small at scale (200 000+ records in flight is plausible per REBIRTH §10.4).
-- Exceptions carry structured context for downstream PII-safe logging in the observability layer (REBIRTH §17.4) without relying on message parsing.
+- All dataclasses are `frozen=True, slots=True` to make accidental mutation impossible and to keep per-instance memory footprint small at scale (200 000+ records in flight is plausible).
+- Exceptions carry structured context for downstream PII-safe logging in the observability layer without relying on message parsing.
 - Constitution Principle I held throughout: zero third-party imports inside `src/cmcourier/domain/`. The only non-stdlib dependencies in test files are `pytest` itself.
 
 ---
@@ -4636,7 +4636,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **`.editorconfig`** with 4-space indent, LF endings, UTF-8, trim trailing whitespace, final newline; `*.md` exempt from trailing-space trim; `*.{yml,yaml,json,toml}` use 2-space indent.
 - **`docs/INDEX.md`** — canonical map of every documentation artifact in the repository, organized by purpose per the Diátaxis framework. Updated by every change that adds or moves a doc.
 - **`docs/how-to/README.md`** — index of how-to guides (problem-oriented "How to use"), with naming convention (`how-to/<task-slug>.md`) and an empty list at MVP start.
-- **`docs/explanation/README.md`** — index of explanation documents (understanding-oriented "How it works"), with naming convention (`explanation/<concept-slug>.md`) and a pointer to the canonical domain explanation in REBIRTH.
+- **`docs/explanation/README.md`** — index of explanation documents (understanding-oriented "How it works"), with naming convention (`explanation/<concept-slug>.md`) and a pointer to the canonical domain explanation.
 - **README "Getting started"** section populated with prerequisites (including unixODBC-dev / IBM iSeries Access driver requirement for `pyodbc`), install / test / lint / type-check commands, env-var conventions, and a pointer to `docs/INDEX.md`.
 - **README "Documentation map"** prominently links `docs/INDEX.md` as the canonical entry point.
 
@@ -4647,7 +4647,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ### Rationale
 
-- This change executes Phase 0 of the implementation order from `docs/domain/CMCOURIER_REBIRTH.md §15`, now under SDD discipline (spec / plan / tasks landed in commits `c908927` and `56a091c`; this commit ships the implementation).
+- This change executes Phase 0 of the implementation order from the project's domain spec, now under SDD discipline (spec / plan / tasks landed in commits `c908927` and `56a091c`; this commit ships the implementation).
 - The skeleton holds **no business logic** — its only purpose is to give every subsequent change a working sandbox. The smoke test (`tests/test_smoke.py`) is the single proof that the scaffolding works: it asserts that `import cmcourier` succeeds and that `__version__` is a SemVer string.
 - Pre-commit hooks enforce the constitutional rules from the first commit onward — Conventional Commits, no `Co-Authored-By` trailer, ruff lint + format, mypy on staged files. This is the moment the constitution stops being a document and starts being executable.
 - Coverage threshold (80%) is configured but trivially passes on the empty skeleton. It becomes binding the moment the first real code lands.
@@ -4658,19 +4658,19 @@ every collaborator it imports has been on `main` since changes 003-010.
 ## [0.2.0] — 2026-05-08
 
 ### Added
-- **`docs/domain/CMCOURIER_REBIRTH.md` §10 rewritten**: replaced the old "Execution Modes A/B/C" model with a stage-based pipeline architecture. Eight atomic stages (`S0`–`S7`) compose into named pipelines exposed as CLI commands.
-- **`docs/domain/CMCOURIER_REBIRTH.md §10.5`**: Pre-Flight Validation specification. Automatic before any pipeline run; available as standalone `cmcourier doctor` command.
-- **`docs/domain/CMCOURIER_REBIRTH.md §10.6`**: TUI by default with PREP / UPLOAD tabs (Rich); `cmcourier background` is the explicit headless exception.
-- **`docs/domain/CMCOURIER_REBIRTH.md §10.7`**: Adaptive heavy / light upload lanes — design intent recorded, marked as post-MVP feature.
-- **`docs/domain/CMCOURIER_REBIRTH.md §11`**: CLI surface restructured to match stage-based pipelines. `doctor`, pipelines as commands, `batch` and `inspect` subcommand groups.
-- **`docs/domain/CMCOURIER_REBIRTH.md §17.4`**: Observability section expanded into five logging tiers (application, pipeline, network, system, slow-ops) with per-tier configuration toggles, bottleneck identification framework, PII discipline.
+- **Domain spec §10 rewritten**: replaced the old "Execution Modes A/B/C" model with a stage-based pipeline architecture. Eight atomic stages (`S0`–`S7`) compose into named pipelines exposed as CLI commands.
+- **Domain spec §10.5**: Pre-Flight Validation specification. Automatic before any pipeline run; available as standalone `cmcourier doctor` command.
+- **Domain spec §10.6**: TUI by default with PREP / UPLOAD tabs (Rich); `cmcourier background` is the explicit headless exception.
+- **Domain spec §10.7**: Adaptive heavy / light upload lanes — design intent recorded, marked as post-MVP feature.
+- **Domain spec §11**: CLI surface restructured to match stage-based pipelines. `doctor`, pipelines as commands, `batch` and `inspect` subcommand groups.
+- **Domain spec §17.4**: Observability section expanded into five logging tiers (application, pipeline, network, system, slow-ops) with per-tier configuration toggles, bottleneck identification framework, PII discipline.
 - **`docs/roadmap/POST-MVP.md`**: New exhaustive roadmap of nine deferred features (adaptive lanes, system metrics, log analysis tooling, AS400 tracking backend, AIMD auto-tuning, additional pipelines, multi-batch parallelism, per-batch bandwidth, cross-batch metadata cache) plus a watchlist. Each entry: intent, design, MVP placeholder, why deferred, acceptance criteria.
 - **`README.md`**: project overview, status, documentation map, tech stack, project workflow, status checklist.
 - **`CONTRIBUTING.md`**: SDD workflow, branching, conventional commits, PR standards, constitutional amendment procedure pointer.
 - **`CHANGELOG.md`**: this file.
 
 ### Changed
-- **Configuration schema (`§12` of REBIRTH)**: removed the global `datasource_mode` field. Trigger source is selected by which pipeline command is invoked, not by a config flag.
+- **Configuration schema**: removed the global `datasource_mode` field. Trigger source is selected by which pipeline command is invoked, not by a config flag.
 
 ### Rationale
 - The user surfaced a list of design changes that the rewrite should adopt: pipelines as composable stages, modes as commands rather than config, an explicit `doctor` command, TUI everywhere except background, batch-as-first-class with two-batch producer-consumer flow, stage-by-stage execution per batch, exhaustive observability, validatable mapping/metadata configurations.
@@ -4695,10 +4695,10 @@ every collaborator it imports has been on `main` since changes 003-010.
 - Constraints section: Python 3.11+, Pydantic v2, Click, pyodbc, requests + requests-toolbelt, pandas, img2pdf + Pillow + PyPDF2, SQLite (WAL), pytest, ruff, mypy.
 - File and directory conventions per GitHub Spec Kit (`.specify/memory/`, `specs/<NNN-feature-slug>/`).
 - Governance section: amendment procedure with SemVer (MAJOR/MINOR/PATCH), enforcement, document precedence chain.
-- Project structure under `docs/domain/` (REBIRTH ground truth) and `docs/samples/{csv,excel,responses}/` (reference fixtures from RVIMigration).
+- Project structure under `docs/domain/` (ground truth) and `docs/samples/{csv,excel,responses}/` (reference fixtures from RVIMigration).
 
 ### Moved
-- `CMCOURIER_REBIRTH.md` → `docs/domain/CMCOURIER_REBIRTH.md` (preserved as git rename).
+- The domain spec was moved into `docs/domain/` (preserved as git rename).
 - `*.csv`, `*.xlsx`, `EjemploRespuestaCMIS.txt` → `docs/samples/{csv,excel,responses}/` (preserved as git renames).
 
 ### Rationale

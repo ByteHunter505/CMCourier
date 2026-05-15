@@ -201,7 +201,7 @@ def cli() -> None:
 
 @cli.group(name="csv-trigger-pipeline")
 def csv_trigger_pipeline() -> None:
-    """csv-trigger-pipeline subcommands (REBIRTH §10.2)."""
+    """csv-trigger-pipeline subcommands."""
 
 
 @csv_trigger_pipeline.command(name="run")

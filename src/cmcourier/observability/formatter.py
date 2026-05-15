@@ -1,4 +1,4 @@
-"""JSON Lines log formatter for REBIRTH §17.4 tier 1+.
+"""JSON Lines log formatter for the tier 1+ observability layer.
 
 One JSON object per ``logging.LogRecord``. Promotes a whitelist of
 structured ``extra={}`` fields to top-level keys so log shippers

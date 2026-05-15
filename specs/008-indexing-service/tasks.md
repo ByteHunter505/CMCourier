@@ -26,7 +26,7 @@
   - `_CallCountingSource` helper class wrapping a `TabularDataSource`
     and counting `get_by_fields` / `get_by_fields_in` invocations.
 - [ ] **1.3 (R)** Write the 7 test groups per plan §5.1 (~22 tests):
-  - `TestConstruction` (3): construction succeeds, lazy (no queries), defaults match REBIRTH §3.2.
+  - `TestConstruction` (3): construction succeeds, lazy (no queries), defaults match the spec.
   - `TestSingleTriggerLookup` (5): vanilla, not found, all deleted, mixed deleted, CIF ignored.
   - `TestDuplicateHandling` (2): WARNING emitted + first-wins, no exception raised.
   - `TestBatchedLookup` (5): N triggers / call count, missing yields `[]`, same shortname different system_id, input-order preserved, repeated trigger yields twice.
@@ -41,7 +41,7 @@
 
 - [ ] **2.1 (G)** Create `src/cmcourier/services/indexing.py` with module
   docstring, `__all__`, imports, logger, and `IndexingColumnsConfig`
-  dataclass (defaults from REBIRTH §3.2).
+  dataclass (defaults from the spec).
 - [ ] **2.2 (G)** Implement `IndexingService.__init__(source, config, batch_size=50)`. Lazy: no queries.
 - [ ] **2.3 (G)** Implement `_row_to_document(row)` per plan §4.4. Handle
   `last_view_date in {'', None, '0'}` → `None`, `total_pages` coercion.
@@ -89,24 +89,24 @@
   Indexing) every CMCourier pipeline depends on. Given a TriggerRecord,
   returns every non-deleted RVABREPDocument matching (shortname,
   system_id). CIF is intentionally ignored at this stage — its
-  resolution is the job of S3 (Metadata) per REBIRTH §6.5.
+  resolution is the job of S3 (Metadata) per the spec.
 
   Two public APIs:
   - find_documents(trigger) → list[RVABREPDocument] with typed-error
     semantics (RVABREPNotFoundError, RVABREPDeletedError). For the
     single-doc pipeline and ad-hoc operator calls.
   - find_documents_batch(triggers) → Iterator[(trigger, list)] that
-    chunks the input into IN-list batches of 50 (REBIRTH §10.1) and
+    chunks the input into IN-list batches of 50 and
     emits empty lists for missing triggers (orchestrator decides
     semantics). One get_by_fields_in call per chunk.
 
   Duplicate txn_num within a single trigger's result: WARNING log +
-  first-wins, mirroring MappingService's REBIRTH §4.3 precedent. No
+  first-wins, mirroring MappingService's the spec precedent. No
   exception is raised — data quality issues surface in logs, not in
   the pipeline's error path.
 
   IndexingColumnsConfig (frozen+slots) defaults match RVABREP physical
-  column names from REBIRTH §3.2 (ABABCD, ABAACD, ABAANB, ABACST,
+  column names from the spec (ABABCD, ABAACD, ABAANB, ABACST,
   ABAHCD = id_rvi, …). Tests override every column to the CSV's
   friendly names so the same service code exercises both AS400-style
   and CSV-style column maps.

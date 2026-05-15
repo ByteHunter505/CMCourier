@@ -1,16 +1,15 @@
-# 071 — Comentarios en español + remoción de referencias REBIRTH
+# 071 — Comentarios en español + remoción del code-name antiguo
 
 ## Why
 
 Cambio cosmético solicitado por el operador. Dos transformaciones en
 una sola spec:
 
-1. **Quitar todas las referencias a "REBIRTH"** en código, specs,
-   CHANGELOG y README. Pre-071 muchos docstrings citaban
-   `REBIRTH §X.Y` apuntando al doc de dominio
-   (`docs/domain/CMCOURIER_REBIRTH.md`). Esa convención ya no es
-   relevante — el operador quiere mantener el código autocontenido
-   sin esa muleta.
+1. **Quitar todas las referencias al code-name antiguo** en código,
+   specs, CHANGELOG y README. Pre-071 muchos docstrings citaban el
+   code-name + sección (`§X.Y`) apuntando al doc de dominio bajo
+   `docs/domain/`. Esa convención ya no es relevante — el operador
+   quiere mantener el código autocontenido sin esa muleta.
 
 2. **Traducir comentarios y docstrings a español**. Los nombres de
    variables, funciones, clases, módulos quedan en inglés (es lo
@@ -53,10 +52,10 @@ una sola spec:
   alrededor del término técnico cuando ayuda).
 * **Identificadores entre backticks**: se mantienen tal cual
   (`StreamingOrchestrator`, `bucket_size`, `S5_DONE`, etc.).
-* **Referencias `REBIRTH §X.Y`**: se eliminan completamente o se
-  reemplazan por "el spec de dominio" / "la spec arquitectónica"
-  cuando agregan contexto útil, o se borran cuando son ruido
-  histórico.
+* **Referencias al code-name antiguo + sección**: se eliminan
+  completamente o se reemplazan por "el spec de dominio" / "la
+  spec arquitectónica" cuando agregan contexto útil, o se borran
+  cuando son ruido histórico.
 
 ### Lo que NO cambia
 
@@ -81,23 +80,23 @@ una sola spec:
 
 Detalle en `plan.md`. Resumen:
 
-1. **Fase 1**: Quitar REBIRTH en todos los archivos (search + replace
-   controlado, ~109 menciones en código + las que haya en specs y
-   docs). Una commit.
+1. **Fase 1**: Quitar las referencias al code-name antiguo en todos
+   los archivos (search + replace controlado, ~109 menciones en
+   código + las que haya en specs y docs). Una commit.
 2. **Fase 2 (yo)**: Traducir `orchestrators/` y `adapters/` —
    código crítico con docstrings densos.
 3. **Fase 3 (sub-agentes paralelo)**: `services/`, `domain/`,
    `config/`, `cli/`, `tui/`, `observability/`.
 4. **Fase 4 (sub-agentes paralelo)**: `tests/`.
 5. **Fase 5 (sub-agente)**: `specs/`, `CHANGELOG.md`, `README.md`.
-6. **Fase 6**: Verificar (`pytest`, `ruff`, `mypy`), confirmar que
-   no quedan REBIRTH (`rg REBIRTH .` debe dar cero hits), release
-   dance (0.72.0 → 0.73.0), FF a main.
+6. **Fase 6**: Verificar (`pytest`, `ruff`, `mypy`), confirmar
+   cero hits del code-name antiguo (case-insensitive grep debe dar
+   cero), release dance (0.72.0 → 0.73.0), FF a main.
 
 ## Out of scope
 
 * Reescribir el contenido técnico de los docstrings — esto es solo
-  traducción + remoción de REBIRTH.
+  traducción + remoción del code-name antiguo.
 * Cambiar nombres de identificadores (clases, funciones, etc.).
 * Reorganizar archivos.
 * Cambios funcionales — cero cambios a la lógica.
@@ -105,8 +104,8 @@ Detalle en `plan.md`. Resumen:
 
 ## Acceptance criteria
 
-* `rg -i "rebirth" src tests specs CHANGELOG.md README.md` retorna
-  cero hits.
+* Un grep case-insensitive del code-name antiguo en `src tests
+  specs CHANGELOG.md README.md` retorna cero hits.
 * Todos los docstrings y comentarios en `src/` y `tests/` están
   en español (revisión visual + spot-checks).
 * `pytest tests/unit tests/integration -q` verde — cero cambios
