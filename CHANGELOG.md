@@ -51,6 +51,54 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.62.0] — 2026-05-14 — **HTTP client migrated to httpx[http2]**
+
+The 058 staging diagnosis pinned the bottleneck OUTSIDE the program — at
+~1.5 s p50 per CMIS POST, with documents averaging ~76 KB. For workloads
+shaped like that ("many small uploads in parallel"), the canonical
+remedy is HTTP/2 multiplexing: instead of N TCP connections each
+carrying one request at a time, one TCP connection carries all N
+requests simultaneously. `requests` does not speak HTTP/2; `httpx`
+does, behind the same sync API.
+
+### Changed
+
+- **`CmisUploader` now uses `httpx.Client(http2=True)`.** HTTP/2 is
+  negotiated via ALPN at TLS handshake; if the server only advertises
+  HTTP/1.1 (Tomcat-direct staging) httpx falls back transparently —
+  same wire protocol, same behaviour as pre-060. The benefit kicks in
+  against the Apache-fronted Alfresco in production, where the N
+  concurrent S5 workers share a single TCP connection and small-upload
+  overhead drops dramatically.
+- The `requests.Session` / `HTTPAdapter` machinery is replaced with
+  `httpx.Client` + `httpx.Limits(max_connections, max_keepalive_connections)`;
+  `requests_toolbelt.MultipartEncoder` is replaced with httpx's native
+  multipart API (`files=`, `data=`). The streaming property is
+  preserved — the staged file is still read from disk on demand, never
+  buffered whole. `BandwidthLimiter` passes through unchanged.
+- The retry policy (5xx exponential backoff, 401 re-warmup, 4xx
+  fail-fast, Windows-10053 doubled delay) is byte-identical. The
+  `httpx.RequestError` family (ConnectError / ReadError /
+  RemoteProtocolError / TimeoutException) covers every transport
+  failure that previously surfaced as `requests.exceptions.ConnectionError`.
+- The 56 adapter integration tests now run on `respx` (httpx-native
+  HTTP mock) instead of `responses` (requests-only).
+- **Dependencies:** removed `requests`, `requests-toolbelt`,
+  `responses`, `types-requests`; added `httpx[http2]` (main) and
+  `respx` (dev).
+
+### Notes
+
+- Public surface (`IUploader.upload`, `CmisConfig`, wiring layer) is
+  unchanged. Every caller is byte-compatible.
+- HTTP/2 server push and stream prioritization are NOT used — default
+  httpx behaviour is sufficient.
+- The orchestrator still uses `ThreadPoolExecutor`. `httpx.Client`
+  (sync) is thread-safe and multiplexes naturally; no need to migrate
+  to `AsyncClient`.
+
+---
+
 ## [0.61.0] — 2026-05-14 — **DETAIL tab fixes: persist staged-file metadata + scrollable pane**
 
 Two bugs on the DETAIL tab (spec 052) the operator hit during a real
