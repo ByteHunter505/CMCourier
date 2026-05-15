@@ -484,3 +484,127 @@ class TestCurrentStageP95WithCount061:
         p95, count = rec.current_stage_p95_with_count("S5")
         assert count == 3
         assert p95 == 300.0  # nearest-rank p95 of 3 sorted samples
+
+
+class TestBandwidthSamplerDistribution069:
+    """069: record_upload distributes bytes uniformly over the
+    transmission window instead of crediting all to the completion
+    second. Restores faithful current_mbps / peak / sparkline."""
+
+    def _new_sampler(self):  # type: ignore[no-untyped-def]
+        from cmcourier.observability.metrics import _BandwidthSampler
+
+        return _BandwidthSampler()
+
+    def test_whole_second_buckets_get_equal_share(self) -> None:
+        # 30 MB over exactly 3 seconds: 10 MB per bucket.
+        sampler = self._new_sampler()
+        sampler.record_upload(30_000_000, started_at=10.0, completed_at=13.0)
+        with sampler._lock:  # noqa: SLF001 — test inspection only
+            buckets = dict(sampler._buckets)  # noqa: SLF001
+        assert buckets == {10: 10_000_000, 11: 10_000_000, 12: 10_000_000}
+
+    def test_fractional_interval_distributes_proportionally(self) -> None:
+        # 30 MB from t=10.5 to t=13.5 (3.0s span):
+        #   bucket 10: 0.5s × 10 MB/s = 5 MB
+        #   bucket 11: 1.0s × 10 MB/s = 10 MB
+        #   bucket 12: 1.0s × 10 MB/s = 10 MB
+        #   bucket 13: 0.5s × 10 MB/s = 5 MB
+        sampler = self._new_sampler()
+        sampler.record_upload(30_000_000, started_at=10.5, completed_at=13.5)
+        with sampler._lock:  # noqa: SLF001
+            buckets = dict(sampler._buckets)  # noqa: SLF001
+        assert buckets == {
+            10: 5_000_000,
+            11: 10_000_000,
+            12: 10_000_000,
+            13: 5_000_000,
+        }
+
+    def test_sub_second_upload_lands_entirely_in_one_bucket(self) -> None:
+        # 1 MB transmitted in 0.5s entirely within bucket 10.
+        sampler = self._new_sampler()
+        sampler.record_upload(1_000_000, started_at=10.0, completed_at=10.5)
+        with sampler._lock:  # noqa: SLF001
+            buckets = dict(sampler._buckets)  # noqa: SLF001
+        assert buckets == {10: 1_000_000}
+
+    def test_zero_duration_falls_back_to_completion_bucket(self) -> None:
+        # Defensive: when duration is zero, credit at completion.
+        sampler = self._new_sampler()
+        sampler.record_upload(5_000_000, started_at=10.0, completed_at=10.0)
+        with sampler._lock:  # noqa: SLF001
+            buckets = dict(sampler._buckets)  # noqa: SLF001
+        assert buckets == {10: 5_000_000}
+
+    def test_cumulative_bytes_preserved_across_uploads(self) -> None:
+        sampler = self._new_sampler()
+        sampler.record_upload(10_000_000, started_at=10.0, completed_at=11.0)
+        sampler.record_upload(20_000_000, started_at=12.0, completed_at=14.0)
+        sampler.record_upload(5_000_000, started_at=15.0, completed_at=15.5)
+        assert sampler.cumulative_bytes() == 35_000_000
+
+    def test_peak_reflects_sustained_throughput_not_completion_spike(self) -> None:
+        # 30 MB over 3s → max single-bucket rate is 10 MB/s, NOT 30 MB/s.
+        sampler = self._new_sampler()
+        sampler.record_upload(30_000_000, started_at=10.0, completed_at=13.0)
+        assert sampler.peak_mbps() == 10.0
+
+
+class TestBandwidthHandlerDerivesStartedAt069:
+    """069: _BandwidthHandler reads ``duration_ms`` off the log record
+    and derives ``started_at = completed_at - duration_ms / 1000``."""
+
+    def _new_handler(self):  # type: ignore[no-untyped-def]
+        from cmcourier.observability.metrics import _BandwidthHandler, _BandwidthSampler
+
+        sampler = _BandwidthSampler()
+        handler = _BandwidthHandler(sampler, batch_id="B1")
+        return sampler, handler
+
+    def test_handler_derives_window_from_duration_ms(self) -> None:
+        import logging as _l
+
+        sampler, handler = self._new_handler()
+        record = _l.LogRecord(
+            name="cmcourier.metrics.network",
+            level=_l.INFO,
+            pathname="x",
+            lineno=1,
+            msg="cmis_upload",
+            args=(),
+            exc_info=None,
+        )
+        record.kind = "cmis_upload"
+        record.batch_id = "B1"
+        record.size_bytes = 30_000_000
+        record.duration_ms = 3000.0  # 3 seconds
+        record.created = 13.0  # completion at t=13
+        handler.emit(record)
+        with sampler._lock:  # noqa: SLF001
+            buckets = dict(sampler._buckets)  # noqa: SLF001
+        # started_at = 13.0 - 3.0 = 10.0 → 10 MB to each of {10, 11, 12}.
+        assert buckets == {10: 10_000_000, 11: 10_000_000, 12: 10_000_000}
+
+    def test_handler_falls_back_when_duration_missing(self) -> None:
+        import logging as _l
+
+        sampler, handler = self._new_handler()
+        record = _l.LogRecord(
+            name="cmcourier.metrics.network",
+            level=_l.INFO,
+            pathname="x",
+            lineno=1,
+            msg="cmis_upload",
+            args=(),
+            exc_info=None,
+        )
+        record.kind = "cmis_upload"
+        record.batch_id = "B1"
+        record.size_bytes = 5_000_000
+        record.created = 13.0
+        # No duration_ms set → defensive fallback credits all at completion.
+        handler.emit(record)
+        with sampler._lock:  # noqa: SLF001
+            buckets = dict(sampler._buckets)  # noqa: SLF001
+        assert buckets == {13: 5_000_000}

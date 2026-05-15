@@ -311,7 +311,13 @@ class TestUploadRecorderWiring054:
         provider, _prep, upload_rec = _make_dual_provider(tmp_path)
         now = int(time.time())
         for bucket in (now - 2, now - 1, now):
-            upload_rec.bandwidth.record_upload(8_000_000, float(bucket))
+            # 069: signature is now (size, *, started_at, completed_at).
+            # Same-second upload → all bytes land in `bucket`.
+            upload_rec.bandwidth.record_upload(
+                8_000_000,
+                started_at=float(bucket),
+                completed_at=float(bucket) + 0.5,
+            )
         snap = provider.snapshot()
         assert snap.bandwidth_peak_mbps > 0.0
         assert snap.bandwidth_current_mbps > 0.0
@@ -400,6 +406,8 @@ class TestUploadRecorderWiring054:
             upload_started_monotonic=now - 5.0,
         )
         provider, _prep, upload_rec = _make_dual_provider(tmp_path, chunks=[chunk])
-        upload_rec.bandwidth.record_upload(10 * 1_048_576, time.time())
+        # 069 signature.
+        _t = time.time()
+        upload_rec.bandwidth.record_upload(10 * 1_048_576, started_at=_t - 0.5, completed_at=_t)
         snap = provider.snapshot()
         assert snap.current_chunk_avg_mbps > 0.5  # ~2 MB/s, not 10MB/600s

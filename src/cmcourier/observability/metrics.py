@@ -189,12 +189,49 @@ class _BandwidthSampler:
         # chunk-scoped.
         self._cumulative_bytes: int = 0
 
-    def record_upload(self, size_bytes: int, completed_at: float) -> None:
-        ts = int(completed_at)
-        cutoff = ts - self._WINDOW_SECONDS
+    def record_upload(
+        self,
+        size_bytes: int,
+        *,
+        started_at: float,
+        completed_at: float,
+    ) -> None:
+        """069: distribute ``size_bytes`` uniformly over the second-buckets
+        overlapping ``[started_at, completed_at]``.
+
+        Pre-069 credited the whole file size to ``int(completed_at)`` — for
+        a 30 MB upload over 3 seconds, all 30 MB landed in one bucket and
+        the other two showed zero. That produced spiky readings,
+        misleading peaks, and a sparkline that didn't reflect sustained
+        throughput. Distributing makes ``current_mbps`` / ``peak_mbps`` /
+        ``series`` faithful to the actual transmission rate.
+
+        The transmission rate is assumed constant within an upload.
+        Slightly smooths bursty internals but is correct in aggregate.
+        """
+        if size_bytes <= 0:
+            return
+        duration = max(completed_at - started_at, 0.0)
+        end_ts = int(completed_at)
+        cutoff = end_ts - self._WINDOW_SECONDS
         with self._lock:
-            self._buckets[ts] = self._buckets.get(ts, 0) + int(size_bytes)
             self._cumulative_bytes += int(size_bytes)
+            if duration <= 0.0:
+                # Sub-millisecond or zero-duration upload — credit to the
+                # completion second (pre-069 shape, defensive fallback).
+                self._buckets[end_ts] = self._buckets.get(end_ts, 0) + int(size_bytes)
+            else:
+                bytes_per_s = float(size_bytes) / duration
+                start_ts = int(started_at)
+                for ts in range(start_ts, end_ts + 1):
+                    overlap_start = max(started_at, float(ts))
+                    overlap_end = min(completed_at, float(ts) + 1.0)
+                    overlap = overlap_end - overlap_start
+                    if overlap <= 0.0:
+                        continue
+                    bytes_in_bucket = int(bytes_per_s * overlap)
+                    if bytes_in_bucket > 0:
+                        self._buckets[ts] = self._buckets.get(ts, 0) + bytes_in_bucket
             stale = [k for k in self._buckets if k < cutoff]
             for k in stale:
                 del self._buckets[k]
@@ -255,7 +292,23 @@ class _BandwidthHandler(logging.Handler):
         size = getattr(record, "size_bytes", None)
         if size is None:
             return
-        self._sampler.record_upload(int(size), record.created)
+        # 069: derive the transmission window from ``duration_ms`` so the
+        # sampler can distribute bytes uniformly. ``duration_ms`` is
+        # always set by ``CmisUploader._emit_network`` for ``cmis_upload``
+        # events; defensive fallback to crediting at completion when
+        # missing or zero (pre-069 shape).
+        completed_at = float(record.created)
+        duration_ms = getattr(record, "duration_ms", 0.0) or 0.0
+        try:
+            duration_s = float(duration_ms) / 1000.0
+        except (TypeError, ValueError):
+            duration_s = 0.0
+        started_at = completed_at - max(0.0, duration_s)
+        self._sampler.record_upload(
+            int(size),
+            started_at=started_at,
+            completed_at=completed_at,
+        )
 
 
 class _SlowOpHandler(logging.Handler):
