@@ -1,8 +1,9 @@
-"""Concrete S0Strategy implementations for stage S0 (Trigger Acquisition).
+"""Implementaciones concretas de :class:`S0Strategy` para el stage
+S0 (`Trigger Acquisition`).
 
-Four production strategies (CSV, direct RVABREP, AS400, local scan)
-cover the four trigger source modes, plus one diagnostic strategy
-(single-doc).
+Cuatro estrategias de producción (CSV, RVABREP directo, AS400 y
+local scan) cubren los cuatro modos de fuente de trigger, más una
+estrategia de diagnóstico (single-doc).
 """
 
 from __future__ import annotations

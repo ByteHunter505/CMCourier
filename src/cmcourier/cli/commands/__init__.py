@@ -1,1 +1,1 @@
-"""CLI subcommands - one module per command group (pipelines, batch, inspect, etc.)."""
+"""Subcomandos CLI: un modulo por grupo de comandos (pipelines, batch, inspect, etc.)."""

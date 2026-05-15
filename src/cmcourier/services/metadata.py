@@ -1,12 +1,14 @@
-"""Metadata resolution service.
+"""Servicio de resolución de metadata.
 
-Per-field source fallback chain with validation regexes, default-value
-fallback, CIF self-healing, field alias normalization, and eager
-pre-fetching of csv:<alias> sources at construction. Stage S3 of every
-pipeline depends on this service.
+Cadena de fallback de fuente por campo, con regexes de validación,
+fallback a valor por defecto, self-healing de CIF, normalización
+de aliases de campos y pre-fetching ansioso de fuentes ``csv:<alias>``
+al construirse. El stage S3 de cada `pipeline` depende de este
+servicio.
 
-Constitution Principle I: imports only ``cmcourier.domain.*`` and stdlib.
-Principle VIII: never log resolved field VALUES (PII); log field NAMES only.
+Principio I de la Constitución: importa solo ``cmcourier.domain.*`` y
+stdlib. Principio VIII: nunca loguear VALORES resueltos de campos
+(PII); loguear solo NOMBRES de campos.
 """
 
 from __future__ import annotations
@@ -46,13 +48,13 @@ _AS400_PREFIX = "as400:"
 
 
 def _trigger_cif(trigger: Trigger) -> str | None:
-    """046 — extract the CIF from whatever shape the trigger surfaces.
+    """046: extrae el CIF de la forma que el trigger exponga.
 
-    ``ClientTrigger.cif`` is the canonical attribute path; row-based
-    triggers (``RvabrepRowTrigger``, ``LocalScanTrigger``) carry the CIF
-    inside their row under their configured ``col_cif`` column. The
-    audit_row projection already knows how to extract it; we just
-    consume that.
+    ``ClientTrigger.cif`` es la ruta canónica del atributo; los
+    triggers basados en fila (``RvabrepRowTrigger``,
+    ``LocalScanTrigger``) llevan el CIF dentro de su fila bajo la
+    columna ``col_cif`` configurada. La proyección ``audit_row`` ya
+    sabe cómo extraerlo; aquí solo se consume eso.
     """
     if isinstance(trigger, ClientTrigger):
         return trigger.cif
@@ -61,25 +63,25 @@ def _trigger_cif(trigger: Trigger) -> str | None:
     return cif if isinstance(cif, str) and cif else None
 
 
-# Used to indicate "all sources tried" in SourceFailedError context.
+# Indica "todas las fuentes probadas" en el contexto de ``SourceFailedError``.
 _ALL_SOURCES_SENTINEL = "<all>"
 
 
 # ---------------------------------------------------------------------------
-# Public configuration / result dataclasses
+# Dataclasses públicas de configuración / resultado
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class ValidationConfig:
-    """Optional validation for a single source's resolved value."""
+    """Validación opcional para el valor resuelto de una fuente."""
 
     allowed_pattern: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class SourceConfig:
-    """One step of a field's fallback chain."""
+    """Un paso de la cadena de fallback de un campo."""
 
     source_type: str
     lookup_value_column: str
@@ -89,7 +91,8 @@ class SourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class FieldSourceConfig:
-    """The full fallback chain plus default for one canonical (BAC_*) field."""
+    """Cadena de fallback completa más el `default` para un campo
+    canónico (``BAC_*``)."""
 
     sources: tuple[SourceConfig, ...]
     default_value: str | None = None
@@ -97,7 +100,7 @@ class FieldSourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class MetadataConfig:
-    """Top-level metadata resolution config."""
+    """Configuración de alto nivel para la resolución de metadata."""
 
     field_aliases: Mapping[str, str]
     field_sources: Mapping[str, FieldSourceConfig]
@@ -106,20 +109,24 @@ class MetadataConfig:
 
 @dataclass(frozen=True, slots=True)
 class MetadataResolution:
-    """Result of resolve(): the metadata bag plus the (possibly healed) trigger.
+    """Resultado de ``resolve()``: la bolsa de metadata más el trigger
+    (posiblemente self-healed).
 
-    046: ``healed_trigger`` is polymorphic. For ``ClientTrigger`` inputs the
-    resolver may produce a new ``ClientTrigger`` with the CIF field set to
-    the self-healed value. For row-based subtypes the original trigger is
-    returned unchanged — the row mapping is immutable, and the healed CIF
-    lives in ``metadata`` (as the ``cmcourier:BAC_CIF`` property) and in
-    the document_cache (037) rather than re-projected onto the trigger.
+    046: ``healed_trigger`` es polimórfico. Para inputs
+    ``ClientTrigger`` el resolver puede producir un nuevo
+    ``ClientTrigger`` con el campo CIF seteado al valor self-healed.
+    Para los subtipos basados en fila se devuelve el trigger original
+    sin cambios: el mapping de la fila es inmutable, y el CIF
+    self-healed vive en ``metadata`` (como la propiedad
+    ``cmcourier:BAC_CIF``) y en el `document_cache` (037) en lugar
+    de re-proyectarse sobre el trigger.
     """
 
     metadata: ResolvedMetadata
     healed_trigger: Trigger
-    # 046: the resolved CIF, captured explicitly so the document_cache
-    # can persist it without inspecting the trigger subtype.
+    # 046: el CIF resuelto, capturado explícitamente para que el
+    # `document_cache` pueda persistirlo sin inspeccionar el subtipo
+    # de trigger.
     healed_cif: str | None = None
 
 
@@ -129,21 +136,24 @@ class MetadataResolution:
 
 
 def _validates(value: str, validation: ValidationConfig | None) -> bool:
-    """Return True if value passes the validation (None validation = always True)."""
+    """Devuelve ``True`` si ``value`` pasa la validación (validación
+    ``None`` = siempre ``True``)."""
     if validation is None or validation.allowed_pattern is None:
         return True
     return re.fullmatch(validation.allowed_pattern, value) is not None
 
 
 # ---------------------------------------------------------------------------
-# Service
+# Servicio
 # ---------------------------------------------------------------------------
 
 
 class MetadataService:
-    """Per-field metadata resolution with fallback + CIF self-healing.
+    """Resolución de metadata por campo con fallback y self-healing
+    de CIF.
 
-    See ``specs/005-metadata-service/{spec,plan}.md`` for full context.
+    Ver ``specs/005-metadata-service/{spec,plan}.md`` para el contexto
+    completo.
     """
 
     def __init__(
@@ -153,12 +163,13 @@ class MetadataService:
     ) -> None:
         self._config = config
         self._sources_registry = sources_registry
-        # Cache key shape: (alias, key_column, key_value, value_column) -> value.
+        # Forma de la clave de cache:
+        # (alias, key_column, key_value, value_column) -> value.
         self._csv_cache: dict[tuple[str, str, str, str], str] = {}
         if config.prefetch_enabled:
             self._prefetch_csv_sources()
 
-    # --- construction --------------------------------------------------
+    # --- construcción --------------------------------------------------
 
     def _prefetch_csv_sources(self) -> None:
         seen_pairs: set[tuple[str, str, str]] = set()
@@ -190,9 +201,9 @@ class MetadataService:
             if key is None or val is None:
                 continue
             cache_key = (alias, key_col, str(key), val_col)
-            self._csv_cache.setdefault(cache_key, str(val))  # first wins on dupes
+            self._csv_cache.setdefault(cache_key, str(val))  # ante duplicados gana el primero
 
-    # --- public entry point --------------------------------------------
+    # --- punto de entrada público --------------------------------------
 
     def resolve(
         self,
@@ -200,19 +211,19 @@ class MetadataService:
         document: RVABREPDocument,
         mapping: CMMapping,
     ) -> MetadataResolution:
-        """Resolve every required metadata field."""
+        """Resuelve cada campo requerido de metadata."""
         canonical_fields, canonical_to_friendly = self._normalize_fields_with_friendly(
             mapping.required_metadata_fields
         )
         resolved: dict[str, str] = {}
 
-        # 046: trigger is polymorphic. ``_trigger_cif`` extracts the CIF from
-        # whichever attribute the subtype carries (ClientTrigger.cif or
-        # row[col_cif] for row-based subtypes).
+        # 046: el trigger es polimórfico. ``_trigger_cif`` extrae el
+        # CIF del atributo que use cada subtipo (``ClientTrigger.cif``
+        # o ``row[col_cif]`` para los subtipos basados en fila).
         current_cif = _trigger_cif(trigger)
 
-        # CIF self-healing FIRST so subsequent CSV lookups can use the
-        # resolved value.
+        # Self-healing de CIF PRIMERO, para que los lookups de CSV
+        # subsiguientes puedan usar el valor resuelto.
         if current_cif is None and "BAC_CIF" in canonical_fields:
             cif_value = self._resolve_one("BAC_CIF", trigger, document, cif_override=current_cif)
             current_cif = cif_value
@@ -223,10 +234,11 @@ class MetadataService:
                 continue
             resolved[f] = self._resolve_one(f, trigger, document, cif_override=current_cif)
 
-        # 038: translate property keys to CMIS property IDs when the
-        # mapping carries a catalog (``MetadatosCM.CMISPropertyId``).
-        # Keys not in the catalog (or all keys when the catalog is
-        # absent / None) pass through unchanged — backward-compat.
+        # 038: traduce las claves de propiedad a IDs de propiedad
+        # `cmis` cuando el mapping incluye un catálogo
+        # (``MetadatosCM.CMISPropertyId``). Las claves que no están en
+        # el catálogo (o todas las claves cuando el catálogo está
+        # ausente / ``None``) pasan sin modificación: backward-compat.
         if mapping.cmis_property_ids:
             translated: dict[str, str] = {}
             for canonical, value in resolved.items():
@@ -235,12 +247,14 @@ class MetadataService:
                 translated[cmis_id if cmis_id else canonical] = value
             resolved = translated
 
-        # 046: if the input was a ClientTrigger that had no CIF and we
-        # resolved one, return a fresh ClientTrigger with the healed CIF
-        # so downstream code that reads `trigger.cif` directly (none left
-        # post-046 inside cmcourier, but tests / hooks may) sees the new
-        # value. Row-based triggers stay unchanged (their row mapping is
-        # immutable); the healed CIF travels in ``metadata`` + ``healed_cif``.
+        # 046: si la entrada fue un ``ClientTrigger`` sin CIF y se
+        # resolvió uno, se devuelve un ``ClientTrigger`` fresco con
+        # el CIF self-healed para que el código downstream que lea
+        # ``trigger.cif`` directamente (post-046 ya no queda nada
+        # adentro de cmcourier, pero tests / hooks podrían) vea el
+        # nuevo valor. Los triggers basados en fila quedan sin
+        # cambios (su mapping de fila es inmutable); el CIF
+        # self-healed viaja en ``metadata`` + ``healed_cif``.
         healed_trigger: Trigger = trigger
         if isinstance(trigger, ClientTrigger) and trigger.cif != current_cif:
             healed_trigger = ClientTrigger(
@@ -254,7 +268,7 @@ class MetadataService:
             healed_cif=current_cif,
         )
 
-    # --- per-field resolution ------------------------------------------
+    # --- resolución por campo ------------------------------------------
 
     def _resolve_one(
         self,
@@ -285,7 +299,7 @@ class MetadataService:
                 continue
             return value
 
-        # All sources failed. Try the default if present.
+        # Todas las fuentes fallaron. Intentar el `default` si existe.
         if fsc.default_value is None:
             _logger.warning(
                 "all sources failed for field=%s (no default configured)",
@@ -299,7 +313,7 @@ class MetadataService:
             )
         return fsc.default_value
 
-    # --- field name normalization --------------------------------------
+    # --- normalización de nombres de campo -----------------------------
 
     def _normalize_fields(self, raw_fields: tuple[str, ...]) -> list[str]:
         canonical, _ = self._normalize_fields_with_friendly(raw_fields)
@@ -308,21 +322,22 @@ class MetadataService:
     def _normalize_fields_with_friendly(
         self, raw_fields: tuple[str, ...]
     ) -> tuple[list[str], dict[str, str]]:
-        """Like :meth:`_normalize_fields` but also returns the inverse
-        ``canonical -> raw_friendly`` map (038).
+        """Igual que :meth:`_normalize_fields`, pero también devuelve
+        el mapa inverso ``canonical -> raw_friendly`` (038).
 
-        The friendly name is the operator-facing name as written in
-        ``MetadatosCM.Metadato`` (preserved verbatim, not stripped). The
-        map lets :meth:`resolve` look up ``cmis_property_ids`` — which
-        is keyed by friendly name — after resolution has produced
-        canonical-keyed values.
+        El nombre `friendly` es el nombre visible al operador tal como
+        está escrito en ``MetadatosCM.Metadato`` (preservado
+        textualmente, sin strip). El mapa le permite a :meth:`resolve`
+        consultar ``cmis_property_ids`` (que se indexa por nombre
+        `friendly`) después de que la resolución produjo valores
+        indexados por nombre canónico.
         """
         aliases_lower = {k.lower(): v for k, v in self._config.field_aliases.items()}
         canonical: list[str] = []
         canonical_to_friendly: dict[str, str] = {}
         for raw in raw_fields:
             if raw in self._config.field_sources:
-                canonical.append(raw)  # already canonical
+                canonical.append(raw)  # ya es canónico
                 canonical_to_friendly[raw] = raw
                 continue
             canonical_match = aliases_lower.get(raw.lower())
@@ -336,7 +351,7 @@ class MetadataService:
             )
         return canonical, canonical_to_friendly
 
-    # --- source dispatch ------------------------------------------------
+    # --- `dispatch` por fuente -----------------------------------------
 
     def _fetch_from_source(
         self,
@@ -362,22 +377,24 @@ class MetadataService:
         raise ConfigurationError("unknown source_type", source_type=sc.source_type)
 
     def _fetch_trigger(self, sc: SourceConfig, trigger: Trigger) -> str | None:
-        """Read a field from the trigger.
+        """Lee un campo desde el trigger.
 
-        Pre-046 the trigger always had ``shortname / cif / system_id`` as
-        direct attributes (``ClientTrigger`` shape). Post-046 row-based
-        triggers carry the same data inside their ``row`` mapping under
-        their configured RVABREP column names. We try the attribute path
-        first (works for ClientTrigger and lookup_value_column names like
-        ``shortname`` / ``cif``); if the trigger doesn't expose it, we
-        fall back to the row + audit projection.
+        Antes de 046 el trigger siempre tenía ``shortname / cif /
+        system_id`` como atributos directos (forma ``ClientTrigger``).
+        Post-046 los triggers basados en fila llevan los mismos datos
+        dentro de su mapping ``row`` bajo los nombres de columna
+        RVABREP configurados. Primero se intenta el path de atributo
+        (funciona para ``ClientTrigger`` y nombres de
+        ``lookup_value_column`` como ``shortname`` / ``cif``); si el
+        trigger no lo expone, se cae a la proyección row + audit.
         """
-        # ClientTrigger has shortname/cif/system_id as attributes.
+        # ``ClientTrigger`` tiene shortname/cif/system_id como atributos.
         if hasattr(trigger, sc.lookup_value_column):
             value = getattr(trigger, sc.lookup_value_column)
             return None if value is None else str(value)
-        # Row-based triggers map lookup_value_column → audit_row projection
-        # for shortname/cif/system_id; everything else falls through to None.
+        # Los triggers basados en fila mapean ``lookup_value_column`` →
+        # proyección ``audit_row`` para shortname/cif/system_id; el
+        # resto cae a ``None``.
         audit = trigger.audit_row()
         if sc.lookup_value_column in audit:
             v = audit[sc.lookup_value_column]
@@ -412,18 +429,19 @@ class MetadataService:
                 "csv source requires lookup_key_column",
                 source_type=sc.source_type,
             )
-        # Convention: csv lookup keys against the trigger's CIF.
-        # 046: ``cif_override`` carries the self-healed CIF from S3 when
-        # the trigger started without one; falls back to the trigger's own
-        # CIF projection. ClientTrigger.cif and row-based triggers'
-        # audit_row()["cif"] both feed through ``_trigger_cif``.
+        # Convención: los lookups CSV indexan contra el CIF del trigger.
+        # 046: ``cif_override`` lleva el CIF self-healed de S3 cuando
+        # el trigger arrancó sin uno; cae a la proyección de CIF del
+        # propio trigger. Tanto ``ClientTrigger.cif`` como el
+        # ``audit_row()["cif"]`` de los triggers basados en fila pasan
+        # por ``_trigger_cif``.
         cif = cif_override if cif_override is not None else _trigger_cif(trigger)
         if cif is None:
-            return None  # cannot lookup with no CIF
+            return None  # sin CIF no se puede hacer lookup
         if self._config.prefetch_enabled:
             cache_key = (alias, sc.lookup_key_column, cif, sc.lookup_value_column)
             return self._csv_cache.get(cache_key)
-        # Fallback: direct query
+        # Fallback: query directa
         rows = self._sources_registry[alias].get_by_fields({sc.lookup_key_column: cif})
         if not rows:
             return None

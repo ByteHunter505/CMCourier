@@ -1,23 +1,26 @@
-"""Typed exception hierarchy for CMCourier.
+"""Jerarquía tipada de excepciones de CMCourier.
 
-All project errors descend from :class:`CMCourierError`. Stage-specific errors
-(``S0`` … ``S5``) descend from a stage-base class so handlers can filter by
-stage without listing every concrete subclass:
+Todos los errores del proyecto descienden de :class:`CMCourierError`. Los
+errores específicos por etapa (``S0`` … ``S5``) descienden de una clase
+base de etapa para que los `handler`s puedan filtrar por etapa sin
+enumerar cada subclase concreta:
 
 .. code-block:: python
 
     try:
         ...
     except MappingError as exc:
-        # catches IDRViNotMappedError too
+        # también captura IDRViNotMappedError
         log.error("mapping failed", **exc.context)
 
-Every concrete subclass declares its named context parameters explicitly so
-type-checkers catch typos at call sites (``IDRViNotMappedError(id_rvi=...)``,
-not ``IDRViNotMappedError(idrvi=...)``).
+Cada subclase concreta declara sus parámetros de contexto nombrados de
+forma explícita para que los `type-checker`s detecten errores de tipeo
+en los call sites (``IDRViNotMappedError(id_rvi=...)``,
+no ``IDRViNotMappedError(idrvi=...)``).
 
-This module is part of the domain layer (Constitution Principle I): pure
-Python standard library only. Do not import third-party modules here.
+Este módulo forma parte de la capa de dominio (Principio I de la
+Constitución): solo Python standard library. No importar módulos de
+terceros aquí.
 """
 
 from __future__ import annotations
@@ -47,16 +50,17 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Root
+# Raíz
 # ---------------------------------------------------------------------------
 
 
 class CMCourierError(Exception):
-    """Root of the CMCourier exception hierarchy.
+    """Raíz de la jerarquía de excepciones de CMCourier.
 
-    Accepts an optional human message plus arbitrary keyword context. The
-    context dict is stored on the instance and reflected in ``str(exc)`` so
-    structured loggers can extract the fields without parsing the message.
+    Acepta un mensaje humano opcional más contexto arbitrario por keyword.
+    El dict de contexto se guarda en la instancia y se refleja en
+    ``str(exc)`` para que los `logger`s estructurados extraigan los
+    campos sin parsear el mensaje.
     """
 
     def __init__(self, message: str = "", **context: object) -> None:
@@ -70,34 +74,34 @@ class CMCourierError(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Configuration (raised at startup, not tied to a stage)
+# Configuración (se lanza al arranque, no está atada a una etapa)
 # ---------------------------------------------------------------------------
 
 
 class ConfigurationError(CMCourierError):
-    """Configuration is invalid or missing required fields."""
+    """La configuración es inválida o le faltan campos requeridos."""
 
 
 # ---------------------------------------------------------------------------
-# Stage S0 — Trigger Acquisition
+# Etapa S0 — Adquisición de triggers
 # ---------------------------------------------------------------------------
 
 
 class TriggerError(CMCourierError):
-    """Stage S0 failure: trigger source unreachable, malformed, or empty."""
+    """Falla de la etapa S0: fuente de `trigger` inalcanzable, malformada o vacía."""
 
 
 # ---------------------------------------------------------------------------
-# Stage S1 — RVABREP Indexing
+# Etapa S1 — Indexing de RVABREP
 # ---------------------------------------------------------------------------
 
 
 class IndexingError(CMCourierError):
-    """Stage S1 base error."""
+    """Error base de la etapa S1."""
 
 
 class RVABREPNotFoundError(IndexingError):
-    """No RVABREP rows for the given (shortname, system_id)."""
+    """No hay filas de RVABREP para el par (shortname, system_id) dado."""
 
     def __init__(self, *, shortname: str, system_id: str) -> None:
         super().__init__(
@@ -110,11 +114,12 @@ class RVABREPNotFoundError(IndexingError):
 
 
 class RVABREPDeletedError(IndexingError):
-    """Every RVABREP row matching the trigger is marked deleted (``ABACST`` non-empty).
+    """Todas las filas de RVABREP que matchean el `trigger` están marcadas como borradas.
 
-    Raised by stage S1 when ``(shortname, system_id)`` returns one or more
-    rows but all of them carry a non-empty delete code. ``deleted_count`` is
-    the number of deleted rows seen.
+    Es decir, ``ABACST`` no vacío en todas. La lanza la etapa S1 cuando
+    ``(shortname, system_id)`` devuelve una o más filas pero todas tienen
+    un código de borrado no vacío. ``deleted_count`` es la cantidad de
+    filas borradas observadas.
     """
 
     def __init__(self, *, shortname: str, system_id: str, deleted_count: int) -> None:
@@ -130,7 +135,7 @@ class RVABREPDeletedError(IndexingError):
 
 
 class RVABREPDuplicateError(IndexingError):
-    """Multiple RVABREP rows match where exactly one was expected."""
+    """Matchean varias filas de RVABREP cuando se esperaba exactamente una."""
 
     def __init__(self, *, shortname: str, system_id: str, count: int) -> None:
         super().__init__(
@@ -145,16 +150,16 @@ class RVABREPDuplicateError(IndexingError):
 
 
 # ---------------------------------------------------------------------------
-# Stage S2 — Document Class Mapping
+# Etapa S2 — Mapeo de clase de documento
 # ---------------------------------------------------------------------------
 
 
 class MappingError(CMCourierError):
-    """Stage S2 base error."""
+    """Error base de la etapa S2."""
 
 
 class IDRViNotMappedError(MappingError):
-    """The ID RVI has no entry in the Modelo Documental."""
+    """El ID RVI no tiene entrada en el Modelo Documental."""
 
     def __init__(self, *, id_rvi: str, txn_num: str | None = None) -> None:
         super().__init__(
@@ -167,16 +172,16 @@ class IDRViNotMappedError(MappingError):
 
 
 # ---------------------------------------------------------------------------
-# Stage S3 — Metadata Resolution
+# Etapa S3 — Resolución de metadata
 # ---------------------------------------------------------------------------
 
 
 class MetadataError(CMCourierError):
-    """Stage S3 base error."""
+    """Error base de la etapa S3."""
 
 
 class SourceFailedError(MetadataError):
-    """A metadata source raised or returned no value, and there is no fallback."""
+    """Una fuente de metadata lanzó excepción o devolvió sin valor, y no hay fallback."""
 
     def __init__(self, *, field_name: str, source: str) -> None:
         super().__init__(
@@ -189,7 +194,7 @@ class SourceFailedError(MetadataError):
 
 
 class DefaultValidationFailedError(MetadataError):
-    """All sources failed AND the configured default did not pass validation."""
+    """Todas las fuentes fallaron Y el valor por default configurado no pasó la validación."""
 
     def __init__(self, *, field_name: str, default_value: str) -> None:
         super().__init__(
@@ -202,16 +207,16 @@ class DefaultValidationFailedError(MetadataError):
 
 
 # ---------------------------------------------------------------------------
-# Stage S4 — File Verification & Assembly
+# Etapa S4 — Verificación de archivos y ensamblado
 # ---------------------------------------------------------------------------
 
 
 class AssemblyError(CMCourierError):
-    """Stage S4 base error."""
+    """Error base de la etapa S4."""
 
 
 class SourceFileMissingError(AssemblyError):
-    """Expected source file is not present on the file server."""
+    """El archivo fuente esperado no está presente en el file server."""
 
     def __init__(self, *, file_path: str) -> None:
         super().__init__(
@@ -221,10 +226,10 @@ class SourceFileMissingError(AssemblyError):
         self.file_path = file_path
 
     def __reduce__(self) -> tuple[object, tuple[object, ...]]:
-        # 066: pickle-safe reconstruction. Without ``__reduce__``,
-        # ``pickle`` defaults to ``cls(*args)`` which fails because
-        # ``__init__`` is keyword-only. Required when this exception
-        # crosses a ProcessPoolExecutor boundary (S4 worker → main).
+        # 066: reconstrucción pickle-safe. Sin ``__reduce__``, ``pickle``
+        # cae al default ``cls(*args)`` que falla porque ``__init__``
+        # es keyword-only. Requerido cuando esta excepción cruza el
+        # boundary de un ProcessPoolExecutor (`worker` S4 → main).
         return (_reconstruct_source_file_missing, (self.file_path,))
 
 
@@ -233,7 +238,7 @@ def _reconstruct_source_file_missing(file_path: str) -> SourceFileMissingError:
 
 
 class PDFAssemblyFailedError(AssemblyError):
-    """Underlying PDF assembly tooling raised."""
+    """El tooling subyacente de ensamblado de PDF lanzó excepción."""
 
     def __init__(self, *, txn_num: str, reason: str) -> None:
         super().__init__(
@@ -245,7 +250,7 @@ class PDFAssemblyFailedError(AssemblyError):
         self.reason = reason
 
     def __reduce__(self) -> tuple[object, tuple[object, ...]]:
-        # 066: pickle-safe reconstruction across process boundaries.
+        # 066: reconstrucción pickle-safe a través de boundaries de proceso.
         return (_reconstruct_pdf_assembly_failed, (self.txn_num, self.reason))
 
 
@@ -254,16 +259,16 @@ def _reconstruct_pdf_assembly_failed(txn_num: str, reason: str) -> PDFAssemblyFa
 
 
 # ---------------------------------------------------------------------------
-# Stage S5 — Upload
+# Etapa S5 — Upload
 # ---------------------------------------------------------------------------
 
 
 class UploadError(CMCourierError):
-    """Stage S5 base error."""
+    """Error base de la etapa S5."""
 
 
 class CMISClientError(UploadError):
-    """HTTP 4xx from the CMIS server. Do NOT retry — fix the request."""
+    """HTTP 4xx del server `cmis`. NO hay que hacer `retry` — corregir el request."""
 
     def __init__(self, *, status_code: int, response_body: str = "") -> None:
         super().__init__(
@@ -276,7 +281,7 @@ class CMISClientError(UploadError):
 
 
 class CMISServerError(UploadError):
-    """HTTP 5xx from the CMIS server. Retry with backoff."""
+    """HTTP 5xx del server `cmis`. `Retry` con `back-off`."""
 
     def __init__(self, *, status_code: int, response_body: str = "") -> None:
         super().__init__(
@@ -289,7 +294,7 @@ class CMISServerError(UploadError):
 
 
 class RetriesExhaustedError(UploadError):
-    """Retry budget exhausted for a single document upload."""
+    """Presupuesto de `retry` agotado para el upload de un único documento."""
 
     def __init__(self, *, txn_num: str, attempts: int) -> None:
         super().__init__(
@@ -302,9 +307,9 @@ class RetriesExhaustedError(UploadError):
 
 
 # ---------------------------------------------------------------------------
-# Stage S6 — Tracking (transversal; never blocks the pipeline)
+# Etapa S6 — Tracking (transversal; nunca bloquea el `pipeline`)
 # ---------------------------------------------------------------------------
 
 
 class TrackingError(CMCourierError):
-    """Tracking store write failure. Logged, never raised through callers."""
+    """Falla de escritura en el tracking store. Se loguea, nunca se propaga a los callers."""

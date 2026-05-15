@@ -1,19 +1,19 @@
-"""``cmcourier sync`` subcommand suite (034 phase 4).
+"""Suite del subcomando ``cmcourier sync`` (034 fase 4).
 
-Operators use this to reconcile divergence between the local
-SQLite tracking store and the centralized AS400 ``RVILIB.NIARVILOG``
-table. Three subcommands:
+Los operadores la usan para reconciliar la divergencia entre el
+tracking store local de SQLite y la tabla centralizada AS400
+``RVILIB.NIARVILOG``. Tres subcomandos:
 
-* ``sync status`` — runs the pre-flight cleanup + reports any
-  conflicts without touching state. Useful for inspection.
-* ``sync resolve <txn> --prefer-as400`` — pull AS400's terminal
-  state into SQLite (``S5_DONE`` with the AS400-owned
-  ``cm_object_id``).
-* ``sync resolve <txn> --prefer-local`` — push SQLite's
-  terminal state to AS400 (``UPDATE STSCOD='O', OBJIDN=?``
-  on the existing row).
-* ``sync resolve --all --prefer-as400|--prefer-local`` —
-  bulk resolution.
+* ``sync status``: corre el cleanup pre-flight + reporta cualquier
+  conflicto sin tocar estado. Util para inspeccion.
+* ``sync resolve <txn> --prefer-as400``: trae el estado terminal de
+  AS400 hacia SQLite (``S5_DONE`` con el ``cm_object_id`` que duena
+  AS400).
+* ``sync resolve <txn> --prefer-local``: empuja el estado terminal
+  de SQLite hacia AS400 (``UPDATE STSCOD='O', OBJIDN=?`` sobre la
+  fila existente).
+* ``sync resolve --all --prefer-as400|--prefer-local``: resolucion
+  en bulk.
 """
 
 from __future__ import annotations
@@ -41,18 +41,18 @@ _log = logging.getLogger(__name__)
 
 @click.group(name="sync")
 def sync_group() -> None:
-    """Reconcile SQLite tracking with AS400 NIARVILOG (034)."""
+    """Reconcilia el tracking de SQLite con AS400 NIARVILOG (034)."""
 
 
 # ---------------------------------------------------------------------------
-# Shared setup
+# Setup compartido
 # ---------------------------------------------------------------------------
 
 
 def _load_stores(
     config_path: Path,
 ) -> tuple[PipelineConfig, SQLiteTrackingStore, As400NiarvilogStore]:
-    """Build the SQLite + AS400 stores from the YAML. Exits 2 on misuse."""
+    """Construye los stores SQLite + AS400 desde el YAML. Sale con 2 ante mal uso."""
     try:
         config = load_config(config_path)
         secrets = load_secrets()
@@ -109,7 +109,7 @@ def _load_stores(
     required=True,
 )
 def status_command(config_path: Path) -> None:
-    """Report stale-cleanup count + AS400 connectivity. Read-only."""
+    """Reporta el conteo de stale-cleanup + conectividad AS400. Read-only."""
     _, sqlite, as400 = _load_stores(config_path)
     try:
         stale = as400.cleanup_stale_in_progress()
@@ -163,7 +163,7 @@ def resolve_command(
     prefer_local: bool,
     cm_object_id: str | None,
 ) -> None:
-    """Resolve a single AS400/SQLite divergence for one TRNNUM."""
+    """Resuelve una unica divergencia AS400/SQLite para un TRNNUM."""
     if prefer_as400 == prefer_local:
         click.echo(
             "ConfigurationError: choose exactly one of --prefer-as400 / --prefer-local.",
@@ -182,7 +182,7 @@ def resolve_command(
         if prefer_as400:
             _resolve_prefer_as400(txn=txn, sqlite=sqlite, as400=as400)
         else:
-            assert cm_object_id is not None  # narrowed by the guard above
+            assert cm_object_id is not None  # narrowed por el guard de arriba
             _resolve_prefer_local(
                 txn=txn,
                 sqlite=sqlite,
@@ -200,12 +200,13 @@ def resolve_command(
 # ---------------------------------------------------------------------------
 # Resolvers
 # ---------------------------------------------------------------------------
+# (helpers de resolucion del comando `sync resolve`)
 
 
 def _resolve_prefer_as400(
     *,
     txn: str,
-    sqlite: SQLiteTrackingStore,  # noqa: ARG001 — reserved for SQLite write
+    sqlite: SQLiteTrackingStore,  # noqa: ARG001 — reservado para la escritura SQLite
     as400: As400NiarvilogStore,
 ) -> None:
     row: NiarvilogRow | None = as400.read_state_by_txn(trnnum=txn)
@@ -220,26 +221,28 @@ def _resolve_prefer_as400(
         )
         sys.exit(1)
     click.echo(f"resolved {txn}: imported AS400 state — STSCOD='O', OBJIDN={row.objidn!r}")
-    # SQLite update path is left as a follow-up — we'd need to either
-    # find the existing SQLite record by txn (no batch_id known here)
-    # or insert a synthetic record. Operationally, the simplest
-    # remediation is to re-run the pipeline; the in-process resume
-    # logic will skip this doc because AS400 says 'O'.
+    # El camino de update en SQLite queda como follow-up: tendriamos
+    # que encontrar el record existente de SQLite por `txn` (aca no
+    # conocemos `batch_id`) o insertar un record sintetico.
+    # Operacionalmente, la remediacion mas simple es re-correr el
+    # pipeline; la logica de resume in-process va a saltear este doc
+    # porque AS400 dice 'O'.
 
 
 def _resolve_prefer_local(
     *,
     txn: str,
-    sqlite: SQLiteTrackingStore,  # noqa: ARG001 — kept for future cross-check
+    sqlite: SQLiteTrackingStore,  # noqa: ARG001 — guardado para un futuro cross-check
     as400: As400NiarvilogStore,
     cm_object_id: str,
 ) -> None:
-    """Push the operator-supplied cm_object_id into AS400 via UPDATE.
+    """Empuja el `cm_object_id` provisto por el operador hacia AS400 via UPDATE.
 
-    The operator gets the cm_object_id from ``cmcourier batch show
-    <batch_id>`` (or the run's stdout when the upload happened).
-    Requiring it explicitly avoids extending the SQLite store API
-    with a "find_record_by_txn" surface that's not needed elsewhere.
+    El operador saca el `cm_object_id` de ``cmcourier batch show
+    <batch_id>`` (o del stdout de la corrida cuando se hizo el
+    upload). Requerirlo explicitamente evita extender la API del
+    store SQLite con una superficie tipo `find_record_by_txn` que
+    no hace falta en ningun otro lado.
     """
     row = as400.read_state_by_txn(trnnum=txn)
     if row is None:

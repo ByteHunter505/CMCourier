@@ -1,13 +1,13 @@
-"""``cmcourier as400-query "<SQL>"`` — raw AS400 debug query.
+"""``cmcourier as400-query "<SQL>"``: query crudo de debug contra AS400.
 
-Debug-only. Runs the supplied SQL against the AS400 connection
-configured in YAML (preferring ``trigger.as400_connection``,
-falling back to the first ``metadata.sources[*]`` of kind ``as400``).
-Refuses to run without AS400 credentials in the environment.
+Solo para debug. Corre el SQL provisto contra la conexion AS400
+configurada en el YAML (prefiriendo ``trigger.as400_connection``,
+con fallback al primer ``metadata.sources[*]`` de kind ``as400``).
+Se niega a correr sin credenciales de AS400 en el environment.
 
-PII discipline: result rows are echoed verbatim to stdout, with
-per-cell truncation at 80 characters. The operator is responsible
-for what they query.
+Disciplina de PII: las filas resultado se hacen echo tal cual a
+stdout, con truncado por celda en 80 caracteres. El operador es
+responsable de lo que querea.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ _log = logging.getLogger(__name__)
 )
 @click.argument("sql", type=str)
 def as400_query_command(config_path: Path, sql: str) -> None:
-    """Run a raw SQL query against AS400 (debug only)."""
+    """Corre una query SQL cruda contra AS400 (solo debug)."""
     try:
         config = load_config(config_path)
         secrets = load_secrets()
@@ -104,8 +104,8 @@ def as400_query_command(config_path: Path, sql: str) -> None:
 def _select_as400_connection(
     config: PipelineConfig,
 ) -> As400ConnectionConfig | None:
-    # 048: the RVABREP source can be AS400 (``indexing.source.kind: as400``).
-    # That's the first place to look for a connection to debug-query.
+    # 048: el source RVABREP puede ser AS400 (``indexing.source.kind: as400``).
+    # Ese es el primer lugar donde buscamos una conexion para querear en debug.
     if isinstance(config.indexing.source, As400RvabrepSource):
         return config.indexing.source.connection
     for source in config.metadata.sources:

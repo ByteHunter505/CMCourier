@@ -1,16 +1,16 @@
-"""Cross-batch S3 metadata cache service (POST-MVP §9, 037 Phase 2).
+"""Servicio de cache de metadata S3 cross-`batch` (POST-MVP §9, 037 Fase 2).
 
-Wraps :class:`IDocumentCache` with TTL logic, hit / miss counters,
-and structured log events. The pipeline's S3 path consults this
-service before invoking :class:`MetadataService`; a hit short-
-circuits the resolver and a miss runs the resolver + writes the
-cache.
+Envuelve :class:`IDocumentCache` con lógica de TTL, contadores de
+hits y misses, y eventos de log estructurados. La ruta de S3 del
+`pipeline` consulta este servicio antes de invocar
+:class:`MetadataService`; un hit cortocircuita al resolver y un miss
+ejecuta el resolver y escribe en la cache.
 
-Clock injection (``clock=lambda: datetime.now(UTC)``) keeps TTL
-expiry deterministic in tests.
+La inyección de `clock` (``clock=lambda: datetime.now(UTC)``)
+mantiene la expiración por TTL determinista en los tests.
 
-Constitution Principle III: function size ≤ 50 lines; the
-``try_get`` and ``put`` helpers each fit on one screen.
+Principio III de la Constitución: tamaño de función ≤ 50 líneas; los
+helpers ``try_get`` y ``put`` entran cada uno en una pantalla.
 """
 
 from __future__ import annotations
@@ -41,11 +41,13 @@ _log = logging.getLogger(__name__)
 
 
 def compute_fields_hash(fields: Iterable[str]) -> str:
-    """Return a SHA-256 hex of the sorted, comma-joined field list.
+    """Devuelve el `SHA-256` hex de la lista de campos ordenada y
+    unida por comas.
 
-    Sorting makes the hash independent of declaration order in the
-    mapping CSV. Two different field sets MUST produce different
-    hashes — that is the cache's mapping-evolution safety guarantee.
+    El orden hace que el hash sea independiente del orden de
+    declaración en el CSV de mapping. Dos conjuntos distintos de
+    campos DEBEN producir hashes distintos: esa es la garantía de
+    seguridad de la cache frente a la evolución del mapping.
     """
     joined = ",".join(sorted(fields))
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
@@ -53,7 +55,7 @@ def compute_fields_hash(fields: Iterable[str]) -> str:
 
 @dataclass(slots=True)
 class CacheCounters:
-    """Thread-safe in-memory hit / miss counters surfaced to the CLI."""
+    """Contadores in-memory de hits y misses, thread-safe, expuestos al CLI."""
 
     hits: int = 0
     misses_absent: int = 0
@@ -69,14 +71,15 @@ class CacheCounters:
 
 
 class DocumentCacheService:
-    """TTL-aware wrapper over :class:`IDocumentCache`.
+    """Wrapper sobre :class:`IDocumentCache` con conciencia de TTL.
 
-    Lifecycle:
+    Ciclo de vida:
 
-    1. Construct with ``cache``, ``ttl_minutes`` and an optional
-       monotonic clock.
-    2. Pipeline calls :meth:`try_get` before S3.
-    3. On a miss, pipeline runs the resolver and calls :meth:`put`.
+    1. Construcción con ``cache``, ``ttl_minutes`` y un `clock`
+       monotónico opcional.
+    2. El `pipeline` llama a :meth:`try_get` antes de S3.
+    3. Ante un miss, el `pipeline` corre el resolver y llama a
+       :meth:`put`.
     """
 
     def __init__(
@@ -92,10 +95,11 @@ class DocumentCacheService:
         self._lock = threading.Lock()
         self._counters = CacheCounters()
 
-    # ---------- API used by the pipeline ----------
+    # ---------- API consumida por el `pipeline` ----------
 
     def try_get(self, *, txn_num: str, fields: Iterable[str]) -> CacheEntry | None:
-        """Return a fresh entry or ``None``. Updates in-memory counters."""
+        """Devuelve una entrada fresca o ``None``. Actualiza los
+        contadores in-memory."""
         key = CacheKey(txn_num=txn_num, fields_hash=compute_fields_hash(fields))
         entry = self._cache.get(key)
         if entry is None:
@@ -147,7 +151,8 @@ class DocumentCacheService:
         metadata: ResolvedMetadata,
         trigger_cif: str | None,
     ) -> None:
-        """Upsert the resolved metadata + the (possibly healed) CIF."""
+        """Hace upsert de la metadata resuelta junto con el CIF
+        (posiblemente self-healed)."""
         entry = CacheEntry(
             txn_num=txn_num,
             fields_hash=compute_fields_hash(fields),
@@ -157,7 +162,7 @@ class DocumentCacheService:
         )
         self._cache.put(entry)
 
-    # ---------- operator-facing pass-throughs ----------
+    # ---------- pass-throughs orientados al operador ----------
 
     def clear_txn(self, txn_num: str) -> int:
         return self._cache.clear_txn(txn_num)

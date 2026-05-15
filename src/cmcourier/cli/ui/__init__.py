@@ -1,1 +1,1 @@
-"""TUI components and structured logging setup (Rich + central PII masking)."""
+"""Componentes de TUI y setup de logging estructurado (Rich + enmascarado central de PII)."""

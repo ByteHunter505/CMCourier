@@ -1,4 +1,4 @@
-"""Direct-RVABREP trigger strategy. Mode direct_rvabrep."""
+"""Estrategia de trigger por RVABREP directo. Modo ``direct_rvabrep``."""
 
 from __future__ import annotations
 
@@ -20,18 +20,18 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class RvabrepColumnsConfig:
-    """RVABREP physical column-name overrides."""
+    """Overrides de nombres físicos de columnas de RVABREP."""
 
     col_shortname: str = "ABABCD"  # index1
     col_cif: str = "ABACCD"  # index2
     col_system_id: str = "ABAACD"  # system_code
-    col_id_rvi: str = "ABAHCD"  # index7 (document type)
+    col_id_rvi: str = "ABAHCD"  # index7 (tipo de documento)
     file_name_column: str = "ABAJCD"  # ABAJCD (file_name)
 
 
 @dataclass(frozen=True, slots=True)
 class RvabrepFilters:
-    """Filters for the RVABREP scan. Empty tuple = no filter."""
+    """Filtros para el escaneo de RVABREP. Tupla vacía = sin filtro."""
 
     systems: tuple[str, ...] = ()
     document_types: tuple[str, ...] = ()
@@ -42,18 +42,21 @@ def _is_blank(v: object) -> bool:
 
 
 class DirectRvabrepTriggerStrategy(S0Strategy):
-    """Discovers triggers by scanning RVABREP itself, optionally filtered.
+    """Descubre triggers escaneando RVABREP en sí, opcionalmente
+    filtrado.
 
-    046: yields one :class:`RvabrepRowTrigger` per non-deleted matched row.
-    Pre-046 the strategy deduplicated by ``(shortname, system_id)`` and
-    yielded a ``TriggerRecord``; that forced S1 to re-query RVABREP and
-    re-expand back to N docs per client — wasted work and the wrong
-    semantic for "process THIS row, not the whole client". The
-    enrichment now stays trivial in S1 because the row is already known.
+    046: yieldea un :class:`RvabrepRowTrigger` por cada fila
+    matcheada y no borrada. Antes de 046 la estrategia deduplicaba
+    por ``(shortname, system_id)`` y yieldeaba un ``TriggerRecord``;
+    eso forzaba a S1 a re-consultar RVABREP y re-expandir a N docs
+    por cliente, trabajo desperdiciado y semántica equivocada para
+    "procesar ESTA fila, no todo el cliente". Ahora el enriquecimiento
+    en S1 queda trivial porque la fila ya se conoce.
 
-    When both ``systems`` and ``document_types`` filters are set, the
-    strategy picks the smaller filter for the IN-list query and rejects the
-    other in Python during iteration. See plan §3.5.
+    Cuando los filtros ``systems`` y ``document_types`` están ambos
+    seteados, la estrategia elige el filtro más chico para la query
+    de lista IN y rechaza el otro en Python durante la iteración.
+    Ver plan §3.5.
     """
 
     def __init__(
@@ -67,11 +70,13 @@ class DirectRvabrepTriggerStrategy(S0Strategy):
         self._columns = columns or RvabrepColumnsConfig()
 
     def acquire(self, source_descriptor: str = "") -> Iterator[Trigger]:
-        """Yield one ``RvabrepRowTrigger`` per matched RVABREP row.
+        """Yieldea un ``RvabrepRowTrigger`` por cada fila matcheada
+        de RVABREP.
 
-        Rows with blank shortname OR system_id are dropped with a single
-        INFO summary log line (rare — they indicate malformed RVABREP
-        rows that wouldn't survive S1 anyway).
+        Las filas con shortname o system_id vacío se descartan con
+        una única línea de log INFO de resumen (raro: indican filas
+        malformadas de RVABREP que no sobrevivirían a S1 de todos
+        modos).
         """
         del source_descriptor
         skipped = 0
@@ -95,7 +100,8 @@ class DirectRvabrepTriggerStrategy(S0Strategy):
         if not f.systems and not f.document_types:
             yield from self._source.get_all()
             return
-        # Pick the smaller filter for the IN query; reject the other in Python.
+        # Elegir el filtro más chico para la query IN; rechazar el
+        # otro en Python.
         if f.document_types and (not f.systems or len(f.document_types) <= len(f.systems)):
             primary_field, primary_values = self._columns.col_id_rvi, list(f.document_types)
             secondary_field, secondary_values = self._columns.col_system_id, set(f.systems)

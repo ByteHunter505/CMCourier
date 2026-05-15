@@ -1,21 +1,24 @@
-"""Runner that combines an in-flight pipeline with the live TUI (025).
+"""Runner que combina un pipeline en vuelo con la TUI en vivo (025).
 
-The pipeline is CPU/IO-bound and prefers to run in a worker thread;
-the textual ``App`` event loop runs in the main thread (textual
-expects the main thread for its asyncio default loop + signal
-handling). The two communicate one-way through a :class:`TUIDataProvider`.
+El pipeline es CPU/IO-bound y prefiere correr en un worker thread;
+el event loop del ``App`` de textual corre en el thread principal
+(textual espera el thread principal para su loop de asyncio por
+defecto + manejo de senales). Los dos se comunican en una direccion
+a traves de un :class:`TUIDataProvider`.
 
-Operator semantics:
+Semantica para el operador:
 
-* The TUI starts before the pipeline. ``mark_batch_started`` fires
-  from the worker thread the moment the run begins.
-* When the pipeline finishes (success or exception), the worker
-  calls ``mark_batch_complete`` and the TUI flips into "run
-  complete" mode. The operator presses ``[Q]`` to exit; pressing
-  earlier exits the TUI but the worker still joins (so the
-  pipeline is never abandoned mid-flight).
-* Exceptions raised inside the pipeline thread are re-raised on
-  the main thread once the operator quits the TUI.
+* La TUI arranca antes que el pipeline. ``mark_batch_started`` se
+  dispara desde el worker thread en el momento en que la corrida
+  comienza.
+* Cuando el pipeline termina (exito o excepcion), el worker llama
+  ``mark_batch_complete`` y la TUI pasa al modo "run complete".
+  El operador presiona ``[Q]`` para salir; presionar antes sale de
+  la TUI pero el worker igual hace join (asi el pipeline nunca queda
+  abandonado a mitad de vuelo).
+* Las excepciones levantadas dentro del thread del pipeline son
+  re-elevadas en el thread principal una vez que el operador sale
+  de la TUI.
 """
 
 from __future__ import annotations
@@ -37,18 +40,18 @@ from cmcourier.tui import CMCourierTUI, TUIDataProvider
 
 @dataclass(slots=True)
 class TUIRunOutcome:
-    """Worker-thread outcome handed back to the caller after the TUI exits."""
+    """Resultado del worker-thread devuelto al caller despues de que la TUI sale."""
 
     report: MultiBatchRunReport | None = None
     exception: BaseException | None = None
 
 
 def tty_available() -> bool:
-    """Whether the current process can render a textual UI.
+    """Indica si el proceso actual puede renderizar una UI de textual.
 
-    textual writes the TUI to ``stderr``; that's the one we check.
-    stdin/stdout may be redirected without breaking the render
-    (operators sometimes ``cmcourier ... | grep s5_done``).
+    textual escribe la TUI en ``stderr``; ese es el que chequeamos.
+    ``stdin`` / ``stdout`` pueden estar redirigidos sin romper el render
+    (los operadores a veces hacen ``cmcourier ... | grep s5_done``).
     """
     return bool(sys.stderr.isatty())
 
@@ -59,12 +62,12 @@ def run_orchestrator_with_tui(
     data_provider: TUIDataProvider,
     orchestrator_kwargs: dict[str, Any],
 ) -> TUIRunOutcome:
-    """Run an orchestrator in a worker thread while the TUI owns main.
+    """Corre un orchestrator en un worker thread mientras la TUI duena el thread main.
 
-    ``orchestrator_kwargs`` is splatted into ``orchestrator.run(**kwargs)``.
-    Both :class:`MultiBatchOrchestrator` (batched mode) and
-    :class:`StreamingOrchestrator` (063 streaming mode) expose the same
-    ``.run(...)`` shape and return a :class:`MultiBatchRunReport`.
+    ``orchestrator_kwargs`` se hace splat en ``orchestrator.run(**kwargs)``.
+    Tanto :class:`MultiBatchOrchestrator` (modo por batches) como
+    :class:`StreamingOrchestrator` (modo streaming de 063) exponen la
+    misma forma de ``.run(...)`` y devuelven un :class:`MultiBatchRunReport`.
     """
     outcome = TUIRunOutcome()
 
@@ -74,7 +77,7 @@ def run_orchestrator_with_tui(
                 batch_id=orchestrator_kwargs.get("resume_batch_id") or ""
             )
             outcome.report = orchestrator.run(**orchestrator_kwargs)
-        except BaseException as exc:  # noqa: BLE001 — re-raised on main thread
+        except BaseException as exc:  # noqa: BLE001 — re-elevada en el thread main
             outcome.exception = exc
         finally:
             data_provider.mark_batch_complete()
@@ -85,7 +88,7 @@ def run_orchestrator_with_tui(
     try:
         app.run()
     finally:
-        # Always wait for the pipeline to finish before returning — pressing
-        # Q during the run exits the TUI viewer but doesn't abandon the run.
+        # Siempre esperamos a que el pipeline termine antes de volver: apretar
+        # Q durante la corrida cierra el viewer de la TUI pero no abandona la corrida.
         worker.join()
     return outcome

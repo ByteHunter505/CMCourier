@@ -1,26 +1,27 @@
-"""IdempotencyCoordinator (034 phase 3).
+"""`IdempotencyCoordinator` (034 fase 3).
 
-Composes the always-present :class:`SQLiteTrackingStore` (per-batch
-state machine, resume, audit) with an optional
-:class:`As400NiarvilogStore` (distributed cross-batch idempotency
-when ``tracking.as400_sync.enabled=true``).
+Compone el :class:`SQLiteTrackingStore` siempre presente (máquina
+de estados por `batch`, resume, auditoría) con un
+:class:`As400NiarvilogStore` opcional (`idempotency` distribuida
+cross-`batch` cuando ``tracking.as400_sync.enabled=true``).
 
-Design contract:
+Contrato de diseño:
 
-* When ``as400_store is None``: every read/write delegates straight
-  to SQLite. Behavior is byte-identical to pre-034.
-* When ``as400_store`` is supplied:
-  * Cross-batch idempotency reads come from AS400 (it's the
-    distributed source of truth — SQLite is per-workstation and
-    can lag).
-  * Per-batch reads (``mark_stage_done``, ``is_stage_done``) keep
-    going to SQLite because AS400 has no notion of batches.
-  * Terminal writes (``mark_uploaded`` / ``mark_failed``) are
-    DUAL — SQLite first (in-process resume), AS400 second
-    (operator-visible state).
+* Cuando ``as400_store is None``: cada lectura/escritura delega
+  directamente a SQLite. El comportamiento es byte-identical al de
+  pre-034.
+* Cuando ``as400_store`` está provisto:
+  * Las lecturas de `idempotency` cross-`batch` provienen de AS400
+    (es la fuente distribuida de verdad: SQLite es por workstation
+    y puede atrasarse).
+  * Las lecturas por `batch` (``mark_stage_done``, ``is_stage_done``)
+    siguen yendo a SQLite porque AS400 no tiene noción de `batches`.
+  * Las escrituras terminales (``mark_uploaded`` / ``mark_failed``)
+    son DUALES: primero SQLite (resume in-process) y luego AS400
+    (estado visible para el operador).
 
-The coordinator does NOT decide policy on conflicts — it surfaces
-them via :class:`SyncReport` and lets the caller raise.
+El coordinador NO decide la política ante conflictos: los expone
+vía :class:`SyncReport` y deja que el caller decida si lanzar.
 """
 
 from __future__ import annotations
@@ -51,24 +52,25 @@ _log = logging.getLogger(__name__)
 
 
 class IdempotencyConflictError(Exception):
-    """Raised by :meth:`IdempotencyCoordinator.preflight_sync` when AS400
-    and SQLite disagree on a doc's terminal state.
+    """Se lanza desde :meth:`IdempotencyCoordinator.preflight_sync`
+    cuando AS400 y SQLite difieren sobre el estado terminal de un doc.
 
-    The pipeline aborts; the operator resolves with
+    El `pipeline` aborta; el operador resuelve con
     ``cmcourier sync resolve``.
     """
 
 
 @dataclass(frozen=True, slots=True)
 class SyncReport:
-    """Outcome of a pre-flight reconciliation pass.
+    """Resultado de una pasada de reconciliación pre-flight.
 
-    * ``imported_from_as400`` — txn_nums where AS400 already had
-      ``STSCOD='O'`` and we pulled the OBJIDN / state into SQLite.
-    * ``conflicts`` — txn_nums where AS400 and SQLite disagree on
-      "is this doc done?". Caller decides whether to raise.
-    * ``stale_cleaned`` — count of ``STSCOD='I'`` rows that pre-flight
-      reset to ``N`` (a previous run crashed mid-claim).
+    * ``imported_from_as400``: txn_nums donde AS400 ya tenía
+      ``STSCOD='O'`` y se importó el OBJIDN / estado a SQLite.
+    * ``conflicts``: txn_nums donde AS400 y SQLite difieren sobre
+      "¿este doc está terminado?". El caller decide si lanzar.
+    * ``stale_cleaned``: cantidad de filas con ``STSCOD='I'`` que
+      pre-flight reseteó a ``N`` (un run anterior crasheó en medio
+      del claim).
     """
 
     imported_from_as400: list[str] = field(default_factory=list)
@@ -77,7 +79,7 @@ class SyncReport:
 
 
 class IdempotencyCoordinator:
-    """Dispatch read/write between SQLite + (optionally) AS400."""
+    """`Dispatch` de lectura/escritura entre SQLite y (opcionalmente) AS400."""
 
     def __init__(
         self,
@@ -88,12 +90,13 @@ class IdempotencyCoordinator:
         self._sqlite = sqlite_store
         self._as400 = as400_store
 
-    # ----- read API --------------------------------------------------
+    # ----- API de lectura --------------------------------------------
 
     def is_uploaded(self, txn_num: str) -> bool:
-        """Legacy SQLite-only check. Use :meth:`is_uploaded_record` when
-        the AS400 store is active and you have the full document /
-        trigger context (AS400's PK is composite)."""
+        """Chequeo legacy solo contra SQLite. Usar
+        :meth:`is_uploaded_record` cuando el store AS400 está activo y
+        se cuenta con el contexto completo de document/trigger (la PK
+        de AS400 es compuesta)."""
         return self._sqlite.is_uploaded(txn_num)
 
     def is_uploaded_record(
@@ -102,8 +105,9 @@ class IdempotencyCoordinator:
         document: RVABREPDocument,
         trigger: Trigger,
     ) -> bool:
-        """When AS400 is active, ask AS400 directly via the composite PK.
-        When AS400 is None, fall through to SQLite by txn_num.
+        """Cuando AS400 está activo, pregunta directamente a AS400 vía
+        la PK compuesta. Cuando AS400 es ``None``, cae a SQLite por
+        txn_num.
         """
         if self._as400 is None:
             return self._sqlite.is_uploaded(document.txn_num)
@@ -115,7 +119,7 @@ class IdempotencyCoordinator:
         )
         return row is not None and row.stscod == "O"
 
-    # ----- write API -------------------------------------------------
+    # ----- API de escritura ------------------------------------------
 
     def try_claim(
         self,
@@ -125,10 +129,11 @@ class IdempotencyCoordinator:
         mapping: CMMapping,
         trigger: Trigger,
     ) -> bool:
-        """When AS400 is active: atomic claim against NIARVILOG.
-        Returns False if another process owns the doc.
+        """Con AS400 activo: claim atómico contra NIARVILOG. Devuelve
+        ``False`` si otro proceso es dueño del doc.
 
-        When AS400 is None: always returns True (no distributed claim).
+        Con AS400 ``None``: siempre devuelve ``True`` (sin claim
+        distribuido).
         """
         if self._as400 is None:
             return True
@@ -148,10 +153,11 @@ class IdempotencyCoordinator:
         trigger: Trigger,
         cm_object_id: str,
     ) -> None:
-        """Mark S5_DONE in SQLite first, then propagate to AS400 if
-        active. The order matters: SQLite is the in-process source of
-        truth for resume, so it must commit before any AS400 write
-        (which could fail and trigger retry)."""
+        """Marca S5_DONE en SQLite primero y luego propaga a AS400 si
+        está activo. El orden importa: SQLite es la fuente de verdad
+        in-process para el resume, así que tiene que hacer `commit`
+        antes que cualquier escritura a AS400 (que podría fallar y
+        disparar `retry`)."""
         self._sqlite.mark_stage_done(
             record.rvabrep_txn_num,
             record.batch_id,
@@ -178,7 +184,7 @@ class IdempotencyCoordinator:
         stage: StageStatus,
         error: str,
     ) -> None:
-        """Mark <stage>_FAILED in SQLite first, then propagate to AS400."""
+        """Marca <stage>_FAILED en SQLite primero y luego propaga a AS400."""
         self._sqlite.mark_stage_failed(record.rvabrep_txn_num, record.batch_id, stage, error)
         if self._as400 is None:
             return
@@ -198,19 +204,20 @@ class IdempotencyCoordinator:
         batch_scope: set[str],
         raise_on_conflict: bool = False,
     ) -> SyncReport:
-        """Reconcile AS400 → SQLite for the batch scope.
+        """Reconcilia AS400 → SQLite para el alcance del `batch`.
 
-        Algorithm (only runs when AS400 is active):
-        1. Run :meth:`As400NiarvilogStore.cleanup_stale_in_progress`.
-        2. For each txn_num in ``batch_scope``, ask AS400 for the row's
-           state and compare with SQLite.
-        3. Classify: ``imported_from_as400`` (AS400 done, SQLite empty),
-           ``conflicts`` (AS400 not done but SQLite says done), or
-           consistent (no action).
-        4. If ``raise_on_conflict=True`` and conflicts are non-empty,
-           raise :class:`IdempotencyConflictError` with the txn list.
+        Algoritmo (solo corre cuando AS400 está activo):
 
-        When AS400 is None, returns an empty report (no-op).
+        1. Ejecuta :meth:`As400NiarvilogStore.cleanup_stale_in_progress`.
+        2. Para cada txn_num en ``batch_scope``, le pregunta a AS400
+           por el estado de la fila y lo compara con SQLite.
+        3. Clasifica: ``imported_from_as400`` (AS400 done, SQLite
+           vacío), ``conflicts`` (AS400 no done pero SQLite dice done),
+           o consistente (sin acción).
+        4. Si ``raise_on_conflict=True`` y hay conflictos, lanza
+           :class:`IdempotencyConflictError` con la lista de txns.
+
+        Cuando AS400 es ``None``, devuelve un reporte vacío (no-op).
         """
         if self._as400 is None:
             return SyncReport()
@@ -226,15 +233,15 @@ class IdempotencyCoordinator:
                 if hasattr(self._sqlite, "is_stage_done")
                 else False
             )
-            # Reading SQLite without a batch_id is ambiguous in the
-            # current API; for the v1 pre-flight, fall back to
-            # is_uploaded (cross-batch terminal state).
+            # Leer SQLite sin batch_id es ambiguo en la API actual;
+            # para el pre-flight v1 se cae a ``is_uploaded`` (estado
+            # terminal cross-`batch`).
             sqlite_done = self._sqlite.is_uploaded(txn)
             if row.stscod == "O" and not sqlite_done:
                 imported.append(txn)
             elif row.stscod != "O" and sqlite_done:
                 conflicts.append(txn)
-            # All other combinations are consistent — skip.
+            # Cualquier otra combinación es consistente: skip.
         report = SyncReport(
             imported_from_as400=imported,
             conflicts=conflicts,
@@ -253,11 +260,11 @@ class IdempotencyCoordinator:
     # ----- helpers ---------------------------------------------------
 
     def _safe_read(self, txn: str) -> NiarvilogRow | None:
-        """TRNNUM-only lookup for pre-flight (034 phase 4).
+        """Lookup pre-flight únicamente por TRNNUM (034 fase 4).
 
-        Uses the store's ``read_state_by_txn`` helper. Per the bank's
-        operational convention, each txn_num has at most one row in
-        NIARVILOG (the IMGARC of the first page).
+        Usa el helper ``read_state_by_txn`` del store. Por convención
+        operativa del banco, cada txn_num tiene como máximo una fila
+        en NIARVILOG (la del IMGARC de la primera página).
         """
         assert self._as400 is not None
         return self._as400.read_state_by_txn(trnnum=txn)

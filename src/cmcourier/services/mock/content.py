@@ -1,15 +1,17 @@
-"""Valid mock-file byte generator (031, REQ-017..REQ-026).
+"""Generador de bytes válidos para archivos mock (031, REQ-017..REQ-026).
 
-``MockContentWriter`` produces real PDFs (via :mod:`img2pdf`), real TIFFs
-(LZW-compressed via :mod:`PIL`), and real JPEGs (via :mod:`PIL`) targeting a
-byte-count band. The S4 :class:`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler`
-must be able to re-open every file produced here without exceptions.
+``MockContentWriter`` produce PDFs reales (vía :mod:`img2pdf`), TIFFs
+reales (comprimidos `LZW` vía :mod:`PIL`) y JPEGs reales (vía
+:mod:`PIL`) apuntando a una banda objetivo de bytes. El
+:class:`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler` de S4
+tiene que poder reabrir sin excepciones cada archivo producido acá.
 
-Size targeting is iterative, not closed-form: ``img2pdf`` × JPEG quality ×
-LZW × pixel entropy is non-linear. The writer iterates the fixed spectrum in
-:data:`_PROFILES_SMALL_TO_LARGE` and picks the attempt whose output falls
-inside ``[plan.size_min, plan.size_max]``; if none lands in-band, the
-closest-to-band attempt is written and a warning is logged.
+La búsqueda del tamaño es iterativa, no cerrada: ``img2pdf`` ×
+calidad de JPEG × `LZW` × entropía de pixel no es lineal. El writer
+itera el espectro fijo de :data:`_PROFILES_SMALL_TO_LARGE` y elige
+el intento cuyo output cae dentro de ``[plan.size_min,
+plan.size_max]``; si ninguno aterriza dentro de la banda, escribe
+el intento más cercano y loguea un warning.
 """
 
 from __future__ import annotations
@@ -30,21 +32,24 @@ _log = logging.getLogger(__name__)
 
 _DEFAULT_TOLERANCE = 0.10
 
-# (dims_wh, jpeg_quality, fill_mode). Ordered small → large output.
-# fill_mode: "grey" = solid grey (low entropy, compresses well); "random" =
-# full RGB noise (near-incompressible). Spectrum spans ~1 KB to ~40 MB
-# across the three formats: dense granularity in the 5-200 KB band (the
-# typical operator target) plus two large profiles (1500×1800 and
-# 3000×3600 random RGB) for production-realistic banking scans — TIFFs at
-# 300 DPI routinely run 5-15 MB per page in the real RVABREP corpus.
+# ``(dims_wh, jpeg_quality, fill_mode)``. Ordenado de output chico a
+# grande. ``fill_mode``: "grey" = gris sólido (baja entropía,
+# comprime bien); "random" = ruido RGB completo (casi
+# incomprimible). El espectro va de ~1 KB a ~40 MB entre los tres
+# formatos: granularidad densa en la banda de 5-200 KB (el objetivo
+# típico del operador) más dos perfiles grandes (1500×1800 y
+# 3000×3600 RGB aleatorio) para escaneos bancarios realistas de
+# producción: los TIFFs a 300 DPI rutinariamente pesan 5-15 MB por
+# página en el corpus RVABREP real.
 _PROFILES_SMALL_TO_LARGE: tuple[tuple[tuple[int, int], int, str], ...] = (
     ((100, 120), 30, "grey"),
     ((300, 400), 50, "grey"),
     ((80, 100), 70, "random"),
     ((200, 250), 80, "random"),
     ((500, 600), 90, "random"),
-    # Intermediates filling the 2-10 MB gap (TIFF LZW barely compresses random
-    # data, so size ≈ w × h × 3 bytes minus a small constant).
+    # Intermedios que rellenan el gap de 2-10 MB (`TIFF LZW` casi no
+    # comprime datos aleatorios, así que size ≈ w × h × 3 bytes menos
+    # una constante chica).
     ((800, 1000), 90, "random"),  # TIFF ≈ 2.3 MB
     ((1100, 1400), 91, "random"),  # TIFF ≈ 4.5 MB
     ((1500, 1800), 92, "random"),  # TIFF ≈ 10 MB
@@ -54,12 +59,13 @@ _PROFILES_SMALL_TO_LARGE: tuple[tuple[tuple[int, int], int, str], ...] = (
 
 
 class MockContentWriter:
-    """Write valid PDF/TIFF/JPEG bytes for a :class:`FilePlan`.
+    """Escribe bytes válidos de PDF/TIFF/JPEG para un :class:`FilePlan`.
 
-    ``seed=None`` uses system entropy; any integer (including ``0``) is a
-    deterministic seed. ``tolerance`` is retained for reporting symmetry with
-    the band check but is not the primary acceptance criterion: a result is
-    accepted when it lands inside ``[plan.size_min, plan.size_max]``.
+    ``seed=None`` usa la entropía del sistema; cualquier entero
+    (incluido ``0``) es una `seed` determinista. ``tolerance`` se
+    conserva por simetría de reporte con el chequeo de banda, pero
+    no es el criterio primario de aceptación: un resultado se acepta
+    cuando aterriza dentro de ``[plan.size_min, plan.size_max]``.
     """
 
     def __init__(
@@ -70,13 +76,14 @@ class MockContentWriter:
         self._rng = random.Random(seed)
         self._tolerance = tolerance
 
-    # ------------------------------------------------------------------ public
+    # ------------------------------------------------------------------ público
 
     def write(self, plan: FilePlan, target_dir: Path, *, force: bool) -> list[Path]:
-        """Create ``target_dir`` and write the plan's file(s).
+        """Crea ``target_dir`` y escribe el o los archivos del plan.
 
-        Returns the list of paths actually written, or ``[]`` if every target
-        already existed and ``force`` is false (idempotent re-run).
+        Devuelve la lista de paths efectivamente escritos, o ``[]`` si
+        cada destino ya existía y ``force`` es ``False`` (re-ejecución
+        idempotente).
         """
         target_dir.mkdir(parents=True, exist_ok=True)
         targets = [target_dir / f"{plan.file_code}{ext}" for ext in plan.extensions]
@@ -90,11 +97,11 @@ class MockContentWriter:
         elif plan.kind == "jpeg":
             for path in targets:
                 path.write_bytes(self._build_image_bytes(plan, "JPEG"))
-        else:  # pragma: no cover — planner enforces the kind union
+        else:  # pragma: no cover — el planner garantiza la unión de kinds
             raise ValueError(f"unknown FilePlan.kind {plan.kind!r}")
         return targets
 
-    # ----------------------------------------------------------------- builders
+    # ----------------------------------------------------------------- constructores
 
     def _build_pdf(self, plan: FilePlan) -> bytes:
         best_dist: int | None = None
@@ -102,8 +109,9 @@ class MockContentWriter:
         best_size = 0
         for dims, quality, fill in _PROFILES_SMALL_TO_LARGE:
             page_bytes = [self._render_jpeg_bytes(dims, quality, fill) for _ in range(plan.pages)]
-            # nodate=True suppresses img2pdf's default datetime.now() stamps so
-            # output is byte-deterministic for a fixed seed (REQ-024).
+            # ``nodate=True`` suprime los timestamps ``datetime.now()``
+            # que img2pdf agrega por defecto, de modo que el output
+            # sea byte-determinista para una `seed` fija (REQ-024).
             pdf_bytes: bytes = img2pdf.convert(page_bytes, nodate=True)
             size = len(pdf_bytes)
             dist = _distance_to_band(size, plan)
@@ -167,14 +175,15 @@ class MockContentWriter:
         w, h = dims
         if fill == "grey":
             return Image.new("RGB", (w, h), (128, 128, 128))
-        # "random" → near-incompressible pixel data.
+        # "random" → datos de pixel casi incomprimibles.
         data = self._rng.randbytes(w * h * 3)
         return Image.frombytes("RGB", (w, h), data)
 
 
 def _distance_to_band(size: int, plan: FilePlan) -> int:
-    """Return 0 if ``size`` is inside ``[plan.size_min, plan.size_max]``,
-    otherwise the byte distance to the nearest band edge.
+    """Devuelve 0 si ``size`` está dentro de
+    ``[plan.size_min, plan.size_max]``, en otro caso la distancia en
+    bytes al borde más cercano de la banda.
     """
     if size < plan.size_min:
         return plan.size_min - size

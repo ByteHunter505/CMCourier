@@ -1,11 +1,12 @@
-"""Single-doc trigger strategy (diagnostic pipeline).
+"""Estrategia de trigger single-doc (`pipeline` de diagnóstico).
 
-Yields exactly one :class:`TriggerRecord` built from caller-provided
-``shortname``, ``system_id``, and optional ``cif``. The trigger
-values come from CLI args, not from a data source.
+Yieldea exactamente un :class:`TriggerRecord` armado a partir de
+``shortname``, ``system_id`` y un ``cif`` opcional provistos por el
+caller. Los valores del trigger vienen de argumentos del CLI, no
+de una fuente de datos.
 
-Use case: operator pushes one specific client's documents without
-scanning a full batch.
+Caso de uso: el operador empuja los documentos de un cliente
+específico sin escanear un `batch` completo.
 """
 
 from __future__ import annotations
@@ -19,7 +20,8 @@ from cmcourier.domain.ports import S0Strategy
 
 
 class SingleDocTriggerStrategy(S0Strategy):
-    """S0 strategy that yields one TriggerRecord from CLI-provided args."""
+    """Estrategia de S0 que yieldea un único ``TriggerRecord`` a
+    partir de argumentos provistos por el CLI."""
 
     def __init__(
         self,
@@ -34,5 +36,5 @@ class SingleDocTriggerStrategy(S0Strategy):
         )
 
     def acquire(self, source_descriptor: str = "") -> Iterator[TriggerRecord]:
-        del source_descriptor  # vestigial port parameter
+        del source_descriptor  # parámetro vestigial del port
         yield self._trigger

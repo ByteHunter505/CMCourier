@@ -1,16 +1,20 @@
-"""Synthetic RVABREP CSV generator (039).
+"""Generador sintético de CSV de RVABREP (039).
 
-Streams a deterministic RVABREP CSV with the canonical column shape.
-One ``random.Random(seed)`` drives every choice so
-the same seed always produces byte-identical output. The output is
-consumed by the existing ``cmcourier mock generate`` (031) which
-materializes the physical files on disk.
+Streamea un CSV de RVABREP determinista con la forma canónica de
+columnas. Un único ``random.Random(seed)`` maneja cada elección,
+de modo que la misma `seed` siempre produce un output
+byte-identical. El output lo consume el comando existente
+``cmcourier mock generate`` (031) que materializa los archivos
+físicos en disco.
 
-Constitution:
-* Principle I — service module, stdlib + ``cmcourier.domain`` only.
-* Principle IV — streaming write (one row at a time via ``csv.writer``);
-  memory stays bounded for ``rows=1_000_000``.
-* Principle VI — pure functions per pick; ``random.Random`` injected.
+Constitución:
+
+* Principio I: módulo de servicio, solo stdlib + ``cmcourier.domain``.
+* Principio IV: escritura `streaming` (una fila por vez vía
+  ``csv.writer``); la memoria queda acotada para
+  ``rows=1_000_000``.
+* Principio VI: funciones puras por pick; ``random.Random``
+  inyectado.
 """
 
 from __future__ import annotations
@@ -32,14 +36,14 @@ from cmcourier.domain.exceptions import ConfigurationError
 from cmcourier.domain.models import parse_cymmdd
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuración
 # ---------------------------------------------------------------------------
 
 
-# Output column order — canonical ABA codes. Matches
-# IndexingColumnsModel defaults so the output is consumed by
-# ``mock generate`` and every downstream pipeline without a config
-# override.
+# Orden de columnas del output: códigos ABA canónicos. Coincide con
+# los defaults de ``IndexingColumnsModel`` para que el output sea
+# consumido por ``mock generate`` y por cada `pipeline` downstream
+# sin necesidad de overridear configuración.
 _HEADER: tuple[str, ...] = (
     "ABABCD",  # shortname / index1
     "ABAACD",  # system_id / system_code
@@ -60,7 +64,7 @@ _HEADER: tuple[str, ...] = (
 )
 
 
-# RVABREP image-type physical codes.
+# Códigos físicos de ``image_type`` en RVABREP.
 _IMAGE_TYPE_CODE: dict[str, str] = {
     "tiff": "B",
     "pdf": "O",
@@ -68,7 +72,7 @@ _IMAGE_TYPE_CODE: dict[str, str] = {
 }
 
 
-# File-name prefix letter per physical image-type code.
+# Letra prefijo de filename por código físico de ``image_type``.
 _FILE_PREFIX: dict[str, tuple[str, ...]] = {
     "B": ("D", "M"),
     "C": ("C",),
@@ -76,7 +80,7 @@ _FILE_PREFIX: dict[str, tuple[str, ...]] = {
 }
 
 
-# Lexicon for shortname generation. Small, banking-flavored, deterministic.
+# Léxico para generar shortnames. Chico, sabor bancario, determinista.
 _NAME_LEXICON: tuple[str, ...] = (
     "JUAN",
     "MARIA",
@@ -96,7 +100,7 @@ _NAME_LEXICON: tuple[str, ...] = (
 )
 
 
-# system_id distribution observed in RVILIB_RVABREP.xlsx.
+# Distribución de ``system_id`` observada en ``RVILIB_RVABREP.xlsx``.
 _SYSTEM_ID_WEIGHTS: tuple[tuple[str, float], ...] = (
     ("1", 0.70),
     ("5", 0.15),
@@ -105,14 +109,14 @@ _SYSTEM_ID_WEIGHTS: tuple[tuple[str, float], ...] = (
 )
 
 
-# Base32 alphabet (RFC 4648, upper) for txn_num bodies.
+# Alfabeto `Base32` (RFC 4648, mayúsculas) para los cuerpos de ``txn_num``.
 _BASE32: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 
 @dataclass(frozen=True, slots=True)
 class ImageMix:
-    """Image-type proportions. Values must be non-negative; renormalized
-    internally so they sum to 1.0."""
+    """Proporciones por tipo de imagen. Los valores deben ser no
+    negativos; se renormalizan internamente para que sumen 1.0."""
 
     tiff: float = 0.60
     pdf: float = 0.20
@@ -135,11 +139,12 @@ class ImageMix:
 
 @dataclass(frozen=True, slots=True)
 class RvabrepGenSpec:
-    """Frozen spec consumed by :func:`generate_rvabrep`.
+    """Spec congelada consumida por :func:`generate_rvabrep`.
 
-    ``idrvi_pool`` carries the caller-provided IDRVI set (deduped, ordered).
-    Distribution within the pool follows a Zipf-style weighting — the first
-    element receives the largest share, with rank-based decay.
+    ``idrvi_pool`` lleva el conjunto de IDRVIs provisto por el caller
+    (deduplicado y ordenado). La distribución dentro del pool sigue
+    una ponderación tipo Zipf: el primer elemento se lleva la
+    porción más grande y el resto decae según el rango.
     """
 
     rows: int
@@ -169,12 +174,12 @@ class RvabrepGenSpec:
 
 
 # ---------------------------------------------------------------------------
-# Per-column pickers
+# Pickers por columna
 # ---------------------------------------------------------------------------
 
 
 def _pick_image_type(rng: random.Random, mix: ImageMix) -> str:
-    """Return the physical image-type code (B/O/C)."""
+    """Devuelve el código físico de ``image_type`` (B/O/C)."""
     choices = mix.normalized()
     r = rng.random()
     cum = 0.0
@@ -186,7 +191,7 @@ def _pick_image_type(rng: random.Random, mix: ImageMix) -> str:
 
 
 def _pick_idrvi(rng: random.Random, pool: tuple[str, ...], alpha: float) -> str:
-    """Zipf-weighted draw from the IDRVI pool."""
+    """Sorteo del pool de IDRVIs ponderado por Zipf."""
     weights = [1.0 / ((i + 1) ** alpha) for i in range(len(pool))]
     return rng.choices(pool, weights=weights, k=1)[0]
 
@@ -202,9 +207,11 @@ def _pick_system_id(rng: random.Random) -> str:
 
 
 def _pick_txn_num(idx: int) -> str:
-    """Deterministic global-unique txn_num from a row index.
+    """``txn_num`` determinista y único global a partir del índice
+    de fila.
 
-    ``T`` prefix + 6 base32 chars. 32^6 = 1,073,741,824 distinct values.
+    Prefijo ``T`` + 6 caracteres `base32`. 32^6 = 1.073.741.824
+    valores distintos.
     """
     n = idx
     body = []
@@ -222,7 +229,8 @@ def _pick_creation_date(rng: random.Random, date_from: date, date_to: date) -> d
 
 
 def _pick_last_view_date(rng: random.Random, creation: date, date_to: date) -> str:
-    """``"0"`` with probability 0.9, otherwise CYYMMDD ≥ creation_date."""
+    """``"0"`` con probabilidad 0.9, en otro caso CYYMMDD ≥
+    ``creation_date``."""
     if rng.random() < 0.9:
         return "0"
     span_days = (date_to - creation).days
@@ -259,10 +267,12 @@ def _pick_cif(rng: random.Random) -> str:
 
 
 def _pick_client(rng: random.Random, client_idx: int) -> str:
-    """Build a deterministic shortname from a client index.
+    """Construye un shortname determinista a partir de un índice de
+    cliente.
 
-    Uses the lexicon + the index modulo so the same client_idx always
-    yields the same shortname. Two-digit numeric suffix.
+    Usa el léxico más el módulo del índice para que el mismo
+    ``client_idx`` siempre produzca el mismo shortname. Sufijo
+    numérico de dos dígitos.
     """
     base = _NAME_LEXICON[client_idx % len(_NAME_LEXICON)]
     suffix = (client_idx // len(_NAME_LEXICON)) % 100
@@ -270,26 +280,27 @@ def _pick_client(rng: random.Random, client_idx: int) -> str:
 
 
 def _to_cymmdd(d: date) -> str:
-    """Render a :class:`datetime.date` as the CYYMMDD string."""
+    """Renderiza un :class:`datetime.date` como cadena CYYMMDD."""
     century_flag = 1 if d.year >= 2000 else 0
     yy = d.year - (2000 if century_flag else 1900)
     return f"{century_flag}{yy:02d}{d.month:02d}{d.day:02d}"
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Punto de entrada público
 # ---------------------------------------------------------------------------
 
 
 def generate_rvabrep(spec: RvabrepGenSpec, out_path: Path) -> int:
-    """Stream a synthetic RVABREP CSV to *out_path*. Return rows written.
+    """Streamea un CSV sintético de RVABREP a *out_path*. Devuelve la
+    cantidad de filas escritas.
 
-    The output is opened with ``newline=""`` so :mod:`csv` controls line
-    endings (cross-platform deterministic).
+    El output se abre con ``newline=""`` para que :mod:`csv` controle
+    los `line endings` (determinista cross-platform).
     """
     rng = random.Random(spec.seed)
-    # Pre-pick the CIF and the per-client cardinality so the same client
-    # always carries the same CIF in the output.
+    # Pre-elegir el CIF y la cardinalidad por cliente para que el
+    # mismo cliente siempre lleve el mismo CIF en el output.
     client_cifs: list[str] = []
     for ci in range(spec.clients):
         ci_rng = random.Random(spec.seed * 10000 + ci)
@@ -349,7 +360,8 @@ def _build_row(
 
 
 def _validate_row(row: tuple[str, ...], idx: int) -> None:
-    """Cheap invariant check — raises ``ConfigurationError`` on failure."""
+    """Chequeo barato de invariantes; lanza ``ConfigurationError``
+    ante falla."""
     (
         shortname,
         _system_id,
@@ -410,7 +422,7 @@ def _validate_row(row: tuple[str, ...], idx: int) -> None:
             row_idx=str(idx),
             total_pages=str(total_pages),
         )
-    # Date parse — raises ValueError on bad CYYMMDD.
+    # Parseo de fecha: lanza ``ValueError`` ante un CYYMMDD inválido.
     try:
         parse_cymmdd(creation_str)
     except ValueError as exc:

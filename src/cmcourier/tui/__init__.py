@@ -1,4 +1,4 @@
-"""Two-tab live TUI for in-flight pipeline runs (025)."""
+"""TUI live de dos tabs para corridas de pipeline en vuelo (025)."""
 
 from __future__ import annotations
 

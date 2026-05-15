@@ -1,17 +1,18 @@
-"""``cmcourier cache`` subcommand suite (POST-MVP §9, 037 Phase 3).
+"""Suite del subcomando ``cmcourier cache`` (POST-MVP seccion 9, 037 Fase 3).
 
-Operator-facing surface over the cross-batch metadata cache:
+Superficie hacia el operador sobre el cache de metadata cross-batch:
 
-* ``cache stats`` — print row count + age range + in-memory hit /
-  miss counters (when the service ran in this process).
-* ``cache clear --txn <num>`` — delete one txn's rows.
-* ``cache clear --all`` — truncate the table.
-* ``cache clear --older-than <minutes>`` — purge rows older than N
-  minutes.
+* ``cache stats``: imprime cantidad de filas + rango de edad +
+  contadores de hit / miss en memoria (cuando el servicio corrio en
+  este proceso).
+* ``cache clear --txn <num>``: borra las filas de un txn.
+* ``cache clear --all``: truncea la tabla.
+* ``cache clear --older-than <minutes>``: purga filas mas viejas que
+  N minutos.
 
-The CLI opens its own ``SqliteDocumentCache`` against
-``config.tracking.db_path`` — no pipeline is wired up just for cache
-inspection.
+El CLI abre su propio ``SqliteDocumentCache`` contra
+``config.tracking.db_path``: no se cablea un pipeline solo para
+inspeccionar el cache.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from cmcourier.domain.exceptions import ConfigurationError
 
 @click.group(name="cache")
 def cache_group() -> None:
-    """Inspect or clean the cross-batch document_cache (037)."""
+    """Inspecciona o limpia el `document_cache` cross-batch (037)."""
 
 
 _CONFIG_OPT = click.option(
@@ -61,7 +62,7 @@ _CONFIG_OPT = click.option(
     show_default=True,
 )
 def cache_stats_command(config_path: Path, out_format: str) -> None:
-    """Print row count, oldest / newest cached_at."""
+    """Imprime cantidad de filas y los `cached_at` mas viejo / mas nuevo."""
     cache = _open_cache(config_path)
     try:
         stats = cache.stats()
@@ -102,7 +103,7 @@ def cache_clear_command(
     all_: bool,
     older_than_minutes: int | None,
 ) -> None:
-    """Delete entries by txn, age, or wipe the whole table."""
+    """Borra entradas por txn, por edad, o limpia la tabla entera."""
     chosen = sum(x is not None and x is not False for x in (txn, all_ or None, older_than_minutes))
     if chosen != 1:
         click.echo("cache clear requires exactly one of --txn, --all, --older-than", err=True)
@@ -125,7 +126,7 @@ def cache_clear_command(
 
 
 # ---------------------------------------------------------------------------
-# shared
+# compartido
 # ---------------------------------------------------------------------------
 
 

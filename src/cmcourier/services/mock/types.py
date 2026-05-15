@@ -1,7 +1,8 @@
-"""Shared types for the mock file generator (031, REQ-006).
+"""Tipos compartidos del generador de archivos mock (031, REQ-006).
 
-``FilePlan`` lives here (not in :mod:`planner`) so the planner and content
-writer can both import it without creating an import cycle.
+``FilePlan`` vive acá (no en :mod:`planner`) para que tanto el
+planner como el content writer puedan importarlo sin generar un
+ciclo de imports.
 """
 
 from __future__ import annotations
@@ -17,11 +18,11 @@ FileKind = Literal["pdf", "tiff", "jpeg"]
 
 @dataclass(frozen=True, slots=True)
 class FilePlan:
-    """One planned mock document on disk (REQ-006).
+    """Un documento mock planeado en disco (REQ-006).
 
-    A PDF plan emits a single file (``extensions=(".PDF",)``). A paged-image
-    plan (TIFF or JPEG) emits ``pages`` files named ``<file_code>.001`` …
-    ``<file_code>.<pages>``.
+    Un plan PDF emite un único archivo (``extensions=(".PDF",)``).
+    Un plan de imagen paginada (TIFF o JPEG) emite ``pages``
+    archivos llamados ``<file_code>.001`` … ``<file_code>.<pages>``.
     """
 
     dir_path: Path

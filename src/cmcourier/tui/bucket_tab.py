@@ -1,20 +1,22 @@
-"""BUCKET tab renderer (064 — streaming mode).
+"""Renderer del tab BUCKET (064 — modo `streaming`).
 
-In streaming mode the pipeline is one continuous producer-consumer
-loop: PREP workers (S1-S4) push prepared docs into a bounded
-**bucket** that S5 workers drain. The BUCKET tab gives the operator
-a live view of:
+En modo `streaming` la pipeline es un loop continuo de `producer`-
+`consumer`: los `worker`s de PREP (S1-S4) empujan docs preparados
+dentro de un **`bucket`** acotado del que los `worker`s de S5
+drenan. El tab BUCKET le da al operador una vista live de:
 
-* bucket level vs cap (back-pressure indicator)
-* peak bucket level since run start
-* PREP throughput (docs/s entering the bucket, 5s sliding window)
-* S5 throughput (docs/s leaving the bucket, 5s sliding window)
-* live worker counts (PREP busy/configured, S5 configured)
-* cumulative per-status counts (S5_DONE, S5_FAILED, S1_FILTERED,
-  S1_SKIPPED)
+* nivel del `bucket` vs cap (indicador de `back-pressure`)
+* pico del `bucket` desde el inicio de la corrida
+* throughput de PREP (docs/s entrando al `bucket`, ventana
+  deslizante de 5s)
+* throughput de S5 (docs/s saliendo del `bucket`, ventana
+  deslizante de 5s)
+* conteo live de `worker`s (PREP busy/configured, S5 configured)
+* conteos acumulativos por estado (S5_DONE, S5_FAILED,
+  S1_FILTERED, S1_SKIPPED)
 
-In batched mode the renderer prints a one-line stub directing the
-operator to the CHUNKS tab.
+En modo `batched` el renderer imprime un stub de una línea
+dirigiendo al operador al tab CHUNKS.
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ def render_bucket(snap: TUISnapshot) -> str:
         f"  PREP   {b.prep_in_flight:>3d} in-flight / {b.prep_workers:<3d} configured",
         f"  S5     up to {b.upload_workers:<3d} consumer threads",
     ]
-    # 065: per-lane block when heavy/light is active.
+    # 065: bloque por-`lane` cuando heavy/light está activo.
     if b.lane_snapshot is not None:
         lanes = b.lane_snapshot
         lines.extend(
@@ -95,7 +97,7 @@ def render_bucket(snap: TUISnapshot) -> str:
 
 
 def _summarise_chunks(snap: TUISnapshot) -> dict[str, int]:
-    """Read cumulative outcomes from the single synthetic chunk row."""
+    """Lee los resultados acumulativos de la única fila sintética de `chunk`."""
     s5_done = 0
     s5_failed = 0
     s1_filtered = snap.s1_filtered

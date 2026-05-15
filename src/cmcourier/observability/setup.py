@@ -1,20 +1,21 @@
-"""Install loggers, handlers, formatter, and PII filter.
+"""Instala loggers, handlers, formatter y filter de `PII`.
 
-Idempotent: each call removes existing handlers before installing
-fresh ones (tests re-invoke between cases without state leak).
+Idempotente: cada llamada remueve los handlers existentes antes de
+instalar los nuevos (los tests re-invocan entre casos sin que se filtre
+estado).
 
-Logger hierarchy:
+Jerarquía de loggers:
 
-* ``cmcourier`` — app events. stderr + rotating file handler.
-* ``cmcourier.metrics.pipeline`` — batch summaries (JSONL).
-* ``cmcourier.metrics.network`` — per-request timing (JSONL).
-* ``cmcourier.metrics.slow_ops`` — slow-ops per batch (handled by
-  :class:`MetricsRecorder`'s per-batch file; this logger exists
-  for the symmetry of the namespace).
+* ``cmcourier`` — eventos de la app. stderr + rotating file handler.
+* ``cmcourier.metrics.pipeline`` — resúmenes por batch (`JSONL`).
+* ``cmcourier.metrics.network`` — timing por request (`JSONL`).
+* ``cmcourier.metrics.slow_ops`` — `slow ops` por batch (lo maneja el
+  archivo por batch de :class:`MetricsRecorder`; este logger existe
+  por simetría del namespace).
 
-If ``stderr_only=True`` or ``config.enabled=False``, file handlers
-are not installed — only the stderr handler. The doctor's early
-fail path uses this when no config has been parsed yet.
+Si ``stderr_only=True`` o ``config.enabled=False``, no se instalan file
+handlers — solo el handler de stderr. El `early fail path` del doctor
+usa esto cuando todavía no se parseó ningún config.
 """
 
 from __future__ import annotations
@@ -47,26 +48,27 @@ def configure(
     stderr_only: bool = False,
     tui_active: bool = False,
 ) -> None:
-    """Install loggers, handlers, formatter, and PII filter.
+    """Instala loggers, handlers, formatter y filter de `PII`.
 
     Parameters
     ----------
     config:
-        ObservabilityConfig from the parsed pipeline config. If
-        ``None`` or ``stderr_only=True``, only the stderr handler
-        is installed.
+        ObservabilityConfig del config de pipeline parseado. Si es
+        ``None`` o ``stderr_only=True``, solo se instala el handler
+        de stderr.
     log_level:
-        Level for the stderr handler. File handlers always log at
-        INFO+ (DEBUG would explode rotation).
+        Nivel para el handler de stderr. Los file handlers siempre
+        loguean a INFO+ (DEBUG haría explotar la rotación).
     stderr_only:
-        Force the legacy path — no file handlers. Used by doctor
-        early-load failure handling.
+        Fuerza el `legacy path` — sin file handlers. Lo usa el manejo
+        de fallas de `early-load` del doctor.
     tui_active:
-        When ``True`` (041), the stderr StreamHandler is NOT attached
-        to ``cmcourier`` so Textual's frame is not stomped on by
-        ``log.info(...)`` calls during the run. Only the rotating
-        FileHandler receives records. Ignored when ``stderr_only=True``
-        (the doctor early-fail path still needs stderr no matter what).
+        Cuando es ``True`` (041), el StreamHandler de stderr NO se
+        ataca a ``cmcourier`` para que el frame de Textual no quede
+        pisoteado por llamadas a ``log.info(...)`` durante la corrida.
+        Solo el rotating FileHandler recibe records. Se ignora cuando
+        ``stderr_only=True`` (el `early-fail path` del doctor sigue
+        necesitando stderr sí o sí).
     """
     _reset_all_handlers()
 
@@ -75,17 +77,18 @@ def configure(
     text_formatter = logging.Formatter(_TEXT_FORMAT)
     json_formatter = JsonFormatter()
 
-    # ``cmcourier`` package logger: stderr handler unless the TUI is up;
-    # file handler when enabled. Propagation stays at the default (True)
-    # so pytest's ``caplog`` (which attaches at the root logger) keeps
-    # capturing records.
+    # Logger del paquete ``cmcourier``: handler de stderr salvo que la TUI
+    # esté activa; file handler cuando está habilitado. La propagación
+    # queda en el default (True) para que ``caplog`` de pytest (que se
+    # engancha en el root logger) siga capturando records.
     root = logging.getLogger("cmcourier")
     root.setLevel(min(level, logging.INFO))
 
-    # 041: skip the stderr handler when a Textual TUI is rendering the
-    # terminal — every emitted line would otherwise tear the frame.
-    # ``stderr_only=True`` overrides because that path is the doctor's
-    # early-fail diagnostic, which needs to print SOMEWHERE regardless.
+    # 041: saltea el handler de stderr cuando una TUI de Textual está
+    # renderizando la terminal — si no, cada línea emitida rompería el
+    # frame. ``stderr_only=True`` lo pisa porque ese path es el
+    # diagnóstico de `early-fail` del doctor, que necesita imprimir EN
+    # ALGÚN LADO sí o sí.
     if stderr_only or not tui_active:
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setFormatter(text_formatter)
@@ -94,13 +97,13 @@ def configure(
         root.addHandler(stderr_handler)
 
     if stderr_only or config is None or not config.enabled:
-        # Metrics loggers exist but with no handlers attached → emissions
-        # are no-ops (Python falls back to lastResort only on the root
-        # logger, which we don't touch).
+        # Los loggers de métricas existen pero sin handlers atacheados →
+        # las emisiones son no-ops (Python cae al lastResort solo en el
+        # root logger, al cual no tocamos).
         for name in _METRICS_LOGGERS:
             mlog = logging.getLogger(name)
             mlog.propagate = False
-            mlog.setLevel(logging.CRITICAL + 1)  # silent
+            mlog.setLevel(logging.CRITICAL + 1)  # silencioso
         return
 
     log_dir = config.log_dir
@@ -110,7 +113,7 @@ def configure(
     app_formatter = json_formatter if config.log_format == "json" else text_formatter
     rotation_bytes = int(config.rotation_mb) * 1024 * 1024
 
-    # App log handler (tier 1).
+    # Handler del log de la app (`tier` 1).
     app_handler = RotatingFileHandler(
         log_dir / f"app-{date_stamp}.log",
         maxBytes=rotation_bytes,
@@ -122,7 +125,7 @@ def configure(
     app_handler.addFilter(pii_filter)
     root.addHandler(app_handler)
 
-    # Pipeline metrics handler (tier 2).
+    # Handler de métricas de pipeline (`tier` 2).
     pipeline_log = logging.getLogger("cmcourier.metrics.pipeline")
     pipeline_log.propagate = False
     pipeline_log.setLevel(logging.INFO if config.pipeline_metrics else logging.CRITICAL + 1)
@@ -138,7 +141,7 @@ def configure(
         pipeline_handler.addFilter(pii_filter)
         pipeline_log.addHandler(pipeline_handler)
 
-    # Network metrics handler (tier 3).
+    # Handler de métricas de red (`tier` 3).
     network_log = logging.getLogger("cmcourier.metrics.network")
     network_log.propagate = False
     network_log.setLevel(logging.INFO if config.network_metrics else logging.CRITICAL + 1)
@@ -154,8 +157,8 @@ def configure(
         network_handler.addFilter(pii_filter)
         network_log.addHandler(network_handler)
 
-    # Slow-ops logger: per-batch file is owned by MetricsRecorder; this
-    # logger exists for namespace symmetry only.
+    # Logger de `slow ops`: el archivo por batch lo posee MetricsRecorder;
+    # este logger existe solo por simetría de namespace.
     slow_ops_log = logging.getLogger("cmcourier.metrics.slow_ops")
     slow_ops_log.propagate = False
     slow_ops_log.setLevel(logging.CRITICAL + 1)
@@ -168,10 +171,11 @@ def _reset_all_handlers() -> None:
             logger.removeHandler(handler)
             with contextlib.suppress(Exception):
                 handler.close()
-        # Reset propagation to default (True). Previous configure() may
-        # have switched it off on the metrics loggers; without resetting,
-        # later tests / runs inherit that state and caplog stops working.
+        # Resetea la propagación al default (True). Un configure() previo
+        # puede haberla desactivado en los loggers de métricas; sin reset,
+        # los tests/corridas posteriores heredan ese estado y caplog deja
+        # de funcionar.
         logger.propagate = True
-        # Reset the level so a previous "silenced" run doesn't suppress
-        # records on the next invocation.
+        # Resetea el nivel para que una corrida previa "silenciada" no
+        # suprima records en la próxima invocación.
         logger.setLevel(logging.NOTSET)

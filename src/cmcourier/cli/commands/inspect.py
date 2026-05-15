@@ -1,13 +1,13 @@
-"""``cmcourier inspect ...`` subcommands.
+"""Subcomandos de ``cmcourier inspect ...``.
 
-* ``inspect rvabrep <shortname> <system_id>`` — preview the
-  RVABREPDocuments stage S1 would produce for one trigger.
-* ``inspect mapping <id_rvi>`` — preview the CM mapping for one
-  ID RVI.
+* ``inspect rvabrep <shortname> <system_id>``: vista previa de los
+  `RVABREPDocuments` que la etapa S1 produciria para un trigger.
+* ``inspect mapping <id_rvi>``: vista previa del mapping de CM para
+  un `ID RVI`.
 
-Both commands build only the minimal services they need (no
-uploader, no assembler, no metadata layer) so they exit fast and
-avoid touching CMIS / the file server.
+Ambos comandos arman solo los servicios minimos que necesitan (sin
+uploader, sin assembler, sin capa de metadata) asi salen rapido y
+evitan tocar CMIS o el file server.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from cmcourier.services.triggers import (
 
 @click.group(name="inspect")
 def inspect_group() -> None:
-    """Read-only previews of pipeline state."""
+    """Vistas previas read-only del estado del pipeline."""
 
 
 @inspect_group.command(name="rvabrep")
@@ -67,7 +67,7 @@ def inspect_group() -> None:
 @click.argument("shortname", type=str)
 @click.argument("system_id", type=str)
 def inspect_rvabrep_command(config_path: Path, shortname: str, system_id: str) -> None:
-    """Print RVABREP rows that S1 would produce for the trigger."""
+    """Imprime las filas RVABREP que S1 produciria para el trigger."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     try:
@@ -114,7 +114,7 @@ def inspect_rvabrep_command(config_path: Path, shortname: str, system_id: str) -
 )
 @click.argument("id_rvi", type=str)
 def inspect_mapping_command(config_path: Path, id_rvi: str) -> None:
-    """Print the CM mapping (folder, type, fields) for one ID RVI."""
+    """Imprime el mapping de CM (folder, type, fields) para un `ID RVI`."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     mapping_service = build_mapping_service(config.mapping)
@@ -153,7 +153,7 @@ def _load(config_path: Path):  # type: ignore[no-untyped-def]
     required=True,
 )
 def inspect_mapping_stats_command(config_path: Path) -> None:
-    """Print a structured summary of the Modelo Documental."""
+    """Imprime un resumen estructurado del `Modelo Documental`."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     mapping_service = build_mapping_service(config.mapping)
@@ -207,7 +207,7 @@ def inspect_trigger_command(
     source_descriptor: str | None,
     limit: int,
 ) -> None:
-    """Preview the first N triggers from a configured or ad-hoc source."""
+    """Vista previa de los primeros N triggers desde un source configurado o ad-hoc."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
 
@@ -220,8 +220,9 @@ def inspect_trigger_command(
     if not records:
         click.echo("No triggers produced", err=True)
         return
-    # 046: triggers are polymorphic; use audit_row() to project the
-    # best-effort (shortname, cif, system_id) triple for display.
+    # 046: los triggers son polimorficos; usamos `audit_row()` para
+    # proyectar el triple `(shortname, cif, system_id)` best-effort para
+    # mostrar.
     rows = []
     for r in records:
         a = r.audit_row()
@@ -233,7 +234,7 @@ def _strategy_for_inspect(
     config: PipelineConfig,
     source_descriptor: str | None,
 ) -> tuple[S0Strategy, Callable[[], None]]:
-    """Build an S0Strategy + a cleanup callable to close any open sources."""
+    """Construye un `S0Strategy` + un callable de cleanup para cerrar los sources abiertos."""
     if source_descriptor is None:
         return _strategy_from_config(config)
     try:
@@ -264,19 +265,20 @@ def _strategy_from_descriptor(
             cif=parsed.cif,
         )
         return strategy, lambda: None
-    # parse_source_descriptor already rejected other schemes; defensive.
+    # `parse_source_descriptor` ya rechazo otros esquemas; defensivo.
     raise AssertionError(f"unhandled scheme: {parsed.scheme!r}")
 
 
 def _strategy_from_config(
     config: PipelineConfig,
 ) -> tuple[S0Strategy, Callable[[], None]]:
-    """Build a strategy from ``config.trigger`` using the existing wiring helper.
+    """Construye una `strategy` desde ``config.trigger`` usando el helper de wiring existente.
 
-    Inspect is read-only and does NOT require CMIS credentials; only AS400
-    trigger kinds need ``AS400_USERNAME`` / ``AS400_PASSWORD``. We try the
-    full secrets loader but fall back to an empty Secrets bundle so
-    csv/single_doc/rvabrep/local_scan configs Just Work without env vars.
+    `inspect` es read-only y NO requiere credenciales de CMIS; solo los
+    `trigger kinds` de AS400 necesitan ``AS400_USERNAME`` /
+    ``AS400_PASSWORD``. Probamos el loader de secrets completo pero
+    caemos a un bundle `Secrets` vacio asi las configs
+    csv/single_doc/rvabrep/local_scan Just Work sin env vars.
     """
     try:
         secrets = load_secrets()

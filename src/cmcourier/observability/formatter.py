@@ -1,10 +1,11 @@
-"""JSON Lines log formatter for the tier 1+ observability layer.
+"""Formatter de logs en JSON Lines para la capa de observabilidad `tier` 1+.
 
-One JSON object per ``logging.LogRecord``. Promotes a whitelist of
-structured ``extra={}`` fields to top-level keys so log shippers
-and ``jq`` queries can index them directly. Unknown extras are
-dropped to keep the schema stable (callers add new field names by
-updating ``_ALLOWED_EXTRA_FIELDS`` here).
+Un objeto JSON por cada ``logging.LogRecord``. Promueve un whitelist de
+campos estructurados de ``extra={}`` a claves de nivel superior para que
+los log shippers y queries de ``jq`` los puedan indexar directamente. Los
+extras no listados se descartan para mantener un schema estable (quien
+agrega nuevos nombres de campo lo hace actualizando
+``_ALLOWED_EXTRA_FIELDS`` acá).
 """
 
 from __future__ import annotations
@@ -15,9 +16,10 @@ import datetime as _dt
 import json
 import logging
 
-# Fields the formatter promotes from ``extra`` to top-level JSON keys.
-# Anything not listed here stays inside the record's __dict__ but is
-# not serialized — keeps the schema predictable for downstream tools.
+# Campos que el formatter promueve desde ``extra`` a claves de nivel
+# superior del JSON. Lo que no esté listado queda dentro del __dict__
+# del record pero no se serializa — mantiene el schema predecible para
+# las herramientas downstream.
 ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
     {
         "pipeline",
@@ -47,7 +49,7 @@ ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
         "timeout_before_s",
         "timeout_after_s",
         "action",
-        # 038: s5_upload_attempt / s5_upload_failed payload trace events.
+        # 038: eventos de trace del payload s5_upload_attempt / s5_upload_failed.
         "event",
         "url",
         "object_type_id",
@@ -58,7 +60,7 @@ ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
         "status_code",
         "response_body",
         "curl_equivalent",
-        # 045: s5_upload_409_recovery audit fields.
+        # 045: campos de auditoría de s5_upload_409_recovery.
         "recovered_object_id",
         "detail",
     }
@@ -66,7 +68,7 @@ ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
 
 
 class JsonFormatter(logging.Formatter):
-    """Render a ``LogRecord`` as a single-line JSON object."""
+    """Renderiza un ``LogRecord`` como un objeto JSON de una sola línea."""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, object] = {

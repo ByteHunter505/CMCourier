@@ -1,20 +1,21 @@
-"""Dual heavy/light lane coordination service (POST-MVP §1, 036).
+"""Servicio de coordinación de lanes duales `heavy`/`light` (POST-MVP §1, 036).
 
-Owns two :class:`ResizableSemaphore` instances and two
-:class:`WorkerPoolStats` counters — one per lane. Couples to AIMD
-via :meth:`set_total_budget` (AIMD owns the TOTAL worker count; this
-controller owns the distribution). A daemon thread periodically
-checks for drained lanes and migrates capacity to whichever lane
-still has work.
+Es dueño de dos :class:`ResizableSemaphore` y de dos contadores
+:class:`WorkerPoolStats` (uno por lane). Se acopla al `AIMD` vía
+:meth:`set_total_budget` (el `AIMD` es dueño de la cantidad TOTAL de
+workers; este controlador es dueño de la distribución). Un `thread`
+demonio chequea periódicamente lanes drenados y migra capacidad
+hacia el lane que aún tenga trabajo.
 
-Floor: each lane retains a minimum capacity of 1 (matches
-``ResizableSemaphore``'s ``max(1, n)`` guarantee). A "fully drained
-to other lane" event leaves the drained side with 1 reserve worker —
-harmless because no items means no acquire calls.
+`Floor`: cada lane retiene una capacidad mínima de 1 (coincide con
+la garantía ``max(1, n)`` del ``ResizableSemaphore``). Un evento
+"completamente drenado al otro lane" deja al lado drenado con 1
+worker de reserva: inofensivo, porque sin ítems no hay llamadas a
+acquire.
 
-Thread-safety: every public mutator takes the internal lock. Snapshot
-methods take the lock briefly to grab counters then release before
-returning frozen values.
+`Thread-safety`: todo mutator público toma el lock interno. Los
+métodos de snapshot toman el lock brevemente para capturar
+contadores y lo liberan antes de devolver los valores congelados.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class LaneSnapshot:
-    """Read-only view of both lanes at one instant. Consumed by the TUI."""
+    """Vista read-only de ambos lanes en un instante. La consume la TUI."""
 
     heavy: WorkerPoolStatsSnapshot
     light: WorkerPoolStatsSnapshot
@@ -48,17 +49,18 @@ class LaneSnapshot:
 
 
 class LaneController:
-    """Two ResizableSemaphores + drain-driven rebalance daemon.
+    """Dos `ResizableSemaphore` + daemon de rebalance dirigido por drenaje.
 
-    Lifecycle:
+    Ciclo de vida:
 
-    1. Constructor sets initial heavy/light split from
-       ``heavy_initial_ratio``.
-    2. :meth:`start` launches the rebalance daemon. Idempotent.
-    3. :meth:`acquire` / :meth:`release` for per-doc concurrency.
-    4. :meth:`set_total_budget` from the AIMD controller.
-    5. :meth:`stop` joins the daemon thread (call at pipeline
-       shutdown).
+    1. El constructor fija el split inicial `heavy`/`light` a partir
+       de ``heavy_initial_ratio``.
+    2. :meth:`start` lanza el daemon de rebalance. Es idempotente.
+    3. :meth:`acquire` / :meth:`release` para la concurrencia por
+       doc.
+    4. :meth:`set_total_budget` desde el controlador `AIMD`.
+    5. :meth:`stop` une el `thread` demonio (se llama al apagar el
+       `pipeline`).
     """
 
     def __init__(
@@ -85,28 +87,29 @@ class LaneController:
         self._idle_threshold_s = float(idle_threshold_s)
         self._clock = clock
         self._log = logger or _logger
-        # Drain tracking: when a lane's queue first reaches zero we
-        # stamp `_*_first_empty_at`. The rebalance heuristic migrates
-        # only after the lane has stayed empty for `idle_threshold_s`.
-        # ``None`` means the lane is currently non-empty (or has not
-        # yet been observed).
+        # Tracking de drenaje: cuando la `queue` de un lane llega a
+        # cero por primera vez se estampa ``_*_first_empty_at``. La
+        # heurística de rebalance migra recién después de que el lane
+        # permanece vacío durante ``idle_threshold_s``. ``None``
+        # significa que el lane actualmente no está vacío (o que
+        # todavía no fue observado).
         self._heavy_first_empty_at: float | None = None
         self._light_first_empty_at: float | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    # ----- initial split -----
+    # ----- split inicial -----
 
     @staticmethod
     def _initial_split(total: int, ratio: float) -> tuple[int, int]:
-        """Return ``(heavy, light)`` with both >= 1 and sum == total."""
+        """Devuelve ``(heavy, light)`` con ambos >= 1 y suma == total."""
         if total < 2:
-            return (1, 1)  # degenerate: floor applies, won't sum to total
+            return (1, 1)  # degenerado: aplica el `floor`, no sumará total
         heavy = max(1, math.ceil(total * ratio))
-        heavy = min(heavy, total - 1)  # leave at least 1 for light
+        heavy = min(heavy, total - 1)  # dejar al menos 1 para `light`
         return (heavy, total - heavy)
 
-    # ----- lifecycle -----
+    # ----- ciclo de vida -----
 
     def start(self) -> None:
         if self._thread is not None:
@@ -127,7 +130,7 @@ class LaneController:
         if thread is not None and thread.is_alive():
             thread.join(timeout=self._rebalance_interval_s * 2 + 1.0)
 
-    # ----- per-lane concurrency -----
+    # ----- concurrencia por lane -----
 
     def acquire(self, lane: Lane) -> None:
         sem = self._sem_for(lane)
@@ -147,12 +150,14 @@ class LaneController:
         self._stats_for(lane).mark_failed()
 
     def set_queue_depth(self, lane: Lane, depth: int) -> None:
-        """Record a queue-depth update for the given lane.
+        """Registra una actualización de profundidad de `queue` para
+        el lane indicado.
 
-        Side effect: tracks the moment the queue first reached zero
-        for the drain heuristic. The lane stays "currently empty"
-        until the next positive-depth update, at which point the
-        stamp is cleared. ``rebalance_tick`` migrates capacity when
+        Efecto colateral: trackea el momento en que la `queue` llegó
+        a cero por primera vez para la heurística de drenaje. El lane
+        permanece "actualmente vacío" hasta la próxima actualización
+        con profundidad positiva, momento en el cual se limpia el
+        sello. ``rebalance_tick`` migra capacidad cuando
         ``now - first_empty_at >= idle_threshold_s``.
         """
         self._stats_for(lane).set_queue_depth(depth)
@@ -169,12 +174,12 @@ class LaneController:
                 elif lane == "light" and self._light_first_empty_at is None:
                     self._light_first_empty_at = now
 
-    # ----- AIMD coupling -----
+    # ----- acoplamiento con `AIMD` -----
 
     def set_total_budget(self, new_total: int) -> None:
-        """AIMD hook: redistribute proportionally, preserving ratio.
+        """Hook del `AIMD`: redistribuye proporcionalmente preservando el ratio.
 
-        Each lane retains at least one slot when ``new_total >= 2``.
+        Cada lane retiene al menos un slot cuando ``new_total >= 2``.
         """
         new_total = max(2, int(new_total))
         with self._lock:
@@ -208,10 +213,10 @@ class LaneController:
     def light_capacity(self) -> int:
         return self._light_sem.capacity
 
-    # ----- rebalance loop -----
+    # ----- loop de rebalance -----
 
     def rebalance_tick(self) -> None:
-        """One iteration of the drain heuristic. Public for testing."""
+        """Una iteración de la heurística de drenaje. Pública para testing."""
         with self._lock:
             now = self._clock()
             heavy_idle_s = (
@@ -226,11 +231,12 @@ class LaneController:
             new_heavy = heavy_cap
             new_light = light_cap
             migrated_from: Lane | None = None
-            # When one lane has been empty long enough, migrate ALL
-            # capacity to the other. The drained lane keeps the
-            # ResizableSemaphore floor of 1 — but since its queue is
-            # empty no future acquire will happen on it, so that slot
-            # is effectively free.
+            # Cuando un lane permaneció vacío durante el tiempo
+            # suficiente, migra TODA la capacidad al otro. El lane
+            # drenado conserva el `floor` de 1 del
+            # ``ResizableSemaphore``, pero como su `queue` está vacía
+            # no va a haber acquires futuros sobre él, así que ese
+            # slot queda efectivamente libre.
             if heavy_idle_s >= self._idle_threshold_s and heavy_cap > 1:
                 new_heavy = 1
                 new_light = total
@@ -261,7 +267,7 @@ class LaneController:
             self.rebalance_tick()
             self._stop_event.wait(self._rebalance_interval_s)
 
-    # ----- internal -----
+    # ----- internos -----
 
     def _sem_for(self, lane: Lane) -> ResizableSemaphore:
         return self._heavy_sem if lane == "heavy" else self._light_sem

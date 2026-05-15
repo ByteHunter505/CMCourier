@@ -1,17 +1,16 @@
-"""Tier 5 observability — system resource sampling via ``psutil``.
+"""Observabilidad `tier` 5 — sampling de recursos del sistema vía ``psutil``.
 
-Background daemon thread that takes a snapshot of host- and
-process-level metrics every ``cfg.sample_interval_s`` seconds
-and appends one JSON line per sample to
-``{output_dir}/system-{date}.jsonl``.
+`Daemon thread` en background que toma un snapshot de métricas a nivel host y
+proceso cada ``cfg.sample_interval_s`` segundos y appendea una línea JSON
+por sample en ``{output_dir}/system-{date}.jsonl``.
 
-The first sample's delta-based fields (``disk_*_mbps``,
-``net_*_mbps``) are 0.0 — there's no baseline yet. Subsequent
-samples compute the per-second rate against the previous
-sample's counters. Errors from ``psutil`` are caught, logged at
-WARNING, and skipped — the thread never dies.
+Los campos basados en delta del primer sample (``disk_*_mbps``,
+``net_*_mbps``) son 0.0 — todavía no hay baseline. Los samples
+posteriores calculan la tasa por segundo contra los contadores del sample
+anterior. Los errores de ``psutil`` se capturan, se loguean en WARNING y
+se saltean — el thread nunca muere.
 
-See spec 026, REQ-005..REQ-016.
+Ver spec 026, REQ-005..REQ-016.
 """
 
 from __future__ import annotations
@@ -60,11 +59,11 @@ class SystemSample:
 
 
 class SystemMetricsSampler:
-    """Daemon-thread tier-5 sampler.
+    """Sampler de `tier` 5 en `daemon thread`.
 
-    Construct it before the pipeline run; call ``start()`` when
-    the run begins and ``stop()`` in a ``finally:`` block. Safe
-    to call ``start()`` / ``stop()`` multiple times.
+    Construirlo antes de la corrida del pipeline; llamar a ``start()`` al
+    arrancar la corrida y a ``stop()`` en un bloque ``finally:``. Es
+    seguro llamar a ``start()`` / ``stop()`` varias veces.
     """
 
     def __init__(
@@ -79,23 +78,24 @@ class SystemMetricsSampler:
         self._pool_stats = pool_stats
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        # psutil.cpu_percent() returns 0.0 on its first call — seed it now
-        # so the first real sample has a meaningful value.
+        # psutil.cpu_percent() devuelve 0.0 en su primera llamada — la
+        # seedeamos ahora para que el primer sample real tenga un valor
+        # significativo.
         psutil.cpu_percent(interval=None)
         self._process = psutil.Process()
-        self._process.cpu_percent(interval=None)  # seed per-process CPU too
-        self._prev_disk: Any = None  # psutil sdiskio | None — see _take_sample
+        self._process.cpu_percent(interval=None)  # también seedea CPU por proceso
+        self._prev_disk: Any = None  # psutil sdiskio | None — ver _take_sample
         self._prev_net: Any = None
         self._prev_ts: float | None = None
 
-    # ----- public API ------------------------------------------------
+    # ----- API pública ------------------------------------------------
 
     @property
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
     def attach_pool_stats(self, stats: WorkerPoolStats) -> None:
-        """Late-bind the worker pool reference (REQ-006)."""
+        """`Late-bind` de la referencia al worker pool (REQ-006)."""
         self._pool_stats = stats
 
     def start(self) -> None:
@@ -117,7 +117,7 @@ class SystemMetricsSampler:
         self._thread.join(timeout=2.0)
         self._thread = None
 
-    # ----- internals -------------------------------------------------
+    # ----- internos -------------------------------------------------
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -132,10 +132,11 @@ class SystemMetricsSampler:
         now = time.monotonic()
         cpu_pct = float(psutil.cpu_percent(interval=None))
         vm = psutil.virtual_memory()
-        # psutil's stubs type these as ``sdiskio | None`` / ``snetio | None``
-        # (None when counters wrap on some platforms). We treat None as
-        # "no measurement available this tick" — same path as the first
-        # call. Cast through Any so the arithmetic below stays readable.
+        # Los stubs de psutil tipan esto como ``sdiskio | None`` /
+        # ``snetio | None`` (None cuando los contadores wrappean en algunas
+        # plataformas). Tratamos None como "no hay medición disponible en
+        # este tick" — mismo path que la primera llamada. Casteamos a
+        # través de Any para que la aritmética de abajo quede legible.
         disk: Any = psutil.disk_io_counters()
         net: Any = psutil.net_io_counters()
 
@@ -183,13 +184,14 @@ class SystemMetricsSampler:
 
     @staticmethod
     def _rate_mbps(delta_bytes: int, elapsed_s: float) -> float:
-        """Convert a byte delta + elapsed window into megabits-per-second."""
+        """Convierte un delta de bytes + ventana transcurrida en megabits por segundo."""
         if delta_bytes <= 0 or elapsed_s <= 0:
             return 0.0
         return (delta_bytes * _BITS_PER_BYTE) / (elapsed_s * _BYTES_PER_MB)
 
     def _write_sample(self, sample: SystemSample) -> None:
-        # Re-resolve filename on every write to support cross-midnight rotation.
+        # Re-resuelve el filename en cada escritura para soportar la
+        # rotación cuando cruza la medianoche.
         target = self._output_dir / f"system-{_dt.date.today().isoformat()}.jsonl"
         with target.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(sample), separators=(",", ":")) + "\n")
@@ -200,7 +202,7 @@ def build_sampler(
     *,
     log_dir: Path,
 ) -> SystemMetricsSampler | None:
-    """Factory — returns ``None`` when tier 5 is disabled."""
+    """Factory — devuelve ``None`` cuando el `tier` 5 está deshabilitado."""
     sys_cfg = observability_cfg.system_metrics
     if not sys_cfg.enabled:
         return None

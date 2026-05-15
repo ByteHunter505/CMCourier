@@ -1,21 +1,24 @@
-"""Heavy/Light lane splitter for S5 upload dispatch (POST-MVP §1, 036).
+"""Splitter de lanes `heavy`/`light` para el `dispatch` de upload en
+S5 (POST-MVP §1, 036).
 
-Pure-function service: takes a list of items and returns a
-:class:`LaneAssignment` partitioning them into a ``heavy`` lane and a
-``light`` lane based on per-item size.
+Servicio de función pura: toma una lista de ítems y devuelve un
+:class:`LaneAssignment` que los particiona en un lane ``heavy`` y un
+lane ``light`` según el tamaño por ítem.
 
-Rules:
+Reglas:
 
-1. If ``len(items) < min_batch`` → ``is_single_lane = True``, all
-   items go in ``light`` (caller falls back to single-pool path).
-2. Otherwise partition by ``size_of(item) >= threshold_bytes``.
-3. **Degenerate fallback**: if either partition would be empty after
-   the split, collapse back to single-lane
-   (``is_single_lane = True``) — running a "dual lane" with one side
-   empty is the same as single, only with extra coordination cost.
+1. Si ``len(items) < min_batch`` → ``is_single_lane = True`` y
+   todos los ítems van al lane ``light`` (el caller cae al path de
+   `pool` único).
+2. En caso contrario, particiona por ``size_of(item) >= threshold_bytes``.
+3. **Fallback degenerado**: si alguna de las particiones quedaría
+   vacía tras el split, colapsa de vuelta a lane único
+   (``is_single_lane = True``): correr "lane dual" con un lado vacío
+   es equivalente al lane único, solo con costo adicional de
+   coordinación.
 
-Constitution Principle I: domain-only imports + stdlib. No adapter
-or service dependencies.
+Principio I de la Constitución: imports solo de domain + stdlib.
+Sin dependencias de adapter ni de service.
 """
 
 from __future__ import annotations
@@ -33,11 +36,11 @@ _T = TypeVar("_T")
 
 @dataclass(frozen=True, slots=True)
 class LaneAssignment(Generic[_T]):
-    """Result of a lane split.
+    """Resultado de un split de lane.
 
-    ``is_single_lane`` is the gate the caller uses to pick the
-    legacy single-pool path. When ``True``, ``heavy`` is empty and
-    ``light`` carries every input item.
+    ``is_single_lane`` es el `gate` que usa el caller para elegir el
+    path legacy de `pool` único. Cuando es ``True``, ``heavy`` está
+    vacío y ``light`` contiene cada ítem de entrada.
     """
 
     heavy: tuple[_T, ...]
@@ -52,10 +55,10 @@ def split(
     min_batch: int,
     size_of: Callable[[_T], int],
 ) -> LaneAssignment[_T]:
-    """Partition *items* into heavy/light lanes.
+    """Particiona *items* en lanes `heavy`/`light`.
 
-    Stable order: each lane keeps the input order of the items that
-    landed in it.
+    Orden estable: cada lane conserva el orden de entrada de los
+    ítems que cayeron en él.
     """
     if len(items) < min_batch:
         return LaneAssignment(heavy=(), light=tuple(items), is_single_lane=True)
@@ -69,8 +72,8 @@ def split(
             light.append(item)
 
     if not heavy or not light:
-        # Degenerate: every item landed on one side. Single-lane is
-        # equivalent and skips the coordination overhead.
+        # Degenerado: todos los ítems cayeron en un lado. El lane único
+        # es equivalente y evita el overhead de coordinación.
         return LaneAssignment(heavy=(), light=tuple(items), is_single_lane=True)
 
     return LaneAssignment(

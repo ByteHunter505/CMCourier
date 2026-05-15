@@ -1,14 +1,15 @@
-"""Parser for ``--source <descriptor>`` mini-language (023).
+"""Parser del mini-lenguaje ``--source <descriptor>`` (023).
 
-Two schemes carry enough info in CLI args to build an S0Strategy
-end-to-end:
+Dos esquemas llevan informacion suficiente en los args del CLI como
+para construir un `S0Strategy` de punta a punta:
 
-* ``csv:<path>`` — path to a trigger CSV.
-* ``single_doc:<shortname>,<system_id>[,<cif>]`` — one-off trigger.
+* ``csv:<path>``: path a un CSV de triggers.
+* ``single_doc:<shortname>,<system_id>[,<cif>]``: trigger one-off.
 
-Other schemes (``rvabrep:``, ``as400:``, ``local_scan:``) need
-richer config than CLI args can carry; we reject with a clear
-hint pointing operators at the YAML's ``trigger.kind``.
+Los otros esquemas (``rvabrep:``, ``as400:``, ``local_scan:``)
+necesitan mas config de la que pueden cargar los args del CLI;
+rechazamos con un hint claro que apunta a los operadores al
+``trigger.kind`` del YAML.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ _NEEDS_YAML: frozenset[str] = frozenset({"rvabrep", "as400", "local_scan"})
 
 @dataclass(frozen=True, slots=True)
 class ParsedDescriptor:
-    """Outcome of parsing a ``--source <value>`` string."""
+    """Resultado de parsear un string ``--source <value>``."""
 
     scheme: str
     path: Path | None = None
@@ -35,10 +36,10 @@ class ParsedDescriptor:
 
 
 def parse_source_descriptor(value: str) -> ParsedDescriptor:
-    """Parse a ``scheme:body`` descriptor.
+    """Parsea un descriptor ``scheme:body``.
 
-    Raises ``ConfigurationError`` for unknown / unsupported
-    schemes, with operator-readable guidance.
+    Levanta ``ConfigurationError`` para esquemas desconocidos /
+    no soportados, con guia legible para el operador.
     """
     if ":" not in value:
         raise ConfigurationError(

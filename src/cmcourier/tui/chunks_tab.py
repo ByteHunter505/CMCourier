@@ -1,9 +1,10 @@
-"""CHUNKS tab renderer (030 — multi-batch live view, 041 — full breakdown).
+"""Renderer del tab CHUNKS (030 — vista live multi-batch, 041 — desglose completo).
 
-For single-batch runs (``batches_in_flight=1``) the tab is empty (no
-chunks). For ``batches_in_flight=2`` every chunk lights up as it moves
-through QUEUED → PREP → UPLOAD → DONE (or FAILED), with per-stage
-done/skip/fail counts + elapsed wall-clock + an aggregate TOTAL row.
+Para corridas single-batch (``batches_in_flight=1``) el tab está
+vacío (sin `chunk`s). Para ``batches_in_flight=2`` cada `chunk` se
+enciende a medida que pasa por QUEUED → PREP → UPLOAD → DONE
+(o FAILED), con conteos done/skip/fail por `stage` + wall-clock
+elapsed + una fila TOTAL agregada.
 """
 
 from __future__ import annotations
@@ -20,20 +21,20 @@ _STATUS_GLYPH: dict[str, str] = {
     "FAILED": "✗",
 }
 
-# A stage that hasn't started yet renders all its slots as this dash so the
-# table reads as "we haven't done that work yet" rather than "we did it,
-# zero outcomes".
+# Un `stage` que aún no arrancó renderiza todos sus slots con este guion
+# para que la tabla se lea como "todavía no hicimos ese trabajo" en lugar
+# de "lo hicimos, cero resultados".
 _DASH = "—"
 
 
 def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
-    """Return a multi-line string describing every chunk's per-stage state.
+    """Devuelve un string multi-línea que describe el estado por-`stage` de cada `chunk`.
 
-    The default ``width`` of 92 cols is wider than the rest of the TUI
-    (~80) because the breakdown table needs both PREP and UPLOAD blocks
-    side-by-side. Operators viewing the TUI on a standard 80-col terminal
-    see the table wrap visually — that's acceptable: the CHUNKS tab is a
-    "lean closer" view, not a glance view.
+    El ``width`` por defecto de 92 cols es más ancho que el resto del TUI
+    (~80) porque la tabla de desglose necesita los bloques PREP y UPLOAD
+    lado a lado. Los operadores que ven el TUI en una terminal estándar
+    de 80 cols ven la tabla wrappeada visualmente — es aceptable: el tab
+    CHUNKS es una vista de "acercate a mirar", no una de un vistazo.
     """
     lines: list[str] = []
     lines.append(f"CHUNKS — pipeline {snap.pipeline}")
@@ -109,7 +110,7 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
             elapsed_s=upload_elapsed,
             has_started=status in ("UPLOAD", "DONE", "FAILED"),
         )
-        # 052: per-chunk UPLOAD throughput — bytes/sec and docs/sec.
+        # 052: throughput de UPLOAD por `chunk` — bytes/sec y docs/sec.
         rate_cell = _rate_cell(total_bytes, upload_done, upload_elapsed)
 
         lines.append(
@@ -117,8 +118,9 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
             f"{prep_cell:<22}  {upload_cell:<22}  {rate_cell:<16}  {glyph} {status:<8}"
         )
 
-        # Aggregate. QUEUED rows contribute their plan (docs/bytes) but no
-        # outcomes — matches what the operator expects from the TOTAL row.
+        # Agrega. Las filas QUEUED contribuyen con su plan (docs/bytes)
+        # pero sin resultados — coincide con lo que el operador espera
+        # de la fila TOTAL.
         totals["docs"] += doc_count
         totals["bytes"] += total_bytes
         totals["prep_done"] += prep_done
@@ -166,10 +168,10 @@ def render_chunks(snap: TUISnapshot, *, width: int = 92) -> str:
 
 
 def _rate_cell(total_bytes: int, docs: int, elapsed_s: float) -> str:
-    """052: format the UPLOAD throughput cell — ``MB/s · docs/s``.
+    """052: formatea la celda de throughput de UPLOAD — ``MB/s · docs/s``.
 
-    A non-positive ``elapsed_s`` (stage not started, or instant) renders a
-    dash instead of dividing by zero.
+    Un ``elapsed_s`` no positivo (`stage` no arrancado, o instantáneo)
+    renderiza un guion en vez de dividir por cero.
     """
     if elapsed_s <= 0:
         return f"{_DASH} · {_DASH}"
@@ -187,14 +189,16 @@ def _stage_cell(
     has_started: bool,
     filtered: int | None = None,
 ) -> str:
-    """Format one ``done/skip/fail (elapsed)`` cell.
+    """Formatea una celda ``done/skip/fail (elapsed)``.
 
-    When ``has_started`` is False (e.g. QUEUED rows for the UPLOAD stage),
-    renders dashes so an operator does not mistake "not yet" for "zero".
+    Cuando ``has_started`` es False (p.ej. filas QUEUED para el `stage`
+    UPLOAD), renderiza guiones para que el operador no confunda
+    "todavía no" con "cero".
 
-    051: the PREP cell passes ``filtered`` (delete-coded RVABREP rows
-    excluded at S1) → the cell renders ``done/skip/fail/filtered``. The
-    UPLOAD cell leaves it ``None`` → the classic three-way breakdown.
+    051: la celda PREP pasa ``filtered`` (filas RVABREP con código de
+    baja excluidas en S1) → la celda renderiza
+    ``done/skip/fail/filtered``. La celda UPLOAD lo deja ``None`` → el
+    desglose clásico de tres vías.
     """
     if not has_started:
         tail = f"/{_DASH}" if filtered is not None else ""

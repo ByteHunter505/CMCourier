@@ -1,4 +1,4 @@
-"""PREP tab renderer (025 phase 3)."""
+"""Renderer del tab PREP (025 fase 3)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _STAGE_LABELS: dict[str, str] = {
 
 
 def render_prep(snap: TUISnapshot, *, width: int = 76) -> str:
-    """Build the PREP tab body as a multi-line string."""
+    """Construye el cuerpo del tab PREP como un string multi-línea."""
     lines: list[str] = []
     for stage in PREP_STAGES:
         info = snap.stages.get(stage, {})
@@ -29,8 +29,9 @@ def render_prep(snap: TUISnapshot, *, width: int = 76) -> str:
             f"{count:>6}  p50 {p50:>7.1f} ms  p95 {p95:>7.1f} ms"
         )
     lines.append("")
-    # 051: docs the pipeline filtered at S1 — delete-coded RVABREP rows.
-    # Not done, not skipped, not failed: correctly excluded at source.
+    # 051: docs que la pipeline filtró en S1 — filas RVABREP con código
+    # de baja. No done, no skipped, no failed: correctamente excluidos
+    # en la fuente.
     lines.append(f"  FILTERED (S1, deleted at source)  {snap.s1_filtered:>6}")
     lines.append("")
     lines.append(" SLOW OPS (PREP, top 5)")
@@ -62,7 +63,7 @@ def _bar(value: int, target: int, *, width: int) -> str:
 
 
 def _stage_target(snap: TUISnapshot, stage: str) -> int:
-    """Best-effort upper bound for the progress bar — the largest count
-    seen across S0..S5 (since S0 is the triggers total)."""
+    """Cota superior best-effort para la barra de progreso — el conteo
+    más grande visto entre S0..S5 (ya que S0 es el total de triggers)."""
     counts = [int(s.get("count", 0)) for s in snap.stages.values()]
     return max(counts, default=0)

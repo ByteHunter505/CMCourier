@@ -1,7 +1,9 @@
-"""Suffix-aware byte-count parser for the mock file generator (031, REQ-001..REQ-004).
+"""Parser de conteo de bytes con conciencia de sufijos para el
+generador de archivos mock (031, REQ-001..REQ-004).
 
-Pure module. Binary units (``1 kb = 1024``). Whitespace tolerated. Suffix optional
-(treated as raw bytes). Invalid input raises :class:`ValueError`.
+Módulo puro. Unidades binarias (``1 kb = 1024``). Tolera whitespace.
+Sufijo opcional (se trata como bytes crudos). Input inválido lanza
+:class:`ValueError`.
 """
 
 from __future__ import annotations
@@ -25,14 +27,14 @@ _MULT: dict[str | None, int] = {
 
 
 def parse_size(text: str) -> int:
-    """Return the byte count encoded by *text*.
+    """Devuelve la cantidad de bytes codificada por *text*.
 
-    Accepts a non-negative integer or decimal value followed by an optional
-    binary-unit suffix (``b``/``kb``/``mb``/``gb``, case-insensitive). Missing
-    suffix is treated as bytes. Whitespace around the value and suffix is
-    tolerated.
+    Acepta un valor entero o decimal no negativo seguido por un
+    sufijo opcional de unidad binaria (``b``/``kb``/``mb``/``gb``,
+    case-insensitive). Sin sufijo se interpreta como bytes. Tolera
+    whitespace alrededor del valor y el sufijo.
 
-    Raises ``ValueError`` if *text* does not match this grammar.
+    Lanza ``ValueError`` si *text* no matchea esta gramática.
     """
     match = _RE.match(text)
     if match is None:

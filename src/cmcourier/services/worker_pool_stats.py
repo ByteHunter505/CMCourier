@@ -1,13 +1,15 @@
-"""Thread-safe counters for the S5 worker pool (025).
+"""Contadores `thread-safe` para el `worker pool` de S5 (025).
 
-The pool itself is a :class:`concurrent.futures.ThreadPoolExecutor`
-in :mod:`cmcourier.orchestrators.staged`; this module just owns
-the *visible state* the TUI and the auto-tune controller need to
-read.
+El `pool` en sí es un
+:class:`concurrent.futures.ThreadPoolExecutor` en
+:mod:`cmcourier.orchestrators.staged`; este módulo solo es dueño
+del *estado visible* que la TUI y el controlador de auto-tune
+necesitan leer.
 
-Snapshots are frozen ``WorkerPoolStatsSnapshot`` values — no
-references back into mutable state — so consumers can compare /
-log / render them safely from any thread.
+Los snapshots son valores ``WorkerPoolStatsSnapshot`` congelados
+(sin referencias de vuelta al estado mutable), de modo que los
+consumidores pueden compararlos, loguearlos o renderizarlos de
+manera segura desde cualquier `thread`.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from types import TracebackType
 
 @dataclass(frozen=True, slots=True)
 class WorkerPoolStatsSnapshot:
-    """Read-only view of the S5 pool at one instant."""
+    """Vista read-only del `pool` de S5 en un instante."""
 
     pool_size: int
     busy: int
@@ -32,16 +34,16 @@ class WorkerPoolStatsSnapshot:
 
 
 class WorkerPoolStats:
-    """Mutable, thread-safe S5 pool counters.
+    """Contadores mutables y `thread-safe` del `pool` de S5.
 
-    Hooks called from the orchestrator's worker submission /
-    completion path:
+    Hooks que llama el orchestrator desde el path de submisión y
+    finalización de workers:
 
-    * ``set_pool_size`` — called once at S5 entry, again on every
-      auto-tune resize (Phase 2 of 025).
-    * ``mark_busy`` / ``mark_idle`` — bracket each upload.
-    * ``mark_completed`` / ``mark_failed`` — per-doc outcome.
-    * ``set_queue_depth`` — every ``as_completed`` tick.
+    * ``set_pool_size``: una vez al entrar a S5, y otra vez en cada
+      resize de auto-tune (Fase 2 de 025).
+    * ``mark_busy`` / ``mark_idle``: encierran cada upload.
+    * ``mark_completed`` / ``mark_failed``: resultado por doc.
+    * ``set_queue_depth``: en cada `tick` de ``as_completed``.
     """
 
     def __init__(self) -> None:
@@ -52,14 +54,14 @@ class WorkerPoolStats:
         self._failed = 0
         self._queue_depth = 0
 
-    # ------------------------------------------------------- mutators
+    # ------------------------------------------------------- mutadores
 
     def set_pool_size(self, n: int) -> None:
         with self._lock:
             self._pool_size = max(0, int(n))
 
     def mark_busy(self, worker_name: str) -> None:
-        del worker_name  # reserved for future per-worker stats
+        del worker_name  # reservado para futuras stats por worker
         with self._lock:
             self._busy += 1
 
@@ -100,21 +102,23 @@ class WorkerPoolStats:
 
 
 class ResizableSemaphore:
-    """Soft-cap concurrency limiter that supports runtime resize.
+    """Limitador de concurrencia con `soft-cap` que soporta resize en
+    runtime.
 
-    Python's :class:`threading.Semaphore` has a fixed initial value and
-    no public resize API. Our auto-tune controller wants to dial the
-    effective parallelism up and down without tearing down the
-    underlying ``ThreadPoolExecutor``. This class wraps a
-    :class:`threading.Condition` + counter pair so:
+    El :class:`threading.Semaphore` de Python tiene un valor inicial
+    fijo y no expone API pública de resize. Nuestro controlador de
+    auto-tune quiere ajustar la concurrencia efectiva hacia arriba o
+    abajo sin desarmar el ``ThreadPoolExecutor`` subyacente. Esta
+    clase envuelve una :class:`threading.Condition` y un contador
+    para que:
 
-    * :meth:`acquire` blocks while ``in_use >= capacity``.
-    * :meth:`release` decrements and wakes one waiter.
-    * :meth:`set_capacity` adjusts the cap and wakes any waiters that
-      now fit.
+    * :meth:`acquire` bloquee mientras ``in_use >= capacity``.
+    * :meth:`release` decremente y despierte a un waiter.
+    * :meth:`set_capacity` ajuste el cap y despierte a los waiters
+      que ahora entran.
 
-    Use as a context manager (``with sem: ...``) to acquire/release
-    inside one block.
+    Usar como `context manager` (``with sem: ...``) para hacer
+    acquire/release dentro de un solo bloque.
     """
 
     def __init__(self, capacity: int) -> None:

@@ -1,17 +1,17 @@
-"""Legacy CLI logging shim — delegates to ``cmcourier.observability.setup``.
+"""Shim legado de logging para el CLI: delega en ``cmcourier.observability.setup``.
 
-Pre-020 the CLI shipped a stderr-only text logger here. 020 moved
-the real implementation to ``cmcourier.observability.setup``; this
-module remains as a thin shim so:
+Antes de 020 el CLI traia aca un logger de texto solo-stderr. 020 movio
+la implementacion real a ``cmcourier.observability.setup``; este modulo
+queda como un shim fino para que:
 
-* The ``configure(level)`` signature keeps working for callers that
-  do not yet have a parsed config (doctor's early-load failure
-  path).
-* The legacy stderr-only behavior is preserved.
+* La firma ``configure(level)`` siga funcionando para los callers que
+  todavia no tienen una config parseada (camino de falla temprana de
+  carga del doctor).
+* Se preserve el comportamiento legado solo-stderr.
 
-CLI entry points that have a parsed config call
-:func:`cmcourier.observability.setup.configure` directly with the
-``config.observability`` block.
+Los entry points del CLI que ya tienen una config parseada llaman
+:func:`cmcourier.observability.setup.configure` directamente con el
+bloque ``config.observability``.
 """
 
 from __future__ import annotations
@@ -22,5 +22,5 @@ from cmcourier.observability.setup import configure as _configure_observability
 
 
 def configure(level: str = "INFO") -> None:
-    """Install a stderr-only logger. Used before config parsing."""
+    """Instala un logger solo-stderr. Se usa antes de parsear la config."""
     _configure_observability(None, level, stderr_only=True)

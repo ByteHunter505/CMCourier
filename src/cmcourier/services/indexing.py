@@ -1,23 +1,27 @@
-"""Stage S1 — :class:`IndexingService`.
+"""Stage S1: :class:`IndexingService`.
 
-Given a :class:`TriggerRecord`, find every non-deleted
-:class:`RVABREPDocument` that matches it on ``(shortname, system_id)``. CIF
-is intentionally NOT a filter here — CIF self-healing is the responsibility
-of Stage S3 (Metadata).
+Dado un :class:`TriggerRecord`, encuentra cada
+:class:`RVABREPDocument` no borrado que matchee por
+``(shortname, system_id)``. El CIF NO se usa como filtro aquí
+intencionalmente: el self-healing de CIF es responsabilidad del
+Stage S3 (Metadata).
 
-Two public APIs:
+Dos APIs públicas:
 
-* :meth:`find_documents` — single-trigger lookup with typed-error semantics
-  (raises :class:`RVABREPNotFoundError` / :class:`RVABREPDeletedError`).
-* :meth:`find_documents_batch` — Iterator yielding ``(trigger, docs)`` per
-  input trigger, chunked into IN-list batches of ``batch_size`` (default 50)
-  against the data source. Missing triggers yield an empty list; the
-  orchestrator decides per-pipeline semantics.
+* :meth:`find_documents`: lookup de un único trigger con semántica
+  de errores tipados (lanza :class:`RVABREPNotFoundError` o
+  :class:`RVABREPDeletedError`).
+* :meth:`find_documents_batch`: iterator que yieldea
+  ``(trigger, docs)`` por cada trigger de entrada, chunkeado en
+  `batches` de lista IN de ``batch_size`` (por defecto 50) contra
+  la fuente de datos. Los triggers sin match yieldean lista vacía;
+  el orchestrator decide la semántica por `pipeline`.
 
-Constitution Principle I: this module imports only the standard library and
-:mod:`cmcourier.domain`. Constitution Principle VIII: logs identify column
-names and trigger shortnames but never the values of CIF or free-text
-indexed fields.
+Principio I de la Constitución: este módulo importa solo la
+biblioteca estándar y :mod:`cmcourier.domain`. Principio VIII:
+los logs identifican nombres de columnas y shortnames de trigger,
+pero nunca los valores de CIF ni de campos indexados de texto
+libre.
 """
 
 from __future__ import annotations
@@ -50,20 +54,22 @@ _log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Column configuration (RVABREP physical names by default)
+# Configuración de columnas (nombres físicos de RVABREP por defecto)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class IndexingColumnsConfig:
-    """Column-name map between adapter rows and :class:`RVABREPDocument`.
+    """Mapa de nombres de columna entre las filas del adapter y
+    :class:`RVABREPDocument`.
 
-    Defaults match the AS400 RVABREP physical column names.
-    Tests and non-AS400 deployments override individual columns.
+    Los defaults coinciden con los nombres físicos de columnas de
+    RVABREP en AS400. Tests y deploys no-AS400 overridean columnas
+    individuales.
     """
 
-    shortname_column: str = "ABABCD"  # index1 in RVABREPDocument, ShortName trigger
-    system_id_column: str = "ABAACD"  # system_code in RVABREPDocument, SystemID trigger
+    shortname_column: str = "ABABCD"  # index1 en RVABREPDocument, ShortName del trigger
+    system_id_column: str = "ABAACD"  # system_code en RVABREPDocument, SystemID del trigger
     delete_code_column: str = "ABACST"
     txn_num_column: str = "ABAANB"
 
@@ -84,12 +90,12 @@ class IndexingColumnsConfig:
 
 
 # ---------------------------------------------------------------------------
-# Service
+# Servicio
 # ---------------------------------------------------------------------------
 
 
 class IndexingService:
-    """Stage S1 engine: TriggerRecord → list[RVABREPDocument]."""
+    """Motor del stage S1: TriggerRecord → list[RVABREPDocument]."""
 
     def __init__(
         self,
@@ -101,25 +107,28 @@ class IndexingService:
         self._cfg = config
         self._batch_size = batch_size
 
-    # ----------------------------------------------------------- public API
+    # ----------------------------------------------------------- API pública
 
     def enrich(self, trigger: Trigger) -> list[RVABREPDocument]:
-        """046 — polymorphic S1 enrichment.
+        """046: enriquecimiento polimórfico de S1.
 
-        Dispatch on the trigger subtype:
+        `Dispatch` según el subtipo de trigger:
 
-        * ``ClientTrigger`` → existing ``find_documents`` path
-          (RVABREP lookup by (shortname, system_id), expand to N docs).
-        * ``RvabrepRowTrigger`` → wrap the carried row into one
-          :class:`RVABREPDocument` directly. **Zero queries**.
-        * ``LocalScanTrigger`` → same as the row case — the matched
-          RVABREP row is already attached at S0 acquire time.
+        * ``ClientTrigger`` → camino existente de ``find_documents``
+          (lookup en RVABREP por (shortname, system_id), expandiendo
+          a N docs).
+        * ``RvabrepRowTrigger`` → envuelve la fila ya cargada en un
+          único :class:`RVABREPDocument`. **Cero queries**.
+        * ``LocalScanTrigger`` → mismo caso que el anterior: la fila
+          de RVABREP matcheada viene adjunta desde el momento del
+          acquire en S0.
 
-        Raises ``RVABREPNotFoundError`` for ClientTrigger when no rows
-        match, and ``RVABREPDeletedError`` when every matching row is
-        marked deleted. Row-based triggers skip those error paths since
-        the row was already validated at S0 (blank shortnames /
-        delete-coded rows are filtered there).
+        Lanza ``RVABREPNotFoundError`` para ``ClientTrigger`` cuando
+        no hay filas que matcheen y ``RVABREPDeletedError`` cuando
+        toda fila matcheada está marcada como borrada. Los triggers
+        basados en fila salteán esos paths de error porque la fila
+        ya fue validada en S0 (los shortnames vacíos y las filas con
+        código de borrado se filtran ahí).
         """
         if isinstance(trigger, ClientTrigger):
             return self.find_documents(trigger)
@@ -131,13 +140,15 @@ class IndexingService:
         )
 
     def _enrich_known_row(self, row: Mapping[str, Any]) -> list[RVABREPDocument]:
-        """Wrap an already-known RVABREP row in a single ``RVABREPDocument``.
+        """Envuelve una fila de RVABREP ya conocida en un único
+        ``RVABREPDocument``.
 
-        A row carrying a delete code raises :class:`RVABREPDeletedError`
-        — consistent with :meth:`find_documents`, and surfaced by the
-        orchestrator as a first-class "filtered at S1" outcome (051).
-        Pre-051 this returned ``[]`` silently, dropping the doc with no
-        count, no log, no traceability.
+        Una fila con código de borrado lanza
+        :class:`RVABREPDeletedError`, consistente con
+        :meth:`find_documents`, y el orchestrator la expone como
+        outcome de primera clase "filtered at S1" (051). Antes de
+        051 esto devolvía ``[]`` silenciosamente, descartando el doc
+        sin contador, sin log y sin trazabilidad.
         """
         if _str(row.get(self._cfg.delete_code_column)):
             raise RVABREPDeletedError(
@@ -148,7 +159,7 @@ class IndexingService:
         return [self._row_to_document(dict(row))]
 
     def find_documents(self, trigger: TriggerRecord) -> list[RVABREPDocument]:
-        """Look up every non-deleted RVABREP row matching the trigger."""
+        """Busca cada fila de RVABREP no borrada que matchee el trigger."""
         rows = self._query_for_trigger(trigger)
         if not rows:
             raise RVABREPNotFoundError(
@@ -167,7 +178,8 @@ class IndexingService:
     def find_documents_batch(
         self, triggers: Iterable[TriggerRecord]
     ) -> Iterator[tuple[TriggerRecord, list[RVABREPDocument]]]:
-        """Yield (trigger, docs) per input trigger. Missing yields ``[]``."""
+        """Yieldea ``(trigger, docs)`` por cada trigger de entrada.
+        Los faltantes yieldean ``[]``."""
         buffer: list[TriggerRecord] = []
         for trigger in triggers:
             buffer.append(trigger)
@@ -177,7 +189,7 @@ class IndexingService:
         if buffer:
             yield from self._process_chunk(buffer)
 
-    # ----------------------------------------------------------- internals
+    # ----------------------------------------------------------- internos
 
     def _query_for_trigger(self, trigger: TriggerRecord) -> list[dict[str, Any]]:
         try:
@@ -264,19 +276,19 @@ class IndexingService:
 
 
 # ---------------------------------------------------------------------------
-# Coercion helpers
+# Helpers de coerción
 # ---------------------------------------------------------------------------
 
 
 def _str(value: Any) -> str:
-    """Coerce *value* to a string, treating ``None`` as the empty string."""
+    """Coerciona *value* a cadena tratando ``None`` como cadena vacía."""
     if value is None:
         return ""
     return str(value)
 
 
 def _to_int(value: Any) -> int:
-    """Coerce *value* to ``int``; ``None`` / empty string become ``0``."""
+    """Coerciona *value* a ``int``; ``None`` o cadena vacía resultan en ``0``."""
     if value is None:
         return 0
     text = str(value).strip()
@@ -286,7 +298,8 @@ def _to_int(value: Any) -> int:
 
 
 def _parse_last_view_date(value: Any) -> Any:
-    """Parse a CYYMMDD ``last_view_date`` cell, mapping ``'0'`` / ``''`` to ``None``."""
+    """Parsea una celda ``last_view_date`` en formato CYYMMDD,
+    mapeando ``'0'`` o ``''`` a ``None``."""
     if value is None:
         return None
     text = str(value).strip()

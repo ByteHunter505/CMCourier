@@ -1,14 +1,14 @@
-"""Four-tab textual App (025 phase 3 + 052).
+"""App `Textual` de cuatro tabs (025 fase 3 + 052).
 
-The TUI runs on the main thread; the pipeline runs in a worker
-thread. Communication is one-way (the TUI polls the provider every
-~250 ms). On batch completion the orchestrator calls
-``TUIDataProvider.mark_batch_complete`` and the app freezes the
-final state on screen until the operator presses ``[Q]``.
+El TUI corre en el `thread` principal; la pipeline corre en un `thread`
+`worker`. La comunicación es unidireccional (el TUI hace `poll` del
+provider cada ~250 ms). Al completarse el batch, el orchestrator llama
+a ``TUIDataProvider.mark_batch_complete`` y la app congela el estado
+final en pantalla hasta que el operador presiona ``[Q]``.
 
-052 adds a DETAIL tab: ``[`` / ``]`` move a chunk cursor, ``d`` jumps
-to the tab, and the per-doc detail of the selected chunk is read from
-the tracking store on demand.
+052 agrega un tab DETAIL: ``[`` / ``]`` mueven un cursor de `chunk`,
+``d`` salta al tab, y el detalle por-doc del `chunk` seleccionado se
+lee del `tracking store` bajo demanda.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ _FOOTER_TEMPLATE = (
 
 
 class CMCourierTUI(App[None]):
-    """Live four-tab dashboard for an in-flight pipeline run."""
+    """Dashboard live de cuatro tabs para una corrida de pipeline en vuelo."""
 
     TITLE = "CMCourier"
     BINDINGS = [
@@ -70,18 +70,18 @@ class CMCourierTUI(App[None]):
     def __init__(self, data_provider: TUIDataProvider) -> None:
         super().__init__()
         self._provider = data_provider
-        # 052: chunk cursor for the DETAIL tab. ``None`` until the
-        # operator moves it with ``[`` / ``]``. ``_last_chunk_count`` is
-        # refreshed every tick so the cursor actions clamp correctly.
+        # 052: cursor de `chunk` para el tab DETAIL. ``None`` hasta que
+        # el operador lo mueve con ``[`` / ``]``. ``_last_chunk_count`` se
+        # refresca cada tick para que las acciones del cursor clampeen bien.
         self._selected_chunk_idx: int | None = None
         self._last_chunk_count = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
-        # 064: BUCKET tab is mounted unconditionally; the renderer prints
-        # a one-line stub in batched mode pointing to CHUNKS. Keeping the
-        # tab list static across modes avoids re-composing on mode-change
-        # (which Textual doesn't support after mount anyway).
+        # 064: el tab BUCKET se monta incondicionalmente; el renderer
+        # imprime un stub de una línea en modo `batched` apuntando a CHUNKS.
+        # Mantener la lista de tabs estática entre modos evita re-componer
+        # al cambiar de modo (algo que `Textual` no soporta post-mount).
         with TabbedContent(initial="prep"):
             with TabPane("PREP", id="prep"):
                 yield Container(Static(id="prep_body", classes="tab_body"))
@@ -92,10 +92,10 @@ class CMCourierTUI(App[None]):
             with TabPane("BUCKET", id="bucket"):
                 yield Container(Static(id="bucket_body", classes="tab_body"))
             with TabPane("DETAIL", id="detail"):
-                # 058: VerticalScroll so chunks bigger than the visible
-                # height are scrollable. ``#detail_body`` is sized to
-                # ``height: auto`` (see CSS) so the inner Static grows
-                # with its content and the parent scrolls through it.
+                # 058: `VerticalScroll` para que los `chunk`s más grandes
+                # que el alto visible sean scrolleables. ``#detail_body``
+                # tiene ``height: auto`` (ver CSS) para que el `Static`
+                # interno crezca con su contenido y el padre haga scroll.
                 yield VerticalScroll(Static(id="detail_body"))
         yield Static(id="status_bar")
         yield Footer()
@@ -125,7 +125,7 @@ class CMCourierTUI(App[None]):
         tabbed.active = "detail"
 
     def action_select_prev_chunk(self) -> None:
-        """052: move the chunk cursor one step toward the first chunk."""
+        """052: mueve el cursor de `chunk` un paso hacia el primer `chunk`."""
         if self._last_chunk_count == 0:
             return
         if self._selected_chunk_idx is None:
@@ -134,7 +134,7 @@ class CMCourierTUI(App[None]):
             self._selected_chunk_idx = max(0, self._selected_chunk_idx - 1)
 
     def action_select_next_chunk(self) -> None:
-        """052: move the chunk cursor one step toward the last chunk."""
+        """052: mueve el cursor de `chunk` un paso hacia el último `chunk`."""
         if self._last_chunk_count == 0:
             return
         if self._selected_chunk_idx is None:
@@ -145,8 +145,8 @@ class CMCourierTUI(App[None]):
     def _resolve_detail(
         self, snap: TUISnapshot
     ) -> tuple[dict[str, object] | None, list[DocDetail]]:
-        """052: resolve the selected chunk + its per-doc detail for the
-        DETAIL pane. Returns ``(None, [])`` when no chunk is selected."""
+        """052: resuelve el `chunk` seleccionado + su detalle por-doc para el
+        panel DETAIL. Devuelve ``(None, [])`` cuando no hay `chunk` seleccionado."""
         if self._selected_chunk_idx is None:
             return None, []
         chunk = next(
@@ -191,9 +191,9 @@ class CMCourierTUI(App[None]):
             )
         )
 
-        # Update the App.sub_title with the run state so it appears in the
-        # header — gives the operator a glance-glance view even if focused
-        # on a tab body.
+        # Actualiza ``App.sub_title`` con el estado de la corrida para que
+        # aparezca en el header — le da al operador una vista de un
+        # vistazo aunque esté enfocado en el cuerpo de un tab.
         self.sub_title = (
             "RUN COMPLETE — press Q to exit"
             if snap.is_complete

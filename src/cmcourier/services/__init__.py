@@ -1,8 +1,8 @@
-"""Services layer - business logic depending only on domain ports.
+"""Capa de servicios: lógica de negocio que depende solo de los ports de dominio.
 
-Houses ``mapping``, ``metadata``, ``trigger`` strategies, and future ``document``
-service. No direct I/O. Hard limit: function <= 50 lines (Constitution
-Principle III).
+Contiene los servicios ``mapping``, ``metadata``, las estrategias de
+``trigger`` y el futuro servicio ``document``. No realiza I/O directo.
+Límite estricto: función <= 50 líneas (Principio III de la Constitución).
 """
 
 from __future__ import annotations

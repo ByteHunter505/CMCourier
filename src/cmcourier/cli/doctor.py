@@ -1,24 +1,25 @@
-"""Pre-flight validation for the CMCourier pipeline.
+"""Validacion pre-flight del pipeline CMCourier.
 
-Six checks run in order, each as a private function returning a
-:class:`CheckResult`. Exceptions inside a check are caught and turned
-into FAIL results — :func:`run_doctor` MUST NOT raise.
+Seis checks corren en orden, cada uno como funcion privada que devuelve
+un :class:`CheckResult`. Las excepciones dentro de un check se atrapan y
+se convierten en resultados FAIL: :func:`run_doctor` NO puede levantar.
 
-Order:
-  1. ``cmis_connectivity`` — CMIS warmup + repositoryInfo.
-  2. ``tracking_openable`` — SQLite WAL DB opens at the configured path.
-  3. ``mapping_completeness`` — Modelo Documental has ≥1 row.
-  4. ``metadata_sources`` — every CSV alias source has ≥1 row.
-  5. ``cm_type_alignment`` — every distinct ``cm_object_type`` in
-     mapping resolves via CMIS getTypeDefinition. SKIPped if check 1
-     failed (no working uploader).
-  6. ``sample_dry_run`` — S1→S4 walk on the first trigger's first doc,
-     no upload, staged PDF deleted. SKIPped if zero triggers or zero
-     docs.
+Orden:
+  1. ``cmis_connectivity``: warmup de CMIS + ``repositoryInfo``.
+  2. ``tracking_openable``: la DB SQLite en modo WAL abre en el path
+     configurado.
+  3. ``mapping_completeness``: el `Modelo Documental` tiene >=1 fila.
+  4. ``metadata_sources``: cada source CSV con alias tiene >=1 fila.
+  5. ``cm_type_alignment``: cada ``cm_object_type`` distinto del mapping
+     resuelve via `CMIS getTypeDefinition`. Se SKIPea si el check 1
+     fallo (no hay uploader funcionando).
+  6. ``sample_dry_run``: walk de S1 a S4 sobre el primer doc del primer
+     trigger, sin upload, y el PDF staged borrado al final. Se SKIPea
+     si hay cero triggers o cero docs.
 
-Constitution Principle VIII: NO check message or details field carries
-resolved property values. Operational keys (base_url, db_path,
-mapping_count, missing types) are OK.
+Principio VIII de la Constitucion: NINGUN message o details de check
+lleva valores de propiedad resueltos. Las claves operativas (`base_url`,
+`db_path`, `mapping_count`, tipos faltantes) si estan OK.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
-# Public types
+# Tipos publicos
 # ---------------------------------------------------------------------------
 
 
@@ -120,7 +121,7 @@ class DoctorReport:
 # ---------------------------------------------------------------------------
 
 
-# Check group → check names. ``all`` is the sentinel.
+# Grupo de checks -> nombres de checks. ``all`` es el sentinel.
 _CHECK_GROUPS: dict[str, frozenset[str]] = {
     "connections": frozenset(
         {
@@ -133,7 +134,7 @@ _CHECK_GROUPS: dict[str, frozenset[str]] = {
     "mapping": frozenset({"mapping_completeness"}),
     "metadata": frozenset({"metadata_sources", "sample_dry_run"}),
     "cm-types": frozenset({"cm_type_alignment"}),
-    # 038: cm-targets is the new umbrella; cm-types stays for back-compat.
+    # 038: `cm-targets` es el paraguas nuevo; `cm-types` queda por back-compat.
     "cm-targets": frozenset(
         {
             "cm_type_alignment",
@@ -146,7 +147,7 @@ _CHECK_GROUPS: dict[str, frozenset[str]] = {
 
 
 def _selected(name: str, selected: str) -> bool:
-    """True when ``name`` belongs to the active filter group."""
+    """True cuando ``name`` pertenece al grupo de filtro activo."""
     if selected == "all":
         return True
     return name in _CHECK_GROUPS.get(selected, frozenset())
@@ -158,14 +159,15 @@ def run_doctor(
     *,
     selected: str = "all",
 ) -> DoctorReport:
-    """Run pre-flight checks. ``selected`` filters by check group."""
+    """Corre los checks pre-flight. ``selected`` filtra por grupo de check."""
     start = time.monotonic()
     results: list[CheckResult] = []
     if config.observability.unmask_pii:
-        # 038: surface the unmasked-PII mode at startup so the operator
-        # never accidentally runs a PRD batch with raw values leaking
-        # into ``metrics.jsonl``. Status is WARN, not FAIL — debugging is
-        # a legitimate use of this knob, but it must never go unnoticed.
+        # 038: exponemos el modo `unmask-PII` al arranque para que el
+        # operador nunca corra de casualidad un batch de PRD con valores
+        # crudos chorreando hacia ``metrics.jsonl``. El estado es WARN, no
+        # FAIL: debuguear es un uso legitimo de esta perilla, pero nunca
+        # debe pasar desapercibida.
         results.append(
             CheckResult(
                 name="unmask_pii_active",
@@ -239,7 +241,7 @@ def _fail(name: str, exc: Exception, base: Mapping[str, str] | None = None) -> C
 
 
 def _mapping_path_repr(config: PipelineConfig) -> str:
-    """Display the Modelo Documental path(s) regardless of mode (035)."""
+    """Muestra el o los paths del `Modelo Documental` sin importar el modo (035)."""
     mc = config.mapping
     if mc.csv_path is not None:
         return str(mc.csv_path)
@@ -294,12 +296,12 @@ def _build_uploader(config: PipelineConfig, secrets: Secrets) -> CmisUploader:
 def _try(stage: str, fn: Callable[[], T]) -> T | CheckResult:
     try:
         return fn()
-    except Exception as exc:  # noqa: BLE001 — doctor catches every check exception
+    except Exception as exc:  # noqa: BLE001 — el doctor atrapa toda excepcion del check
         return _fail("sample_dry_run", exc, {"stage": stage})
 
 
 # ---------------------------------------------------------------------------
-# Individual checks
+# Checks individuales
 # ---------------------------------------------------------------------------
 
 
@@ -351,7 +353,7 @@ def _check_cmis_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckR
 
 
 def _check_as400_connectivity(config: PipelineConfig, secrets: Secrets) -> CheckResult:
-    # 048: the AS400 RVABREP source lives under ``indexing.source`` now.
+    # 048: el source RVABREP de AS400 vive ahora bajo ``indexing.source``.
     source = config.indexing.source
     if not isinstance(source, As400RvabrepSource):
         return _skip("as400_connectivity", "indexing_source_not_as400")
@@ -407,16 +409,16 @@ def _check_tracking_openable(config: PipelineConfig) -> CheckResult:
 
 
 def _check_as400_sync(config: PipelineConfig, secrets: Secrets) -> CheckResult:
-    """034: validate AS400 NIARVILOG connection + table when sync is enabled.
+    """034: valida la conexion AS400 NIARVILOG + tabla cuando el sync esta on.
 
-    SKIPs when ``tracking.as400_sync.enabled`` is False. When True,
-    connects to the configured AS400 and runs a probe query against
-    the NIARVILOG table.
+    SKIPea cuando ``tracking.as400_sync.enabled`` es False. Cuando es
+    True, conecta al AS400 configurado y corre una probe-query contra la
+    tabla NIARVILOG.
     """
     sync_cfg = config.tracking.as400_sync
     if not sync_cfg.enabled:
         return _skip("as400_sync", "disabled (tracking.as400_sync.enabled=false)")
-    if sync_cfg.connection is None:  # pragma: no cover — schema guards this
+    if sync_cfg.connection is None:  # pragma: no cover — el schema ya lo protege
         return CheckResult(
             name="as400_sync",
             status=CheckStatus.FAIL,
@@ -442,7 +444,7 @@ def _check_as400_sync(config: PipelineConfig, secrets: Secrets) -> CheckResult:
             table=full_table,
         )
         try:
-            # 1=0 keeps the probe cheap (zero rows returned, only schema check).
+            # `1=0` mantiene la probe barata (cero filas devueltas, solo check de schema).
             src.query(f"SELECT 1 FROM {full_table} WHERE 1=0", [])
         finally:
             src.close()
@@ -522,9 +524,9 @@ def _check_metadata_sources(config: PipelineConfig, secrets: Secrets) -> CheckRe
 def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckResult:
     try:
         mapping = build_mapping_service(config.mapping)
-        # 040: respect the ``cmis_type`` override (035) — the upload uses
-        # ``m.cmis_type or m.cm_object_type``, so the pre-flight must
-        # check the same effective type the wire request will carry.
+        # 040: respetar el override ``cmis_type`` (035): el upload usa
+        # ``m.cmis_type or m.cm_object_type``, asi que el pre-flight tiene
+        # que chequear el mismo tipo efectivo que va a viajar en el wire.
         unique_types = sorted({(m.cmis_type or m.cm_object_type) for m in mapping.get_all()})
         uploader = _build_uploader(config, secrets)
     except Exception as exc:  # noqa: BLE001
@@ -533,7 +535,7 @@ def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckR
     for type_id in unique_types:
         try:
             uploader.get_type_definition(type_id)
-        except Exception:  # noqa: BLE001 — surface every missing in one pass
+        except Exception:  # noqa: BLE001 — sacamos todos los faltantes en una sola pasada
             missing.append(type_id)
     if missing:
         return CheckResult(
@@ -556,12 +558,12 @@ def _check_cm_type_alignment(config: PipelineConfig, secrets: Secrets) -> CheckR
 
 
 def _check_cmis_folders_exist(config: PipelineConfig, secrets: Secrets) -> CheckResult:
-    """038: verify every ``CMISFolder`` declared in MapeoRVI_CM exists.
+    """038: verifica que exista cada ``CMISFolder`` declarado en MapeoRVI_CM.
 
-    Read-only — never creates. SKIP if no row has ``cmis_folder`` populated
-    (consolidated-mapping mode or split mode where the column is empty
-    everywhere — the existing ``cm_type_alignment`` check still covers
-    the type side).
+    Read-only: nunca crea. SKIP si ninguna fila tiene ``cmis_folder``
+    populado (modo de mapping consolidado, o modo split donde la columna
+    queda vacia en todas las filas: el check existente
+    ``cm_type_alignment`` sigue cubriendo el lado de los tipos).
     """
     try:
         mapping = build_mapping_service(config.mapping)
@@ -579,7 +581,7 @@ def _check_cmis_folders_exist(config: PipelineConfig, secrets: Secrets) -> Check
         try:
             if not uploader.verify_folder_exists(folder):
                 missing.append(folder)
-        except Exception:  # noqa: BLE001 — surface every missing in one pass
+        except Exception:  # noqa: BLE001 — sacamos todos los faltantes en una sola pasada
             missing.append(folder)
     if missing:
         return CheckResult(
@@ -605,12 +607,12 @@ def _check_cmis_folders_exist(config: PipelineConfig, secrets: Secrets) -> Check
 
 
 def _check_cmis_properties_alignment(config: PipelineConfig, secrets: Secrets) -> CheckResult:
-    """038: verify each ``(CMISType, CMISPropertyId)`` pair declared in
-    the mapping × MetadatosCM join exists on the CMIS type's
-    ``propertyDefinitions``.
+    """038: verifica que cada par ``(CMISType, CMISPropertyId)`` declarado
+    en el join `mapping x MetadatosCM` exista en las
+    ``propertyDefinitions`` del tipo CMIS.
 
-    SKIP if no row in the mapping carries a ``cmis_property_ids`` catalog
-    (column absent or every cell blank).
+    SKIP si ninguna fila del mapping lleva un catalogo
+    ``cmis_property_ids`` (columna ausente o todas las celdas en blanco).
     """
     try:
         mapping = build_mapping_service(config.mapping)
@@ -672,8 +674,8 @@ def _check_sample_dry_run(config: PipelineConfig, secrets: Secrets) -> CheckResu
         pipeline = build_pipeline(config, secrets)
     except Exception as exc:  # noqa: BLE001
         return _fail("sample_dry_run", exc, {"stage": "construction"})
-    # Re-extract the collaborators we need (the orchestrator hides them).
-    # Doctor manually walks S1..S4 to avoid touching the tracking store.
+    # Re-extraemos los colaboradores que necesitamos (el orchestrator los esconde).
+    # El doctor camina S1..S4 a mano para no tocar el tracking store.
     services = _DryRunServices(
         trigger_strategy=pipeline._trigger_strategy,
         indexing=pipeline._indexing_service,
@@ -688,7 +690,7 @@ def _check_sample_dry_run(config: PipelineConfig, secrets: Secrets) -> CheckResu
 
 
 # ---------------------------------------------------------------------------
-# Dry-run plumbing
+# Plumbing del dry-run
 # ---------------------------------------------------------------------------
 
 
@@ -733,7 +735,7 @@ def _dry_run_first_doc(services: _DryRunServices, *, source_descriptor: str) -> 
     staged = _try("S4", lambda: services.assembler.assemble(doc))
     if isinstance(staged, CheckResult):
         return staged
-    # Best-effort cleanup so the doctor leaves no artifacts.
+    # Limpieza best-effort para que el doctor no deje artifacts.
     with contextlib.suppress(OSError):
         staged.path.unlink(missing_ok=True)
     return CheckResult(

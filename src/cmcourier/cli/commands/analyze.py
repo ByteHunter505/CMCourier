@@ -1,16 +1,16 @@
-"""`cmcourier analyze` subcommand suite (027 — POST-MVP §3).
+"""Suite del subcomando `cmcourier analyze` (027, POST-MVP, seccion 3).
 
-Three subcommands:
+Tres subcomandos:
 
-* ``analyze batch <batch_id>`` — full report for one batch.
-* ``analyze compare <a> <b>`` — pairwise delta.
-* ``analyze trends [--last N] [--pipeline <name>]`` — series.
+* ``analyze batch <batch_id>``: reporte completo de un batch.
+* ``analyze compare <a> <b>``: delta de a pares.
+* ``analyze trends [--last N] [--pipeline <name>]``: serie temporal.
 
-Each subcommand accepts ``--config <path>`` (to derive log_dir
-+ cmis ceiling + worker count from the YAML) or
-``--log-dir <path>`` (to read raw without a config). The
-``--format`` flag toggles human-readable terminal output
-(default) vs JSON.
+Cada subcomando acepta ``--config <path>`` (para derivar `log_dir` +
+techo de CMIS + cantidad de workers desde el YAML) o
+``--log-dir <path>`` (para leer crudo sin pasar por la config). El
+flag ``--format`` togglea entre salida legible para humanos en
+terminal (default) y JSON.
 """
 
 from __future__ import annotations
@@ -44,11 +44,11 @@ _log = logging.getLogger(__name__)
 
 @click.group(name="analyze")
 def analyze_group() -> None:
-    """Offline log-analysis tooling (observability tier 5 + tiers 1–4)."""
+    """Tooling de analisis offline de logs (tier 5 + tiers 1-4 de observabilidad)."""
 
 
 # ---------------------------------------------------------------------------
-# Shared option resolver
+# Resolutor compartido de opciones
 # ---------------------------------------------------------------------------
 
 
@@ -56,7 +56,7 @@ def _resolve_context(
     config_path: Path | None,
     log_dir_override: Path | None,
 ) -> tuple[Path, int, int]:
-    """Return ``(log_dir, cmis_max_bandwidth_mbps, pool_capacity)``."""
+    """Devuelve ``(log_dir, cmis_max_bandwidth_mbps, pool_capacity)``."""
     if log_dir_override is not None:
         return log_dir_override, 0, 0
     if config_path is None:
@@ -110,7 +110,7 @@ def batch_command(
     log_dir_override: Path | None,
     output_format: str,
 ) -> None:
-    """Produce a full report for one finished batch."""
+    """Produce un reporte completo de un batch terminado."""
     log_dir, max_bw, pool_capacity = _resolve_context(config_path, log_dir_override)
     reader = LogReader(log_dir=log_dir)
     try:
@@ -161,7 +161,7 @@ def compare_command(
     log_dir_override: Path | None,
     output_format: str,
 ) -> None:
-    """Diff two batches side by side."""
+    """Hace el diff de dos batches lado a lado."""
     log_dir, max_bw, pool_capacity = _resolve_context(config_path, log_dir_override)
     reader = LogReader(log_dir=log_dir)
     try:
@@ -230,7 +230,7 @@ def trends_command(
     pipeline_filter: str | None,
     output_format: str,
 ) -> None:
-    """Throughput + p95 trend over the last N batches."""
+    """Tendencia de throughput + p95 sobre los ultimos N batches."""
     log_dir, _max_bw, _pool = _resolve_context(config_path, log_dir_override)
     try:
         rows = compute_trends(

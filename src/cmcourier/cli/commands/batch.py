@@ -1,13 +1,15 @@
-"""``cmcourier batch ...`` subcommands.
+"""Subcomandos de ``cmcourier batch ...``.
 
-* ``batch list`` — enumerate batches with status + counts.
-* ``batch show <id>`` — per-stage counts + failed records.
-* ``batch retry-failed --batch <id> [--stage Sn]`` — reset failures.
-* ``batch export-report --batch <id> --format csv|json [--output <path>]``
-  — dump full batch state for offline analysis.
+* ``batch list``: enumera los batches con estado + contadores.
+* ``batch show <id>``: contadores por etapa + records fallados.
+* ``batch retry-failed --batch <id> [--stage Sn]``: resetea las
+  fallas.
+* ``batch export-report --batch <id> --format csv|json [--output <path>]``:
+  vuelca el estado completo del batch para analisis offline.
 
-All commands open the tracking store via the wiring layer (so the
-SQLite-specific concerns stay behind ``ITrackingStore``).
+Todos los comandos abren el tracking store via la capa de wiring
+(asi las cuestiones especificas de SQLite quedan detras de
+``ITrackingStore``).
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ _STAGES_FOR_TABLE = ("S0", "S1", "S2", "S3", "S4", "S5")
 
 @click.group(name="batch")
 def batch_group() -> None:
-    """Batch lifecycle commands."""
+    """Comandos del ciclo de vida de los batches."""
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +65,7 @@ def batch_group() -> None:
     help="Filter by batch lifecycle state.",
 )
 def batch_list_command(config_path: Path, status: str | None) -> None:
-    """Enumerate batches with status + counts (newest first)."""
+    """Enumera los batches con estado + contadores (los mas nuevos primero)."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     store = SQLiteTrackingStore(config.tracking.db_path)
@@ -102,7 +104,7 @@ def batch_list_command(config_path: Path, status: str | None) -> None:
 )
 @click.argument("batch_id", type=str)
 def batch_show_command(config_path: Path, batch_id: str) -> None:
-    """Detailed per-stage state + failed records for one batch."""
+    """Estado detallado por etapa + records fallados de un batch."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     store = SQLiteTrackingStore(config.tracking.db_path)
@@ -169,7 +171,7 @@ def batch_show_command(config_path: Path, batch_id: str) -> None:
     help="If given, only reset failures in this stage.",
 )
 def batch_retry_failed_command(config_path: Path, batch_id: str, stage: str | None) -> None:
-    """Reset ``*_FAILED`` rows to ``*_PENDING`` for retry."""
+    """Resetea las filas ``*_FAILED`` a ``*_PENDING`` para reintento."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     stage_status = StageStatus(f"{stage}_FAILED") if stage is not None else None
@@ -182,7 +184,7 @@ def batch_retry_failed_command(config_path: Path, batch_id: str, stage: str | No
 
 
 # ---------------------------------------------------------------------------
-# Internal helper
+# Helper interno
 # ---------------------------------------------------------------------------
 
 
@@ -227,7 +229,7 @@ def batch_export_report_command(
     output_format: str,
     output_path: Path | None,
 ) -> None:
-    """Dump a batch's full state to CSV or JSON for offline analysis."""
+    """Vuelca el estado completo del batch a CSV o JSON para analisis offline."""
     config = _load(config_path)
     configure_observability(config.observability, "INFO")
     store = SQLiteTrackingStore(config.tracking.db_path)

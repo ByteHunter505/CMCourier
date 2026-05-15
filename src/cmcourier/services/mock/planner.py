@@ -1,21 +1,26 @@
-"""Pure planner: RVABREP rows → :class:`FilePlan` stream (031, REQ-006..REQ-016).
+"""Planner puro: filas de RVABREP → `stream` de :class:`FilePlan`
+(031, REQ-006..REQ-016).
 
-No I/O. No randomness. Order preserved from the input iterator. Side effects
-limited to ``logging`` warnings on dedup conflicts.
+Sin I/O. Sin aleatoriedad. Preserva el orden del iterador de
+entrada. Los efectos colaterales se limitan a warnings vía
+``logging`` ante conflictos de dedup.
 
-The planner is the single place that translates RVABREP semantics
-(``ABABST``/``ABABUN``/``ABAJCD``/...) into the on-disk layout the S4
-:class:`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler` consumes:
+El planner es el único lugar que traduce la semántica de RVABREP
+(``ABABST``/``ABABUN``/``ABAJCD``/...) al layout en disco que
+consume el
+:class:`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler` de
+S4:
 
-* PDF rows (``is_pdf_filename(file_name)``) yield one plan with
-  ``extensions=(".PDF",)``.
-* Image rows (``ABABST`` ∈ ``{B, C}``) yield one plan with
-  ``extensions=(".001", …, f".{pages:03d}")``.
+* Las filas PDF (``is_pdf_filename(file_name)``) yieldean un plan
+  con ``extensions=(".PDF",)``.
+* Las filas de imagen (``ABABST`` ∈ ``{B, C}``) yieldean un plan
+  con ``extensions=(".001", …, f".{pages:03d}")``.
 
-Unknown ``ABABST`` codes on non-PDF rows raise
-:class:`~cmcourier.domain.exceptions.ConfigurationError`. ``image_path``
-strings are normalized via :func:`normalize_image_path` (backslash → ``/``,
-strip leading separators) before being used as a dedup key.
+Los códigos ``ABABST`` desconocidos en filas no-PDF lanzan
+:class:`~cmcourier.domain.exceptions.ConfigurationError`. Las
+cadenas ``image_path`` se normalizan vía :func:`normalize_image_path`
+(backslash → ``/``, strip de separadores iniciales) antes de
+usarse como clave de dedup.
 """
 
 from __future__ import annotations
@@ -39,7 +44,7 @@ from cmcourier.services.mock.types import FileKind, FilePlan
 
 _log = logging.getLogger(__name__)
 
-# ABABST physical codes per pdf_assembler.py:55-57.
+# Códigos físicos de ``ABABST`` según ``pdf_assembler.py:55-57``.
 _TIFF_CODE = "B"
 _JPEG_CODE = "C"
 _PDF_CODE = "O"
@@ -47,10 +52,11 @@ _PDF_CODE = "O"
 
 @dataclass(frozen=True, slots=True)
 class PlannerFilters:
-    """Filtering options for :func:`plan_files`.
+    """Opciones de filtrado para :func:`plan_files`.
 
-    Empty tuples mean "no filter" on that field. ``limit`` is applied to the
-    count of FilePlans actually yielded (post-filter, post-dedup).
+    Las tuplas vacías significan "sin filtro" sobre ese campo.
+    ``limit`` se aplica a la cuenta de :class:`FilePlan`
+    efectivamente yieldeados (post-filtro y post-dedup).
     """
 
     systems: tuple[str, ...] = ()
@@ -60,7 +66,8 @@ class PlannerFilters:
 
 @dataclass(frozen=True, slots=True)
 class SizeBounds:
-    """Per-format byte-count bounds parsed from the CLI suffix options."""
+    """Cotas de bytes por formato, parseadas desde las opciones de
+    sufijo del CLI."""
 
     pdf_min: int
     pdf_max: int
@@ -69,10 +76,12 @@ class SizeBounds:
 
 
 def normalize_image_path(s: str) -> Path:
-    """Backslash → forward slash, strip leading separators, return a ``Path``.
+    """Backslash → forward slash, strip de separadores iniciales y
+    devuelve un ``Path``.
 
-    Empty / whitespace-only input is the caller's problem to detect; this
-    function returns ``Path(".")`` in that case (callers must reject it).
+    El input vacío o solo whitespace es problema del caller; esta
+    función devuelve ``Path(".")`` en ese caso (los callers deben
+    rechazarlo).
     """
     cleaned = s.replace("\\", "/").lstrip("/").strip()
     return Path(cleaned) if cleaned else Path()
@@ -86,19 +95,22 @@ def plan_files(
     *,
     include_deleted: bool = False,
 ) -> Iterator[FilePlan]:
-    """Translate RVABREP rows to a stream of :class:`FilePlan` objects.
+    """Traduce filas de RVABREP a un `stream` de objetos
+    :class:`FilePlan`.
 
-    Logic order per row:
-    1. skip if ``delete_code`` non-empty and ``include_deleted`` is false;
-    2. apply ``systems`` and ``document_types`` filters;
-    3. normalize ``image_path`` (rejecting empty);
-    4. dispatch PDF vs image (raising ``ConfigurationError`` on unknown
-       ``image_type`` for non-PDF rows);
-    5. dedup by ``(image_path, file_code)``, first row wins;
-    6. yield up to ``filters.limit`` plans.
+    Orden lógico por fila:
+
+    1. saltar si ``delete_code`` es no vacío e ``include_deleted`` es
+       ``False``;
+    2. aplicar los filtros ``systems`` y ``document_types``;
+    3. normalizar ``image_path`` (rechazando vacío);
+    4. `dispatch` entre PDF e imagen (lanzando ``ConfigurationError``
+       ante un ``image_type`` desconocido en filas no-PDF);
+    5. dedup por ``(image_path, file_code)``, gana la primera fila;
+    6. yieldea hasta ``filters.limit`` planes.
     """
     seen: dict[tuple[Path, str], FilePlan] = {}
-    seen_pages: dict[tuple[Path, str], tuple[str, int]] = {}  # (key) → (txn, pages)
+    seen_pages: dict[tuple[Path, str], tuple[str, int]] = {}  # (clave) → (txn, pages)
     yielded = 0
 
     for row in rows:
@@ -183,12 +195,13 @@ def plan_files(
 
 
 def _str(value: object) -> str:
-    """Coerce a cell value to ``str``. ``None`` → empty string."""
+    """Coerciona el valor de una celda a ``str``. ``None`` → cadena vacía."""
     return "" if value is None else str(value).strip()
 
 
 def _safe_pages(value: object) -> int:
-    """Return ``max(1, int(value))``. Blank / non-numeric / negative → 1."""
+    """Devuelve ``max(1, int(value))``. Valores vacíos, no numéricos o
+    negativos resultan en ``1``."""
     text = _str(value)
     if not text:
         return 1
@@ -205,8 +218,9 @@ def _dispatch_image_kind(image_type: str, txn: str) -> FileKind:
     if image_type == _JPEG_CODE:
         return "jpeg"
     if image_type == _PDF_CODE:
-        # A non-PDF filename with ABABST=O is contradictory data; treat as
-        # an unknown code so the operator notices.
+        # Un filename no-PDF con ``ABABST=O`` es data contradictoria;
+        # se trata como código desconocido para que el operador lo
+        # note.
         raise ConfigurationError(
             "ABABST=O (PDF) on a row whose file_name is not .PDF",
             txn_num=txn,

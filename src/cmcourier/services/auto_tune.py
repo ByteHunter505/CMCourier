@@ -1,27 +1,31 @@
-"""AIMD auto-tune controller for the S5 worker pool (025 phase 2).
+"""Controlador `AIMD` de auto-tune para el `worker pool` de S5 (025 fase 2).
 
-Algorithm (retuned for heavy-file workloads in 068):
+Algoritmo (recalibrado para cargas de archivos `heavy` en 068):
 
-* **MI** (multiplicative increase) — when observed p95 latency falls
-  below 80 % of the target, grow workers to
-  ``max(current + 1, ceil(current * growth_factor))`` and tighten
-  the request timeout. Default `growth_factor` is 1.25 (+25 % per
-  tick, never less than +1). Pre-068 this was always `+1`.
-* **Soft halve** — when observed p95 climbs above
-  ``halve_threshold_ratio × target`` (default 1.5×, pre-068 was
-  1.2×), reduce workers to
-  ``max(min_threads, ceil(current * halve_factor))`` (default 0.75,
-  pre-068 was 0.5). Less panic on a single bad tick.
-* **Noop** — within the lower/upper band, keep the worker count and
-  tighten the timeout.
-* **Warmup** — during ``warmup_seconds`` after start, never adjust.
+* **MI** (incremento multiplicativo): cuando la latencia p95 observada
+  cae por debajo del 80 % del target, los workers crecen a
+  ``max(current + 1, ceil(current * growth_factor))`` y el timeout
+  de request se ajusta hacia abajo. El `growth_factor` por defecto
+  es 1.25 (+25 % por `tick`, nunca menos de +1). Antes de 068
+  siempre era `+1`.
+* **Soft halve**: cuando el p95 observado sube por encima de
+  ``halve_threshold_ratio × target`` (por defecto 1.5×, antes de 068
+  era 1.2×), los workers se reducen a
+  ``max(min_threads, ceil(current * halve_factor))`` (por defecto
+  0.75, antes de 068 era 0.5). Menos pánico ante un único `tick`
+  malo.
+* **Noop**: dentro de la banda inferior/superior, mantiene la
+  cantidad de workers y solo ajusta el timeout.
+* **Warmup**: durante ``warmup_seconds`` posteriores al inicio, no
+  ajusta nada.
 
-The controller runs as a background thread that wakes on
-``adjustment_interval_s`` cadence, reads the current state through
-provider callbacks, computes the next :class:`Decision`, and
-applies it via ``on_pool_resize`` and ``on_timeout_change``
-callbacks. The orchestrator owns those callbacks (so the
-controller has no direct dependency on the pool or the uploader).
+El controlador corre como `thread` en segundo plano que despierta
+con cadencia ``adjustment_interval_s``, lee el estado actual a
+través de los `callbacks` provider, computa la próxima
+:class:`Decision` y la aplica vía los `callbacks` ``on_pool_resize``
+y ``on_timeout_change``. El orchestrator es dueño de esos
+`callbacks` (de modo que el controlador no depende directamente del
+`pool` ni del uploader).
 """
 
 from __future__ import annotations
@@ -44,7 +48,7 @@ _AUTO_TUNE_LOG = "auto_tune_decision"
 
 @dataclass(frozen=True, slots=True)
 class Decision:
-    """One AIMD round's resolved adjustment."""
+    """Ajuste resuelto en una vuelta del `AIMD`."""
 
     action: str  # "+N" | "halve" | "noop" | "warmup" | "insufficient_data"
     workers: int
@@ -60,13 +64,14 @@ def decide(
     current_workers: int,
     current_timeout_s: float,
 ) -> Decision:
-    """Pure-function AIMD decision (unit-testable in isolation).
+    """Decisión `AIMD` como función pura (unit-testable de forma aislada).
 
-    061: ``sample_count`` gates the decision — when the recorder has
-    fewer than ``config.min_samples`` S5 durations, nearest-rank p95 is
-    dominated by a single big sample (a cold-connection outlier from
-    the first chunk). The action is ``insufficient_data`` and workers
-    / timeout stay where they are.
+    061: ``sample_count`` gatea la decisión. Cuando el recorder tiene
+    menos de ``config.min_samples`` duraciones de S5, el p95 por
+    `nearest-rank` queda dominado por un único sample grande (un
+    outlier por conexión fría del primer `chunk`). La acción resultante
+    es ``insufficient_data`` y tanto workers como timeout permanecen sin
+    cambios.
     """
     if elapsed_s < config.warmup_seconds:
         return Decision(action="warmup", workers=current_workers, timeout_s=current_timeout_s)
@@ -81,11 +86,12 @@ def decide(
     upper = config.halve_threshold_ratio * config.target_p95_ms
 
     if observed_p95_ms > upper:
-        # 068: soft halve. Pre-068 was ``current // 2`` (drop 50 % in
-        # one tick); now ``ceil(current * halve_factor)`` (default 0.75
-        # → drop 25 %). Recovery from a false-positive halve is much
-        # cheaper, which matters when natural p95 variance on heavy
-        # files keeps tripping the threshold.
+        # 068: soft halve. Antes de 068 era ``current // 2`` (caída del
+        # 50 % en un solo `tick`); ahora ``ceil(current * halve_factor)``
+        # (por defecto 0.75 → caída del 25 %). La recuperación tras un
+        # halve por falso positivo resulta mucho más barata, lo que
+        # importa porque la varianza natural del p95 en archivos `heavy`
+        # dispara el threshold seguido.
         halved = math.ceil(current_workers * config.halve_factor)
         new_workers = max(halved, config.min_threads)
         new_timeout = (
@@ -101,12 +107,12 @@ def decide(
         else current_timeout_s
     )
     if observed_p95_ms < lower:
-        # 068: multiplicative growth with a ``+1`` floor. Pre-068 was
-        # always ``+1`` per tick — at 15 s/tick, going from 6 to 50
-        # workers took 44 ticks = 11 min. Default 1.25× reaches 50 in
-        # ~10 ticks (~2.5 min) starting from 6. The ``+1`` floor keeps
-        # progress at small ``current_workers`` (1.25 × 2 = 2 without
-        # the floor).
+        # 068: crecimiento multiplicativo con un `floor` de ``+1``. Antes
+        # de 068 siempre era ``+1`` por `tick`: a 15 s por `tick`, ir
+        # de 6 a 50 workers llevaba 44 ticks = 11 min. El factor por
+        # defecto de 1.25× alcanza 50 en ~10 `ticks` (~2.5 min) partiendo
+        # de 6. El `floor` ``+1`` preserva el progreso cuando
+        # ``current_workers`` es chico (1.25 × 2 = 2 sin el `floor`).
         grown = math.ceil(current_workers * config.growth_factor)
         new_workers = min(max(current_workers + 1, grown), config.max_threads)
         return Decision(action="+N", workers=new_workers, timeout_s=new_timeout)
@@ -114,14 +120,15 @@ def decide(
 
 
 class AutoTuneController:
-    """Background AIMD controller for the S5 worker pool.
+    """Controlador `AIMD` en segundo plano para el `worker pool` de S5.
 
-    Reads current state through provider callbacks and applies
-    decisions via the resize / timeout callbacks. Non-blocking
-    start/stop; cleanly joins on stop.
+    Lee el estado actual a través de `callbacks` provider y aplica
+    decisiones vía los `callbacks` de resize y timeout. El arranque y
+    la detención son no bloqueantes; el `thread` se une limpiamente al
+    detenerse.
 
-    When ``config.enabled=False``, :meth:`start` is a no-op and no
-    thread is spawned.
+    Cuando ``config.enabled=False``, :meth:`start` es un no-op y no se
+    levanta ningún `thread`.
     """
 
     def __init__(
@@ -143,8 +150,9 @@ class AutoTuneController:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._start_monotonic = 0.0
-        # 025 phase 3: TUI reads ``last_decision`` and ``seconds_to_next_tick``
-        # to render the "last move" line + the "next: in Ns" countdown.
+        # 025 fase 3: la TUI lee ``last_decision`` y
+        # ``seconds_to_next_tick`` para renderizar la línea "last move"
+        # y el countdown "next: in Ns".
         self._last_decision: Decision | None = None
         self._last_decision_monotonic: float | None = None
         self._last_tick_monotonic: float | None = None
@@ -164,21 +172,24 @@ class AutoTuneController:
         self._thread.start()
 
     def set_p95_provider(self, provider: Callable[[], tuple[float, int]]) -> None:
-        """043 — swap the p95 observation source after construction.
+        """043: reemplaza la fuente de observación del p95 después de
+        construido el controlador.
 
-        061: the provider now returns ``(p95_ms, sample_count)`` so the
-        decision can be gated on minimum samples.
+        061: el provider ahora devuelve ``(p95_ms, sample_count)`` para
+        que la decisión pueda gatearse según la cantidad mínima de
+        samples.
 
-        The controller reads ``self._p95_provider`` once per tick, so a
-        replacement takes effect on the next ``adjustment_interval_s``
-        boundary without restarting the thread. Used by the multi-batch
-        orchestrator to point the controller at the upload-active
-        recorder (single-batch mode keeps the constructor-time default).
+        El controlador lee ``self._p95_provider`` una vez por `tick`,
+        de modo que el reemplazo toma efecto en el próximo borde de
+        ``adjustment_interval_s`` sin necesidad de reiniciar el
+        `thread`. Lo usa el orchestrator multi-`batch` para apuntar el
+        controlador al recorder activo de subida (en modo single-`batch`
+        se mantiene el valor por defecto fijado en el constructor).
         """
         with self._state_lock:
             self._p95_provider = provider
 
-    # ------------------------------------------------------ TUI accessors
+    # ------------------------------------------------------ accesos para la TUI
 
     @property
     def last_decision(self) -> Decision | None:
@@ -210,7 +221,7 @@ class AutoTuneController:
         while not self._stop.wait(timeout=self._config.adjustment_interval_s):
             try:
                 self._tick(time.monotonic() - self._start_monotonic)
-            except Exception:  # noqa: BLE001 — never crash the controller
+            except Exception:  # noqa: BLE001 — nunca dejar caer al controlador
                 _log.exception("auto-tune controller tick failed")
 
     def _tick(self, elapsed_s: float) -> None:
@@ -226,9 +237,9 @@ class AutoTuneController:
             current_workers=current_workers,
             current_timeout_s=current_timeout,
         )
-        # 061: ``insufficient_data`` is gated like ``warmup`` — the
-        # observation isn't trustworthy, so we don't promote it to
-        # ``last_decision`` (which the TUI surfaces as "last move").
+        # 061: ``insufficient_data`` se gatea igual que ``warmup``: la
+        # observación no es confiable, por lo que no se promueve a
+        # ``last_decision`` (que la TUI muestra como "last move").
         gated = d.action in ("warmup", "insufficient_data")
         with self._state_lock:
             self._last_tick_monotonic = now

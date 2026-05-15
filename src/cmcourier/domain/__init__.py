@@ -1,11 +1,13 @@
-"""Domain layer — pure Python, zero external dependencies (Constitution Principle I).
+"""Capa de dominio — Python puro, cero dependencias externas (Principio I de la Constitución).
 
-Holds models (dataclasses), ports (abstract interfaces), and the typed exception
-hierarchy. No I/O, no third-party imports — even ``pydantic`` is forbidden here.
+Contiene los modelos de dominio (`dataclasses`), los `port`s (interfaces
+abstractas) y la jerarquía tipada de excepciones. Sin I/O, sin imports de
+terceros — incluso ``pydantic`` está prohibido aquí.
 
-Public names from ``models``, ``ports``, and ``exceptions`` are re-exported
-here so callers write ``from cmcourier.domain import IDataSource`` without
-having to know which submodule a name lives in.
+Los nombres públicos de ``models``, ``ports`` y ``exceptions`` se
+re-exportan aquí para que los callers escriban
+``from cmcourier.domain import IDataSource`` sin tener que saber en qué
+submódulo vive cada nombre.
 """
 
 from __future__ import annotations

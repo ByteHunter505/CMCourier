@@ -1,5 +1,5 @@
-"""CLI layer - Click commands, Rich TUI, dependency injection wiring.
+"""Capa CLI: comandos Click, TUI con Rich, cableado de inyeccion de dependencias.
 
-Imports adapters and injects them into orchestrators. Contains no business
-logic and no direct domain rules.
+Importa los adapters y los inyecta en los orchestrators. No contiene logica
+de negocio ni reglas de dominio directas.
 """

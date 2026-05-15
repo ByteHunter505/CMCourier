@@ -1,20 +1,20 @@
-"""Pydantic v2 config schema for the CMCourier pipeline.
+"""Schema de configuración Pydantic v2 para el pipeline de CMCourier.
 
-Every model is ``frozen=True, extra="forbid"`` so:
+Cada modelo es ``frozen=True, extra="forbid"`` para que:
 
-* Mutation of validated configs raises (matches the project's
-  "frozen dataclasses everywhere" pattern).
-* Unknown YAML keys raise at load time — operators get an immediate
-  error rather than silently mis-configured runs.
+* Mutar configs ya validadas explote (alineado con el patrón
+  "frozen dataclasses en todos lados" del proyecto).
+* Claves YAML desconocidas exploten al cargar — el operador recibe un
+  error inmediato en vez de corridas mal configuradas en silencio.
 
-Path fields use :class:`pydantic.FilePath` for inputs that MUST already
-exist (CSVs, source_root) and :class:`pathlib.Path` for outputs that
-will be created at run time (temp_dir, sqlite db).
+Los campos de path usan :class:`pydantic.FilePath` para inputs que YA
+DEBEN existir (CSVs, source_root) y :class:`pathlib.Path` para salidas
+que se crean en tiempo de ejecución (temp_dir, base SQLite).
 
-Constitution Principle V: this module is the single declarative source
-of truth for the pipeline's configurable surface. The orchestrator and
-adapters do NOT import this module — translation happens in
-:mod:`cmcourier.config.wiring`.
+Principio V de la Constitución: este módulo es la única fuente
+declarativa de verdad para la superficie configurable del pipeline.
+El orchestrator y los adapters NO importan este módulo — la traducción
+ocurre en :mod:`cmcourier.config.wiring`.
 """
 
 from __future__ import annotations
@@ -70,12 +70,13 @@ from pydantic import (
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
 
-# DB2 for i ordinary-identifier rules: a letter (``@``, ``#``, ``$`` count
-# as letters) followed by letters / digits / underscore, 128 chars max.
-# NIARVILOG column / library / table names are string-interpolated into
-# SQL (an identifier can never be a ``?`` bind-param), so every
-# configurable identifier MUST be validated to close the injection
-# surface — see spec 049.
+# Reglas de identificador ordinario de DB2 for i: una letra (``@``, ``#``,
+# ``$`` cuentan como letras) seguida de letras / dígitos / underscore,
+# máximo 128 caracteres. Los nombres de columna / library / table de
+# NIARVILOG se interpolan como string dentro del SQL (un identificador
+# nunca puede ser un `bind-param` ``?``), así que TODO identificador
+# configurable DEBE validarse para cerrar la superficie de inyección —
+# ver spec 049.
 _SQL_IDENTIFIER_RE = re.compile(r"[A-Za-z@#$][A-Za-z0-9@#$_]{0,127}")
 
 
@@ -91,12 +92,12 @@ def _validate_sql_identifier(value: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AS400 connection (shared: RVABREP source variant + NIARVILOG sync)
+# Conexión AS400 (compartida: variante `source` RVABREP + sync NIARVILOG)
 # ---------------------------------------------------------------------------
 
 
 class As400ConnectionConfig(BaseModel):
-    """AS400 ODBC connection parameters. Credentials live in env vars."""
+    """Parámetros de conexión ODBC a AS400. Las credenciales viven en env vars."""
 
     model_config = _STRICT
     host: str
@@ -107,7 +108,7 @@ class As400ConnectionConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Trigger kinds (discriminated union by `kind`)
+# `kinds` de trigger (unión discriminada por `kind`)
 # ---------------------------------------------------------------------------
 
 
@@ -133,7 +134,7 @@ class RvabrepTriggerConfig(BaseModel):
 
 
 class LocalScanTriggerConfig(BaseModel):
-    """Mode ``local_scan``."""
+    """Modo ``local_scan``."""
 
     model_config = _STRICT
     kind: Literal["local_scan"]
@@ -141,10 +142,10 @@ class LocalScanTriggerConfig(BaseModel):
 
 
 class SingleDocTriggerConfig(BaseModel):
-    """Single-doc diagnostic pipeline.
+    """Pipeline diagnóstico de un único documento.
 
-    No extra fields — the trigger (shortname / cif / system_id) comes
-    from CLI args at run time, not from the YAML.
+    Sin campos extra — el trigger (shortname / cif / system_id) viene
+    de los argumentos de CLI en tiempo de ejecución, no del YAML.
     """
 
     model_config = _STRICT
@@ -155,19 +156,19 @@ TriggerConfigUnion = Annotated[
     CsvTriggerConfig | RvabrepTriggerConfig | LocalScanTriggerConfig | SingleDocTriggerConfig,
     Field(discriminator="kind"),
 ]
-# 048: ``trigger.kind: as400`` was removed. "AS400" is now a *source*
-# choice (``indexing.source.kind: as400``), not a trigger kind — the
-# RVABREP pipeline is the same pipeline regardless of where its RVABREP
-# table lives. See ``RvabrepSourceUnion`` below.
+# 048: ``trigger.kind: as400`` fue removido. "AS400" ahora es una
+# elección de *source* (``indexing.source.kind: as400``), no un `kind`
+# de trigger — el pipeline RVABREP es el mismo pipeline independientemente
+# de dónde viva su tabla RVABREP. Ver ``RvabrepSourceUnion`` más abajo.
 
 
-# Backwards-compatible alias: existing code that imports TriggerCsvConfig
-# still works. The discriminated union is the new shape.
+# Alias retrocompatible: el código existente que importa TriggerCsvConfig
+# sigue funcionando. La unión discriminada es la nueva forma.
 TriggerCsvConfig = CsvTriggerConfig
 
 
 class IndexingColumnsModel(BaseModel):
-    """Logical → physical column map for the RVABREP source."""
+    """Mapeo columna lógica → física para el `source` RVABREP."""
 
     model_config = _STRICT
     shortname_column: str = "ABABCD"
@@ -189,18 +190,19 @@ class IndexingColumnsModel(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# RVABREP source (048 — discriminated union by `kind`)
+# `source` RVABREP (048 — unión discriminada por `kind`)
 #
-# The RVABREP table is the same data whether it lives in a CSV (testing /
-# staging / small banks that export RVABREP to a file) or in DB2 on the
-# AS400 (production, reached by a SELECT returning RVABREP-shaped columns).
-# This one source feeds BOTH S0 (DirectRvabrepTriggerStrategy) and S1
-# (IndexingService) — composed once in the wiring layer.
+# La tabla RVABREP es la misma data, viva en un CSV (testing / staging /
+# bancos chicos que exportan RVABREP a un archivo) o en DB2 sobre el
+# AS400 (producción, accedido vía un SELECT que devuelve columnas con
+# forma RVABREP). Ese único `source` alimenta TANTO a S0
+# (DirectRvabrepTriggerStrategy) como a S1 (IndexingService) — se compone
+# una sola vez en la capa de wiring.
 # ---------------------------------------------------------------------------
 
 
 class CsvRvabrepSource(BaseModel):
-    """RVABREP table simulated as a CSV file."""
+    """Tabla RVABREP simulada como archivo CSV."""
 
     model_config = _STRICT
     kind: Literal["csv"] = "csv"
@@ -208,13 +210,13 @@ class CsvRvabrepSource(BaseModel):
 
 
 class As400RvabrepSource(BaseModel):
-    """RVABREP table on DB2/AS400, reached by an operator-defined SELECT.
+    """Tabla RVABREP en DB2/AS400, accedida vía un SELECT definido por el operador.
 
-    The ``query`` may carry JOINs / WHERE filters, but its **output
-    columns must be RVABREP-shaped** — the ``IndexingColumnsModel`` map
-    is applied to the result set exactly as it would be to a CSV.
-    Credentials come from ``AS400_USERNAME`` / ``AS400_PASSWORD`` env
-    vars (never the YAML).
+    El ``query`` puede llevar JOINs / filtros WHERE, pero sus **columnas
+    de salida deben tener forma RVABREP** — el mapeo de
+    ``IndexingColumnsModel`` se aplica al `result set` exactamente igual
+    que se aplicaría a un CSV. Las credenciales vienen de las env vars
+    ``AS400_USERNAME`` / ``AS400_PASSWORD`` (nunca del YAML).
     """
 
     model_config = _STRICT
@@ -230,10 +232,10 @@ RvabrepSourceUnion = Annotated[
 
 
 class IndexingConfig(BaseModel):
-    """S1 indexing config + the RVABREP source it (and S0) reads from.
+    """Config de indexing de S1 + el `source` RVABREP del que lee (junto con S0).
 
-    048 renamed this from ``IndexingSourceConfig`` and replaced the bare
-    ``csv_path`` field with the ``source`` discriminated union.
+    048 renombró esto desde ``IndexingSourceConfig`` y reemplazó el
+    campo crudo ``csv_path`` por la unión discriminada ``source``.
     """
 
     model_config = _STRICT
@@ -242,22 +244,22 @@ class IndexingConfig(BaseModel):
     batch_size: int = Field(default=50, ge=1)
 
 
-# 048: backward-compat alias so in-flight imports of the old name resolve.
+# 048: alias retrocompatible para que imports en vuelo del nombre viejo resuelvan.
 IndexingSourceConfig = IndexingConfig
 
 
 class MappingConfig(BaseModel):
-    """Modelo Documental config in one of two mutually-exclusive modes.
+    """Config del Modelo Documental en uno de dos modos mutuamente excluyentes.
 
-    Consolidated (legacy / test fixtures): a single CSV with all
-    columns inline and a comma-separated ``METADATOS`` cell. Set
-    ``csv_path`` and leave the split fields ``None``.
+    Consolidado (legacy / fixtures de test): un único CSV con todas las
+    columnas inline y una celda ``METADATOS`` separada por comas. Setear
+    ``csv_path`` y dejar los campos del modo `split` en ``None``.
 
-    Split (production / bank format, 035): two CSVs joined by
-    ``IDCM ↔ IDCorto`` — ``MapeoRVI_CM.csv`` (one row per IDRVI) plus
-    ``MetadatosCM.csv`` (multiple rows per IDCorto). Set both
-    ``rvi_cm_csv_path`` and ``metadatos_csv_path`` and leave
-    ``csv_path`` ``None``.
+    Split (producción / formato del banco, 035): dos CSVs unidos por
+    ``IDCM ↔ IDCorto`` — ``MapeoRVI_CM.csv`` (una fila por IDRVI) más
+    ``MetadatosCM.csv`` (varias filas por IDCorto). Setear tanto
+    ``rvi_cm_csv_path`` como ``metadatos_csv_path`` y dejar
+    ``csv_path`` en ``None``.
     """
 
     model_config = _STRICT
@@ -304,7 +306,7 @@ class MappingConfig(BaseModel):
 
 
 class CsvMetadataSourceConfig(BaseModel):
-    """A named CSV source available to metadata resolution."""
+    """Un `source` CSV con nombre, disponible para la resolución de metadata."""
 
     model_config = _STRICT
     kind: Literal["csv"] = "csv"
@@ -313,12 +315,12 @@ class CsvMetadataSourceConfig(BaseModel):
 
 
 class As400MetadataSourceConfig(BaseModel):
-    """A named AS400 source available to metadata resolution.
+    """Un `source` AS400 con nombre, disponible para la resolución de metadata.
 
-    Prefetch runs ``SELECT * FROM <table>`` (table mode) or
-    ``SELECT * FROM (<query>) AS T`` (query mode) over the configured
-    connection. Exactly one of ``table`` / ``query`` MUST be set —
-    the operator picks the form that scales to their data volume.
+    El `prefetch` ejecuta ``SELECT * FROM <table>`` (modo `table`) o
+    ``SELECT * FROM (<query>) AS T`` (modo `query`) sobre la conexión
+    configurada. DEBE setearse exactamente uno de ``table`` / ``query`` —
+    el operador elige la forma que escala a su volumen de datos.
     """
 
     model_config = _STRICT
@@ -335,7 +337,7 @@ class As400MetadataSourceConfig(BaseModel):
         return self
 
 
-# Backwards-compatible name for the legacy CSV-only shape.
+# Nombre retrocompatible para la forma legacy solo-CSV.
 MetadataSourceConfig = Annotated[
     CsvMetadataSourceConfig | As400MetadataSourceConfig,
     Field(discriminator="kind"),
@@ -371,19 +373,19 @@ class FieldConfig(BaseModel):
 
 
 class MetadataCacheConfig(BaseModel):
-    """POST-MVP §9 — cross-batch metadata cache configuration (037).
+    """POST-MVP §9 — configuración del cache de metadata cross-`batch` (037).
 
-    When ``enabled`` is ``True``, ``StagedPipeline`` consults a
-    SQLite-backed ``document_cache`` table before invoking S3
-    (Metadata Resolution). A hit whose ``cached_at`` is within
-    ``ttl_minutes`` short-circuits the resolver; a miss runs the
-    resolver and upserts the result. Default off — single-batch
-    behavior is byte-identical to pre-037.
+    Cuando ``enabled`` es ``True``, ``StagedPipeline`` consulta la tabla
+    ``document_cache`` respaldada por SQLite antes de invocar S3
+    (Resolución de Metadata). Un hit cuyo ``cached_at`` esté dentro de
+    ``ttl_minutes`` cortocircuita al resolver; un miss ejecuta el
+    resolver y hace `upsert` del resultado. Default off — el
+    comportamiento de un único `batch` es byte-idéntico al pre-037.
     """
 
     model_config = _STRICT
     enabled: bool = False
-    ttl_minutes: int = Field(default=60, gt=0, le=43200)  # cap: 30 days
+    ttl_minutes: int = Field(default=60, gt=0, le=43200)  # tope: 30 días
 
 
 class MetadataConfigModel(BaseModel):
@@ -409,11 +411,11 @@ class AssemblyConfig(BaseModel):
 
 
 class AutoTuneConfig(BaseModel):
-    """AIMD auto-tune for the S5 worker pool.
+    """Auto-tune `AIMD` para el `worker pool` de S5.
 
-    When ``enabled=True``, a background controller adjusts the
-    thread count and (optionally) the CMIS request timeout based
-    on observed S5 p95 latency vs ``target_p95_ms``.
+    Cuando ``enabled=True``, un controlador en background ajusta la
+    cantidad de threads y (opcionalmente) el timeout del request CMIS
+    según el p95 observado de S5 vs ``target_p95_ms``.
     """
 
     model_config = _STRICT
@@ -423,20 +425,21 @@ class AutoTuneConfig(BaseModel):
     target_p95_ms: float = Field(default=5000.0, gt=0)
     adjustment_interval_s: int = Field(default=30, ge=1)
     warmup_seconds: int = Field(default=60, ge=0)
-    # 061: don't act on a tick that has seen fewer than this many S5
-    # samples — the nearest-rank p95 is dominated by a single big sample
-    # when N is small, so a cold-connection outlier in the first chunk
-    # used to trigger a spurious halve. 20 is the empirical floor where
-    # one 30 s outlier among 19 normal 1.5 s samples cannot dominate.
+    # 061: no actuar sobre un tick que vio menos de esta cantidad de
+    # muestras de S5 — el p95 por `nearest-rank` queda dominado por una
+    # única muestra grande cuando N es chico, así que un outlier de
+    # conexión fría en el primer `chunk` solía disparar un `halve`
+    # espurio. 20 es el piso empírico donde un outlier de 30 s entre 19
+    # muestras normales de 1.5 s no puede dominar.
     min_samples: int = Field(default=20, ge=1)
     timeout_auto_adjust: bool = True
     min_timeout_s: int = Field(default=30, ge=1)
     max_timeout_s: int = Field(default=600, ge=1)
-    # 068: growth + halve shape knobs. Pre-068 was hardcoded to
-    # additive +1 growth, divide-by-2 halve, halve fires at 1.2 ×
-    # target_p95_ms. That oscillated capacity at 4-8 for the
-    # production 30 MB-file workload (one outlier per ~10 ticks
-    # halved 6 min of growth).
+    # 068: perillas de forma del crecimiento + `halve`. Pre-068 estaba
+    # hardcodeado a crecimiento aditivo +1, `halve` dividir-por-2, y el
+    # `halve` se disparaba en 1.2 × target_p95_ms. Eso oscilaba la
+    # capacidad entre 4-8 para la carga de producción de archivos de
+    # 30 MB (un outlier cada ~10 ticks halveaba 6 min de crecimiento).
     growth_factor: float = Field(default=1.25, ge=1.0, le=4.0)
     halve_factor: float = Field(default=0.75, ge=0.05, le=1.0)
     halve_threshold_ratio: float = Field(default=1.5, ge=1.05, le=10.0)
@@ -457,7 +460,7 @@ class AutoTuneConfig(BaseModel):
 
 
 class CmisConfigModel(BaseModel):
-    """CMIS connection knobs. Credentials live in env vars, not here."""
+    """Perillas de conexión CMIS. Las credenciales viven en env vars, no acá."""
 
     model_config = _STRICT
     base_url: str
@@ -472,15 +475,17 @@ class CmisConfigModel(BaseModel):
 
 
 class NiarvilogColumnsModel(BaseModel):
-    """Logical → physical column map for the AS400 NIARVILOG table.
+    """Mapeo columna lógica → física para la tabla AS400 NIARVILOG.
 
-    The bank runs CMCourier against several AS400 environments whose
-    NIARVILOG table has the same 15 columns under different physical
-    names. Defaults equal the canonical names so a config that omits
-    this block behaves exactly as pre-049.
+    El banco corre CMCourier contra varios ambientes AS400 cuya tabla
+    NIARVILOG tiene las mismas 15 columnas bajo nombres físicos
+    distintos. Los defaults coinciden con los nombres canónicos para
+    que una config que omita este bloque se comporte exactamente como
+    pre-049.
 
-    Every value is interpolated into SQL (a column name can never be
-    a bind-param), so each field is validated as a DB2 identifier.
+    Cada valor se interpola dentro del SQL (un nombre de columna nunca
+    puede ser un `bind-param`), así que cada campo se valida como
+    identificador DB2.
     """
 
     model_config = _STRICT
@@ -507,13 +512,13 @@ class NiarvilogColumnsModel(BaseModel):
 
 
 class As400SyncConfig(BaseModel):
-    """POST-MVP §4 — distributed idempotency coordination via AS400 NIARVILOG.
+    """POST-MVP §4 — coordinación distribuida de `idempotency` vía AS400 NIARVILOG.
 
-    Default ``enabled=False`` preserves the pre-034 SQLite-only
-    behavior. When enabled, the pipeline coordinates with the
-    centralized ``RVILIB.NIARVILOG`` table for cross-batch
-    idempotency, atomic claim against concurrent processes, and
-    operator-visible upload state.
+    El default ``enabled=False`` preserva el comportamiento pre-034
+    solo-SQLite. Cuando se habilita, el pipeline coordina con la tabla
+    centralizada ``RVILIB.NIARVILOG`` para `idempotency` cross-`batch`,
+    claim atómico contra procesos concurrentes, y estado de upload
+    visible para el operador.
     """
 
     model_config = _STRICT
@@ -548,18 +553,18 @@ class TrackingConfig(BaseModel):
 
 
 class HeavyLightLanesConfig(BaseModel):
-    """POST-MVP §1 — adaptive heavy/light upload lane configuration (036).
+    """POST-MVP §1 — configuración adaptativa de `lanes` `heavy`/`light` de upload (036).
 
-    When ``enabled`` is ``True`` and a batch has at least
-    ``heavy_lane_min_batch`` items, S5 splits documents by
-    ``file_size_bytes >= heavy_threshold_bytes`` into two lanes that
-    share the total worker budget. The total budget is owned by AIMD
-    (when active); ``heavy_initial_ratio`` plus a drain-driven
-    rebalance daemon (``rebalance_interval_s`` /
-    ``idle_threshold_s``) own the lane split.
+    Cuando ``enabled`` es ``True`` y un `batch` tiene al menos
+    ``heavy_lane_min_batch`` ítems, S5 separa documentos por
+    ``file_size_bytes >= heavy_threshold_bytes`` en dos `lanes` que
+    comparten el presupuesto total de `workers`. El presupuesto total
+    lo maneja `AIMD` (cuando está activo); ``heavy_initial_ratio`` más
+    un demonio de rebalanceo basado en `drain` (``rebalance_interval_s``
+    / ``idle_threshold_s``) controlan la división entre `lanes`.
 
-    Default ``enabled = False`` preserves the pre-036 single-pool
-    behavior byte-for-byte.
+    El default ``enabled = False`` preserva el comportamiento pre-036
+    de un único `pool`, byte por byte.
     """
 
     model_config = _STRICT
@@ -572,13 +577,14 @@ class HeavyLightLanesConfig(BaseModel):
 
 
 class StreamingConfig(BaseModel):
-    """063 — streaming-mode knobs.
+    """063 — perillas del modo `streaming`.
 
-    ``bucket_size`` is the maximum number of fully-prepped documents
-    sitting between PREP (S1–S4 producers) and UPLOAD (S5 consumers).
-    The bucket is a bounded queue: when full, producers block; when
-    empty, consumers block. Memory peak therefore scales with
-    ``bucket_size`` only — independent of the total trigger count.
+    ``bucket_size`` es la cantidad máxima de documentos totalmente
+    preparados sentados entre PREP (productores S1–S4) y UPLOAD
+    (consumidores S5). El `bucket` es una cola acotada: cuando está
+    llena, los productores bloquean; cuando está vacía, los
+    consumidores bloquean. Por eso el pico de memoria escala solo con
+    ``bucket_size`` — independiente del total de triggers.
     """
 
     model_config = _STRICT
@@ -586,35 +592,36 @@ class StreamingConfig(BaseModel):
 
 
 class ProcessingConfig(BaseModel):
-    """POST-MVP §7 + §1 + 063 — orchestration mode + per-mode knobs.
+    """POST-MVP §7 + §1 + 063 — modo de orquestación + perillas por modo.
 
-    ``mode`` (063) selects the pipeline orchestrator:
+    ``mode`` (063) elige el orchestrator del pipeline:
 
-    * ``"batched"`` (default): the historical N=2 multi-batch
-      pipeline — chunk N+1 prepares while chunk N uploads. Honours
-      ``batches_in_flight`` and full resume semantics.
-    * ``"streaming"``: a continuous producer-consumer pipeline driven
-      by a bounded bucket (``streaming.bucket_size``). ``batches_in_flight``
-      is **ignored** in this mode — there is only one logical batch
-      per run. Resume args (``--from-stage``, ``--batch-id``) are
-      rejected; resume = a new run.
+    * ``"batched"`` (default): el pipeline multi-`batch` histórico de
+      N=2 — el `chunk` N+1 prepara mientras el `chunk` N sube. Respeta
+      ``batches_in_flight`` y la semántica completa de `resume`.
+    * ``"streaming"``: un pipeline productor-consumidor continuo
+      manejado por un `bucket` acotado (``streaming.bucket_size``).
+      ``batches_in_flight`` se **ignora** en este modo — hay un solo
+      `batch` lógico por corrida. Los args de `resume`
+      (``--from-stage``, ``--batch-id``) se rechazan; `resume` = una
+      nueva corrida.
 
-    ``batches_in_flight`` controls the batched-mode producer-consumer
-    overlap: while batch N uploads (S5), batches N+1..N+(K-1) prepare
-    (S0–S4) concurrently. Default ``2`` is the canonical "one
-    preparing + one uploading" model.
+    ``batches_in_flight`` controla el solape productor-consumidor del
+    modo `batched`: mientras el `batch` N sube (S5), los `batches`
+    N+1..N+(K-1) preparan (S0–S4) concurrentemente. El default ``2``
+    es el modelo canónico "uno preparando + uno subiendo".
 
-    ``prep_workers`` (056) sizes a fixed thread pool for the prep
-    stages S2 (mapping), S3 (metadata) and S4 (assembly) — these run
-    one document at a time otherwise. Default ``1`` keeps the serial
-    behaviour byte-identical. S0/S1 stay serial by design (they carry
-    the cross-batch idempotency + resume logic). Applies to both
-    modes.
+    ``prep_workers`` (056) dimensiona un thread pool fijo para los
+    `stages` de prep S2 (mapping), S3 (metadata) y S4 (assembly) —
+    de lo contrario corren un documento por vez. El default ``1``
+    mantiene el comportamiento serial byte-idéntico. S0/S1 quedan
+    seriales por diseño (cargan la lógica de `idempotency`
+    cross-`batch` + `resume`). Aplica a ambos modos.
 
-    ``heavy_light_lanes`` carries the dual-lane (POST-MVP §1) config —
-    default-off; see :class:`HeavyLightLanesConfig`. In streaming
-    mode the lanes are *deferred* (spec 065) — the wiring layer emits
-    a clear startup WARN if the operator combines them.
+    ``heavy_light_lanes`` lleva la config de doble `lane` (POST-MVP §1) —
+    `default-off`; ver :class:`HeavyLightLanesConfig`. En modo
+    `streaming` los `lanes` están *diferidos* (spec 065) — la capa de
+    wiring emite un WARN claro al arrancar si el operador los combina.
     """
 
     model_config = _STRICT
@@ -623,25 +630,26 @@ class ProcessingConfig(BaseModel):
     batches_in_flight: int = Field(default=2, ge=1, le=2)
     prep_workers: int = Field(default=1, ge=1)
     heavy_light_lanes: HeavyLightLanesConfig = Field(default_factory=HeavyLightLanesConfig)
-    # 066: real CPU-bound parallelism for S4 (PDF assembly).
-    # Threading parallelism is GIL-serialized for img2pdf/PIL/PyPDF2 work;
-    # moving S4 to a ProcessPoolExecutor gives N-core throughput.
-    # Default ``True`` because every benchmark above ~5 docs/s benefits.
-    # ``False`` runs S4 inline in the producer thread (pre-066 behaviour).
+    # 066: paralelismo CPU-bound real para S4 (`PDF assembly`).
+    # El paralelismo por threads queda serializado por el GIL para el
+    # trabajo de img2pdf/PIL/PyPDF2; mover S4 a un `ProcessPoolExecutor`
+    # da throughput de N cores. Default ``True`` porque todo `benchmark`
+    # por encima de ~5 docs/s se beneficia. ``False`` corre S4 inline en
+    # el thread productor (comportamiento pre-066).
     s4_use_processes: bool = True
-    # ``None`` => ``os.cpu_count()``; explicit int overrides.
+    # ``None`` => ``os.cpu_count()``; un int explícito lo sobreescribe.
     s4_max_processes: int | None = Field(default=None, ge=1)
 
 
 class SystemMetricsConfig(BaseModel):
-    """POST-MVP §2 — tier 5 system resource sampling via ``psutil``.
+    """POST-MVP §2 — `sampling` de recursos de sistema (tier 5) vía ``psutil``.
 
-    ``enabled`` defaults ON: when a pipeline runs, a daemon thread
-    samples host- and process-level metrics every
-    ``sample_interval_s`` seconds and writes JSONL to
-    ``observability.log_dir/system-{date}.jsonl``. Set
-    ``enabled: false`` (or the legacy ``system_metrics: false``
-    bool form) to opt out for low-overhead environments.
+    ``enabled`` por default está ON: cuando corre un pipeline, un thread
+    daemon muestrea métricas a nivel host y proceso cada
+    ``sample_interval_s`` segundos y escribe JSONL en
+    ``observability.log_dir/system-{date}.jsonl``. Setear
+    ``enabled: false`` (o la forma bool legacy ``system_metrics: false``)
+    para opt-out en ambientes de bajo overhead.
     """
 
     model_config = _STRICT
@@ -650,11 +658,11 @@ class SystemMetricsConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
-    """Observability — per-tier toggles + log dir + thresholds.
+    """Observabilidad — toggles por tier + directorio de logs + umbrales.
 
-    Tiers 1-4 (app log, pipeline metrics, network metrics,
-    slow-ops report) ship since 020. Tier 5 (system metrics via
-    psutil) shipped in 026 — see ``SystemMetricsConfig``.
+    Los tiers 1-4 (app log, métricas de pipeline, métricas de red,
+    reporte de slow-ops) shippean desde 020. El tier 5 (métricas de
+    sistema vía psutil) shippeó en 026 — ver ``SystemMetricsConfig``.
     """
 
     model_config = _STRICT
@@ -668,26 +676,27 @@ class ObservabilityConfig(BaseModel):
     retention_days: int = Field(default=30, ge=1)
     slow_op_threshold_ms: int = Field(default=5000, ge=0)
     slow_op_top_n: int = Field(default=20, ge=1)
-    # 038: when True, the upload payload trace events
-    # (``s5_upload_attempt`` / ``s5_upload_failed``) emit raw property
-    # values instead of PII-masked ones. NEVER default-true; surfaced
-    # only via the config file (no CLI flag) to avoid accidental
-    # enables in PRD batches. The doctor emits a WARNING when this is
-    # set so the operator sees the deviation at startup.
+    # 038: cuando es True, los eventos de trace del payload de upload
+    # (``s5_upload_attempt`` / ``s5_upload_failed``) emiten valores
+    # crudos de propiedades en vez de los enmascarados por PII. NUNCA
+    # default-true; expuesto solo vía archivo de config (sin flag de CLI)
+    # para evitar habilitaciones accidentales en `batches` PRD. El doctor
+    # emite un WARNING cuando esto está seteado para que el operador vea
+    # la desviación al arrancar.
     unmask_pii: bool = False
 
     @field_validator("system_metrics", mode="before")
     @classmethod
     def _coerce_system_metrics(cls, value: object) -> object:
-        # REQ-002: accept legacy bool form (`system_metrics: false`)
-        # from pre-026 YAMLs and lift it to the structured model.
+        # REQ-002: aceptar la forma bool legacy (`system_metrics: false`)
+        # de YAMLs pre-026 y promoverla al modelo estructurado.
         if isinstance(value, bool):
             return {"enabled": value}
         return value
 
 
 class PipelineConfig(BaseModel):
-    """Top-level config aggregating every per-stage configuration block."""
+    """Config top-level que agrega cada bloque de configuración por `stage`."""
 
     model_config = _STRICT
     trigger: TriggerConfigUnion

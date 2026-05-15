@@ -1,17 +1,17 @@
-"""Offline log analyzer (027 — POST-MVP §3).
+"""Analizador offline de logs (027 — POST-MVP §3).
 
-Consumes the five observability tiers and produces a
-:class:`BatchReport` per batch_id, plus pairwise compare and
-trend summaries across batches.
+Consume las cinco capas de observabilidad y produce un
+:class:`BatchReport` por batch_id, además de comparaciones pareadas
+y resúmenes de tendencias a lo largo de los `batches`.
 
-Design constraints (REQ-013):
+Restricciones de diseño (REQ-013):
 
-* Reading the same JSONL files always produces a byte-identical
-  report. No wall-clock leakage, no random ordering.
-* Network-bound or memory-bound classification stays purely a
-  function of input data (no environment probing).
-* JSONL parsing is line-by-line and tolerant — corrupted lines
-  are logged WARNING and skipped.
+* Leer los mismos archivos `JSONL` produce siempre un reporte
+  byte-identical. Sin filtraciones de wall-clock ni orden aleatorio.
+* La clasificación como `network-bound` o `memory-bound` queda como
+  función pura de los datos de entrada (sin sondear el entorno).
+* El parseo de `JSONL` se hace línea por línea y es tolerante: las
+  líneas corruptas se loguean en WARNING y se saltean.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-# ----- thresholds (referenced from docs/how-to/log-analysis.md) -----------
+# ----- thresholds (referenciados desde docs/how-to/log-analysis.md) -----------
 
 _CPU_PCT_HIGH = 80.0
 _RAM_PCT_HIGH = 0.85
@@ -56,12 +56,14 @@ _NETWORK_CEILING_FRACTION = 0.8
 _BOTTLENECK_SAMPLE_THRESHOLD = 0.5
 _WORKER_SAT_THRESHOLD = 0.8
 _UPLOAD_P95_HIGH_MS = 5000.0
-# 053: the per-stage breakdown is the PRIMARY bottleneck signal. A stage
-# holding at least this share of total stage time IS the bottleneck.
+# 053: el desglose por `stage` es la señal PRIMARIA de bottleneck. Un
+# `stage` que ocupa al menos esta fracción del tiempo total de `stage`
+# ES el bottleneck.
 _STAGE_DOMINANCE = 0.45
-# Each pipeline stage → (bottleneck class, locus). "outside" means the
-# CMIS server + network — the client can only push more concurrency;
-# "inside" means the program's own CPU work, which we can optimise.
+# Cada `stage` del `pipeline` mapea a ``(clase de bottleneck, locus)``.
+# "outside" significa servidor `cmis` + red: el cliente solo puede
+# empujar más concurrencia; "inside" es el trabajo de CPU del propio
+# programa, que sí se puede optimizar.
 _STAGE_TO_CLASS: dict[str, tuple[str, str]] = {
     "S0": ("trigger-bound", "inside"),
     "S1": ("indexing-bound", "inside"),
@@ -79,14 +81,14 @@ _STAGE_TO_CLASS: dict[str, tuple[str, str]] = {
 
 @dataclass(frozen=True, slots=True)
 class NetworkSummary:
-    """Aggregated network metrics, keyed by ``kind``."""
+    """Métricas de red agregadas, indexadas por ``kind``."""
 
     per_kind: dict[str, dict[str, float | int]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class SystemSummary:
-    """Aggregated tier-5 system metrics over the batch window."""
+    """Métricas de sistema (capa 5) agregadas sobre la ventana del `batch`."""
 
     cpu_pct_avg: float
     cpu_pct_max: float
@@ -108,8 +110,9 @@ class SystemSummary:
 
 @dataclass(frozen=True, slots=True)
 class BottleneckClassification:
-    """One of: ``cpu-bound``, ``memory-bound``, ``disk-bound``,
-    ``network-bound``, ``worker-saturated``, ``under-utilized``."""
+    """Una de las siguientes: ``cpu-bound``, ``memory-bound``,
+    ``disk-bound``, ``network-bound``, ``worker-saturated``,
+    ``under-utilized``."""
 
     classification: str
     confidence: float
@@ -136,9 +139,9 @@ class BatchReport:
 
 
 def _parse_iso(raw: object) -> _dt.datetime | None:
-    """Parse an ISO-8601 timestamp string. Naive timestamps are
-    assumed UTC so window comparisons never raise. Returns ``None``
-    for anything unparseable."""
+    """Parsea una cadena de timestamp `ISO-8601`. Los timestamps sin
+    zona se asumen UTC para que las comparaciones de ventana nunca
+    lancen. Devuelve ``None`` ante cualquier valor no parseable."""
     if not isinstance(raw, str):
         return None
     try:
@@ -151,18 +154,20 @@ def _parse_iso(raw: object) -> _dt.datetime | None:
 
 
 class LogReader:
-    """Read the five log tiers for one batch.
+    """Lee las cinco capas de logs para un `batch`.
 
-    The reader globs each tier's files in ``log_dir``. The pipeline
-    tier (``metrics-*.jsonl``) is batch-tagged and filtered by
-    ``batch_id``. The network and system tiers carry **no**
-    ``batch_id`` — only a timestamp — so they are associated with the
-    batch by *time window*: ``[ts − elapsed_s, ts]`` derived from the
-    batch_summary record. For overlapped (N=2) runs the windows of
-    two batches overlap and a record in the overlap may land in either
-    batch — a documented limitation; the batch-tagged stage breakdown
-    is the exact, primary signal. Cross-midnight runs are supported
-    because the glob picks up rotated files transparently.
+    El reader hace `glob` sobre los archivos de cada capa en
+    ``log_dir``. La capa de `pipeline` (``metrics-*.jsonl``) está
+    etiquetada por `batch` y se filtra por ``batch_id``. Las capas de
+    red y sistema **no** llevan ``batch_id``, solo timestamp, así que
+    se asocian al `batch` por *ventana temporal*: ``[ts − elapsed_s,
+    ts]`` derivada del registro ``batch_summary``. En runs solapados
+    (N=2) las ventanas de dos `batches` se superponen y un registro en
+    la superposición puede caer en cualquiera de los dos: limitación
+    documentada; el desglose de `stage` etiquetado por `batch` es la
+    señal primaria y exacta. Los runs que cruzan medianoche se
+    soportan porque el `glob` toma los archivos rotados de manera
+    transparente.
     """
 
     def __init__(self, *, log_dir: Path) -> None:
@@ -190,11 +195,12 @@ class LogReader:
     def _batch_window(
         pipeline_records: list[dict[str, Any]],
     ) -> tuple[_dt.datetime, _dt.datetime] | None:
-        """Derive ``[start, end]`` from the batch_summary record — its
-        ``ts`` is the close-batch wall time, ``elapsed_s`` the run
-        duration. ``None`` when no batch_summary is present (window
-        underivable): the network/system tiers then come back empty
-        rather than guessing."""
+        """Deriva ``[start, end]`` a partir del registro
+        ``batch_summary``: su ``ts`` es el wall-time de cierre del
+        `batch` y ``elapsed_s`` la duración del run. Devuelve ``None``
+        cuando no hay ``batch_summary`` (ventana no derivable): las
+        capas de red y sistema entonces quedan vacías en vez de
+        adivinar."""
         for rec in pipeline_records:
             if rec.get("kind") != "batch_summary":
                 continue
@@ -212,10 +218,10 @@ class LogReader:
         *,
         ts_field: str,
     ) -> list[dict[str, Any]]:
-        """Associate network/system records with the batch by
-        timestamp — they carry no ``batch_id``. Records whose
-        ``ts_field`` falls inside ``window`` (inclusive) are kept; a
-        ``None`` window yields no records."""
+        """Asocia los registros de red/sistema con el `batch` por
+        timestamp, ya que no llevan ``batch_id``. Se conservan los
+        registros cuyo ``ts_field`` cae dentro de ``window``
+        (inclusive); una ventana ``None`` no produce registros."""
         if window is None:
             return []
         start, end = window
@@ -266,8 +272,9 @@ def _percentiles(values: list[float]) -> tuple[float, float, float]:
     if len(sorted_vals) < 2:
         v = float(sorted_vals[0])
         return v, v, v
-    # statistics.quantiles with method="inclusive" matches numpy's "linear".
-    # For p50/p95/p99 we use n=100 deciles+ centiles.
+    # ``statistics.quantiles`` con ``method="inclusive"`` coincide con
+    # el "linear" de numpy. Para p50/p95/p99 usamos n=100 (deciles +
+    # centiles).
     centiles = statistics.quantiles(sorted_vals, n=100, method="inclusive")
     p50 = float(centiles[49])
     p95 = float(centiles[94])
@@ -368,9 +375,9 @@ def _build_system_summary(
 def _stage_dominance(
     stage_summary: dict[str, dict[str, float | int]],
 ) -> tuple[str, float] | None:
-    """Return ``(dominant_stage, share)`` — the stage with the largest
-    ``sum_ms`` and its fraction of total stage time. ``None`` when there
-    is no stage timing data at all."""
+    """Devuelve ``(dominant_stage, share)``: el `stage` con el mayor
+    ``sum_ms`` y su fracción sobre el tiempo total de `stage`. Devuelve
+    ``None`` cuando no hay datos de tiempos de `stage`."""
     sums = {stage: float(data.get("sum_ms", 0.0)) for stage, data in stage_summary.items()}
     total = sum(sums.values())
     if total <= 0.0:
@@ -382,9 +389,10 @@ def _stage_dominance(
 def _system_candidates(
     system_summary: SystemSummary | None,
 ) -> list[tuple[str, float, str]]:
-    """``(class, confidence, reason)`` for every system-metrics signal
-    that crossed its threshold. ``worker-saturated`` is reported as a
-    *symptom* — it never becomes the verdict when a stage dominates."""
+    """Devuelve ``(class, confidence, reason)`` para cada señal de
+    métricas de sistema que cruzó su threshold. ``worker-saturated``
+    se reporta como *síntoma*: nunca se convierte en el veredicto
+    cuando algún `stage` domina."""
     out: list[tuple[str, float, str]] = []
     if system_summary is None:
         return out
@@ -443,22 +451,24 @@ def classify_bottleneck(
     network_summary: NetworkSummary,
     stage_summary: dict[str, dict[str, float | int]],
     *,
-    cmis_max_bandwidth_mbps: int,  # noqa: ARG001 — bound at aggregation time
-    pool_capacity: int,  # noqa: ARG001 — bound at aggregation time
+    cmis_max_bandwidth_mbps: int,  # noqa: ARG001 — fijado al agregar
+    pool_capacity: int,  # noqa: ARG001 — fijado al agregar
 ) -> BottleneckClassification:
-    """Pure classifier — see docs/how-to/log-analysis.md for the rules.
+    """Clasificador puro: ver docs/how-to/log-analysis.md para las
+    reglas.
 
-    053: the per-stage breakdown is the PRIMARY signal — it is always
-    present and batch-exact. When one stage dominates total stage time
-    it IS the bottleneck, and the verdict names whether that is the
-    program's own work ("inside") or the CMIS server + network the
-    client can't speed up ("outside"). System-metrics signals REFINE
-    the verdict with corroborating reasons; they only become the
-    classification when no stage dominates.
+    053: el desglose por `stage` es la señal PRIMARIA: siempre está
+    presente y es exacta por `batch`. Cuando un `stage` domina el
+    tiempo total de `stage`, ESE es el bottleneck, y el veredicto
+    nombra si se trata del trabajo propio del programa ("inside") o
+    del servidor `cmis` + red que el cliente no puede acelerar
+    ("outside"). Las señales de métricas de sistema REFINAN el
+    veredicto con razones corroborantes; solo se vuelven la
+    clasificación cuando ningún `stage` domina.
     """
     sys_candidates = _system_candidates(system_summary)
 
-    # PRIMARY: which stage dominates the per-doc time?
+    # PRIMARIA: ¿qué `stage` domina el tiempo por doc?
     dominance = _stage_dominance(stage_summary)
     if dominance is not None:
         stage, share = dominance
@@ -471,7 +481,8 @@ def classify_bottleneck(
                 f"p95 {float(sd.get('p95_ms', 0.0)):.0f} ms); "
                 f"bottleneck is {'OUTSIDE' if locus == 'outside' else 'INSIDE'} the program"
             ]
-            # System metrics corroborate but never override the stage verdict.
+            # Las métricas de sistema corroboran pero nunca overridean el
+            # veredicto del `stage`.
             reasons.extend(c[2] for c in sys_candidates)
             return BottleneckClassification(
                 classification=cls,
@@ -479,10 +490,11 @@ def classify_bottleneck(
                 reasons=tuple(reasons),
             )
 
-    # SECONDARY: no stage dominates → fall back to the system signals.
-    # worker-saturation is a symptom — a real resource cause (cpu / mem /
-    # disk / network) outranks it; it only becomes the verdict when it is
-    # the *sole* signal. Tie-break the rest by (confidence desc, precedence).
+    # SECUNDARIA: ningún `stage` domina → caer a las señales de
+    # sistema. ``worker-saturation`` es un síntoma: una causa real de
+    # recurso (cpu / memoria / disco / red) tiene mayor prioridad; solo
+    # se vuelve el veredicto cuando es la *única* señal. El resto se
+    # desempata por (confianza desc, precedencia).
     if sys_candidates:
         precedence = {"cpu-bound": 0, "memory-bound": 1, "disk-bound": 2, "network-bound": 3}
         real_causes = [c for c in sys_candidates if c[0] != "worker-saturated"]
@@ -495,7 +507,8 @@ def classify_bottleneck(
             reasons=tuple(c[2] for c in sys_candidates),
         )
 
-    # TERTIARY: no stage data, no system signal — last-resort network probe.
+    # TERCIARIA: sin datos de `stage`, sin señal de sistema → sonda de
+    # red como último recurso.
     upload = network_summary.per_kind.get("cmis_upload", {})
     upload_p95 = float(upload.get("p95_ms", 0.0))
     if upload_p95 > _UPLOAD_P95_HIGH_MS:
@@ -605,7 +618,7 @@ def compute_trends(
 ) -> list[TrendRow]:
     rows: list[TrendRow] = []
     for path in sorted(log_dir.glob("metrics-*.jsonl")):
-        for rec in LogReader._read_jsonl(path):  # noqa: SLF001 — same module helper
+        for rec in LogReader._read_jsonl(path):  # noqa: SLF001 — helper del mismo módulo
             if rec.get("kind") != "batch_summary":
                 continue
             pipeline = str(rec.get("pipeline", ""))
@@ -623,8 +636,9 @@ def compute_trends(
                     s5_p95_ms=float(s5.get("p95_ms", 0.0) or 0.0),
                 )
             )
-    # Files are date-stamped + records are appended in run order — preserve
-    # arrival order, then keep the most-recent N (= last in file order).
+    # Los archivos están datados y los registros se anexan en orden de
+    # run: preserva el orden de llegada y conserva los N más recientes
+    # (= los últimos en orden de archivo).
     if last_n > 0:
         rows = rows[-last_n:]
     return rows

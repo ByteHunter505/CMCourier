@@ -1,9 +1,9 @@
-"""Tiny text-table formatter for operator-facing CLI output.
+"""Formateador chiquito de tablas de texto para la salida CLI hacia el operador.
 
-Avoids adding a `tabulate` dependency. Two helpers, both pure:
+Evita agregar la dependencia `tabulate`. Dos helpers, ambos puros:
 
-* :func:`render_table` — fixed-width text table with column padding.
-* :func:`truncate` — single-cell truncation with ellipsis.
+* :func:`render_table`: tabla de texto de ancho fijo con padding por columna.
+* :func:`truncate`: truncado de una celda con puntos suspensivos.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ _DEFAULT_CELL_WIDTH = 80
 
 
 def truncate(value: str, width: int = _DEFAULT_CELL_WIDTH) -> str:
-    """Return ``value`` clipped to ``width`` characters with a trailing ``…``."""
+    """Devuelve ``value`` recortado a ``width`` caracteres con un ``...`` al final."""
     if len(value) <= width:
         return value
     if width <= 1:
@@ -23,11 +23,12 @@ def truncate(value: str, width: int = _DEFAULT_CELL_WIDTH) -> str:
 
 
 def render_table(headers: list[str], rows: list[list[str]]) -> str:
-    """Render a simple text table.
+    """Renderiza una tabla de texto simple.
 
-    Column widths fit the widest cell in that column. Header row is
-    separated from the body by a single blank line so the output works
-    with grep, awk, and human eyes alike.
+    Los anchos de columna ajustan a la celda mas ancha de esa columna.
+    La fila de header se separa del cuerpo por una unica linea en
+    blanco asi la salida funciona con `grep`, `awk` y los ojos humanos
+    por igual.
     """
     if not headers:
         return ""

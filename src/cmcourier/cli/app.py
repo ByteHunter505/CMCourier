@@ -1,15 +1,18 @@
-"""CMCourier CLI entry point.
+"""Entry point del CLI de CMCourier.
 
-Root Click group ``cmcourier`` with three pipeline sub-groups
+Grupo raiz Click ``cmcourier`` con tres sub-grupos de pipeline
 (``csv-trigger-pipeline``, ``rvabrep-pipeline``, ``local-scan-pipeline``)
-plus the top-level ``doctor`` pre-flight command. Each pipeline command
-expects a config whose ``trigger.kind`` matches; mismatches exit 2.
+mas el comando de pre-flight de nivel superior ``doctor``. Cada comando
+de pipeline espera una config cuyo ``trigger.kind`` haga match; las
+diferencias salen con codigo 2.
 
-Exit codes per spec REQ-020:
-    0 = success (every doc reached S5_DONE)
-    1 = pipeline ran but had stage failures (s5_failed > 0 OR any upstream)
-    2 = configuration error (bad YAML, missing env vars, mismatched kind, etc.)
-    3 = unhandled exception from inside ``pipeline.run``
+Codigos de salida segun spec REQ-020:
+    0 = exito (todo doc llego a `S5_DONE`)
+    1 = el pipeline corrio pero hubo fallas de etapa (`s5_failed > 0`
+        o alguna etapa upstream)
+    2 = error de configuracion (YAML invalido, env vars faltantes,
+        ``kind`` desalineado, etc.)
+    3 = excepcion no manejada desde adentro de ``pipeline.run``
 """
 
 from __future__ import annotations
@@ -53,14 +56,14 @@ _TriggerKind = Literal["csv", "rvabrep", "as400", "local_scan", "single_doc"]
 
 
 # ---------------------------------------------------------------------------
-# Root group + version
+# Grupo raiz + version
 # ---------------------------------------------------------------------------
 
 
 @click.group()
 @click.version_option(__version__, prog_name="cmcourier")
 def main() -> None:
-    """CMCourier - RVI -> IBM Content Manager migration tool."""
+    """CMCourier: herramienta de migracion de RVI a IBM Content Manager."""
 
 
 main.add_command(batch_group)
@@ -81,7 +84,7 @@ main.add_command(cache_group)
 
 @main.group(name="csv-trigger-pipeline")
 def csv_trigger_pipeline_group() -> None:
-    """csv-trigger-pipeline subcommands."""
+    """Subcomandos de `csv-trigger-pipeline`."""
 
 
 @csv_trigger_pipeline_group.command(name="run")
@@ -148,7 +151,7 @@ def csv_run_command(
     total: int | None,
     log_level: str,
 ) -> None:
-    """Run the csv-trigger pipeline end-to-end."""
+    """Corre el `csv-trigger pipeline` de punta a punta."""
     _run_pipeline_command(
         config_path,
         expected_kind="csv",
@@ -172,7 +175,7 @@ def csv_run_command(
 
 @main.group(name="rvabrep-pipeline")
 def rvabrep_pipeline_group() -> None:
-    """rvabrep-pipeline subcommands."""
+    """Subcomandos de `rvabrep-pipeline`."""
 
 
 @rvabrep_pipeline_group.command(name="run")
@@ -214,7 +217,7 @@ def rvabrep_run_command(
     total: int | None,
     log_level: str,
 ) -> None:
-    """Run the rvabrep-pipeline end-to-end."""
+    """Corre el `rvabrep-pipeline` de punta a punta."""
     _run_pipeline_command(
         config_path,
         expected_kind="rvabrep",
@@ -238,7 +241,7 @@ def rvabrep_run_command(
 
 @main.group(name="local-scan-pipeline")
 def local_scan_pipeline_group() -> None:
-    """local-scan-pipeline subcommands."""
+    """Subcomandos de `local-scan-pipeline`."""
 
 
 @local_scan_pipeline_group.command(name="run")
@@ -280,7 +283,7 @@ def local_scan_run_command(
     total: int | None,
     log_level: str,
 ) -> None:
-    """Run the local-scan-pipeline end-to-end."""
+    """Corre el `local-scan-pipeline` de punta a punta."""
     _run_pipeline_command(
         config_path,
         expected_kind="local_scan",
@@ -298,13 +301,13 @@ def local_scan_run_command(
 
 
 # ---------------------------------------------------------------------------
-# single-doc (diagnostic pipeline)
+# single-doc (pipeline diagnostico)
 # ---------------------------------------------------------------------------
 
 
 @main.group(name="single-doc")
 def single_doc_group() -> None:
-    """single-doc subcommands (debug / ad-hoc)."""
+    """Subcomandos de `single-doc` (debug / ad-hoc)."""
 
 
 @single_doc_group.command(name="run")
@@ -353,7 +356,7 @@ def single_doc_run_command(
     total: int | None,
     log_level: str,
 ) -> None:
-    """Run a one-shot pipeline for a single document."""
+    """Corre un pipeline one-shot para un unico documento."""
     configure_logging(log_level)
     try:
         config = load_config(config_path)
@@ -440,7 +443,7 @@ def single_doc_run_command(
 )
 @click.option("--log-level", type=click.Choice(_LOG_LEVELS, case_sensitive=False), default="INFO")
 def doctor_command(config_path: Path, selected_check: str, log_level: str) -> None:
-    """Run pre-flight validation."""
+    """Corre la validacion pre-flight."""
     configure_logging(log_level)
     try:
         config = load_config(config_path)
@@ -467,6 +470,7 @@ def doctor_command(config_path: Path, selected_check: str, log_level: str) -> No
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# (helpers internos del entry point)
 
 
 def _run_pipeline_command(
@@ -519,7 +523,7 @@ def _run_pipeline_command(
     source_descriptor = (
         str(config.trigger.csv_path)
         if isinstance(config.trigger, CsvTriggerConfig)
-        else ""  # rvabrep / as400 strategies ignore source_descriptor
+        else ""  # las strategies de rvabrep / as400 ignoran `source_descriptor`
     )
     pipeline_kwargs = {
         "source_descriptor": source_descriptor,
@@ -573,13 +577,14 @@ def _run_with_optional_tui(
     tui: bool,
     log_level: str,
 ) -> MultiBatchRunReport:
-    """Route the run through the multi-batch orchestrator (028 + 030).
+    """Rutea la corrida por el multi-batch orchestrator (028 + 030).
 
-    Exit codes (2/3) match the pre-028 headless contract. When
-    ``tui=True`` and stderr is non-TTY, the TUI is auto-disabled
-    (REQ-034). The TUI is live-bound to the orchestrator's active
-    chunk recorder, so N=2 runs render coherent per-chunk data
-    plus a CHUNKS tab listing every chunk's status.
+    Los codigos de salida (2/3) coinciden con el contrato headless
+    previo a 028. Cuando ``tui=True`` y stderr no es TTY, la TUI se
+    auto-deshabilita (REQ-034). La TUI esta atada en vivo al recorder
+    del chunk activo del orchestrator, asi las corridas con N=2
+    renderizan datos coherentes por chunk mas una pestana CHUNKS que
+    lista el estado de cada chunk.
     """
     from cmcourier.cli._tui_runner import (  # noqa: PLC0415
         run_orchestrator_with_tui,
@@ -601,31 +606,34 @@ def _run_with_optional_tui(
             sys.exit(2)
         tui = False
 
-    # Extract orchestrator-specific kwargs and drop them from the dict.
+    # Extraemos los kwargs especificos del orchestrator y los sacamos del dict.
     batches_in_flight = int(pipeline_kwargs.pop("batches_in_flight", 1))
     resume_flag = bool(pipeline_kwargs.pop("resume", False))
     total = pipeline_kwargs.pop("total", None)
     if resume_flag:
-        # Resume is inherently single-batch — the operator named a specific
-        # batch_id; orchestrator chunking doesn't apply.
+        # El resume es inherentemente single-batch: el operador nombro un
+        # `batch_id` especifico; el chunking del orchestrator no aplica.
         batches_in_flight = 1
-    # 044: any operator-provided ``--batch-id`` is the batch_id this run
-    # operates on (resume OR fresh-named OR ``--from-stage`` replay). The
-    # orchestrator routes through ``_run_single`` whenever batch_id is set
-    # and the pipeline validates existence. Pre-044 this assignment only
-    # honored batch_id when ``--resume`` was also passed, which dropped the
-    # flag silently on ``--from-stage`` replay paths and produced the
-    # ``ValueError("from_stage > 1 requires batch_id")`` further down.
+    # 044: cualquier `--batch-id` provisto por el operador es el `batch_id`
+    # sobre el que opera esta corrida (resume O fresh-named O replay con
+    # `--from-stage`). El orchestrator rutea por ``_run_single`` siempre
+    # que haya `batch_id` seteado y el pipeline valida la existencia.
+    # Pre-044 esta asignacion solo honraba el `batch_id` cuando ademas se
+    # pasaba `--resume`, lo que silenciaba el flag en los caminos de
+    # replay con `--from-stage` y producia el
+    # ``ValueError("from_stage > 1 requires batch_id")`` mas abajo.
     resume_batch_id = pipeline_kwargs.get("batch_id")
     if resume_batch_id is not None:
-        # Operator-named batches go through the single-batch path so the
-        # batch_id is honored verbatim (multi-batch overlap auto-generates
-        # per-chunk ids and would ignore the user's name).
+        # Los batches con nombre puesto por el operador van por el camino
+        # single-batch para que el `batch_id` se honre tal cual (el overlap
+        # multi-batch auto-genera ids por chunk y ignoraria el nombre del
+        # usuario).
         batches_in_flight = 1
 
-    # 063: streaming mode selector. Both orchestrators expose the same
-    # ``.run(...)`` signature and return a MultiBatchRunReport, so the
-    # rest of this function (TUI wiring, _emit_outcome) is unchanged.
+    # 063: selector de modo streaming. Ambos orchestrators exponen la
+    # misma firma ``.run(...)`` y devuelven un `MultiBatchRunReport`, asi
+    # que el resto de esta funcion (cableado de la TUI, `_emit_outcome`)
+    # queda igual.
     orchestrator: MultiBatchOrchestrator | StreamingOrchestrator
     if config.processing.mode == "streaming":
         if int(pipeline_kwargs.get("from_stage", 1)) > 1 or resume_batch_id is not None:
@@ -660,14 +668,15 @@ def _run_with_optional_tui(
             _log.exception("pipeline run failed unexpectedly")
             sys.exit(3)
 
-    # 041: once we're committed to launching the Textual TUI, re-install
-    # observability handlers WITHOUT a stderr StreamHandler so the dashboard
-    # frame is not torn by log lines. configure() is idempotent — it resets
-    # all handlers before re-attaching, so the rotating FileHandler keeps
-    # logging every event to disk.
+    # 041: una vez que estamos comprometidos a lanzar la TUI de Textual,
+    # re-instalamos los handlers de observabilidad SIN un `StreamHandler`
+    # de stderr para que el frame del dashboard no se rompa con lineas de
+    # log. ``configure()`` es idempotente: resetea todos los handlers antes
+    # de re-adjuntar, asi el `FileHandler` rotativo sigue logueando cada
+    # evento a disco.
     configure_observability(config.observability, log_level, tui_active=True)
 
-    # 064: streaming mode plumbs the bucket snapshot into the BUCKET tab.
+    # 064: el modo streaming cablea el snapshot del bucket en la pestana BUCKET.
     bucket_provider = (
         orchestrator.streaming_snapshot if isinstance(orchestrator, StreamingOrchestrator) else None
     )
@@ -679,17 +688,20 @@ def _run_with_optional_tui(
         cmis_config=config.cmis,
         uploader=pipeline.uploader,
         auto_tune=pipeline.auto_tune_controller,
-        # 030: live-bind the active chunk's recorder + chunk-state list.
+        # 030: live-binding del recorder del chunk activo + lista de
+        # estado por chunk.
         recorder_provider=orchestrator.active_recorder,
-        # 042: independent UPLOAD-tab binding so PREP-side flips don't
-        # stomp the S5 percentile / MB display mid-upload.
+        # 042: binding independiente de la pestana UPLOAD para que los
+        # flips del lado PREP no pisoteen el display de percentil S5 / MB
+        # a mitad del upload.
         upload_recorder_provider=orchestrator.upload_recorder,
         chunks_provider=orchestrator.chunks_snapshot,
-        # 036: surface heavy/light lane stats when dual mode is enabled.
+        # 036: expone las stats de las heavy/light lane cuando el modo dual
+        # esta habilitado.
         lane_controller=pipeline.lane_controller,
-        # 052: tracking store for the DETAIL tab's per-chunk drill-down.
+        # 052: tracking store para el drill-down por chunk de la pestana DETAIL.
         tracking_store=pipeline.tracking_store,
-        # 064: orchestration mode + BUCKET-tab data source.
+        # 064: modo de orquestacion + fuente de datos de la pestana BUCKET.
         mode=config.processing.mode,
         bucket_provider=bucket_provider,
     )
@@ -714,15 +726,15 @@ def _emit_outcome(
     expected_kind: str,
     quiet: bool,
 ) -> None:
-    """Emit the per-chunk + totals summary and ``sys.exit`` with the right code.
+    """Emite el resumen por chunk + totales y hace ``sys.exit`` con el codigo correcto.
 
-    For the legacy single-chunk path the output is byte-identical to
-    pre-028. When more than one chunk ran, prints one line per chunk
-    followed by a TOTALS line.
+    Para el camino legado de un solo chunk la salida es byte-a-byte
+    identica al pre-028. Cuando corrio mas de un chunk, imprime una
+    linea por chunk seguida de una linea TOTALS.
     """
     if not quiet:
         if len(report.chunks) <= 1:
-            # Legacy single-batch output preserved verbatim.
+            # Salida legada de single-batch preservada al pie de la letra.
             if report.chunks:
                 _emit_summary(report.chunks[0])
         else:
@@ -758,7 +770,7 @@ def _emit_outcome(
 
 
 def _run_auto_doctor(config: PipelineConfig, secrets) -> None:  # type: ignore[no-untyped-def]
-    """Run pre-flight checks; abort the caller (sys.exit) on FAIL."""
+    """Corre los checks pre-flight; aborta al caller (`sys.exit`) ante un FAIL."""
     try:
         report = run_doctor(config, secrets)
     except Exception:
@@ -788,13 +800,13 @@ def _apply_resume(
     *,
     quiet: bool = False,
 ) -> int:
-    """Resolve ``--resume`` into a concrete ``from_stage`` int.
+    """Resuelve ``--resume`` a un `from_stage` concreto.
 
-    Calls ``sys.exit`` on misuse (no batch_id, unknown batch, clean batch).
-    When ``explicit_from_stage`` is non-default, it WINS and emits a
-    WARNING — explicit beats inferred. ``quiet=True`` suppresses the
-    "Nothing to resume" stdout echo (still exits 0); used by the
-    background runner.
+    Llama a ``sys.exit`` ante mal uso (sin `batch_id`, batch desconocido,
+    batch limpio). Cuando ``explicit_from_stage`` no es el default, GANA
+    y emite un WARNING: lo explicito le gana a lo inferido. ``quiet=True``
+    suprime el echo a stdout de "Nothing to resume" (igual sale con 0); lo
+    usa el runner en background.
     """
     from cmcourier.adapters.tracking import SQLiteTrackingStore  # noqa: PLC0415
 
@@ -813,11 +825,12 @@ def _apply_resume(
         click.echo(f"Batch not found: {batch_id}", err=True)
         sys.exit(1)
 
-    # 044: explicit ``--from-stage`` wins regardless of detection. The
-    # operator named a specific replay point and provided a batch_id —
-    # honor it even if auto-detection would say "clean". Moved BEFORE
-    # the clean-exit so a user can force a replay of an outwardly-
-    # complete batch (typical after a config change that wants S3+ rerun).
+    # 044: el `--from-stage` explicito gana sin importar la deteccion. El
+    # operador nombro un punto de replay especifico y proveyo un `batch_id`,
+    # honoramoslo incluso si la auto-deteccion diria "clean". Se movio
+    # ANTES del clean-exit para que el usuario pueda forzar el replay de un
+    # batch aparentemente completo (tipico despues de un cambio de config
+    # que quiere re-correr desde S3 en adelante).
     if explicit_from_stage != 1:
         _log.info(
             "resume_explicit_from_stage",
@@ -831,17 +844,19 @@ def _apply_resume(
     resolved: int | None = None
     for n in (1, 2, 3, 4, 5):
         counts = details.stage_counts.get(f"S{n}", {})
-        # FAILED / PENDING at this stage takes priority — same-stage
-        # retry path is more conservative than skipping ahead.
+        # FAILED / PENDING en esta etapa tiene prioridad: el camino de
+        # retry en la misma etapa es mas conservador que saltear hacia
+        # adelante.
         if counts.get("FAILED", 0) + counts.get("PENDING", 0) > 0:
             resolved = n
             break
-        # 044: docs at ``S{N}_DONE`` with N<5 are completed at stage N
-        # but never picked up for stage N+1. With a worker pool sized
-        # smaller than the batch, most kill-mid-S5 scenarios leave the
-        # bulk of docs at S4_DONE — pre-044 this looked "clean" to
-        # ``_apply_resume`` because neither FAILED nor PENDING marker
-        # was set. Detect the gap and resume from N+1.
+        # 044: los docs en ``S{N}_DONE`` con N<5 estan completos en la
+        # etapa N pero nunca fueron levantados para la etapa N+1. Con un
+        # pool de workers mas chico que el batch, la mayoria de los
+        # escenarios de kill-mid-S5 dejan el grueso de los docs en
+        # `S4_DONE`: pre-044 esto se veia "clean" para ``_apply_resume``
+        # porque no estaba seteado ni el marcador FAILED ni el PENDING.
+        # Detectamos el hueco y resumimos desde N+1.
         if n < 5 and counts.get("DONE", 0) > 0:
             resolved = n + 1
             break

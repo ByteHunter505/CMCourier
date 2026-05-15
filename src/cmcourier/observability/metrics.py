@@ -1,11 +1,11 @@
-"""Pipeline metrics aggregators (tier 2) + network events (tier 3) + slow ops (tier 4).
+"""Aggregators de pipeline (`tier` 2) + `network events` (`tier` 3) + `slow ops` (`tier` 4).
 
-Owned by the orchestrator. Per-stage timings flow through
-:class:`StageTimer`; the recorder aggregates per batch and emits a
-single summary line at close. Slow-op aggregation runs through a
-custom :class:`logging.Handler` attached at batch start so adapter
-code stays unaware (it emits to the well-known network logger and
-the handler catches anything over the threshold).
+Lo posee el orquestador. Los timings por etapa fluyen a través de
+:class:`StageTimer`; el recorder agrega por batch y emite una sola línea
+de resumen al cerrar. La agregación de `slow ops` corre a través de un
+:class:`logging.Handler` custom atacheado al arrancar el batch, así el
+código de los adaptadores se mantiene inconsciente (emite al logger de
+red conocido y el handler atrapa lo que supere el `threshold`).
 """
 
 from __future__ import annotations
@@ -33,16 +33,16 @@ _app_log = logging.getLogger("cmcourier")
 
 
 # ---------------------------------------------------------------------------
-# Network event payload (tier 3)
+# Payload de `network event` (`tier` 3)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class NetworkEvent:
-    """A single network-tier observation.
+    """Una observación individual del `tier` de red.
 
-    Emitted by AS400 + CMIS adapters via the
-    ``cmcourier.metrics.network`` logger as ``extra={...}``.
+    La emiten los adaptadores de AS400 + CMIS vía el logger
+    ``cmcourier.metrics.network`` como ``extra={...}``.
     """
 
     kind: str
@@ -56,19 +56,19 @@ class NetworkEvent:
 
 
 # ---------------------------------------------------------------------------
-# Per-stage timing aggregation (tier 2)
+# Agregación de timing por etapa (`tier` 2)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
 class _StageBucket:
-    """Thread-safe per-stage timing accumulator (025).
+    """Acumulador `thread-safe` de timing por etapa (025).
 
-    The 020 single-threaded version had no lock — append-from-one-
-    thread, snapshot-from-the-same-thread. 025 adds S5 worker
-    concurrency: ``record`` is called from N worker threads while
-    ``summary`` is called from the orchestrator + TUI threads.
-    Lock keeps the underlying list consistent.
+    La versión single-threaded de 020 no tenía lock — append desde un
+    `thread`, snapshot desde el mismo `thread`. 025 agrega concurrencia
+    de `workers` de S5: ``record`` se llama desde N `worker threads`
+    mientras que ``summary`` se llama desde los `threads` del orquestador
+    + TUI. El lock mantiene la lista subyacente consistente.
     """
 
     durations_ms: list[float] = field(default_factory=list)
@@ -100,28 +100,28 @@ class _StageBucket:
 
 
 def _percentile(sorted_values: list[float], q: float) -> float:
-    """Nearest-rank percentile. ``q`` in ``[0, 1]``."""
+    """Percentil `nearest-rank`. ``q`` en ``[0, 1]``."""
     if not sorted_values:
         return 0.0
     if q <= 0:
         return sorted_values[0]
     if q >= 1:
         return sorted_values[-1]
-    # rank = ceil(q * n), 1-indexed
+    # rank = ceil(q * n), `1-indexed`
     rank = max(1, int(q * len(sorted_values) + 0.999999))
     return sorted_values[min(rank, len(sorted_values)) - 1]
 
 
 # ---------------------------------------------------------------------------
-# Slow-ops aggregator (tier 4)
+# `Aggregator` de `slow ops` (`tier` 4)
 # ---------------------------------------------------------------------------
 
 
 class SlowOpAggregator:
-    """Collect candidate slow operations; emit top-N at batch close.
+    """Junta candidatos a `slow ops`; emite el top-N al cerrar el batch.
 
-    Thread-safe (025): ``consider`` is called from S5 worker threads
-    via the network logger handler.
+    `Thread-safe` (025): ``consider`` se llama desde los `worker threads`
+    de S5 vía el handler del logger de red.
     """
 
     def __init__(self, *, threshold_ms: float, top_n: int) -> None:
@@ -168,25 +168,27 @@ class SlowOpAggregator:
 
 
 class _BandwidthSampler:
-    """1-Hz rolling sampler for CMIS upload bandwidth (025 phase 3).
+    """Sampler `rolling` de 1 Hz para el `bandwidth` de upload CMIS (025 fase 3).
 
-    Drives the TUI's bandwidth chart and the WORKERS/NETWORK panels.
-    Buckets ``cmis_upload`` sizes by wall-clock second; keeps a 60-bucket
-    rolling window so the chart shows the last minute. Thread-safe —
-    fed from worker threads via the ``_BandwidthHandler``.
+    Alimenta el chart de `bandwidth` del TUI y los paneles WORKERS/NETWORK.
+    Agrupa los tamaños de ``cmis_upload`` por segundo de `wall-clock`;
+    mantiene una `rolling window` de 60 `buckets` para que el chart muestre
+    el último minuto. `Thread-safe` — lo alimentan los `worker threads`
+    vía el ``_BandwidthHandler``.
     """
 
     _WINDOW_SECONDS = 60
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        # bucket_ts (int seconds since epoch) → bytes total this second
+        # bucket_ts (segundos enteros desde el epoch) → total de bytes en ese segundo
         self._buckets: dict[int, int] = {}
-        # 041: cumulative bytes uploaded since this sampler was created. The
-        # rolling buckets above evict after 60 s; this counter never does, so
-        # the TUI can show a per-chunk "MB uploaded so far" total. The
-        # ``MetricsRecorder`` lifecycle is per-chunk, so this is naturally
-        # chunk-scoped.
+        # 041: bytes `cumulative` subidos desde que se creó este sampler.
+        # Los `buckets` `rolling` de arriba se descartan después de 60 s;
+        # este contador nunca, así la TUI puede mostrar un total
+        # "MB subidos hasta ahora" por `chunk`. El ciclo de vida de
+        # ``MetricsRecorder`` es por `chunk`, así que naturalmente queda
+        # scopeado al `chunk`.
         self._cumulative_bytes: int = 0
 
     def record_upload(
@@ -196,18 +198,20 @@ class _BandwidthSampler:
         started_at: float,
         completed_at: float,
     ) -> None:
-        """069: distribute ``size_bytes`` uniformly over the second-buckets
-        overlapping ``[started_at, completed_at]``.
+        """069: distribuye ``size_bytes`` uniformemente sobre los `buckets`
+        de un segundo que solapan ``[started_at, completed_at]``.
 
-        Pre-069 credited the whole file size to ``int(completed_at)`` — for
-        a 30 MB upload over 3 seconds, all 30 MB landed in one bucket and
-        the other two showed zero. That produced spiky readings,
-        misleading peaks, and a sparkline that didn't reflect sustained
-        throughput. Distributing makes ``current_mbps`` / ``peak_mbps`` /
-        ``series`` faithful to the actual transmission rate.
+        Pre-069 acreditaba el tamaño completo del archivo a
+        ``int(completed_at)`` — para un upload de 30 MB sobre 3 segundos,
+        los 30 MB enteros caían en un solo `bucket` y los otros dos
+        mostraban cero. Eso producía lecturas con picos, peaks engañosos
+        y una `sparkline` que no reflejaba el `throughput` sostenido.
+        Distribuir hace que ``current_mbps`` / ``peak_mbps`` / ``series``
+        sean fieles a la tasa real de transmisión.
 
-        The transmission rate is assumed constant within an upload.
-        Slightly smooths bursty internals but is correct in aggregate.
+        Se asume que la tasa de transmisión es constante dentro de un
+        upload. Suaviza levemente las ráfagas internas pero es correcto
+        en agregado.
         """
         if size_bytes <= 0:
             return
@@ -217,8 +221,8 @@ class _BandwidthSampler:
         with self._lock:
             self._cumulative_bytes += int(size_bytes)
             if duration <= 0.0:
-                # Sub-millisecond or zero-duration upload — credit to the
-                # completion second (pre-069 shape, defensive fallback).
+                # Upload sub-milisegundo o de duración cero — acredita al
+                # segundo de finalización (shape pre-069, fallback defensivo).
                 self._buckets[end_ts] = self._buckets.get(end_ts, 0) + int(size_bytes)
             else:
                 bytes_per_s = float(size_bytes) / duration
@@ -237,16 +241,16 @@ class _BandwidthSampler:
                 del self._buckets[k]
 
     def cumulative_bytes(self) -> int:
-        """Total bytes uploaded since this sampler started (never decays)."""
+        """Total de bytes subidos desde que arrancó este sampler (nunca decae)."""
         with self._lock:
             return self._cumulative_bytes
 
     def current_mbps(self) -> float:
-        """MB/s in the most recent completed 1-second bucket."""
+        """MB/s en el `bucket` de 1 segundo más reciente que esté completo."""
         now = int(time.time())
         with self._lock:
-            # Look at the previous full bucket — the current one may still
-            # be filling.
+            # Mira el `bucket` completo anterior — el actual todavía puede
+            # estar llenándose.
             return self._buckets.get(now - 1, 0) / 1_000_000.0
 
     def peak_mbps(self) -> float:
@@ -256,7 +260,7 @@ class _BandwidthSampler:
             return max(self._buckets.values()) / 1_000_000.0
 
     def series(self, seconds: int = _WINDOW_SECONDS) -> list[tuple[int, float]]:
-        """Return ``[(offset_s_negative, mbps)...]`` newest-last."""
+        """Devuelve ``[(offset_s_negative, mbps)...]`` con el más nuevo al final."""
         now = int(time.time())
         seconds = max(1, min(seconds, self._WINDOW_SECONDS))
         with self._lock:
@@ -270,13 +274,14 @@ class _BandwidthSampler:
 
 
 class _BandwidthHandler(logging.Handler):
-    """Logging handler that feeds the bandwidth sampler from network events.
+    """Handler de logging que alimenta el `bandwidth sampler` desde los `network events`.
 
-    042: filters by ``batch_id`` so overlapping chunks (``batches_in_flight>1``)
-    don't bleed each other's bytes into per-chunk samplers. Pre-042, every
-    live handler received every ``cmis_upload`` event regardless of which
-    chunk produced it — the same shape ``_SlowOpHandler`` solved at 025 by
-    short-circuiting on ``record.batch_id != self._batch_id``.
+    042: filtra por ``batch_id`` para que `chunks` solapados
+    (``batches_in_flight>1``) no se filtren bytes entre sus samplers por
+    `chunk`. Pre-042, cada handler vivo recibía todos los eventos
+    ``cmis_upload`` sin importar qué `chunk` los produjo — el mismo shape
+    que ``_SlowOpHandler`` resolvió en 025 con un short-circuit sobre
+    ``record.batch_id != self._batch_id``.
     """
 
     def __init__(self, sampler: _BandwidthSampler, *, batch_id: str) -> None:
@@ -292,11 +297,11 @@ class _BandwidthHandler(logging.Handler):
         size = getattr(record, "size_bytes", None)
         if size is None:
             return
-        # 069: derive the transmission window from ``duration_ms`` so the
-        # sampler can distribute bytes uniformly. ``duration_ms`` is
-        # always set by ``CmisUploader._emit_network`` for ``cmis_upload``
-        # events; defensive fallback to crediting at completion when
-        # missing or zero (pre-069 shape).
+        # 069: deriva la ventana de transmisión a partir de ``duration_ms``
+        # para que el sampler pueda distribuir los bytes uniformemente.
+        # ``duration_ms`` siempre lo setea ``CmisUploader._emit_network``
+        # para los eventos ``cmis_upload``; fallback defensivo a acreditar
+        # a la finalización cuando falta o es cero (shape pre-069).
         completed_at = float(record.created)
         duration_ms = getattr(record, "duration_ms", 0.0) or 0.0
         try:
@@ -312,19 +317,19 @@ class _BandwidthHandler(logging.Handler):
 
 
 class _SlowOpHandler(logging.Handler):
-    """Logging handler that feeds the per-batch slow-op aggregator.
+    """Handler de logging que alimenta el `aggregator` de `slow ops` por batch.
 
-    Attached to ``cmcourier``, ``cmcourier.metrics.network`` at batch
-    start. Any record with a ``duration_ms`` attribute is a
-    candidate; the aggregator's threshold filters cheap operations
-    out before allocation.
+    Se atachea a ``cmcourier``, ``cmcourier.metrics.network`` al arrancar
+    el batch. Cualquier record con atributo ``duration_ms`` es candidato;
+    el `threshold` del `aggregator` filtra las operaciones baratas antes
+    de la asignación.
 
-    028: every handler is tagged with the ``batch_id`` of the
-    recorder that owns it. Records whose ``record.batch_id`` does
-    not match are dropped at the handler level so multiple
-    concurrent recorders (one per chunk) don't cross-pollinate.
-    A record without a ``batch_id`` extra is also dropped — slow
-    ops outside any batch lifetime are not meaningful.
+    028: cada handler se taggea con el ``batch_id`` del recorder que lo
+    posee. Los records cuyo ``record.batch_id`` no coincide se descartan
+    a nivel del handler para que múltiples recorders concurrentes (uno
+    por `chunk`) no se polinicen entre sí. Un record sin el extra
+    ``batch_id`` también se descarta — los `slow ops` fuera del ciclo de
+    vida de algún batch no son significativos.
     """
 
     def __init__(self, aggregator: SlowOpAggregator, *, batch_id: str) -> None:
@@ -351,7 +356,7 @@ class _SlowOpHandler(logging.Handler):
 
 
 # ---------------------------------------------------------------------------
-# Batch summary builder
+# Builder del resumen por batch
 # ---------------------------------------------------------------------------
 
 
@@ -378,18 +383,18 @@ class BatchSummary:
 
 
 # ---------------------------------------------------------------------------
-# MetricsRecorder — orchestrator-facing facade
+# MetricsRecorder — fachada de cara al orquestador
 # ---------------------------------------------------------------------------
 
 
 class MetricsRecorder:
-    """Owned by the orchestrator. Per-batch lifecycle.
+    """Lo posee el orquestador. Ciclo de vida por batch.
 
-    The recorder is responsible for:
-    * timing aggregation per stage (S0..S5)
-    * slow-op collection (via a logging.Handler installed for the batch)
-    * batch summary emission to ``cmcourier.metrics.pipeline``
-    * slow-ops file emission at batch close
+    El recorder es responsable de:
+    * agregación de timing por etapa (S0..S5)
+    * recolección de `slow ops` (vía un logging.Handler instalado para el batch)
+    * emisión del resumen por batch a ``cmcourier.metrics.pipeline``
+    * emisión del archivo de `slow ops` al cerrar el batch
     """
 
     def __init__(
@@ -410,19 +415,21 @@ class MetricsRecorder:
         self._aggregator: SlowOpAggregator | None = None
         self._slow_op_handler: _SlowOpHandler | None = None
         self._monitored_loggers: list[logging.Logger] = []
-        # 025 phase 3: bandwidth sampler is the data source for the TUI's
-        # UPLOAD-tab chart. Active for the whole batch lifetime; handler
-        # attaches/detaches alongside the slow-op handler.
+        # 025 fase 3: el `bandwidth sampler` es la fuente de datos del chart
+        # de la tab UPLOAD del TUI. Activo durante todo el ciclo de vida
+        # del batch; el handler se ataca/desataca junto con el handler de
+        # `slow ops`.
         self._bandwidth = _BandwidthSampler()
         self._bandwidth_handler: _BandwidthHandler | None = None
-        # 041: S5 already-uploaded counter so the CHUNKS tab can show
-        # idempotency hits per chunk. Per-chunk recorder ⇒ per-chunk count.
+        # 041: contador de "ya subidos" de S5 para que la tab CHUNKS pueda
+        # mostrar los hits de idempotencia por `chunk`. Recorder por
+        # `chunk` ⇒ count por `chunk`.
         self._s5_skipped: int = 0
         self._s5_skipped_lock = threading.Lock()
-        # 042: live done/failed counters so the CHUNKS tab can show s5_done
-        # while UPLOAD is in flight (pre-042 the orchestrator only persisted
-        # the totals on the DONE transition, leaving the row at 0/0/0 for the
-        # whole upload phase).
+        # 042: contadores live de done/failed para que la tab CHUNKS pueda
+        # mostrar s5_done mientras UPLOAD está en vuelo (pre-042 el
+        # orquestador solo persistía los totales en la transición DONE,
+        # dejando la fila en 0/0/0 durante toda la fase de upload).
         self._s5_done: int = 0
         self._s5_failed: int = 0
         self._s5_done_lock = threading.Lock()
@@ -445,7 +452,7 @@ class MetricsRecorder:
         for lg in self._monitored_loggers:
             lg.addHandler(self._slow_op_handler)
         logging.getLogger("cmcourier.metrics.network").addHandler(self._bandwidth_handler)
-        _ = pipeline, batch_id  # reserved for future use
+        _ = pipeline, batch_id  # reservado para uso futuro
 
     def record_stage(
         self,
@@ -457,20 +464,20 @@ class MetricsRecorder:
         bucket.record(duration_ms)
 
     def current_stage_p95(self, stage: str) -> float:
-        """Live p95 latency for a stage (025 — drives auto-tune)."""
+        """Latencia p95 live para una etapa (025 — alimenta el auto-tune)."""
         bucket = self._stage_buckets.get(stage)
         if bucket is None:
             return 0.0
         return float(bucket.summary()["p95_ms"])
 
     def current_stage_p95_with_count(self, stage: str) -> tuple[float, int]:
-        """061: p95 + sample count in a single atomic read for AIMD.
+        """061: p95 + cantidad de samples en una sola lectura atómica para AIMD.
 
-        The auto-tune controller needs both to decide whether the
-        observation is trustworthy enough to act on (nearest-rank p95
-        with few samples gets dominated by outliers). The dict-builder
-        in ``_StageBucket.summary()`` already holds the bucket lock for
-        both values so the pair is consistent.
+        El controller de auto-tune necesita ambos para decidir si la
+        observación es lo suficientemente confiable como para actuar (un
+        p95 `nearest-rank` con pocos samples queda dominado por outliers).
+        El `dict-builder` en ``_StageBucket.summary()`` ya sostiene el lock
+        del `bucket` para ambos valores, así que el par queda consistente.
         """
         bucket = self._stage_buckets.get(stage)
         if bucket is None:
@@ -512,7 +519,7 @@ class MetricsRecorder:
         finally:
             self._detach_handler()
 
-    # ------------------------------------------------------------------ internals
+    # ------------------------------------------------------------------ internos
 
     def _build_summary(
         self,
@@ -560,25 +567,25 @@ class MetricsRecorder:
         self._monitored_loggers = []
         self._aggregator = None
 
-    # ---------------------------------------------------- TUI provider hooks
+    # ---------------------------------------------------- hooks de provider del TUI
 
     @property
     def bandwidth(self) -> _BandwidthSampler:
-        """Read-only handle for the TUI to fetch the bandwidth chart series."""
+        """Handle de solo lectura para que la TUI obtenga la `series` del chart de `bandwidth`."""
         return self._bandwidth
 
     def aggregator_snapshot(self) -> list[dict[str, Any]]:
-        """Top-N slow ops snapshot for the TUI; empty when batch not active."""
+        """Snapshot del top-N de `slow ops` para la TUI; vacío cuando no hay batch activo."""
         if self._aggregator is None:
             return []
         return self._aggregator.top()
 
     def stages_snapshot(self) -> dict[str, dict[str, float | int]]:
-        """Per-stage percentile/count snapshot for the TUI."""
+        """Snapshot de percentiles/count por etapa para la TUI."""
         return {stage: bucket.summary() for stage, bucket in self._stage_buckets.items()}
 
     def record_upload_skipped(self) -> None:
-        """041: tally an S5 outcome of ``"skipped"`` (idempotency / claim-lost)."""
+        """041: contabiliza un outcome S5 de ``"skipped"`` (idempotencia / `claim-lost`)."""
         with self._s5_skipped_lock:
             self._s5_skipped += 1
 
@@ -587,7 +594,7 @@ class MetricsRecorder:
             return self._s5_skipped
 
     def record_upload_done(self) -> None:
-        """042: tally an S5 outcome of ``"done"`` (real upload completed)."""
+        """042: contabiliza un outcome S5 de ``"done"`` (upload real completado)."""
         with self._s5_done_lock:
             self._s5_done += 1
 
@@ -596,7 +603,7 @@ class MetricsRecorder:
             return self._s5_done
 
     def record_upload_failed(self) -> None:
-        """042: tally an S5 outcome of ``"failed"`` (upload errored out)."""
+        """042: contabiliza un outcome S5 de ``"failed"`` (upload con error)."""
         with self._s5_failed_lock:
             self._s5_failed += 1
 
@@ -606,17 +613,17 @@ class MetricsRecorder:
 
 
 # ---------------------------------------------------------------------------
-# StageTimer — context manager
+# StageTimer — `context manager`
 # ---------------------------------------------------------------------------
 
 
 class StageTimer:
-    """Context manager that times one stage call and records to a recorder.
+    """Context manager que mide el tiempo de una llamada de etapa y registra en un recorder.
 
-    On ``__exit__`` it:
-    * records ``duration_ms`` on the recorder (so percentiles aggregate)
-    * emits a ``stage_complete`` event to the ``cmcourier`` logger at
-      INFO with the structured fields the JSON formatter promotes.
+    En ``__exit__``:
+    * registra ``duration_ms`` en el recorder (para que se agreguen los percentiles)
+    * emite un evento ``stage_complete`` al logger ``cmcourier`` en INFO
+      con los campos estructurados que el formatter JSON promueve.
     """
 
     __slots__ = (
@@ -647,9 +654,9 @@ class StageTimer:
         self._start_monotonic = 0.0
 
     def mark_failed(self) -> None:
-        """Call from inside the ``with`` block when the caller catches
-        a known-failure exception and continues. Without this hook,
-        a caught exception looks like a success to ``__exit__``.
+        """Llamar desde dentro del bloque ``with`` cuando el caller atrapa una
+        excepción de falla conocida y continúa. Sin este hook, una excepción
+        atrapada parece un éxito desde el punto de vista de ``__exit__``.
         """
         self._outcome = "FAIL"
 

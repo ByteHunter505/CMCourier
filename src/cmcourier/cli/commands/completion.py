@@ -1,20 +1,21 @@
-"""``cmcourier completion <shell>`` subcommand (032).
+"""Subcomando ``cmcourier completion <shell>`` (032).
 
-Wraps Click's built-in :mod:`click.shell_completion` so operators
-don't have to remember the ``_CMCOURIER_COMPLETE`` env-var dance.
+Envuelve el modulo built-in de Click :mod:`click.shell_completion` para
+que los operadores no tengan que acordarse del baile con la env-var
+``_CMCOURIER_COMPLETE``.
 
-Install the completion in your shell rc (one-time):
+Instalar el completion en el rc del shell (una sola vez):
 
-* bash — append to ``~/.bashrc``:
+* bash, agregar al ``~/.bashrc``:
   ``eval "$(cmcourier completion bash)"``
-* zsh — append to ``~/.zshrc``:
+* zsh, agregar al ``~/.zshrc``:
   ``eval "$(cmcourier completion zsh)"``
-* fish — write to a completion path:
+* fish, escribir en un path de completion:
   ``cmcourier completion fish > ~/.config/fish/completions/cmcourier.fish``
 
-After restarting the shell, tab-completion is available for every
-subcommand, group, and option declared on the Click app — no
-manual maintenance needed.
+Despues de reiniciar el shell, el tab-completion queda disponible para
+cada subcomando, grupo y opcion declarada en el app Click, sin
+mantenimiento manual.
 """
 
 from __future__ import annotations
@@ -33,12 +34,12 @@ _COMPLETE_VAR = "_CMCOURIER_COMPLETE"
 @click.command(name="completion")
 @click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
 def completion_command(shell: str) -> None:
-    """Emit the shell-completion script for SHELL on stdout."""
-    # Late import to avoid the circular cli/app.py ↔ commands/* loop.
+    """Emite por stdout el script de shell-completion para SHELL."""
+    # Import tardio para evitar el loop circular `cli/app.py` <-> `commands/*`.
     from cmcourier.cli.app import main  # noqa: PLC0415
 
     comp_cls = get_completion_class(shell)
-    if comp_cls is None:  # pragma: no cover — guarded by Click's Choice
+    if comp_cls is None:  # pragma: no cover — ya lo protege el `Choice` de Click
         click.echo(f"Unsupported shell: {shell}", err=True)
         sys.exit(2)
 

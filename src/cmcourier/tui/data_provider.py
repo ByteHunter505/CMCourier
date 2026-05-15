@@ -1,20 +1,21 @@
-"""Read-only snapshot adapter for the TUI (025 phase 3).
+"""Adaptador de `snapshot` de sólo lectura para el TUI (025 fase 3).
 
-The TUI runs in its own thread; the pipeline runs in the main
-thread. They never share mutable state directly. Instead, every
-~250 ms the TUI calls :meth:`TUIDataProvider.snapshot` which builds
-an immutable :class:`TUISnapshot` from the live state of:
+El TUI corre en su propio `thread`; la pipeline corre en el `thread`
+principal. Nunca comparten estado mutable directamente. En cambio,
+cada ~250 ms el TUI llama a :meth:`TUIDataProvider.snapshot`, que
+construye un :class:`TUISnapshot` inmutable a partir del estado
+live de:
 
-* :class:`MetricsRecorder` — stage timings + bandwidth sampler +
-  slow-op aggregator.
-* :class:`WorkerPoolStats` — pool capacity/busy/queue.
-* :class:`AutoTuneController` (optional) — last AIMD decision +
+* :class:`MetricsRecorder` — timings por `stage` + `sampler` de
+  `bandwidth` + agregador de `slow-op`.
+* :class:`WorkerPoolStats` — capacity/busy/queue del `pool`.
+* :class:`AutoTuneController` (opcional) — última decisión AIMD +
   countdown.
-* :class:`CmisConfigModel` + :class:`CmisUploader` — endpoint,
-  bandwidth ceiling, live request timeout.
+* :class:`CmisConfigModel` + :class:`CmisUploader` — `endpoint`,
+  techo de `bandwidth`, `timeout` live de request.
 
-The provider intentionally hides every mutable handle so the TUI
-cannot accidentally mutate orchestration state.
+El provider esconde a propósito todos los handles mutables para
+que el TUI no pueda mutar el estado de orquestación por accidente.
 """
 
 from __future__ import annotations
@@ -36,14 +37,14 @@ from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.lane_controller import LaneController, LaneSnapshot
 from cmcourier.services.worker_pool_stats import ResizableSemaphore, WorkerPoolStats
 
-# Stages displayed on the PREP tab. S5 lives on UPLOAD.
+# Stages que se muestran en el tab PREP. S5 vive en UPLOAD.
 PREP_STAGES: tuple[str, ...] = ("S0", "S1", "S2", "S3", "S4")
 UPLOAD_STAGE: str = "S5"
 
 
 @dataclass(frozen=True, slots=True)
 class TUISnapshot:
-    """Immutable view of every field the TUI needs at one instant."""
+    """Vista inmutable de todos los campos que el TUI necesita en un instante."""
 
     # ---------- header
     pipeline: str
@@ -78,43 +79,45 @@ class TUISnapshot:
     cmis_endpoint: str = ""
     bandwidth_current_mbps: float = 0.0
     bandwidth_peak_mbps: float = 0.0
-    bandwidth_ceiling_mbps: float = 0.0  # 0 == auto-scale
+    bandwidth_ceiling_mbps: float = 0.0  # 0 == auto-escala
     bandwidth_series: tuple[tuple[int, float], ...] = ()
 
-    # ---------- slow ops + recent uploads
+    # ---------- slow ops + uploads recientes
     slow_ops_all: tuple[dict[str, object], ...] = ()
 
-    # ---------- 030: chunks state (multi-batch view)
+    # ---------- 030: estado de `chunk`s (vista multi-batch)
     chunks_state: tuple[dict[str, object], ...] = ()
 
-    # ---------- 036: heavy/light lane state (None when single-lane mode)
+    # ---------- 036: estado de `lane`s heavy/light (None en modo single-lane)
     lane_snapshot: LaneSnapshot | None = None
 
-    # ---------- 041: per-chunk UPLOAD progress (bytes + timer + ETA)
-    # In single-batch mode (no chunks_state) these fall back to the
-    # cumulative recorder counter and the global run elapsed.
+    # ---------- 041: progreso UPLOAD por `chunk` (bytes + timer + ETA)
+    # En modo single-batch (sin chunks_state) caen al contador
+    # acumulativo del recorder y al elapsed global de la corrida.
     current_chunk_bytes_uploaded: int = 0
     current_chunk_bytes_total: int = 0
     current_chunk_elapsed_s: float = 0.0
     current_chunk_avg_mbps: float = 0.0
     current_chunk_eta_s: float | None = None
 
-    # ---------- 051: docs filtered at S1 (delete-coded RVABREP rows),
-    # summed across all chunk states. 0 in the rare monolithic path.
+    # ---------- 051: docs filtrados en S1 (filas RVABREP con código de
+    # baja), sumados entre todos los estados de `chunk`. 0 en el path
+    # monolítico raro.
     s1_filtered: int = 0
 
-    # ---------- 064: orchestration mode (drives BUCKET vs CHUNKS tab)
+    # ---------- 064: modo de orquestación (decide el tab BUCKET vs CHUNKS)
     mode: Literal["batched", "streaming"] = "batched"
 
-    # ---------- 064: streaming BUCKET-tab snapshot (None in batched mode)
+    # ---------- 064: snapshot del tab BUCKET en `streaming` (None en `batched`)
     bucket: StreamingSnapshot | None = None
 
 
 class TUIDataProvider:
-    """Snapshot factory the TUI polls every refresh tick.
+    """Factory de `snapshot`s que el TUI consulta en cada tick de refresh.
 
-    All accessor calls hit ``MetricsRecorder`` / ``WorkerPoolStats``
-    snapshot APIs which are thread-safe by construction (Phase 1+2).
+    Todas las llamadas de acceso golpean las APIs de `snapshot` de
+    ``MetricsRecorder`` / ``WorkerPoolStats``, que son thread-safe por
+    construcción (Fases 1+2).
     """
 
     def __init__(
@@ -137,20 +140,20 @@ class TUIDataProvider:
     ) -> None:
         self._pipeline_name = pipeline_name
         self._fallback_recorder = metrics_recorder
-        # 030: when the multi-batch orchestrator drives the run, the
-        # provider keeps pointing at the currently-active chunk's
-        # recorder. For single-batch runs the fallback (== the
-        # pipeline's own recorder) is used.
+        # 030: cuando el orchestrator multi-batch maneja la corrida, el
+        # provider sigue apuntando al recorder del `chunk` activo. Para
+        # corridas single-batch se usa el fallback (== el recorder propio
+        # de la pipeline).
         self._recorder_provider: Callable[[], MetricsRecorder | None] | None = recorder_provider
-        # 042: independent UPLOAD-tab binding. When set, this is used for
-        # everything S5-shaped (bytes uploaded, S5 percentiles, live
-        # done/failed counters). Falls back to ``recorder_provider`` when
-        # unset (e.g. single-batch runs that don't expose the dual slot).
+        # 042: binding independiente del tab UPLOAD. Cuando está seteado,
+        # se usa para todo lo S5-shaped (bytes subidos, percentiles de S5,
+        # contadores live done/failed). Cae a ``recorder_provider`` cuando
+        # no está seteado (p.ej. single-batch sin el slot dual expuesto).
         self._upload_recorder_provider: Callable[[], MetricsRecorder | None] | None = (
             upload_recorder_provider
         )
         self._chunks_provider: Callable[[], list[Any]] | None = chunks_provider
-        # 052: tracking store for the per-chunk drill-down (DETAIL pane).
+        # 052: `tracking store` para el drill-down por `chunk` (panel DETAIL).
         self._tracking_store = tracking_store
         self._pool_stats = pool_stats
         self._concurrency_limit = concurrency_limit
@@ -160,22 +163,22 @@ class TUIDataProvider:
         self._lane_controller = lane_controller
         self._batch_id: str = ""
         self._batch_started_monotonic: float | None = None
-        # 052: stamped on completion so the run timer FREEZES instead of
-        # ticking forever after the last chunk finishes.
+        # 052: se sella al completarse para que el timer de la corrida
+        # CONGELE en vez de seguir ticando después del último `chunk`.
         self._batch_completed_monotonic: float | None = None
         self._is_complete = False
-        # 064: orchestration mode + BUCKET-tab data source.
+        # 064: modo de orquestación + data source del tab BUCKET.
         self._mode: Literal["batched", "streaming"] = mode
         self._bucket_provider: Callable[[], StreamingSnapshot | None] | None = bucket_provider
 
     @property
     def mode(self) -> Literal["batched", "streaming"]:
-        """064: ``"streaming"`` activates the BUCKET tab + hides CHUNKS."""
+        """064: ``"streaming"`` activa el tab BUCKET + oculta CHUNKS."""
         return self._mode
 
     @property
     def _metrics(self) -> MetricsRecorder:
-        """Live-bound active recorder; falls back to the constructed one."""
+        """Recorder activo live-bound; cae al construido por defecto."""
         if self._recorder_provider is not None:
             live = self._recorder_provider()
             if live is not None:
@@ -184,10 +187,11 @@ class TUIDataProvider:
 
     @property
     def _upload_metrics(self) -> MetricsRecorder:
-        """042 — UPLOAD-side recorder; isolated from PREP-side flips.
+        """042 — recorder del lado UPLOAD; aislado de los flips del lado PREP.
 
-        Falls back to ``self._metrics`` when no upload-side provider is
-        wired (single-batch runs) so the dashboard keeps working unchanged.
+        Cae a ``self._metrics`` cuando no hay provider del lado upload
+        cableado (corridas single-batch) para que el dashboard siga
+        funcionando sin cambios.
         """
         if self._upload_recorder_provider is not None:
             live = self._upload_recorder_provider()
@@ -195,7 +199,7 @@ class TUIDataProvider:
                 return live
         return self._metrics
 
-    # ------------------------------------------------------- lifecycle hooks
+    # ------------------------------------------------------- hooks de ciclo de vida
 
     def mark_batch_started(self, batch_id: str) -> None:
         self._batch_id = batch_id
@@ -205,16 +209,17 @@ class TUIDataProvider:
 
     def mark_batch_complete(self) -> None:
         self._is_complete = True
-        # 052: freeze the run clock at completion.
+        # 052: congela el reloj de la corrida al completarse.
         self._batch_completed_monotonic = time.monotonic()
 
     # ------------------------------------------------------- drill-down (052)
 
     def docs_for_batch(self, batch_id: str) -> list[DocDetail]:
-        """Per-doc detail for one chunk's batch — for the DETAIL pane.
+        """Detalle por-doc del batch de un `chunk` — para el panel DETAIL.
 
-        Reads from the tracking store on demand (bounded memory). Returns
-        an empty list when no store is wired or ``batch_id`` is blank.
+        Lee del `tracking store` bajo demanda (memoria acotada). Devuelve
+        una lista vacía cuando no hay store cableado o ``batch_id`` está
+        en blanco.
         """
         if self._tracking_store is None or not batch_id:
             return []
@@ -224,9 +229,10 @@ class TUIDataProvider:
 
     def snapshot(self) -> TUISnapshot:
         stages = self._metrics.stages_snapshot()
-        # 042: override the S5 entry with the upload-side recorder's data so
-        # the UPLOAD-tab percentile block reflects the chunk currently
-        # uploading, not whichever chunk last flipped the active slot.
+        # 042: sobrescribe la entrada S5 con la data del recorder del lado
+        # upload para que el bloque de percentiles del tab UPLOAD refleje
+        # el `chunk` que está subiendo ahora, no el último que flipeó el
+        # slot activo.
         if self._upload_recorder_provider is not None:
             upload_rec = self._upload_recorder_provider()
             if upload_rec is not None:
@@ -234,8 +240,9 @@ class TUIDataProvider:
                 if UPLOAD_STAGE in upload_stages:
                     stages = {**stages, UPLOAD_STAGE: upload_stages[UPLOAD_STAGE]}
         pool = self._pool_stats.snapshot()
-        # 052: once complete, measure to the frozen completion time so the
-        # footer timer stops instead of counting up after the run ends.
+        # 052: una vez completo, mide contra el tiempo de finalización
+        # congelado para que el timer del footer pare en vez de seguir
+        # contando después del fin de la corrida.
         if self._batch_started_monotonic is None:
             elapsed = 0.0
         else:
@@ -279,22 +286,24 @@ class TUIDataProvider:
                 self._auto_tune.seconds_since_last_decision if self._auto_tune else None
             ),
             cmis_endpoint=self._cmis_config.base_url,
-            # 054: bandwidth + slow ops are S5-shaped — they must read the
-            # UPLOAD-side recorder. The PREP-aware ``self._metrics`` flips to
-            # chunk N+1 the moment it enters PREP, and N+1's per-batch
-            # _BandwidthHandler / _SlowOpHandler filter out batch N's
-            # cmis_upload events, so reading it here showed 0 bandwidth /
-            # blank sparkline / no slow ops mid-upload. ``_upload_metrics``
-            # falls back to ``_metrics`` for single-batch runs.
+            # 054: `bandwidth` + slow ops son S5-shaped — tienen que leer el
+            # recorder del lado UPLOAD. ``self._metrics`` (que es PREP-aware)
+            # flipea al `chunk` N+1 apenas entra a PREP, y los
+            # _BandwidthHandler / _SlowOpHandler por-batch de N+1 filtran
+            # los eventos cmis_upload del batch N, así que leerlo acá
+            # mostraba 0 de `bandwidth` / `sparkline` vacía / sin slow ops
+            # durante el upload. ``_upload_metrics`` cae a ``_metrics``
+            # para corridas single-batch.
             bandwidth_current_mbps=self._upload_metrics.bandwidth.current_mbps(),
             bandwidth_peak_mbps=self._upload_metrics.bandwidth.peak_mbps(),
             bandwidth_ceiling_mbps=self._cmis_config.max_bandwidth_mbps,
             bandwidth_series=tuple(self._upload_metrics.bandwidth.series(60)),
             slow_ops_all=tuple(self._upload_metrics.aggregator_snapshot()),
             chunks_state=chunks_snapshot,
-            # 051: total docs filtered at S1 across every chunk seen so far.
-            # ``prep_filtered`` is an ``int`` on ``ChunkState`` — the dict
-            # boxes it as ``object``, so the coercion is runtime-safe.
+            # 051: total de docs filtrados en S1 entre todos los `chunk`s
+            # vistos hasta ahora. ``prep_filtered`` es un ``int`` en
+            # ``ChunkState`` — el dict lo encajona como ``object``, así
+            # que la coerción es runtime-safe.
             s1_filtered=sum(
                 v for c in chunks_snapshot if isinstance((v := c.get("prep_filtered", 0)), int)
             ),
@@ -311,20 +320,21 @@ class TUIDataProvider:
         )
 
     def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:
-        """Render the orchestrator's chunk-state machine for the TUI.
+        """Renderiza la máquina de estados de `chunk`s del orchestrator para el TUI.
 
-        041 expands every row with per-stage stats and live elapsed values.
-        042 overrides ``s5_done`` / ``s5_failed`` from the upload-active
-        recorder while a chunk is in status ``UPLOAD`` so the CHUNKS row
-        ticks live instead of waiting for the DONE transition.
+        041 expande cada fila con estadísticas por `stage` y valores
+        elapsed live. 042 sobrescribe ``s5_done`` / ``s5_failed`` desde
+        el recorder activo de upload mientras un `chunk` está en estado
+        ``UPLOAD`` para que la fila de CHUNKS tique live en vez de
+        esperar la transición a DONE.
         """
         if self._chunks_provider is None:
             return ()
         chunks = self._chunks_provider()
         now = time.monotonic()
-        # 042: the upload-side recorder is the one whose counters track the
-        # chunk currently in S5. Reading it once per snapshot avoids per-row
-        # lock contention.
+        # 042: el recorder del lado upload es el que tiene los contadores
+        # del `chunk` que está actualmente en S5. Leerlo una vez por
+        # snapshot evita contención de `lock` por fila.
         upload_rec = self._upload_recorder_provider() if self._upload_recorder_provider else None
         out: list[dict[str, object]] = []
         for chunk in chunks:
@@ -333,10 +343,10 @@ class TUIDataProvider:
             upload_started = getattr(chunk, "upload_started_monotonic", None)
             prep_elapsed = float(getattr(chunk, "prep_elapsed_s", 0.0) or 0.0)
             upload_elapsed = float(getattr(chunk, "upload_elapsed_s", 0.0) or 0.0)
-            # Live elapsed for in-flight stages: read the start timestamp
-            # and subtract NOW. The orchestrator freezes the value when the
-            # chunk leaves the stage, so terminal states keep their frozen
-            # number.
+            # Elapsed live para `stage`s en vuelo: lee el timestamp de inicio
+            # y le resta AHORA. El orchestrator congela el valor cuando el
+            # `chunk` deja el `stage`, así que los estados terminales
+            # mantienen su número congelado.
             if status == "PREP" and isinstance(prep_started, (int, float)):
                 prep_elapsed = max(prep_elapsed, now - float(prep_started))
             if status == "UPLOAD" and isinstance(upload_started, (int, float)):
@@ -344,9 +354,10 @@ class TUIDataProvider:
             s5_done = int(getattr(chunk, "s5_done", 0) or 0)
             s5_failed = int(getattr(chunk, "s5_failed", 0) or 0)
             upload_skipped = int(getattr(chunk, "upload_skipped", 0) or 0)
-            # 042: live override while in UPLOAD. The orchestrator only
-            # sets ``upload_active_recorder`` on exactly one chunk at a time
-            # (S5 lane is single-threaded across chunks), so this is safe.
+            # 042: override live mientras está en UPLOAD. El orchestrator
+            # setea ``upload_active_recorder`` en exactamente un `chunk`
+            # por vez (la `lane` de S5 es single-threaded entre `chunk`s),
+            # así que esto es seguro.
             if status == "UPLOAD" and upload_rec is not None:
                 s5_done = max(s5_done, upload_rec.upload_done_count())
                 s5_failed = max(s5_failed, upload_rec.upload_failed_count())
@@ -358,7 +369,7 @@ class TUIDataProvider:
                     "status": status,
                     "s5_done": s5_done,
                     "s5_failed": s5_failed,
-                    # 041 — per-chunk plan + per-stage breakdown
+                    # 041 — plan por `chunk` + desglose por `stage`
                     "doc_count": getattr(chunk, "doc_count", 0),
                     "total_bytes": getattr(chunk, "total_bytes", 0),
                     "prep_done": getattr(chunk, "prep_done", 0),
@@ -380,23 +391,24 @@ class TUIDataProvider:
         *,
         global_elapsed_s: float,
     ) -> tuple[int, int, float, float, float | None]:
-        """Resolve the five UPLOAD-tab "current chunk" fields (041).
+        """Resuelve los cinco campos "current chunk" del tab UPLOAD (041).
 
-        Returns ``(bytes_uploaded, bytes_total, elapsed_s, avg_mbps, eta_s)``.
+        Devuelve ``(bytes_uploaded, bytes_total, elapsed_s, avg_mbps, eta_s)``.
 
-        Strategy:
-        * Bytes-uploaded always comes from the live recorder's cumulative
-          counter — works in single AND multi-batch because the recorder
-          is per-chunk in multi-batch and per-run in single-batch.
-        * Bytes-total + elapsed come from the active chunk's ``ChunkState``
-          when multi-batch; otherwise (single-batch) bytes-total is 0 and
-          elapsed is the global run elapsed.
-        * avg_mbps and ETA are derived. ETA is hidden (``None``) until the
-          chunk is past 5 % of its bytes (the early projection is noisy).
+        Estrategia:
+        * Bytes-uploaded sale siempre del contador acumulativo del recorder
+          live — funciona en single Y multi-batch porque el recorder es
+          por-`chunk` en multi-batch y por corrida en single-batch.
+        * Bytes-total + elapsed vienen del ``ChunkState`` del `chunk`
+          activo cuando es multi-batch; si no (single-batch) bytes-total
+          es 0 y elapsed es el elapsed global de la corrida.
+        * avg_mbps y ETA son derivados. ETA queda oculto (``None``) hasta
+          que el `chunk` pasa el 5 % de sus bytes (la proyección
+          temprana es ruidosa).
         """
-        # 042: bind the bytes counter to the UPLOAD-side recorder (chunk
-        # currently in S5), not the PREP-aware ``self._metrics`` which
-        # would flip to the next chunk's recorder mid-upload.
+        # 042: bindea el contador de bytes al recorder del lado UPLOAD
+        # (el `chunk` actualmente en S5), no a ``self._metrics`` que es
+        # PREP-aware y flipearía al recorder del próximo `chunk` mid-upload.
         recorder = self._upload_metrics
         bytes_uploaded = recorder.bandwidth.cumulative_bytes()
         bytes_total = 0
@@ -406,10 +418,11 @@ class TUIDataProvider:
             bt = active.get("total_bytes")
             if isinstance(bt, int):
                 bytes_total = bt
-            # 054: the UPLOAD-tab timer must measure the S5 window, not
-            # prep+upload. Pre-054 this read ``prep_started_monotonic`` — so
-            # for chunk 0 the "chunk elapsed" counted from ~program launch
-            # and ``avg_mbps`` was diluted by the whole PREP phase.
+            # 054: el timer del tab UPLOAD tiene que medir la ventana de
+            # S5, no prep+upload. Pre-054 leía ``prep_started_monotonic``
+            # — así que para el `chunk` 0 el "chunk elapsed" contaba desde
+            # ~el arranque del programa y ``avg_mbps`` quedaba diluido por
+            # toda la fase PREP.
             status = str(active.get("status", ""))
             if status == "UPLOAD":
                 mono = active.get("upload_started_monotonic")
@@ -422,7 +435,7 @@ class TUIDataProvider:
                 frozen = active.get("upload_elapsed_s")
                 elapsed_s = float(frozen) if isinstance(frozen, (int, float)) else 0.0
             else:
-                # PREP (or unknown) — S5 hasn't started; no upload elapsed yet.
+                # PREP (o desconocido) — S5 no arrancó; sin upload elapsed todavía.
                 elapsed_s = 0.0
         if elapsed_s > 0 and bytes_uploaded > 0:
             avg_mbps = (bytes_uploaded / 1_048_576.0) / elapsed_s
@@ -432,9 +445,10 @@ class TUIDataProvider:
         if bytes_total > 0 and bytes_uploaded > 0 and elapsed_s > 0:
             progress = bytes_uploaded / bytes_total
             if 0.05 < progress < 1.0:
-                # naive linear projection — same shape as a doc-count ETA but
-                # in bytes. Operators read this as "good enough for the
-                # next-coffee decision", which is what they ask for.
+                # proyección lineal naive — misma forma que una ETA por
+                # conteo de docs, pero en bytes. Los operadores lo leen
+                # como "alcanza para decidir si tomar otro café", que es
+                # lo que piden.
                 eta_s = elapsed_s * (1.0 - progress) / progress
         return bytes_uploaded, bytes_total, elapsed_s, avg_mbps, eta_s
 
@@ -442,10 +456,10 @@ class TUIDataProvider:
     def _active_chunk(
         chunks_snapshot: tuple[dict[str, object], ...],
     ) -> dict[str, object] | None:
-        """Pick the chunk that should drive the UPLOAD tab's progress block.
+        """Elige el `chunk` que debería manejar el bloque de progreso del tab UPLOAD.
 
-        Preference order: UPLOAD-in-flight > PREP-in-flight > last DONE.
-        Returns ``None`` when no chunks exist (single-batch mode).
+        Orden de preferencia: UPLOAD-en-vuelo > PREP-en-vuelo > último DONE.
+        Devuelve ``None`` cuando no hay `chunk`s (modo single-batch).
         """
         if not chunks_snapshot:
             return None
@@ -460,7 +474,7 @@ class TUIDataProvider:
             return done[-1]
         return None
 
-    # ------------------------------------------------------- helpers
+    # ------------------------------------------------------- `helper`s
 
     def _last_action(self) -> str:
         if self._auto_tune is None or self._auto_tune.last_decision is None:

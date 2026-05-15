@@ -1,15 +1,17 @@
-"""Mapping service - in-memory cache + lookup over the Modelo Documental.
+"""Servicio de mapping: cache in-memory + lookup sobre el Modelo Documental.
 
-Loads every row from any :class:`IDataSource` at construction
-and builds an ``id_rvi -> CMMapping`` dict for O(1) lookup. Subsequent
-``get_mapping`` calls hit the cache. The service does no I/O after
-construction.
+Al construirse carga cada fila desde cualquier :class:`IDataSource`
+y arma un dict ``id_rvi -> CMMapping`` para lookup O(1). Las llamadas
+posteriores a ``get_mapping`` pegan en la cache. El servicio no hace
+I/O después de la construcción.
 
-Stage S2 (Document Class Mapping) of every pipeline depends on this
-service, as does the ``doctor`` command's mapping-completeness check.
+El stage S2 (Document Class Mapping) de cada `pipeline` depende de
+este servicio, igual que el chequeo de completitud de mapping del
+comando ``doctor``.
 
-Constitution Principle I: imports only ``cmcourier.domain.*`` and the
-Python standard library. No third-party imports, no adapter imports.
+Principio I de la Constitución: importa solo ``cmcourier.domain.*`` y
+la biblioteca estándar de Python. Sin imports de terceros ni de
+adapters.
 """
 
 from __future__ import annotations
@@ -30,12 +32,14 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class MappingColumnsConfig:
-    """Column-name overrides for both consolidated and split-mode sources.
+    """Overrides de nombres de columna tanto para el modo consolidado
+    como para el modo split.
 
-    Consolidated mode (``col_*`` family without ``rvi_cm`` / ``metadatos``
-    prefix) matches the legacy test fixture layout. Split mode (035,
-    ``col_rvi_cm_*`` and ``col_metadatos_*`` families) matches the
-    bank's production CSV pair.
+    El modo consolidado (familia ``col_*`` sin prefijo ``rvi_cm`` ni
+    ``metadatos``) coincide con el layout legacy de las fixtures de
+    tests. El modo split (035, familias ``col_rvi_cm_*`` y
+    ``col_metadatos_*``) coincide con el par de CSV de producción
+    del banco.
     """
 
     col_clase_id: str = "ID CLASE DOCUMENTAL"
@@ -56,11 +60,12 @@ class MappingColumnsConfig:
     required_marker: str = "Yes"
 
     def required_columns(self) -> tuple[str, ...]:
-        """Columns the consolidated-mode loader must find in the source.
+        """Columnas que el `loader` en modo consolidado tiene que
+        encontrar en la fuente.
 
-        ``col_cmis_type`` is intentionally NOT required — it's read
-        when present and defaults to "" when absent (the legacy
-        fixture has no CMISType column).
+        ``col_cmis_type`` intencionalmente NO es requerida: se lee
+        cuando está presente y por defecto queda en "" cuando no
+        (la fixture legacy no tiene columna ``CMISType``).
         """
         return (
             self.col_clase_id,
@@ -71,7 +76,8 @@ class MappingColumnsConfig:
         )
 
     def required_columns_rvi_cm(self) -> tuple[str, ...]:
-        """Columns the split-mode loader must find in MapeoRVI_CM."""
+        """Columnas que el `loader` en modo split tiene que encontrar
+        en ``MapeoRVI_CM``."""
         return (
             self.col_rvi_cm_id_rvi,
             self.col_rvi_cm_id_cm,
@@ -79,7 +85,8 @@ class MappingColumnsConfig:
         )
 
     def required_columns_metadatos(self) -> tuple[str, ...]:
-        """Columns the split-mode loader must find in MetadatosCM."""
+        """Columnas que el `loader` en modo split tiene que encontrar
+        en ``MetadatosCM``."""
         return (
             self.col_metadatos_id_corto,
             self.col_metadatos_metadata,
@@ -88,12 +95,14 @@ class MappingColumnsConfig:
 
 
 def _is_blank(value: object) -> bool:
-    """Return True if *value* is None, empty, or whitespace-only."""
+    """Devuelve ``True`` si *value* es ``None``, vacío o solo
+    whitespace."""
     return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _parse_metadata_list(raw: object) -> tuple[str, ...]:
-    """Parse the ``METADATOS`` cell into a tuple of trimmed, non-empty fields."""
+    """Parsea la celda ``METADATOS`` en una tupla de campos
+    trimeados y no vacíos."""
     if _is_blank(raw) or not isinstance(raw, str):
         return ()
     parts = (p.strip() for p in raw.split(","))
@@ -104,12 +113,14 @@ _TRUTHY_REQUIRED_SYNONYMS = frozenset({"yes", "sí", "si", "true", "1", "y", "s"
 
 
 def _is_required(value: object, custom_marker: str) -> bool:
-    """Decide whether a ``MetadatosCM.Requerido`` cell counts as required.
+    """Decide si una celda ``MetadatosCM.Requerido`` cuenta como
+    requerida.
 
-    Anything matching ``custom_marker`` (case-insensitive, whitespace-
-    stripped, accent-tolerant on the default "Yes" path) or one of the
-    common truthy synonyms — "yes", "sí", "true", "1" — counts. Empty
-    cells and "no" / "false" / "0" drop the field.
+    Cualquier valor que matchee ``custom_marker`` (case-insensitive,
+    sin whitespace, tolerante a acentos en el path por defecto "Yes")
+    o alguno de los sinónimos `truthy` comunes ("yes", "sí", "true",
+    "1") cuenta. Las celdas vacías y "no" / "false" / "0" descartan
+    el campo.
     """
     if value is None:
         return False
@@ -122,15 +133,17 @@ def _is_required(value: object, custom_marker: str) -> bool:
 
 
 class MappingService:
-    """In-memory cache + lookup over the Modelo Documental.
+    """Cache in-memory + lookup sobre el Modelo Documental.
 
-    Construction iterates the entire source once, validates required columns,
-    and builds a dict keyed by ``id_rvi``. First occurrence of a duplicate
-    ``id_rvi`` wins; subsequent occurrences are dropped with a
-    ``WARNING`` log entry. Rows whose ``id_rvi`` is blank are silently
-    skipped, with an ``INFO`` log entry summarizing the count.
+    La construcción itera toda la fuente una vez, valida las
+    columnas requeridas y arma un dict indexado por ``id_rvi``. La
+    primera ocurrencia de un ``id_rvi`` duplicado gana; las
+    posteriores se descartan con una entrada de log en ``WARNING``.
+    Las filas con ``id_rvi`` vacío se saltean silenciosamente, con
+    una entrada de log en ``INFO`` que resume la cuenta.
 
-    The service does not own the source's lifecycle; callers ``close()`` it.
+    El servicio no es dueño del ciclo de vida de la fuente; el
+    caller la cierra con ``close()``.
     """
 
     def __init__(
@@ -147,7 +160,8 @@ class MappingService:
             self._load_split(source, metadata_source)
 
     def _load_split(self, rvi_cm: IDataSource, metadatos: IDataSource) -> None:
-        """Split-mode loader (035): join MapeoRVI_CM with MetadatosCM by IDCM↔IDCorto."""
+        """`Loader` en modo split (035): join entre ``MapeoRVI_CM`` y
+        ``MetadatosCM`` por ``IDCM ↔ IDCorto``."""
         required_index, cmis_property_id_index = self._build_metadatos_index(metadatos)
         skipped = 0
         validated = False
@@ -182,16 +196,20 @@ class MappingService:
     def _build_metadatos_index(
         self, metadatos: IDataSource
     ) -> tuple[dict[str, tuple[str, ...]], dict[str, dict[str, str]]]:
-        """Return ``(required_fields_by_id_corto, cmis_property_ids_by_id_corto)``.
+        """Devuelve ``(required_fields_by_id_corto,
+        cmis_property_ids_by_id_corto)``.
 
-        Required fields: rows whose ``Requerido`` parses truthy. Field
-        names are whitespace-stripped, order preserved.
+        Campos requeridos: filas cuyo ``Requerido`` parsea como
+        `truthy`. Los nombres de campo se trimean en whitespace y se
+        preserva el orden.
 
-        CMIS property ids (038): ``{id_corto: {field: cmis_property_id}}``
-        for rows whose ``CMISPropertyId`` column is non-blank. Friendly
-        field name is the key. When the column is absent from the source
-        or every cell is blank, the per-id_corto dict is omitted, which
-        signals "no catalog" to the metadata service.
+        IDs de propiedad `cmis` (038): ``{id_corto: {field:
+        cmis_property_id}}`` para filas cuya columna
+        ``CMISPropertyId`` es no vacía. La clave es el nombre
+        `friendly` del campo. Cuando la columna está ausente en la
+        fuente o todas las celdas están vacías, se omite el dict por
+        ``id_corto``, lo que le señala "sin catálogo" al servicio de
+        metadata.
         """
         fields_index: dict[str, list[str]] = {}
         cmis_ids_index: dict[str, dict[str, str]] = {}
@@ -318,18 +336,19 @@ class MappingService:
         )
 
     def get_mapping(self, id_rvi: str) -> CMMapping:
-        """Return the :class:`CMMapping` for *id_rvi*; raise on miss."""
+        """Devuelve el :class:`CMMapping` para *id_rvi*; lanza si no hay match."""
         try:
             return self._cache[id_rvi]
         except KeyError:
             raise IDRViNotMappedError(id_rvi=id_rvi) from None
 
     def get_all(self) -> Iterator[CMMapping]:
-        """Yield every cached mapping in the order rows arrived from the source."""
+        """Yieldea cada mapping cacheado en el orden en que las filas
+        llegaron de la fuente."""
         return iter(self._cache.values())
 
     def count(self) -> int:
-        """Return the number of mappings cached."""
+        """Devuelve la cantidad de mappings cacheados."""
         return len(self._cache)
 
     def __contains__(self, id_rvi: object) -> bool:

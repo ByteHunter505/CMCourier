@@ -1,12 +1,14 @@
-"""Domain models — frozen dataclasses, source of truth for core entities.
+"""Modelos de dominio — `dataclasses` `frozen`, fuente de verdad de las entidades
+del core.
 
-Pure Python standard library only. Constitution Principle I: domain has zero
-external dependencies. Every dataclass is ``frozen=True, slots=True`` so
-mutation is impossible and per-instance memory is minimal at scale.
+Solo Python standard library. Principio I de la Constitución: dominio tiene
+cero dependencias externas. Cada `dataclass` es ``frozen=True, slots=True``
+para que la mutación sea imposible y la memoria por instancia sea mínima a
+escala.
 
-This module owns the helpers ``parse_cymmdd``, ``is_pdf_filename``,
-``compute_cm_folder``, and ``compute_cm_object_type`` because they are tightly
-bound to the model semantics.
+Este módulo es dueño de los helpers ``parse_cymmdd``, ``is_pdf_filename``,
+``compute_cm_folder`` y ``compute_cm_object_type`` porque están muy
+acoplados a la semántica de los modelos.
 """
 
 from __future__ import annotations
@@ -48,16 +50,16 @@ from typing import Any
 
 
 def parse_cymmdd(date_str: str) -> datetime:
-    """Parse the AS400 7-digit ``CYYMMDD`` date format.
+    """Parsea el formato de fecha de 7 dígitos ``CYYMMDD`` de AS400.
 
-    ``C`` is the century flag: ``0`` = 1900s, ``1`` = 2000s. ``YY`` is the
-    year within century, ``MM`` the month, ``DD`` the day.
+    ``C`` es el flag de siglo: ``0`` = 1900s, ``1`` = 2000s. ``YY`` es el
+    año dentro del siglo, ``MM`` el mes y ``DD`` el día.
 
     >>> parse_cymmdd("1251117")
     datetime.datetime(2025, 11, 17, 0, 0)
 
-    Raises ``ValueError`` for any input that does not match the format or
-    represents an invalid calendar date.
+    Lanza ``ValueError`` ante cualquier input que no matchee el formato o
+    represente una fecha calendario inválida.
     """
     if not isinstance(date_str, str) or len(date_str) != 7 or not date_str.isdigit():
         raise ValueError(f"CYYMMDD requires exactly 7 digits, got {date_str!r}")
@@ -65,47 +67,49 @@ def parse_cymmdd(date_str: str) -> datetime:
     year = (1900 + century * 100) + int(date_str[1:3])
     month = int(date_str[3:5])
     day = int(date_str[5:7])
-    return datetime(year, month, day)  # raises ValueError on invalid month/day
+    return datetime(year, month, day)  # lanza ValueError ante mes/día inválido
 
 
 def is_pdf_filename(name: str) -> bool:
-    """Return ``True`` when *name* is a native PDF."""
+    """Devuelve ``True`` cuando *name* es un PDF nativo."""
     return name.upper().endswith(".PDF")
 
 
 def compute_cm_folder(clase_id: str) -> str:
-    """Compute the CMIS folder path from a Modelo Documental ``clase_id``."""
+    """Calcula el path de carpeta `cmis` a partir de un ``clase_id`` del Modelo Documental."""
     return f"/$type/BAC_{clase_id.replace('.', '_')}"
 
 
 def compute_cm_object_type(clase_id: str) -> str:
-    """Compute the CMIS ``cmis:objectTypeId`` from a ``clase_id``."""
+    """Calcula el ``cmis:objectTypeId`` a partir de un ``clase_id``."""
     return f"$t!-2_BAC_{clase_id.replace('.', '_')}v-1"
 
 
 # ---------------------------------------------------------------------------
-# Stage state machine
+# Máquina de estados por etapa
 # ---------------------------------------------------------------------------
 
 
 class StageStatus(StrEnum):
-    """Per-stage state machine values for the tracking store.
+    """Valores de la máquina de estados por etapa para el tracking store.
 
-    Inheriting from :class:`enum.StrEnum` (Python 3.11+) means each member is
-    its own string literal — ``StageStatus.S1_DONE == "S1_DONE"`` and
-    ``str(StageStatus.S1_DONE) == "S1_DONE"``. Persistence layers store the
-    member's string value directly as the SQL column.
+    Heredar de :class:`enum.StrEnum` (Python 3.11+) implica que cada
+    miembro es su propio literal de string — ``StageStatus.S1_DONE ==
+    "S1_DONE"`` y ``str(StageStatus.S1_DONE) == "S1_DONE"``. Las capas
+    de persistencia guardan directamente el valor string del miembro en
+    la columna SQL.
     """
 
     S1_PENDING = "S1_PENDING"
     S1_DONE = "S1_DONE"
     S1_FAILED = "S1_FAILED"
-    # 062: terminal states that surface "didn't progress past S1, for a
-    # non-failure reason" outcomes. Persisted to ``migration_log`` so the
-    # DETAIL tab, ``analyze batch``, and ``cmcourier batch show`` can
-    # answer which specific docs fell into each bucket and why.
-    S1_FILTERED = "S1_FILTERED"  # delete-coded at source (spec 051)
-    S1_SKIPPED = "S1_SKIPPED"  # already S5_DONE in a prior batch
+    # 062: estados terminales que exponen los resultados "no avanzó más
+    # allá de S1, por un motivo no-falla". Se persisten en
+    # ``migration_log`` para que la tab DETAIL, ``analyze batch`` y
+    # ``cmcourier batch show`` puedan responder qué docs específicos
+    # cayeron en cada `bucket` y por qué.
+    S1_FILTERED = "S1_FILTERED"  # con código de borrado en la fuente (spec 051)
+    S1_SKIPPED = "S1_SKIPPED"  # ya S5_DONE en un `batch` previo
 
     S2_PENDING = "S2_PENDING"
     S2_DONE = "S2_DONE"
@@ -127,55 +131,56 @@ class StageStatus(StrEnum):
 
     @classmethod
     def terminal_for_stage(cls, stage: int) -> tuple[StageStatus, StageStatus]:
-        """Return ``(Sn_DONE, Sn_FAILED)`` for the given stage number."""
+        """Devuelve ``(Sn_DONE, Sn_FAILED)`` para el número de etapa dado."""
         if not 1 <= stage <= 5:
             raise ValueError(f"stage must be in [1, 5], got {stage!r}")
         return (cls[f"S{stage}_DONE"], cls[f"S{stage}_FAILED"])
 
 
 # ---------------------------------------------------------------------------
-# Models
+# Modelos
 # ---------------------------------------------------------------------------
 
 
 class Trigger(ABC):
-    """Polymorphic base for everything that disparas a doc through the pipeline (046).
+    """Base polimórfica de todo lo que dispara un doc a través del `pipeline` (046).
 
-    A trigger's shape depends on what disparates a doc, which depends on the
-    pipeline kind:
+    La forma de un `trigger` depende de qué dispara al doc, lo cual
+    depende del tipo de `pipeline`:
 
-    * ``ClientTrigger`` — a client tuple (shortname, cif, system_id). S1
-      expands it to every RVABREP doc owned by that client. Used by
-      csv-trigger and single-doc pipelines (csv mode).
-    * ``RvabrepRowTrigger`` — a single RVABREP row, already-known. S1 wraps
-      it into one ``RVABREPDocument`` without re-querying. Used by
-      rvabrep-direct and as400-trigger pipelines (the SQL/scan already
-      delivered the row).
-    * ``LocalScanTrigger`` — a file on disk + the RVABREP row that
-      describes it. S1 emits one ``RVABREPDocument`` for that exact file.
-      Used by local-scan pipeline (local_scan mode).
+    * ``ClientTrigger`` — una tupla de cliente (shortname, cif,
+      system_id). S1 la expande a cada doc RVABREP del cliente. La usan
+      los `pipeline`s csv-trigger y single-doc (modo csv).
+    * ``RvabrepRowTrigger`` — una fila RVABREP única, ya conocida. S1 la
+      envuelve en un solo ``RVABREPDocument`` sin re-querear. La usan
+      los `pipeline`s rvabrep-direct y as400-trigger (el SQL/scan ya
+      entregó la fila).
+    * ``LocalScanTrigger`` — un archivo en disco + la fila RVABREP que
+      lo describe. S1 emite un único ``RVABREPDocument`` para ese
+      archivo exacto. La usa el `pipeline` local-scan (modo local_scan).
 
-    Every concrete subtype implements ``audit_row()`` to produce best-effort
-    ``{shortname, cif, system_id}`` strings for the migration_log trigger_*
-    columns — those columns are operator-readable audit only; the canonical
-    per-doc identity is ``rvabrep_txn_num`` on the resulting
-    ``RVABREPDocument``.
+    Cada subtipo concreto implementa ``audit_row()`` para producir, en
+    base a `best-effort`, strings ``{shortname, cif, system_id}`` para
+    las columnas trigger_* del migration_log — esas columnas son audit
+    legible solo por el operador; la identidad canónica por documento
+    es ``rvabrep_txn_num`` sobre el ``RVABREPDocument`` resultante.
     """
 
     __slots__ = ()
 
     @abstractmethod
     def audit_row(self) -> dict[str, str | None]:
-        """Best-effort projection to {shortname, cif, system_id} for tracking."""
+        """Proyección `best-effort` a {shortname, cif, system_id} para tracking."""
 
 
-# RVABREP physical column names — used as ``RvabrepRowTrigger`` /
-# ``LocalScanTrigger`` defaults so the production AS400 path "just works".
-# Strategies that read CSVs with friendly column names (typical for tests +
-# the integration fixtures) override the defaults at construction time.
-# Matches ``RvabrepColumnsConfig`` defaults. Lives in domain
-# (not services) because the audit-row projection is a domain concern;
-# strategies pass their column names in but don't own the lookup.
+# Nombres físicos de columnas RVABREP — se usan como defaults de
+# ``RvabrepRowTrigger`` / ``LocalScanTrigger`` para que el camino AS400 de
+# producción "simplemente funcione". Las estrategias que leen CSVs con
+# nombres de columna amigables (típico en tests + fixtures de integración)
+# pisan los defaults en construcción. Matchea los defaults de
+# ``RvabrepColumnsConfig``. Vive en dominio (no en servicios) porque la
+# proyección de audit-row es preocupación de dominio; las estrategias
+# pasan sus nombres de columna pero no son dueñas del lookup.
 _DEFAULT_COL_SHORTNAME = "ABABCD"
 _DEFAULT_COL_CIF = "ABACCD"
 _DEFAULT_COL_SYSTEM_ID = "ABAACD"
@@ -196,7 +201,7 @@ def _project_audit_from_row(
     col_cif: str,
     col_system_id: str,
 ) -> dict[str, str | None]:
-    """Pull the audit triple from a row, normalizing blanks to None."""
+    """Extrae la terna de audit de una fila, normalizando blancos a None."""
     return {
         "shortname": _read_normalized(row, col_shortname),
         "cif": _read_normalized(row, col_cif),
@@ -206,11 +211,12 @@ def _project_audit_from_row(
 
 @dataclass(frozen=True, slots=True)
 class ClientTrigger(Trigger):
-    """One row of a client trigger list (pre-046 ``TriggerRecord``).
+    """Una fila de una lista de `trigger`s de cliente (pre-046 ``TriggerRecord``).
 
-    ``cif`` may be ``None`` to support the CIF self-healing rule:
-    in modes where the trigger source does not provide a CIF, the metadata
-    layer resolves it from RVABREP and writes back the resolved value.
+    ``cif`` puede ser ``None`` para soportar la regla de self-healing
+    del CIF: en modos donde la fuente de `trigger` no provee un CIF, la
+    capa de metadata lo resuelve desde RVABREP y escribe de vuelta el
+    valor resuelto.
     """
 
     shortname: str
@@ -229,13 +235,14 @@ class ClientTrigger(Trigger):
 
 @dataclass(frozen=True, slots=True)
 class RvabrepRowTrigger(Trigger):
-    """An already-known RVABREP row (rvabrep-direct + as400-trigger).
+    """Una fila RVABREP ya conocida (rvabrep-direct + as400-trigger).
 
-    The row carries every column the downstream stages need; S1 wraps it
-    into a single ``RVABREPDocument`` without re-querying RVABREP. The
-    ``col_*`` fields tell ``audit_row()`` which row keys hold the audit
-    triple — defaults are the physical AS400 names, strategies that read
-    CSVs with friendly column names override at construction.
+    La fila lleva cada columna que las etapas downstream necesitan; S1
+    la envuelve en un único ``RVABREPDocument`` sin re-querear RVABREP.
+    Los campos ``col_*`` le dicen a ``audit_row()`` qué claves de fila
+    tienen la terna de audit — los defaults son los nombres físicos
+    AS400, las estrategias que leen CSVs con nombres de columna
+    amigables los pisan en construcción.
     """
 
     row: Mapping[str, Any]
@@ -254,14 +261,15 @@ class RvabrepRowTrigger(Trigger):
 
 @dataclass(frozen=True, slots=True)
 class LocalScanTrigger(Trigger):
-    """One scanned file + the RVABREP row that describes it (local_scan).
+    """Un archivo escaneado + la fila RVABREP que lo describe (local_scan).
 
-    Crucially: ``row`` is the RVABREP entry whose ``ABAJCD`` matched the
-    scanned file's name. S1 produces exactly one ``RVABREPDocument`` for
-    this file, regardless of how many other docs the same client has —
-    the operator who dropped the file into ``scan_path`` wanted THAT file
-    migrated, not every doc of its client. ``col_*`` fields carry the
-    column-name map for ``audit_row()`` (see ``RvabrepRowTrigger``).
+    Crucial: ``row`` es la entrada RVABREP cuyo ``ABAJCD`` matcheó el
+    nombre del archivo escaneado. S1 produce exactamente un
+    ``RVABREPDocument`` para este archivo, sin importar cuántos otros
+    docs tenga el mismo cliente — el operador que dropeó el archivo en
+    ``scan_path`` quería migrar ESE archivo, no cada doc de su cliente.
+    Los campos ``col_*`` cargan el mapa de nombres de columna para
+    ``audit_row()`` (ver ``RvabrepRowTrigger``).
     """
 
     file_path: Path
@@ -279,16 +287,17 @@ class LocalScanTrigger(Trigger):
         )
 
 
-# 046 — backward-compat alias. Every pre-046 import of ``TriggerRecord``
-# (csv-trigger strategy, single-doc CLI, tests, tracking adapter, …) keeps
-# resolving to the same concrete dataclass — now named ``ClientTrigger`` to
-# reflect its semantic shape but type-identical for ``isinstance`` checks.
+# 046 — alias de backward-compat. Cada import pre-046 de ``TriggerRecord``
+# (estrategia csv-trigger, CLI single-doc, tests, `adapter` de tracking, …)
+# sigue resolviendo al mismo `dataclass` concreto — ahora llamado
+# ``ClientTrigger`` para reflejar su forma semántica, pero idéntico en
+# tipo para chequeos ``isinstance``.
 TriggerRecord = ClientTrigger
 
 
 @dataclass(frozen=True, slots=True)
 class RVABREPDocument:
-    """One row of the AS400 RVABREP master index."""
+    """Una fila del índice maestro RVABREP de AS400."""
 
     system_code: str
     txn_num: str
@@ -309,34 +318,35 @@ class RVABREPDocument:
 
     @property
     def is_pdf(self) -> bool:
-        """Return ``True`` if this document is a native PDF."""
+        """Devuelve ``True`` si este documento es un PDF nativo."""
         return is_pdf_filename(self.file_name)
 
     @property
     def is_deleted(self) -> bool:
-        """Return ``True`` if the row has been marked deleted."""
+        """Devuelve ``True`` si la fila fue marcada como borrada."""
         return bool(self.delete_code)
 
 
 @dataclass(frozen=True, slots=True)
 class CMMapping:
-    """One row of the Modelo Documental — RVI type to CM class.
+    """Una fila del Modelo Documental — tipo RVI a clase CM.
 
-    ``cmis_type`` (034) is the CMIS Type code that maps to AS400
-    ``NIARVILOG.TIPIDN``. Defaults to ``""`` until change 035
-    splits the mapping CSV into ``MapeoRVI_CM.csv`` +
-    ``MetadatosCM.csv`` with an explicit ``CMISType`` column.
+    ``cmis_type`` (034) es el código de Tipo `cmis` que mapea a
+    ``NIARVILOG.TIPIDN`` de AS400. Default a ``""`` hasta que el cambio
+    035 divide el CSV de mapping en ``MapeoRVI_CM.csv`` +
+    ``MetadatosCM.csv`` con una columna ``CMISType`` explícita.
 
-    ``cmis_folder`` (038) is the explicit CMIS folder path. When set,
-    overrides the derived ``cm_folder`` property at upload time. When
-    ``None`` (column blank or absent), pipelines fall back to
-    ``cm_folder``.
+    ``cmis_folder`` (038) es el path explícito de carpeta `cmis`.
+    Cuando está seteado, pisa la property derivada ``cm_folder`` al
+    momento del upload. Cuando es ``None`` (columna en blanco o
+    ausente), los `pipeline`s caen al fallback ``cm_folder``.
 
-    ``cmis_property_ids`` (038) maps friendly metadata field names
-    (as found in ``MetadatosCM.Metadato``) to their wire-level CMIS
-    property identifiers (``MetadatosCM.CMISPropertyId``). ``None``
-    means "no catalog" — the metadata service keeps friendly /
-    canonical names as the property keys, preserving pre-038 behavior.
+    ``cmis_property_ids`` (038) mapea nombres amigables de campos de
+    metadata (como aparecen en ``MetadatosCM.Metadato``) a sus
+    identificadores `cmis` a nivel de wire (``MetadatosCM.CMISPropertyId``).
+    ``None`` significa "sin catálogo" — el servicio de metadata mantiene
+    los nombres amigables / canónicos como claves de property,
+    preservando el comportamiento pre-038.
     """
 
     clase_id: str
@@ -350,23 +360,23 @@ class CMMapping:
 
     @property
     def cm_folder(self) -> str:
-        """The CMIS folder where documents of this class are uploaded."""
+        """La carpeta `cmis` donde se suben los documentos de esta clase."""
         return compute_cm_folder(self.clase_id)
 
     @property
     def cm_object_type(self) -> str:
-        """The CMIS ``cmis:objectTypeId`` for documents of this class."""
+        """El ``cmis:objectTypeId`` para los documentos de esta clase."""
         return compute_cm_object_type(self.clase_id)
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedMetadata:
-    """Read-only snapshot of resolved BAC_* properties for one document.
+    """`Snapshot` solo lectura de propiedades BAC_* resueltas para un documento.
 
-    Construct via :meth:`from_dict`. The internal storage is a
-    ``MappingProxyType`` over a copy, so mutating the source dict cannot
-    corrupt the snapshot and the ``properties`` view raises ``TypeError`` on
-    item assignment.
+    Construir vía :meth:`from_dict`. El storage interno es un
+    ``MappingProxyType`` sobre una copia, así que mutar el dict fuente
+    no puede corromper el `snapshot` y la vista ``properties`` lanza
+    ``TypeError`` ante asignación por item.
     """
 
     properties: Mapping[str, str]
@@ -390,7 +400,7 @@ class ResolvedMetadata:
 
 @dataclass(frozen=True, slots=True)
 class StagedFile:
-    """The output of stage S4 — an assembled file ready for upload."""
+    """La salida de la etapa S4 — un archivo ensamblado listo para el upload."""
 
     path: Path
     size_bytes: int
@@ -405,15 +415,16 @@ class StagedFile:
 
 @dataclass(frozen=True, slots=True)
 class MigrationRecord:
-    """One row of the tracking store.
+    """Una fila del tracking store.
 
-    Required fields capture the identity of the migration attempt and its
-    current status. Optional fields are filled in as the document moves
-    through stages.
+    Los campos requeridos capturan la identidad del intento de
+    migración y su estado actual. Los campos opcionales se completan a
+    medida que el documento atraviesa etapas.
 
-    ``created_at`` is REQUIRED and provided by the persistence layer (it
-    knows when the row was inserted). We deliberately do not use
-    ``default_factory=datetime.now`` so tests can pass deterministic values.
+    ``created_at`` es REQUERIDO y lo provee la capa de persistencia
+    (sabe cuándo se insertó la fila). Deliberadamente no se usa
+    ``default_factory=datetime.now`` para que los tests puedan pasar
+    valores determinísticos.
     """
 
     trigger_shortname: str
@@ -438,17 +449,17 @@ class MigrationRecord:
 
 
 # ---------------------------------------------------------------------------
-# Batch summaries (operator CLI surface, change 021)
+# Resúmenes de `batch` (superficie de CLI para el operador, cambio 021)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class BatchInfo:
-    """One row of ``migration_batch`` plus a derived status.
+    """Una fila de ``migration_batch`` más un estado derivado.
 
-    ``status`` is ``'completed'`` once ``completed_at`` is non-null,
-    ``'in_progress'`` otherwise. Computed, not stored — keeps the
-    SQLite schema unchanged.
+    ``status`` es ``'completed'`` una vez que ``completed_at`` no es
+    null, ``'in_progress'`` en caso contrario. Calculado, no
+    almacenado — mantiene el schema SQLite sin cambios.
     """
 
     batch_id: str
@@ -463,9 +474,9 @@ class BatchInfo:
 
 @dataclass(frozen=True, slots=True)
 class FailedRecord:
-    """One ``*_FAILED`` row of ``migration_log``.
+    """Una fila ``*_FAILED`` de ``migration_log``.
 
-    Used by ``batch show`` to surface what blocked progression.
+    La usa ``batch show`` para exponer qué bloqueó la progresión.
     """
 
     txn_num: str
@@ -475,12 +486,13 @@ class FailedRecord:
 
 @dataclass(frozen=True, slots=True)
 class BatchDetails:
-    """Aggregated state of a single batch.
+    """Estado agregado de un único `batch`.
 
-    ``stage_counts`` always contains keys ``S0..S5``; inner dict has
-    keys ``DONE / FAILED / PENDING`` with integer counts (zero for
-    missing combos). Predictable shape lets the CLI render a stable
-    table regardless of the batch's progress.
+    ``stage_counts`` siempre contiene las claves ``S0..S5``; el dict
+    interno tiene las claves ``DONE / FAILED / PENDING`` con conteos
+    enteros (cero para combos faltantes). La forma predecible le
+    permite a la CLI renderizar una tabla estable sin importar el
+    progreso del `batch`.
     """
 
     info: BatchInfo
@@ -490,13 +502,14 @@ class BatchDetails:
 
 @dataclass(frozen=True, slots=True)
 class DocDetail:
-    """One ``migration_log`` row, projected for the TUI's per-chunk
-    drill-down (052).
+    """Una fila de ``migration_log``, proyectada para el `drill-down`
+    por `chunk` del TUI (052).
 
-    ``status`` is the raw ``Sn_DONE / Sn_FAILED / Sn_PENDING`` value.
-    ``error_message`` is the fail/skip reason ("" when there is none).
-    Read from the tracking store on demand — never held in memory for
-    every chunk (that would undo spec 050's bounded-memory guarantee).
+    ``status`` es el valor crudo ``Sn_DONE / Sn_FAILED / Sn_PENDING``.
+    ``error_message`` es la razón de fallo/skip ("" cuando no hay).
+    Leído del tracking store bajo demanda — nunca se mantiene en
+    memoria para cada `chunk` (eso desharía la garantía de memoria
+    acotada de la spec 050).
     """
 
     txn_num: str

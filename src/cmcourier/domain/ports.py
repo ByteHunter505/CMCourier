@@ -1,12 +1,14 @@
-"""Abstract interfaces (ports) implemented by adapters in change 003+.
+"""Interfaces abstractas (`port`s) implementadas por los `adapter`s desde el cambio 003 en adelante.
 
-Constitution Principle I: only the standard library and ``cmcourier.domain``
-itself may be imported here. No ``pydantic``, no ``requests``, no ``pyodbc``.
+Principio I de la Constitución: aquí solo se pueden importar la standard
+library y ``cmcourier.domain``. Nada de ``pydantic``, ``requests`` ni
+``pyodbc``.
 
-Concrete implementations live in ``cmcourier.adapters.*`` (data sources,
-tracking, assembly, upload) and in the strategy implementations for stage S0
-(``cmcourier.adapters.sources`` for CSV / AS400, plus a folder-scan strategy
-in the local-scan pipeline).
+Las implementaciones concretas viven en ``cmcourier.adapters.*`` (fuentes
+de datos, tracking, ensamblado, upload) y en las implementaciones de
+estrategia para la etapa S0 (``cmcourier.adapters.sources`` para
+CSV / AS400, más una estrategia de folder-scan en el `pipeline` de
+local-scan).
 """
 
 from __future__ import annotations
@@ -41,30 +43,32 @@ from cmcourier.domain.models import (
 )
 
 # ---------------------------------------------------------------------------
-# IDataSource — generic data source abstraction (CSV, AS400, …)
+# IDataSource — abstracción genérica de fuente de datos (CSV, AS400, …)
 # ---------------------------------------------------------------------------
 
 
 class IDataSource(ABC):
-    """Generic data source. Concrete subclasses wrap CSV files, AS400 ODBC
-    connections, or other sources and expose a uniform query API.
+    """Fuente de datos genérica. Las subclases concretas envuelven archivos
+    CSV, conexiones ODBC a AS400 u otras fuentes y exponen una API de query
+    uniforme.
 
-    Row values are typed as ``Any`` because data sources return heterogeneous
-    primitives (str, int, datetime, Decimal, bytes, None). Callers convert
-    rows into typed domain models before passing them on to services.
+    Los valores de fila están tipados como ``Any`` porque las fuentes de
+    datos devuelven primitivos heterogéneos (str, int, datetime, Decimal,
+    bytes, None). Los callers convierten las filas en modelos de dominio
+    tipados antes de pasarlas a los servicios.
     """
 
     @abstractmethod
     def query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
-        """Execute a query and return all rows as dicts. Materializes the result."""
+        """Ejecuta una query y devuelve todas las filas como dicts. Materializa el resultado."""
 
     @abstractmethod
     def query_stream(self, sql: str, params: list[Any] | None = None) -> Iterator[dict[str, Any]]:
-        """Execute a query and stream rows lazily. Use for large result sets."""
+        """Ejecuta una query y stremea las filas de forma lazy. Usar para `result set`s grandes."""
 
     @abstractmethod
     def get_by_fields(self, filters: Mapping[str, Any]) -> list[dict[str, Any]]:
-        """Fetch rows matching ``WHERE`` equality on the given fields."""
+        """Trae filas que matcheen igualdad ``WHERE`` sobre los campos dados."""
 
     @abstractmethod
     def get_by_fields_in(
@@ -73,59 +77,62 @@ class IDataSource(ABC):
         values: list[Any],
         fixed_filters: Mapping[str, Any],
     ) -> list[dict[str, Any]]:
-        """Fetch rows where *field* IN *values* AND every *fixed_filter* matches.
+        """Trae filas donde *field* IN *values* Y cada *fixed_filter* matchee.
 
-        The split between the IN-list and the fixed equality filters lets the
-        adapter chunk the IN clause efficiently (batches of 50).
+        Separar la lista IN de los filtros de igualdad fijos le permite al
+        `adapter` chunkear la cláusula IN de manera eficiente (`batch`es
+        de 50).
         """
 
     @abstractmethod
     def get_all(self) -> Iterator[dict[str, Any]]:
-        """Stream every row from the underlying source. Used by metadata pre-fetch."""
+        """Stremea cada fila de la fuente subyacente. Lo usa el pre-fetch de metadata."""
 
     @abstractmethod
     def count(self) -> int:
-        """Return the total row count of the underlying source."""
+        """Devuelve el conteo total de filas de la fuente subyacente."""
 
     @abstractmethod
     def close(self) -> None:
-        """Release any resources (cursors, connections, file handles)."""
+        """Libera cualquier recurso (`cursor`s, conexiones, `file handle`s)."""
 
 
 # ---------------------------------------------------------------------------
-# ITrackingStore — idempotency + per-stage state
+# ITrackingStore — `idempotency` + estado por etapa
 # ---------------------------------------------------------------------------
 
 
 class ITrackingStore(ABC):
-    """Tracking store contract.
+    """Contrato del tracking store.
 
-    Two layers of state:
+    Dos capas de estado:
 
-    1. **Cross-batch idempotency**: ``is_uploaded(txn_num)`` answers "has this
-       document ever been successfully uploaded?". The answer drives the
-       skip-already-uploaded behavior at the start of any pipeline run.
-    2. **Per-batch, per-stage state machine**: ``Sn_PENDING / Sn_DONE /
-       Sn_FAILED`` for the current batch. Drives the resume / stage-by-stage
-       execution semantics for resumable batches.
+    1. **`Idempotency` cross-`batch`**: ``is_uploaded(txn_num)`` responde
+       "¿este documento ya fue subido con éxito alguna vez?". La respuesta
+       gobierna el comportamiento de "saltar lo ya subido" al inicio de
+       cualquier corrida del `pipeline`.
+    2. **Máquina de estados por `batch` y por etapa**: ``Sn_PENDING /
+       Sn_DONE / Sn_FAILED`` para el `batch` actual. Gobierna la semántica
+       de resume / ejecución etapa-por-etapa para `batch`es resumibles.
 
-    Tracking failures (raised by any of these methods) are non-blocking per
-    the stage S6 contract — implementations log and convert to
-    ``TrackingError`` but the pipeline continues.
+    Las fallas de tracking (lanzadas por cualquiera de estos métodos) son
+    no bloqueantes según el contrato de la etapa S6 — las
+    implementaciones loguean y convierten a ``TrackingError`` pero el
+    `pipeline` continúa.
     """
 
     @abstractmethod
     def is_uploaded(self, txn_num: str) -> bool:
-        """Cross-batch idempotency anchor. Returns True only when the document's
-        terminal status is ``S5_DONE``."""
+        """Anchor de `idempotency` cross-`batch`. Devuelve True solo cuando
+        el estado terminal del documento es ``S5_DONE``."""
 
     @abstractmethod
     def is_stage_done(self, txn_num: str, batch_id: str, stage: StageStatus) -> bool:
-        """Per-batch, per-stage check. ``stage`` MUST be a ``Sn_DONE`` value."""
+        """Chequeo por `batch` y por etapa. ``stage`` DEBE ser un valor ``Sn_DONE``."""
 
     @abstractmethod
     def mark_stage_pending(self, record: MigrationRecord, stage: StageStatus) -> None:
-        """Insert / update the row for *record* at ``Sn_PENDING``."""
+        """Inserta / actualiza la fila para *record* en ``Sn_PENDING``."""
 
     @abstractmethod
     def mark_stage_done(
@@ -136,13 +143,13 @@ class ITrackingStore(ABC):
         *,
         cm_object_id: str | None = None,
     ) -> None:
-        """Transition the row for *txn_num* in *batch_id* to ``Sn_DONE``.
+        """Transiciona la fila de *txn_num* en *batch_id* a ``Sn_DONE``.
 
-        047: ``cm_object_id`` is the CMIS objectId returned by the
-        uploader. Only the S5_DONE transition carries it; S1..S4
-        callers pass nothing and the column is left untouched. When
-        ``None`` the implementation MUST NOT write the column (so a
-        prior value, if any, survives).
+        047: ``cm_object_id`` es el objectId CMIS que devuelve el
+        uploader. Solo la transición S5_DONE lo trae; los callers de
+        S1..S4 no pasan nada y la columna queda intacta. Cuando es
+        ``None``, la implementación NO DEBE escribir la columna (para
+        que sobreviva un valor previo, si lo hubiera).
         """
 
     @abstractmethod
@@ -153,8 +160,8 @@ class ITrackingStore(ABC):
         stage: StageStatus,
         error: str,
     ) -> None:
-        """Transition the row for *txn_num* in *batch_id* to ``Sn_FAILED`` and
-        store the human-readable error message."""
+        """Transiciona la fila de *txn_num* en *batch_id* a ``Sn_FAILED`` y
+        guarda el mensaje de error legible."""
 
     @abstractmethod
     def mark_stage_terminal(
@@ -164,20 +171,20 @@ class ITrackingStore(ABC):
         stage: StageStatus,
         error_message: str,
     ) -> None:
-        """062: terminal transition that is NOT a failure.
+        """062: transición terminal que NO es una falla.
 
-        Used for the non-error outcomes that previously had no row in
-        ``migration_log``: ``S1_FILTERED`` (delete-coded at source —
-        spec 051) and ``S1_SKIPPED`` (already ``S5_DONE`` in a prior
-        batch — cross-batch idempotency).
+        Se usa para los resultados sin error que antes no tenían fila en
+        ``migration_log``: ``S1_FILTERED`` (con código de borrado en la
+        fuente — spec 051) y ``S1_SKIPPED`` (ya ``S5_DONE`` en un
+        `batch` previo — `idempotency` cross-`batch`).
 
-        Distinct from :meth:`mark_stage_failed`:
+        Distinta de :meth:`mark_stage_failed`:
 
-        * Accepts any terminal stage (``*_FAILED``, ``*_FILTERED``,
+        * Acepta cualquier etapa terminal (``*_FAILED``, ``*_FILTERED``,
           ``*_SKIPPED``).
-        * Does **NOT** bump ``retry_count`` — the doc didn't "fail",
-          it ended its journey here for a non-error reason.
-        * Sets ``completed_at``.
+        * **NO** incrementa ``retry_count`` — el doc no "falló", terminó
+          su recorrido aquí por un motivo no-error.
+        * Setea ``completed_at``.
         """
 
     @abstractmethod
@@ -190,82 +197,86 @@ class ITrackingStore(ABC):
         page_count: int,
         file_size_bytes: int,
     ) -> None:
-        """058: persist the staged-file metadata once S4 succeeds.
+        """058: persiste la metadata del staged-file una vez que S4 tiene éxito.
 
-        The metadata (``source_file_path``, ``page_count``,
-        ``file_size_bytes``) is unknown when S1 first INSERT-OR-IGNORE's
-        the row — ``item.staged_file`` is ``None`` until S4 assembles
-        the document. `mark_stage_pending` cannot retro-fill it because
-        the row already exists. This method UPDATEs the existing row
-        with the assembler's output. Idempotent — calling twice with
-        the same values is a no-op.
+        La metadata (``source_file_path``, ``page_count``,
+        ``file_size_bytes``) es desconocida cuando S1 hace por primera
+        vez el INSERT-OR-IGNORE de la fila — ``item.staged_file`` es
+        ``None`` hasta que S4 ensambla el documento. `mark_stage_pending`
+        no puede rellenarla retroactivamente porque la fila ya existe.
+        Este método UPDATEa la fila existente con la salida del
+        `assembler`. `Idempotent` — llamarlo dos veces con los mismos
+        valores es un no-op.
         """
 
     @abstractmethod
     def start_batch(self, total_records: int) -> str:
-        """Create a new batch and return its identifier."""
+        """Crea un nuevo `batch` y devuelve su identificador."""
 
     @abstractmethod
     def complete_batch(self, batch_id: str) -> None:
-        """Mark the batch closed (no more rows will be added)."""
+        """Marca el `batch` como cerrado (no se agregarán más filas)."""
 
     @abstractmethod
     def list_txn_nums_for_batch(self, batch_id: str) -> set[str]:
-        """Return every ``rvabrep_txn_num`` currently tracked under *batch_id*.
+        """Devuelve cada ``rvabrep_txn_num`` actualmente trackeado bajo *batch_id*.
 
-        Used by orchestrators to scope resume runs: re-running S0+S1 may emit
-        documents that did not exist in the prior batch (e.g., the trigger CSV
-        changed). The orchestrator filters the fresh S1 output through this
-        set so only docs that belong to the prior batch are processed.
+        Lo usan los `orchestrator`s para acotar las corridas de resume:
+        re-correr S0+S1 puede emitir documentos que no existían en el
+        `batch` previo (p. ej., cambió el CSV de `trigger`s). El
+        `orchestrator` filtra la salida fresca de S1 por este set, así
+        solo se procesan los docs que pertenecen al `batch` previo.
 
-        Unknown ``batch_id`` MUST return an empty set, NOT raise.
+        Un ``batch_id`` desconocido DEBE devolver un set vacío, NO lanzar.
         """
 
     @abstractmethod
     def flush(self) -> None:
-        """Block until pending writes are durable on disk.
+        """Bloquea hasta que las escrituras pendientes estén durables en disco.
 
-        Orchestrators call this before any read that depends on writes from
-        the same run (the "read my own writes" anchor). Synchronous
-        implementations MAY implement this as a no-op.
+        Los `orchestrator`s lo invocan antes de cualquier lectura que
+        dependa de escrituras de la misma corrida (el anchor de "leer
+        mis propias escrituras"). Las implementaciones síncronas PUEDEN
+        implementarlo como no-op.
         """
 
     @abstractmethod
     def close(self) -> None:
-        """Release any resources (writer thread, cursors, file handles)."""
+        """Libera cualquier recurso (`writer thread`, `cursor`s, `file handle`s)."""
 
-    # -------------------------------------------------- operator-facing (021)
+    # -------------------------------------------------- de cara al operador (021)
 
     @abstractmethod
     def list_batches(
         self,
         status: Literal["in_progress", "completed"] | None = None,
     ) -> list[BatchInfo]:
-        """Enumerate batches, optionally filtered by completion state.
+        """Enumera los `batch`es, opcionalmente filtrado por estado de completitud.
 
-        Returned list is ordered by ``started_at`` DESC. Empty when no
-        batches recorded. Used by ``cmcourier batch list``.
+        La lista devuelta está ordenada por ``started_at`` DESC. Vacía
+        cuando no hay `batch`es registrados. La usa
+        ``cmcourier batch list``.
         """
 
     @abstractmethod
     def get_batch_details(self, batch_id: str) -> BatchDetails | None:
-        """Aggregate per-stage counts + failed records for one batch.
+        """Agrega conteos por etapa + registros fallidos para un `batch`.
 
-        Returns ``None`` for unknown ``batch_id``. Used by
+        Devuelve ``None`` para un ``batch_id`` desconocido. La usa
         ``cmcourier batch show``.
         """
 
     @abstractmethod
     def list_docs_for_batch(self, batch_id: str) -> list[DocDetail]:
-        """Per-doc detail for one batch — one :class:`DocDetail` per
-        ``migration_log`` row, ordered by ``rvabrep_txn_num``.
+        """Detalle por documento de un `batch` — un :class:`DocDetail`
+        por fila de ``migration_log``, ordenado por ``rvabrep_txn_num``.
 
-        Powers the TUI's per-chunk drill-down (052): the operator
-        selects a chunk and sees every doc's name, size, status, and
-        fail/skip reason. Reading from the store keeps memory bounded —
-        the detail is never held in RAM for every chunk.
+        Alimenta el `drill-down` por `chunk` del TUI (052): el operador
+        elige un `chunk` y ve nombre, tamaño, estado y razón de
+        fallo/skip de cada doc. Leer desde el store mantiene la memoria
+        acotada — el detalle nunca se mantiene en RAM para cada `chunk`.
 
-        Unknown ``batch_id`` MUST return an empty list, NOT raise.
+        Un ``batch_id`` desconocido DEBE devolver una lista vacía, NO lanzar.
         """
 
     @abstractmethod
@@ -274,54 +285,56 @@ class ITrackingStore(ABC):
         batch_id: str,
         stage: StageStatus | None = None,
     ) -> int:
-        """Reset ``*_FAILED`` rows in ``batch_id`` back to ``*_PENDING``.
+        """Resetea las filas ``*_FAILED`` de ``batch_id`` de vuelta a ``*_PENDING``.
 
-        When ``stage`` is None, ALL failed stages are reset. When
-        ``stage`` is a ``Sn_FAILED`` value, only that stage is reset.
-        Returns the number of rows touched. Idempotent: a clean batch
-        returns 0. Used by ``cmcourier batch retry-failed``.
+        Cuando ``stage`` es None, se resetean TODAS las etapas
+        fallidas. Cuando ``stage`` es un valor ``Sn_FAILED``, solo se
+        resetea esa etapa. Devuelve la cantidad de filas tocadas.
+        `Idempotent`: un `batch` limpio devuelve 0. La usa
+        ``cmcourier batch retry-failed``.
         """
 
 
 # ---------------------------------------------------------------------------
-# IAssembler — stage S4
+# IAssembler — etapa S4
 # ---------------------------------------------------------------------------
 
 
 class IAssembler(ABC):
-    """Assembles a multi-page document into a single staged PDF on disk."""
+    """Ensambla un documento multi-página en un único PDF `staged` en disco."""
 
     @abstractmethod
     def assemble(self, document: RVABREPDocument) -> StagedFile:
-        """Verify source files exist and produce an assembled PDF.
+        """Verifica que los archivos fuente existan y produce un PDF ensamblado.
 
-        Raises ``SourceFileMissingError`` if a page file is missing, and
-        ``PDFAssemblyFailedError`` if the underlying tooling fails.
+        Lanza ``SourceFileMissingError`` si falta un archivo de página, y
+        ``PDFAssemblyFailedError`` si el tooling subyacente falla.
         """
 
 
 # ---------------------------------------------------------------------------
-# IUploader — stage S5
+# IUploader — etapa S5
 # ---------------------------------------------------------------------------
 
 
 class IUploader(ABC):
-    """Uploads a staged file to IBM Content Manager via CMIS."""
+    """Sube un archivo `staged` a IBM Content Manager vía `cmis`."""
 
     @abstractmethod
     def verify_folder_exists(self, folder_path: str) -> bool:
-        """Return ``True`` iff *folder_path* exists on the CM server AND
-        its ``cmis:baseTypeId`` is ``cmis:folder``.
+        """Devuelve ``True`` sii *folder_path* existe en el server CM Y
+        su ``cmis:baseTypeId`` es ``cmis:folder``.
 
-        Read-only — never creates the folder. CMCourier deposits documents
-        only; the target folder tree is governed by the CMIS administrator.
-        Used by the pre-flight ``doctor --check cm-targets`` step (038) to
-        fail-loud before S5 ever attempts an upload.
+        Solo lectura — nunca crea la carpeta. CMCourier solamente
+        deposita documentos; el árbol de carpetas destino lo gobierna el
+        administrador `cmis`. Lo usa el paso de `pre-flight`
+        ``doctor --check cm-targets`` (038) para fallar fuerte antes de
+        que S5 intente un upload.
 
-        Returns ``False`` on 404 or when the path exists but resolves to a
-        non-folder object (a document, an item, etc.). Raises only on
-        connectivity / authentication failures (``CMISClientError`` for
-        401/403, ``CMISServerError`` for 5xx).
+        Devuelve ``False`` ante 404 o cuando el path existe pero
+        resuelve a un objeto no-folder (un documento, un item, etc.).
+        Lanza solo ante fallas de conectividad / autenticación
+        (``CMISClientError`` para 401/403, ``CMISServerError`` para 5xx).
         """
 
     @abstractmethod
@@ -336,80 +349,88 @@ class IUploader(ABC):
         *,
         batch_id: str,
     ) -> str:
-        """Upload *file* and return the resulting CMIS ``cmis:objectId``.
+        """Sube *file* y devuelve el ``cmis:objectId`` resultante.
 
-        ``batch_id`` tags every network event emitted during the upload
-        so the per-batch bandwidth + slow-op handlers attribute it to
-        the right chunk. Required — a shared uploader serves multiple
-        chunks concurrently, so the id must travel with the call.
+        ``batch_id`` etiqueta cada evento de red emitido durante el
+        upload para que los `handler`s de ancho de banda y operaciones
+        lentas por `batch` lo atribuyan al `chunk` correcto. Requerido
+        — un uploader compartido sirve a múltiples `chunk`s en
+        simultáneo, así que el id tiene que viajar con la llamada.
 
-        Raises ``CMISClientError`` for HTTP 4xx (do not retry) and
-        ``CMISServerError`` for HTTP 5xx (caller may retry).
+        Lanza ``CMISClientError`` para HTTP 4xx (no hacer `retry`) y
+        ``CMISServerError`` para HTTP 5xx (el caller puede hacer `retry`).
         """
 
     @abstractmethod
     def test_connection(self) -> Mapping[str, str]:
-        """Verify the CM endpoint is reachable and the credentials are valid.
-        Returns a dict of repository info for diagnostics."""
+        """Verifica que el endpoint CM sea alcanzable y que las credenciales
+        sean válidas. Devuelve un dict con info del `repository` para
+        diagnósticos."""
 
     @abstractmethod
     def get_type_definition(self, object_type_id: str) -> Mapping[str, Any]:
-        """Return the CMIS typeDefinition for *object_type_id*.
+        """Devuelve la `typeDefinition` `cmis` para *object_type_id*.
 
-        Used by the pre-flight ``doctor`` command to verify
-        that every ``cm_object_type`` referenced by the Modelo Documental
-        exists on the CM server. Bypasses any retry policy — pre-flight
-        prefers fail-loud over retry-quietly.
+        Lo usa el comando ``doctor`` de `pre-flight` para verificar que
+        cada ``cm_object_type`` referenciado por el Modelo Documental
+        exista en el server CM. Pasa por encima de cualquier política
+        de `retry` — `pre-flight` prefiere fallar fuerte antes que
+        reintentar en silencio.
 
-        Raises:
-            CMISClientError: 4xx (typically 404 for missing types).
+        Lanza:
+            CMISClientError: 4xx (típicamente 404 para tipos faltantes).
             CMISServerError: 5xx.
         """
 
 
 # ---------------------------------------------------------------------------
-# S0Strategy — stage S0
+# S0Strategy — etapa S0
 # ---------------------------------------------------------------------------
 
 
 class S0Strategy(ABC):
-    """Stage S0 strategy: turn a source descriptor into a stream of triggers.
+    """Estrategia de la etapa S0: convierte un descriptor de fuente en un
+    `stream` de `trigger`s.
 
-    The supported trigger kinds each map to a concrete subclass:
+    Los tipos soportados de `trigger` mapean cada uno a una subclase
+    concreta:
 
-    * ``CsvTriggerStrategy`` — reads a trigger-list CSV (client tuples).
-    * ``DirectRvabrepTriggerStrategy`` — discovers triggers by scanning the
-      RVABREP source directly (one trigger per row). The RVABREP source is
-      pluggable (CSV ↔ AS400, 048) — "AS400" is a source choice, not a
-      separate trigger kind.
-    * ``LocalScanTriggerStrategy`` — scans a folder for files, cross-references
-      RVABREP for the matching row.
-    * ``SingleDocTriggerStrategy`` — yields one trigger from CLI args.
+    * ``CsvTriggerStrategy`` — lee un CSV con lista de `trigger`s (tuplas
+      de cliente).
+    * ``DirectRvabrepTriggerStrategy`` — descubre `trigger`s escaneando
+      directamente la fuente RVABREP (un `trigger` por fila). La fuente
+      RVABREP es pluggable (CSV ↔ AS400, 048) — "AS400" es una elección
+      de fuente, no un tipo de `trigger` separado.
+    * ``LocalScanTriggerStrategy`` — escanea una carpeta en busca de
+      archivos, cruzando contra RVABREP para encontrar la fila que matchee.
+    * ``SingleDocTriggerStrategy`` — emite un único `trigger` a partir de
+      args de CLI.
     """
 
     @abstractmethod
     def acquire(self, source_descriptor: str) -> Iterator[Trigger]:
-        """Yield trigger records lazily. Trigger lists may be huge (200k+);
-        callers iterate, never materialize.
+        """Emite registros de `trigger` de forma lazy. Las listas de `trigger`s
+        pueden ser enormes (200k+); los callers iteran, nunca materializan.
 
-        046: the return type is the polymorphic ``Trigger`` ABC. Each
-        concrete strategy emits the subtype that matches its source
-        semantics (``ClientTrigger`` for csv/single-doc,
-        ``RvabrepRowTrigger`` for rvabrep-direct/as400, ``LocalScanTrigger``
-        for local-scan). S1 enrichment dispatches per subtype.
+        046: el tipo de retorno es la ABC polimórfica ``Trigger``. Cada
+        estrategia concreta emite el subtipo que matchea la semántica
+        de su fuente (``ClientTrigger`` para csv/single-doc,
+        ``RvabrepRowTrigger`` para rvabrep-direct/as400,
+        ``LocalScanTrigger`` para local-scan). El `enrichment` de S1
+        hace dispatch por subtipo.
         """
 
 
 # ---------------------------------------------------------------------------
-# IDocumentCache — cross-batch S3 metadata cache (POST-MVP §9, 037)
+# IDocumentCache — cache de metadata S3 cross-`batch` (POST-MVP §9, 037)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class CacheKey:
-    """Identifies a cache entry. ``fields_hash`` is the SHA-256 hex of
-    the sorted required-fields list — mapping evolution invalidates by
-    construction."""
+    """Identifica una entrada del cache. ``fields_hash`` es el SHA-256 hex
+    de la lista ordenada de campos requeridos — la evolución del mapping
+    invalida por construcción."""
 
     txn_num: str
     fields_hash: str
@@ -417,7 +438,7 @@ class CacheKey:
 
 @dataclass(frozen=True, slots=True)
 class CacheEntry:
-    """One stored row in ``document_cache``."""
+    """Una fila almacenada en ``document_cache``."""
 
     txn_num: str
     fields_hash: str
@@ -428,7 +449,7 @@ class CacheEntry:
 
 @dataclass(frozen=True, slots=True)
 class CacheStats:
-    """Snapshot of the cache table state at one instant."""
+    """`Snapshot` del estado de la tabla de cache en un instante dado."""
 
     total_rows: int
     oldest_cached_at: datetime | None
@@ -436,28 +457,31 @@ class CacheStats:
 
 
 class IDocumentCache(ABC):
-    """Cross-batch metadata cache. SQLite implementation in 037 Phase 1."""
+    """Cache de metadata cross-`batch`. Implementación SQLite en la Fase 1 de 037."""
 
     @abstractmethod
     def get(self, key: CacheKey) -> CacheEntry | None:
-        """Return the entry or ``None``. TTL is checked by the service."""
+        """Devuelve la entrada o ``None``. El TTL lo chequea el servicio."""
 
     @abstractmethod
     def put(self, entry: CacheEntry) -> None:
-        """Upsert. Replaces an entry with the same ``(txn_num, fields_hash)``."""
+        """`Upsert`. Reemplaza una entrada con el mismo ``(txn_num, fields_hash)``."""
 
     @abstractmethod
     def clear_txn(self, txn_num: str) -> int:
-        """Delete every row matching ``txn_num`` (any fields hash). Returns rows deleted."""
+        """Borra cada fila que matchee ``txn_num`` (cualquier fields hash).
+
+        Devuelve la cantidad de filas borradas.
+        """
 
     @abstractmethod
     def clear_all(self) -> int:
-        """Truncate. Returns rows deleted."""
+        """Truncate. Devuelve filas borradas."""
 
     @abstractmethod
     def clear_older_than(self, threshold: datetime) -> int:
-        """Delete rows whose ``cached_at`` < threshold. Returns rows deleted."""
+        """Borra las filas cuyo ``cached_at`` < threshold. Devuelve filas borradas."""
 
     @abstractmethod
     def stats(self) -> CacheStats:
-        """Return current table stats."""
+        """Devuelve las stats actuales de la tabla."""

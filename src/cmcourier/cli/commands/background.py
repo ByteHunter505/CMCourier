@@ -1,25 +1,26 @@
-"""``cmcourier background --pipeline <kind>`` — cron-friendly runner.
+"""``cmcourier background --pipeline <kind>``: runner amigable con cron.
 
-Same machinery as the interactive pipelines but with three
-unattended-mode behaviors:
+Misma maquinaria que los pipelines interactivos pero con tres
+comportamientos de modo desatendido:
 
-1. **Per-config lock** (POSIX ``fcntl.flock`` / Windows
-   ``msvcrt.locking``). Two overlapping invocations on the same
-   config exit immediately — the second one with status ``75``
-   (cron-canonical ``EX_TEMPFAIL`` "transient failure, retry later";
-   Windows Task Scheduler treats any non-zero exit as failure).
-2. **Quiet success**. No stdout summary line. Cron emails only
-   fire when something is wrong.
-3. **WARNING-by-default log level**. Operators can ``--log-level
-   INFO`` if they want chatty stderr, but cron's mailer stays
-   quiet otherwise.
+1. **Lock por config** (POSIX ``fcntl.flock`` / Windows
+   ``msvcrt.locking``). Dos invocaciones superpuestas sobre la misma
+   config salen al toque: la segunda con status ``75`` (el
+   ``EX_TEMPFAIL`` canonico de cron, "falla transitoria, reintenta
+   despues"; el `Task Scheduler` de Windows trata cualquier exit
+   distinto de cero como falla).
+2. **Exito silencioso**. Sin linea de resumen en stdout. Los mails
+   de cron solo se disparan cuando algo anda mal.
+3. **Log level por defecto WARNING**. Los operadores pueden poner
+   ``--log-level INFO`` si quieren stderr verborragico, pero por
+   default el mailer de cron se queda calladito.
 
-Auto-doctor stays ON unless ``--skip-doctor`` is passed — cron
-benefits from pre-flight, not less.
+El auto-doctor queda ON salvo que se pase ``--skip-doctor``: cron
+se beneficia del pre-flight, no al reves.
 
-This command, named ``background``, dispatches into the same
-``_run_pipeline_command`` helper the four interactive run
-commands use, with ``quiet=True``.
+Este comando, llamado ``background``, dispatcha hacia el mismo
+helper ``_run_pipeline_command`` que usan los cuatro comandos
+interactivos de `run`, con ``quiet=True``.
 """
 
 from __future__ import annotations
@@ -37,11 +38,12 @@ from cmcourier.cli.commands._lock import LockHeldError, acquire_config_lock
 _log = logging.getLogger(__name__)
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
-# POSIX ``os.EX_TEMPFAIL`` literal — the constant only exists on Unix
-# Python builds, so hardcode it to keep the module importable on Windows.
+# Literal POSIX ``os.EX_TEMPFAIL``: la constante solo existe en builds
+# Python de Unix, asi que la hardcodeamos para mantener el modulo
+# importable en Windows.
 _EXIT_TEMPFAIL = 75
 _PIPELINE_CHOICES = ("csv-trigger", "rvabrep", "as400-trigger", "local-scan")
-# Maps the CLI's pipeline name onto the internal ``trigger.kind`` value.
+# Mapea el nombre de pipeline del CLI al valor interno de ``trigger.kind``.
 _KIND_MAP: dict[str, str] = {
     "csv-trigger": "csv",
     "rvabrep": "rvabrep",
@@ -86,8 +88,8 @@ def background_command(
     resume: bool,
     log_level: str,
 ) -> None:
-    """Run a production pipeline unattended (cron / systemd-friendly)."""
-    # Late import to break the cycle: cli/app.py imports this module.
+    """Corre un pipeline productivo desatendido (amigable con cron / systemd)."""
+    # Import tardio para romper el ciclo: `cli/app.py` importa este modulo.
     from cmcourier.cli.app import _run_pipeline_command  # noqa: PLC0415
 
     try:

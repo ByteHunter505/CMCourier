@@ -1,12 +1,12 @@
-"""YAML config loader + env-var secrets reader.
+"""Loader de configuración YAML + lector de secretos desde env-vars.
 
-Both functions raise :class:`ConfigurationError` (from
-``cmcourier.domain.exceptions``) on failure with structured context so
-the CLI can surface diagnostic detail to operators.
+Ambas funciones lanzan :class:`ConfigurationError` (de
+``cmcourier.domain.exceptions``) ante fallos, con contexto estructurado
+para que la CLI pueda exponer detalle diagnóstico al operador.
 
-Constitution Principle V: configuration is the single source of truth.
-Principle VIII: credentials live in environment variables, NEVER in
-the YAML file.
+Principio V de la Constitución: la configuración es la única fuente de
+verdad. Principio VIII: las credenciales viven en variables de entorno,
+NUNCA en el archivo YAML.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from cmcourier.domain.exceptions import ConfigurationError
 
 @dataclass(frozen=True, slots=True)
 class Secrets:
-    """Credentials read from environment variables at startup."""
+    """Credenciales leídas desde variables de entorno al arrancar."""
 
     cmis_username: str
     cmis_password: str
@@ -35,7 +35,7 @@ class Secrets:
 
 
 def load_config(path: Path) -> PipelineConfig:
-    """Read *path* as YAML and return a validated :class:`PipelineConfig`."""
+    """Lee *path* como YAML y devuelve un :class:`PipelineConfig` validado."""
     if not path.is_file():
         raise ConfigurationError("config file not found", config_path=str(path))
     try:
@@ -60,12 +60,13 @@ def load_config(path: Path) -> PipelineConfig:
 
 
 def _reject_removed_kinds(data: dict[str, object]) -> None:
-    """048: ``trigger.kind: as400`` was removed.
+    """048: ``trigger.kind: as400`` fue removido.
 
-    "AS400" is now a *source* choice, not a trigger kind — the RVABREP
-    pipeline is the same pipeline regardless of where its RVABREP table
-    lives. Pydantic's discriminated-union error for an unknown ``kind``
-    is cryptic; surface a directive one that points at the new shape.
+    "AS400" ahora es una elección de *source*, no un `kind` de trigger —
+    el pipeline RVABREP es el mismo pipeline independientemente de dónde
+    viva su tabla RVABREP. El error de unión discriminada de Pydantic
+    ante un ``kind`` desconocido es críptico; exponemos uno directivo
+    que apunta a la nueva forma.
     """
     trigger = data.get("trigger")
     if isinstance(trigger, dict) and trigger.get("kind") == "as400":
@@ -79,16 +80,17 @@ def _reject_removed_kinds(data: dict[str, object]) -> None:
 
 
 def _inject_default_kinds(data: dict[str, object]) -> None:
-    """Backwards-compat: discriminator ``kind`` defaults to ``"csv"``.
+    """Retrocompatibilidad: el discriminador ``kind`` por defecto es ``"csv"``.
 
-    Pydantic v2 discriminated unions require the discriminator field. Existing
-    configs from change 012 omit ``kind`` entirely — the original schemas had
-    single shapes (``TriggerCsvConfig``, ``MetadataSourceConfig`` as csv-only).
-    Inject ``kind: "csv"`` before validation so those YAMLs still load.
+    Las uniones discriminadas de Pydantic v2 requieren el campo
+    discriminador. Las configuraciones existentes del change 012 omiten
+    ``kind`` por completo — los schemas originales tenían formas únicas
+    (``TriggerCsvConfig``, ``MetadataSourceConfig`` solo `csv`). Inyectamos
+    ``kind: "csv"`` antes de validar para que esos YAMLs sigan cargando.
 
-    Covers two discriminator surfaces:
-      * ``trigger.kind`` (from change 014).
-      * ``metadata.sources[i].kind`` (from change 015).
+    Cubre dos superficies de discriminador:
+      * ``trigger.kind`` (del change 014).
+      * ``metadata.sources[i].kind`` (del change 015).
     """
     trigger = data.get("trigger")
     if isinstance(trigger, dict) and "kind" not in trigger:
@@ -103,7 +105,7 @@ def _inject_default_kinds(data: dict[str, object]) -> None:
 
 
 def load_secrets() -> Secrets:
-    """Read CMIS_USERNAME / CMIS_PASSWORD (required) + AS400_* (optional)."""
+    """Lee CMIS_USERNAME / CMIS_PASSWORD (requeridos) + AS400_* (opcionales)."""
     cmis_username = os.environ.get("CMIS_USERNAME", "").strip()
     cmis_password = os.environ.get("CMIS_PASSWORD", "").strip()
     missing: list[str] = []

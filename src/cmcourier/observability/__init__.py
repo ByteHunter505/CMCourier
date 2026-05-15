@@ -1,18 +1,19 @@
-"""Tiered observability package.
+"""Paquete de observabilidad por `tiers`.
 
-Tiered structured logging for CMCourier. Layers:
+Logging estructurado en capas para CMCourier. Niveles:
 
-* **Tier 1** — app log (JSON Lines) to ``logs/app-{date}.log``.
-* **Tier 2** — pipeline metrics (per-batch summary with p50/p95/p99)
-  to ``logs/metrics-{date}.jsonl``.
-* **Tier 3** — network metrics (AS400 + CMIS per-request timing)
-  to ``logs/network-{date}.jsonl``.
-* **Tier 4** — slow-ops report (top-N per batch) to
+* **`Tier` 1** — log de aplicación (JSON Lines) en ``logs/app-{date}.log``.
+* **`Tier` 2** — métricas de pipeline (resumen por batch con p50/p95/p99)
+  en ``logs/metrics-{date}.jsonl``.
+* **`Tier` 3** — métricas de red (timing por request de AS400 + CMIS)
+  en ``logs/network-{date}.jsonl``.
+* **`Tier` 4** — reporte de `slow ops` (top-N por batch) en
   ``logs/slow-ops-{batch_id}.jsonl``.
-* **Tier 5** — system metrics (CPU/RAM/IO) is deferred to POST-MVP §2.
+* **`Tier` 5** — métricas de sistema (CPU/RAM/IO), diferido a POST-MVP §2.
 
-PII discipline (Constitution VIII): all handlers run through
-``PiiMaskingFilter`` which redacts known PII field names.
+Disciplina de `PII` (Principio VIII de la Constitución): todos los handlers
+pasan por ``PiiMaskingFilter`` que redacta los nombres de campos `PII`
+conocidos.
 """
 
 from __future__ import annotations

@@ -1,16 +1,17 @@
-"""``cmcourier mock generate`` — synthetic RVABREP file-tree generator (031).
+"""``cmcourier mock generate``: generador de file-tree RVABREP sintetico (031).
 
-Operator-facing front end for :mod:`cmcourier.services.mock`. Reads RVABREP
-rows from CSV (:class:`cmcourier.adapters.sources.TabularDataSource`) or
-AS400 (:class:`cmcourier.adapters.sources.As400DataSource`), translates
-them into :class:`cmcourier.services.mock.types.FilePlan` objects via the
-pure planner, and writes valid PDF/TIFF/JPEG bytes via
+Front-end hacia el operador de :mod:`cmcourier.services.mock`. Lee filas
+RVABREP de CSV (:class:`cmcourier.adapters.sources.TabularDataSource`)
+o AS400 (:class:`cmcourier.adapters.sources.As400DataSource`), las
+traduce en objetos :class:`cmcourier.services.mock.types.FilePlan` via
+el planner puro y escribe bytes PDF/TIFF/JPEG validos via
 :class:`cmcourier.services.mock.content.MockContentWriter`.
 
-Exit codes (match the rest of the CLI, REQ-032):
-    0 = success
-    2 = configuration error (bad size suffix, inverted band, no source, ...)
-    3 = unhandled exception
+Codigos de salida (matchean al resto del CLI, REQ-032):
+    0 = exito
+    2 = error de configuracion (sufijo de tamano invalido, banda
+        invertida, sin source, ...)
+    3 = excepcion no manejada
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ _log = logging.getLogger(__name__)
 
 @click.group(name="mock")
 def mock_group() -> None:
-    """Synthetic file-tree generator for dry runs and integration tests (031)."""
+    """Generador de file-tree sintetico para dry runs y tests de integracion (031)."""
 
 
 @mock_group.command(name="generate")
@@ -125,7 +126,7 @@ def mock_group() -> None:
     default=False,
     help="Include RVABREP rows with non-empty delete_code (ABACST).",
 )
-def generate_command(  # noqa: PLR0913 — Click options dictate the signature
+def generate_command(  # noqa: PLR0913 — las opciones de Click dictan la firma
     rvabrep_csv: Path | None,
     rvabrep_as400: bool,
     config_path: Path | None,
@@ -142,7 +143,7 @@ def generate_command(  # noqa: PLR0913 — Click options dictate the signature
     force: bool,
     include_deleted: bool,
 ) -> None:
-    """Materialize a valid mock file tree from an RVABREP source."""
+    """Materializa un file tree mock valido desde un source RVABREP."""
     try:
         bounds = _parse_bounds(pdf_min, pdf_max, img_min, img_max)
         config = _load_config_optional(config_path)
@@ -180,7 +181,7 @@ def generate_command(  # noqa: PLR0913 — Click options dictate the signature
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
-    except Exception:  # noqa: BLE001 — top-level CLI handler
+    except Exception:  # noqa: BLE001 — handler de CLI de nivel superior
         _log.exception("mock generate failed")
         sys.exit(3)
     finally:
@@ -190,6 +191,7 @@ def generate_command(  # noqa: PLR0913 — Click options dictate the signature
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# (helpers internos del comando `mock`)
 
 
 def _parse_bounds(
@@ -235,7 +237,7 @@ def _build_source(
         )
     if rvabrep_csv is not None:
         return TabularDataSource(rvabrep_csv)
-    # --rvabrep-as400 path
+    # camino `--rvabrep-as400`
     if config is None:
         raise ConfigurationError(
             "--rvabrep-as400 requires --config with an AS400 connection",
@@ -266,8 +268,8 @@ def _build_source(
 
 
 def _extract_as400_connection(config: PipelineConfig) -> As400ConnectionConfig:
-    # 048: the AS400 connection for the RVABREP source lives under
-    # ``indexing.source`` now, not under the trigger config.
+    # 048: la conexion AS400 para el source RVABREP vive ahora bajo
+    # ``indexing.source``, no bajo la config del trigger.
     source = config.indexing.source
     if isinstance(source, As400RvabrepSource):
         return source.connection
@@ -311,7 +313,7 @@ def _materialize(
 
 
 # ---------------------------------------------------------------------------
-# 039 — cmcourier mock rvabrep (synthetic RVABREP CSV generator)
+# 039 — `cmcourier mock rvabrep` (generador sintetico de CSV RVABREP)
 # ---------------------------------------------------------------------------
 
 
@@ -401,7 +403,7 @@ _DEFAULT_IDRVI_SOURCE = Path("docs/samples/csv/MapeoRVI_CM.csv")
     show_default=True,
     help="Fraction of rows that carry a CIF (6-digit index2).",
 )
-def rvabrep_command(  # noqa: PLR0913 — Click options dictate the signature
+def rvabrep_command(  # noqa: PLR0913 — las opciones de Click dictan la firma
     rows: int,
     output_path: Path,
     seed: int | None,
@@ -414,7 +416,7 @@ def rvabrep_command(  # noqa: PLR0913 — Click options dictate the signature
     delete_rate: float,
     cif_rate: float,
 ) -> None:
-    """Stream a synthetic RVABREP CSV consumable by ``mock generate``."""
+    """Streamea un CSV RVABREP sintetico consumible por ``mock generate``."""
     try:
         image_mix = _parse_image_mix(image_mix_text)
         date_from = _parse_iso_date(date_from_text, flag="--date-from")
@@ -441,7 +443,7 @@ def rvabrep_command(  # noqa: PLR0913 — Click options dictate the signature
     except ConfigurationError as exc:
         click.echo(f"ConfigurationError: {exc}", err=True)
         sys.exit(2)
-    except Exception:  # noqa: BLE001 — top-level CLI handler
+    except Exception:  # noqa: BLE001 — handler de CLI de nivel superior
         _log.exception("mock rvabrep failed")
         sys.exit(3)
     click.echo(
@@ -489,7 +491,7 @@ def _parse_iso_date(text: str, *, flag: str) -> date:
 
 
 def _load_idrvi_pool(source_path: Path, top_n: int) -> tuple[str, ...]:
-    """Read the IDRVI column from *source_path*, dedupe, sort, take top-N."""
+    """Lee la columna IDRVI de *source_path*, deduplica, ordena y toma top-N."""
     if not source_path.exists():
         raise ConfigurationError(
             "--idrvi-source path does not exist",

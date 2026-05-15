@@ -1,4 +1,4 @@
-"""CSV-driven trigger strategy. Mode csv:<alias>."""
+"""Estrategia de trigger basada en CSV. Modo ``csv:<alias>``."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ _logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CsvTriggerColumnsConfig:
-    """Column-name overrides for a CSV trigger source.
+    """Overrides de nombres de columna para una fuente CSV de trigger.
 
-    Defaults match the canonical trigger CSV layout.
+    Los defaults coinciden con el layout canónico del CSV de trigger.
     """
 
     col_shortname: str = "ShortName"
@@ -32,12 +32,14 @@ def _is_blank(v: object) -> bool:
 
 
 class CsvTriggerStrategy(S0Strategy):
-    """Reads triggers from any tabular ``IDataSource`` (CSV, XLSX, etc.).
+    """Lee triggers desde cualquier ``IDataSource`` tabular (CSV,
+    XLSX, etc.).
 
-    The first row is checked against required columns ``col_shortname`` and
-    ``col_system_id``. ``col_cif`` is optional — its absence (or per-row
-    blank cells) yields ``TriggerRecord.cif=None`` so CIF self-healing in
-    stage S3 can populate it later.
+    La primera fila se chequea contra las columnas requeridas
+    ``col_shortname`` y ``col_system_id``. ``col_cif`` es opcional:
+    su ausencia (o celdas vacías por fila) producen
+    ``TriggerRecord.cif=None`` para que el self-healing de CIF en
+    el stage S3 lo pueda completar más adelante.
     """
 
     def __init__(
@@ -49,8 +51,9 @@ class CsvTriggerStrategy(S0Strategy):
         self._columns = columns or CsvTriggerColumnsConfig()
 
     def acquire(self, source_descriptor: str = "") -> Iterator[TriggerRecord]:
-        """Yield TriggerRecord per non-blank row. ``source_descriptor`` ignored."""
-        del source_descriptor  # vestigial port parameter; see plan §3.3
+        """Yieldea un ``TriggerRecord`` por cada fila no vacía.
+        ``source_descriptor`` se ignora."""
+        del source_descriptor  # parámetro vestigial del port; ver plan §3.3
         skipped = 0
         validated = False
         for row in self._source.get_all():
@@ -78,4 +81,5 @@ class CsvTriggerStrategy(S0Strategy):
                     "Trigger CSV missing required column",
                     missing_column=col,
                 )
-        # col_cif is optional: absence yields cif=None for every record.
+        # ``col_cif`` es opcional: su ausencia produce ``cif=None`` en
+        # cada record.

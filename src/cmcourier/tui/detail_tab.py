@@ -1,10 +1,11 @@
-"""DETAIL tab renderer — per-chunk drill-down (052).
+"""Renderer del tab DETAIL — drill-down por `chunk` (052).
 
-Given the chunk the operator selected (with the ``[`` / ``]`` cursor)
-and the per-doc rows read from the tracking store, render a table of
-every doc's name / size / status / fail-or-skip reason. The detail is
-read on demand from the store — never held in memory for every chunk
-(spec 050's bounded-memory guarantee).
+Dado el `chunk` que seleccionó el operador (con el cursor ``[`` /
+``]``) y las filas por-doc leídas del `tracking store`, renderiza
+una tabla con el name / size / status / razón de fail o skip de
+cada doc. El detalle se lee bajo demanda del store — nunca se
+mantiene en memoria para todos los `chunk`s (garantía de memoria
+acotada de la spec 050).
 """
 
 from __future__ import annotations
@@ -13,12 +14,14 @@ __all__ = ["render_detail"]
 
 from cmcourier.domain.models import DocDetail
 
-# A chunk is capped at ``batch_size`` docs (default 1000). 058 made the
-# DETAIL pane scrollable, so the operator can read past the screen
-# fold — the previous 100-row cap was a workaround for the missing
-# scroll. 2000 is a generous safety ceiling above the default
-# ``batch_size`` of 1000; the ``… N more — full list`` hint still fires
-# for genuinely huge chunks so the operator gets pointed at the CLI.
+# Un `chunk` está capado a ``batch_size`` docs (por defecto 1000).
+# 058 hizo el panel DETAIL scrolleable, así que el operador puede
+# leer más allá del fold de pantalla — el cap previo de 100 filas
+# era un workaround por la falta de scroll. 2000 es un techo de
+# seguridad generoso por encima del ``batch_size`` por defecto de
+# 1000; el hint ``… N more — full list`` igual se dispara para
+# `chunk`s genuinamente enormes para que el operador sea apuntado
+# al CLI.
 _MAX_ROWS = 2000
 _DASH = "—"
 
@@ -29,7 +32,7 @@ def render_detail(
     *,
     width: int = 92,
 ) -> str:
-    """Build the DETAIL tab body for the selected chunk."""
+    """Construye el cuerpo del tab DETAIL para el `chunk` seleccionado."""
     lines: list[str] = []
     lines.append("DETAIL — per-chunk drill-down")
     lines.append("─" * width)

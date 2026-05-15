@@ -1,9 +1,9 @@
-"""Adapter factory: turn :class:`PipelineConfig` into a wired pipeline.
+"""Factory de adapters: convierte un :class:`PipelineConfig` en un pipeline cableado.
 
-The orchestrator and adapters do NOT import Pydantic. This module owns
-the translation between the schema (Pydantic) and each service's
-existing dataclass-based config. Constitution Principle I (layer
-separation) holds.
+El orchestrator y los adapters NO importan Pydantic. Este módulo se
+encarga de la traducción entre el schema (Pydantic) y la config basada
+en dataclasses de cada servicio. Se mantiene el Principio I de la
+Constitución (separación de capas).
 """
 
 from __future__ import annotations
@@ -81,16 +81,16 @@ def build_pipeline(
     trigger_strategy_override: S0Strategy | None = None,
     pipeline_name: str = "csv-trigger",
 ) -> StagedPipeline:
-    """Construct every adapter / service and return the wired pipeline.
+    """Construye cada adapter / servicio y devuelve el pipeline cableado.
 
-    Pass ``trigger_strategy_override`` to bypass the schema-driven
-    dispatch — used by the single-doc CLI to inject a strategy built
-    from CLI args.
+    Pasá ``trigger_strategy_override`` para saltearte el `dispatch` basado
+    en schema — lo usa la CLI single-doc para inyectar una `strategy`
+    construida a partir de los argumentos de CLI.
     """
-    # 048: the RVABREP source is pluggable (CSV ↔ AS400). Built once here
-    # and shared by S0 (DirectRvabrepTriggerStrategy / LocalScanTriggerStrategy)
-    # AND S1 (IndexingService) — the RVABREP table is the same data
-    # regardless of where it lives.
+    # 048: el `source` RVABREP es pluggable (CSV ↔ AS400). Se construye
+    # una sola vez acá y se comparte entre S0 (DirectRvabrepTriggerStrategy
+    # / LocalScanTriggerStrategy) Y S1 (IndexingService) — la tabla
+    # RVABREP es la misma data independientemente de dónde viva.
     rvabrep_src = _build_rvabrep_source(config.indexing, secrets)
     metadata_sources = _build_metadata_sources(config.metadata.sources, secrets)
 
@@ -113,12 +113,13 @@ def build_pipeline(
         image_type_map=config.assembly.image_type_map,
     )
     assembler = PdfAssembler(assembler_config)
-    # 066: optional ProcessPoolExecutor for S4 (PDF assembly).
-    # Bypasses the GIL for the CPU-bound img2pdf/PIL/PyPDF2 work;
-    # default-on via ``processing.s4_use_processes`` because every
-    # benchmark above ~5 docs/s benefits. The pool is shut down at
-    # process exit via ``atexit`` — a follow-up spec can move it to
-    # a pipeline ``close()`` if explicit lifecycle is needed.
+    # 066: `ProcessPoolExecutor` opcional para S4 (`PDF assembly`).
+    # Esquiva el GIL para el trabajo CPU-bound de img2pdf/PIL/PyPDF2;
+    # `default-on` vía ``processing.s4_use_processes`` porque todo
+    # `benchmark` por encima de ~5 docs/s se beneficia. El `process pool`
+    # se apaga al salir del proceso vía ``atexit`` — un spec posterior
+    # puede moverlo a un ``close()`` del pipeline si hace falta ciclo
+    # de vida explícito.
     s4_process_pool: ProcessPoolExecutor | None = None
     if config.processing.s4_use_processes:
         s4_process_pool = build_s4_process_pool(
@@ -126,9 +127,9 @@ def build_pipeline(
             max_workers=config.processing.s4_max_processes,
         )
         atexit.register(s4_process_pool.shutdown, wait=True)
-    # 038: size the connection pool to the highest worker count AIMD
-    # might reach so the urllib3 default (10) is never the bottleneck
-    # at peak concurrency.
+    # 038: dimensionar el `connection pool` al mayor `worker` count que
+    # `AIMD` pueda alcanzar para que el default de urllib3 (10) nunca sea
+    # el cuello de botella en el pico de concurrencia.
     cmis_pool_size = (
         max(config.cmis.workers, config.cmis.auto_tune.max_threads)
         if config.cmis.auto_tune.enabled
@@ -160,9 +161,9 @@ def build_pipeline(
     sampler = build_system_metrics_sampler(
         config.observability, log_dir=config.observability.log_dir
     )
-    # 034 phase 3: optional AS400 NIARVILOG coordination layer. When
-    # tracking.as400_sync.enabled is false (default), this is None and
-    # the pipeline runs in legacy SQLite-only mode.
+    # 034 fase 3: capa opcional de coordinación AS400 NIARVILOG. Cuando
+    # tracking.as400_sync.enabled es false (default), esto es None y el
+    # pipeline corre en modo legacy solo-SQLite.
     coordinator = _build_idempotency_coordinator(
         config=config, secrets=secrets, sqlite_store=tracking_store
     )
@@ -189,7 +190,7 @@ def build_pipeline(
 
 
 def _build_document_cache_service(*, config: PipelineConfig) -> DocumentCacheService | None:
-    """037: return a service iff ``metadata.cache.enabled``, else None."""
+    """037: devuelve un servicio sii ``metadata.cache.enabled``, si no None."""
     if not config.metadata.cache.enabled:
         return None
     sqlite_cache = SqliteDocumentCache(config.tracking.db_path)
@@ -205,15 +206,15 @@ def _build_idempotency_coordinator(
     secrets: Secrets,
     sqlite_store: SQLiteTrackingStore,
 ) -> IdempotencyCoordinator | None:
-    """Wire the SQLite + (optional) AS400 NIARVILOG coordinator (034).
+    """Cablea el coordinador SQLite + (opcional) AS400 NIARVILOG (034).
 
-    Returns ``None`` when ``tracking.as400_sync.enabled=false`` so the
-    StagedPipeline stays in legacy pre-034 mode.
+    Devuelve ``None`` cuando ``tracking.as400_sync.enabled=false`` para
+    que el StagedPipeline se quede en modo legacy pre-034.
     """
     sync_cfg = config.tracking.as400_sync
     if not sync_cfg.enabled:
         return None
-    if sync_cfg.connection is None:  # pragma: no cover — schema enforces this
+    if sync_cfg.connection is None:  # pragma: no cover — el schema lo garantiza
         raise ConfigurationError(
             "tracking.as400_sync.enabled=true requires connection settings",
         )
@@ -236,18 +237,19 @@ def _build_idempotency_coordinator(
 
 
 # ---------------------------------------------------------------------------
-# RVABREP source dispatch (048)
+# Dispatch del `source` RVABREP (048)
 # ---------------------------------------------------------------------------
 
 
 def _build_rvabrep_source(indexing_cfg: IndexingConfig, secrets: Secrets) -> IDataSource:
-    """Build the RVABREP ``IDataSource`` from ``indexing.source`` (048).
+    """Construye el ``IDataSource`` RVABREP desde ``indexing.source`` (048).
 
-    ``csv`` → ``TabularDataSource`` over the CSV file.
-    ``as400`` → ``As400DataSource`` in query mode — the operator's SELECT
-    (JOINs / filters allowed) is wrapped as ``(query) AS T`` so the full
-    IDataSource contract works transparently. The single returned source
-    feeds both S0 (trigger discovery) and S1 (doc lookup).
+    ``csv`` → ``TabularDataSource`` sobre el archivo CSV.
+    ``as400`` → ``As400DataSource`` en modo `query` — el SELECT del
+    operador (JOINs / filtros permitidos) se envuelve como ``(query) AS T``
+    para que todo el contrato `IDataSource` funcione transparentemente. El
+    único `source` retornado alimenta tanto a S0 (descubrimiento de
+    triggers) como a S1 (lookup de docs).
     """
     source = indexing_cfg.source
     if isinstance(source, CsvRvabrepSource):
@@ -281,7 +283,7 @@ def _build_rvabrep_source(indexing_cfg: IndexingConfig, secrets: Secrets) -> IDa
 
 
 # ---------------------------------------------------------------------------
-# Trigger strategy dispatch
+# Dispatch de la `strategy` de trigger
 # ---------------------------------------------------------------------------
 
 
@@ -335,9 +337,10 @@ def _build_trigger_strategy(
             "and trigger_strategy_override",
             kind="single_doc",
         )
-    # 048: ``trigger.kind: as400`` was removed — "AS400" is a source choice
-    # (``indexing.source.kind: as400``), not a trigger kind. The loader
-    # rejects it with a directive error before we ever reach here.
+    # 048: ``trigger.kind: as400`` fue removido — "AS400" es una elección
+    # de `source` (``indexing.source.kind: as400``), no un `kind` de
+    # trigger. El loader lo rechaza con un error directivo antes de que
+    # lleguemos acá.
     raise ConfigurationError(
         "unknown trigger.kind",
         kind=getattr(trigger_cfg, "kind", "<unknown>"),
@@ -345,7 +348,7 @@ def _build_trigger_strategy(
 
 
 # ---------------------------------------------------------------------------
-# Metadata source dispatch (015)
+# Dispatch de `sources` de metadata (015)
 # ---------------------------------------------------------------------------
 
 
@@ -353,13 +356,13 @@ def _build_metadata_sources(
     sources: list[MetadataSourceConfig],
     secrets: Secrets,
 ) -> dict[str, IDataSource]:
-    """Open every metadata source and return the alias→adapter registry."""
+    """Abre cada `source` de metadata y devuelve el registro alias→adapter."""
     registry: dict[str, IDataSource] = {}
     for src_cfg in sources:
         if isinstance(src_cfg, CsvMetadataSourceConfig):
             registry[src_cfg.alias] = TabularDataSource(src_cfg.csv_path)
             continue
-        # as400 — credentials required.
+        # as400 — credenciales requeridas.
         if not secrets.as400_username or not secrets.as400_password:
             missing = [
                 name
@@ -388,7 +391,7 @@ def _build_metadata_sources(
 
 
 # ---------------------------------------------------------------------------
-# Schema → service-config converters
+# Conversores schema → config de servicio
 # ---------------------------------------------------------------------------
 
 
@@ -455,12 +458,12 @@ def _mapping_columns_from_schema(model: MappingConfigModel) -> MappingColumnsCon
 
 
 def build_mapping_service(model: MappingConfigModel) -> MappingService:
-    """Build a fully-loaded :class:`MappingService` from a ``MappingConfig``.
+    """Construye un :class:`MappingService` totalmente cargado desde un ``MappingConfig``.
 
-    Picks consolidated or split mode based on which paths are set
-    (035). Opens the underlying ``TabularDataSource``(s), loads the
-    cache, then closes the source(s) — ``MappingService`` reads
-    everything at construction.
+    Elige modo consolidado o `split` según qué paths estén seteados
+    (035). Abre el/los ``TabularDataSource`` subyacente(s), carga el
+    cache, y luego cierra el/los `source` — ``MappingService`` lee
+    todo en construcción.
     """
     columns = _mapping_columns_from_schema(model)
     if model.csv_path is not None:
@@ -469,8 +472,8 @@ def build_mapping_service(model: MappingConfigModel) -> MappingService:
             return MappingService(source, columns)
         finally:
             source.close()
-    assert model.rvi_cm_csv_path is not None  # noqa: S101 - validator guarantees this
-    assert model.metadatos_csv_path is not None  # noqa: S101 - validator guarantees this
+    assert model.rvi_cm_csv_path is not None  # noqa: S101 - el validador lo garantiza
+    assert model.metadatos_csv_path is not None  # noqa: S101 - el validador lo garantiza
     rvi_src = TabularDataSource(model.rvi_cm_csv_path)
     metadatos_src = TabularDataSource(model.metadatos_csv_path)
     try:

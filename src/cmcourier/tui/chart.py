@@ -1,23 +1,24 @@
-"""Compact ASCII sparkline for the UPLOAD-tab bandwidth chart (025).
+"""`Sparkline` ASCII compacto para el gráfico de `bandwidth` del tab UPLOAD (025).
 
-No external dependencies — just block characters mapped to a 0..1
-range. The y-axis caps at ``y_max`` (operator-supplied via
-``cmis.max_bandwidth_mbps``) or auto-scales to the peak when 0.
+Sin dependencias externas — sólo caracteres de bloque mapeados a un
+rango 0..1. El eje y se capa en ``y_max`` (provisto por el operador
+vía ``cmis.max_bandwidth_mbps``) o auto-escala al pico cuando es 0.
 """
 
 from __future__ import annotations
 
 __all__ = ["render_sparkline"]
 
-# 8 levels of vertical resolution per column.
+# 8 niveles de resolución vertical por columna.
 _BLOCKS: tuple[str, ...] = (" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")
 
 
 def render_sparkline(values: list[float], *, y_max: float) -> str:
-    """Return a single-row Unicode sparkline.
+    """Devuelve un `sparkline` Unicode de una fila.
 
-    Empty or all-zero data renders as spaces of the right length so
-    callers can still align surrounding text.
+    Data vacía o toda en cero renderiza como espacios del largo
+    correcto para que los callers puedan seguir alineando el texto
+    de alrededor.
     """
     if not values:
         return ""

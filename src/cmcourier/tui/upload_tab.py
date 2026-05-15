@@ -1,4 +1,4 @@
-"""UPLOAD tab renderer (025 phase 3)."""
+"""Renderer del tab UPLOAD (025 fase 3)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from cmcourier.tui.data_provider import UPLOAD_STAGE, TUISnapshot
 
 
 def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
-    """Build the UPLOAD tab body as a multi-line string."""
+    """Construye el cuerpo del tab UPLOAD como un string multi-línea."""
     s5 = snap.stages.get(UPLOAD_STAGE, {})
     count = int(s5.get("count", 0))
     p50 = float(s5.get("p50_ms", 0.0))
@@ -35,7 +35,7 @@ def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
         ]
     )
     if snap.lane_snapshot is not None:
-        # 036: dual heavy/light sub-panels replace the single-pool view.
+        # 036: los sub-paneles duales heavy/light reemplazan la vista de `pool` único.
         lines.extend(_render_lane_panels(snap))
     else:
         lines.extend(
@@ -129,11 +129,11 @@ def _bar(value: int, target: int, *, width: int) -> str:
 
 
 def _mb_segment(bytes_uploaded: int, bytes_total: int) -> str:
-    """Format the ``X.X MB / Y.Y MB`` segment shown at end of the bar line.
+    """Formatea el segmento ``X.X MB / Y.Y MB`` que se muestra al final de la línea de la barra.
 
-    When ``bytes_total`` is unknown (single-batch mode, no chunk-state),
-    falls back to just ``X.X MB`` so the operator still sees the cumulative
-    upload volume without a misleading denominator.
+    Cuando ``bytes_total`` es desconocido (modo single-batch, sin
+    chunk-state), cae a sólo ``X.X MB`` para que el operador siga
+    viendo el volumen acumulado de upload sin un denominador engañoso.
     """
     mb_up = bytes_uploaded / 1_048_576.0
     if bytes_total > 0:
@@ -142,8 +142,9 @@ def _mb_segment(bytes_uploaded: int, bytes_total: int) -> str:
 
 
 def _chunk_timer_line(snap: TUISnapshot) -> str | None:
-    """Build the per-chunk timer / avg-speed / ETA line. ``None`` when no
-    upload activity has been recorded yet (avoid printing a noisy zero line).
+    """Construye la línea de timer / avg-speed / ETA por `chunk`. ``None``
+    cuando no se registró actividad de upload todavía (evita imprimir una
+    línea ruidosa con ceros).
     """
     if snap.current_chunk_elapsed_s <= 0.0 and snap.current_chunk_bytes_uploaded == 0:
         return None
@@ -156,7 +157,7 @@ def _chunk_timer_line(snap: TUISnapshot) -> str | None:
 
 
 def _format_hms(seconds: float) -> str:
-    """Format a non-negative wall-clock duration as ``HH:MM:SS``."""
+    """Formatea una duración wall-clock no negativa como ``HH:MM:SS``."""
     s = max(0, int(seconds))
     hh, rem = divmod(s, 3600)
     mm, ss = divmod(rem, 60)
@@ -164,7 +165,7 @@ def _format_hms(seconds: float) -> str:
 
 
 def _render_lane_panels(snap: TUISnapshot) -> list[str]:
-    """036: render side-by-side HEAVY/LIGHT panels for dual-lane runs."""
+    """036: renderiza paneles HEAVY/LIGHT lado a lado para corridas dual-`lane`."""
     assert snap.lane_snapshot is not None
     ls = snap.lane_snapshot
     return [
