@@ -1,83 +1,92 @@
-# 035 — Mapping CSV split + CMISType column
+# 035 — División del CSV de mapeo + columna CMISType
 
-## Why
+## Por qué
 
-The bank's production mapping is **two separate CSVs**:
+El mapeo en producción del banco se compone de **dos CSV separados**:
 
-- `MapeoRVI_CM.csv` — `IDSistema, IDRVI, IDCM, IDClaseDocumental` (+ new `CMISType` column)
+- `MapeoRVI_CM.csv` — `IDSistema, IDRVI, IDCM, IDClaseDocumental` (+ nueva columna `CMISType`)
 - `MetadatosCM.csv` — `IDCorto, Metadato, Requerido`
 
-CMCourier today reads a single **consolidated** test fixture
-`modelo_documental.csv` with all columns inline plus a comma-separated
-`METADATOS` cell. That format does not exist in production.
+Hoy CMCourier lee un único fixture de prueba **consolidado**
+`modelo_documental.csv` con todas las columnas en línea más una celda
+`METADATOS` separada por comas. Ese formato no existe en producción.
 
-034 introduced `CMMapping.cmis_type` and a default value of `""`. The
-AS400 `NIARVILOG.TIPIDN` column is currently written empty until the
-production CSV's `CMISType` column lands. **035 unblocks that field.**
+034 introdujo `CMMapping.cmis_type` y un valor por defecto de `""`. La
+columna `TIPIDN` de `NIARVILOG` en el AS400 hoy se escribe vacía hasta
+que llegue la columna `CMISType` del CSV de producción. **035
+desbloquea ese campo.**
 
-## What
+## Qué
 
-1. **`MappingConfig` two-mode support**:
-   - Consolidated mode (legacy, test-fixture-friendly): single
-     `csv_path` plus the existing column-name fields.
-   - Split mode (production): `rvi_cm_csv_path` + `metadatos_csv_path`
-     with their own column-name fields.
-   - `model_validator` enforces exactly-one-of: either `csv_path` is
-     set, or both split paths are set. Never both, never neither.
+1. **Soporte de dos modos en `MappingConfig`**:
+   - Modo consolidado (legado, amigable para fixtures de prueba):
+     único `csv_path` más los campos de nombre de columna existentes.
+   - Modo dividido (producción): `rvi_cm_csv_path` +
+     `metadatos_csv_path` con sus propios campos de nombre de columna.
+   - El `model_validator` fuerza exactamente uno: o se define
+     `csv_path`, o se definen ambas rutas divididas. Nunca ambas,
+     nunca ninguna.
 
-2. **`MappingService` split-mode loader**:
-   - Optional second `IDataSource` constructor arg
-     (`metadata_source`). When present, the service joins the two
-     sources by `IDCorto ↔ IDCM` and builds the in-memory cache.
-   - In split mode, `CMMapping.clase_name` defaults to `clase_id`
-     (production CSV has no human-readable name column — confirmed by
-     the bank).
-   - `MetadatosCM.Requerido` is parsed case-insensitively;
-     `Yes` / `Sí` / `True` / `1` mean required. Anything else is
-     dropped from `required_metadata_fields`.
+2. **Cargador de modo dividido en `MappingService`**:
+   - Argumento opcional adicional de constructor `IDataSource`
+     (`metadata_source`). Cuando está presente, el servicio une las
+     dos fuentes por `IDCorto ↔ IDCM` y construye el caché en
+     memoria.
+   - En modo dividido, `CMMapping.clase_name` toma por defecto el
+     valor de `clase_id` (el CSV de producción no tiene una columna
+     con nombre legible — confirmado por el banco).
+   - `MetadatosCM.Requerido` se parsea sin sensibilidad de mayúsculas;
+     `Yes` / `Sí` / `True` / `1` significan requerido. Cualquier otra
+     cosa se descarta de `required_metadata_fields`.
 
-3. **`MappingColumnsConfig` expansion**:
-   - Add split-mode column names (defaults match real CSV headers:
-     `IDRVI`, `IDCM`, `IDClaseDocumental`, `CMISType`, `IDCorto`,
-     `Metadato`, `Requerido`).
-   - Add `col_required_marker` defaulting to `"Yes"` (the bank's
-     convention — matches `docs/samples/csv/MetadatosCM.csv`).
+3. **Expansión de `MappingColumnsConfig`**:
+   - Agrega los nombres de columna del modo dividido (los valores por
+     defecto coinciden con los encabezados reales del CSV: `IDRVI`,
+     `IDCM`, `IDClaseDocumental`, `CMISType`, `IDCorto`, `Metadato`,
+     `Requerido`).
+   - Agrega `col_required_marker` con valor por defecto `"Yes"` (la
+     convención del banco — coincide con
+     `docs/samples/csv/MetadatosCM.csv`).
 
-4. **`cmis_type_column` exposed in `MappingConfig`** (gap from 034):
-   The pydantic schema previously did not propagate it. After 035 the
-   consolidated mode supports an explicit `cmis_type_column` override
-   too.
+4. **`cmis_type_column` expuesta en `MappingConfig`** (brecha de 034):
+   El esquema pydantic previamente no la propagaba. Después de 035 el
+   modo consolidado también soporta una sobreescritura explícita de
+   `cmis_type_column`.
 
-5. **Wiring helper `build_mapping_service(MappingConfig) -> MappingService`**:
-   Single factory that the four call sites
-   (`config/wiring.py`, `cli/doctor.py` ×2, `cli/commands/inspect.py`
-   ×2) consume. The mode dispatch lives in one place.
+5. **Helper de cableado `build_mapping_service(MappingConfig) -> MappingService`**:
+   Una única fábrica que consumen los cuatro puntos de llamada
+   (`config/wiring.py`, `cli/doctor.py` ×2,
+   `cli/commands/inspect.py` ×2). El despacho por modo vive en un
+   solo lugar.
 
-6. **Sample CSV update**:
-   - `docs/samples/csv/MapeoRVI_CM.csv` gains a `CMISType` column with
-     empty placeholder values (the bank fills them in at deployment).
+6. **Actualización del CSV de muestra**:
+   - `docs/samples/csv/MapeoRVI_CM.csv` gana una columna `CMISType`
+     con valores placeholder vacíos (el banco los completa al momento
+     del despliegue).
 
 7. **Docs**:
-   - `docs/how-to/as400-sync.md` known-limitations entry pointing at
-     035 removed (TIPIDN is no longer empty in split mode).
-   - Configuration guide example showing both modes.
+   - Se remueve la entrada de limitaciones conocidas en
+     `docs/how-to/as400-sync.md` que apunta a 035 (TIPIDN ya no está
+     vacía en modo dividido).
+   - Ejemplo en la guía de configuración mostrando ambos modos.
 
-## Backwards compatibility
+## Compatibilidad hacia atrás
 
-- All 857 existing tests use the consolidated test fixture
-  `modelo_documental.csv`. **None of them break.** Consolidated mode
-  is the default when only `csv_path` is set.
-- The Java parallel migrator's read pattern of `MapeoRVI_CM.csv` is
-  preserved — we only **append** the `CMISType` column; existing
-  readers ignore unknown trailing columns.
+- Las 857 pruebas existentes usan el fixture de prueba consolidado
+  `modelo_documental.csv`. **Ninguna se rompe.** El modo consolidado
+  es el predeterminado cuando solo se define `csv_path`.
+- Se preserva el patrón de lectura de `MapeoRVI_CM.csv` del migrador
+  paralelo Java — solo se **agrega** la columna `CMISType`; los
+  lectores existentes ignoran columnas finales desconocidas.
 
-## Out of scope
+## Fuera de alcance
 
-- Reading the production `MapeoRVI_CM.csv` with **CMISType values
-  filled in**: the bank owns that file. We only ship the
-  infrastructure so the file works when handed to us.
-- Migrating test fixtures to split format. They stay consolidated —
-  that exercises the legacy mode.
-- Changing `clase_name` representation in any output (logs, inspect).
-  Operators see `clase_id` in split mode; that's the documented
-  trade-off.
+- Leer el `MapeoRVI_CM.csv` de producción **con valores de CMISType
+  completados**: ese archivo es propiedad del banco. Solo entregamos
+  la infraestructura para que el archivo funcione cuando nos lo
+  pasen.
+- Migrar los fixtures de prueba al formato dividido. Se mantienen
+  consolidados — eso ejercita el modo legado.
+- Cambiar la representación de `clase_name` en cualquier salida
+  (logs, inspect). Los operadores ven `clase_id` en modo dividido;
+  ese es el `trade-off` documentado.

@@ -1,38 +1,38 @@
 # 036 — Plan
 
-Phase rhythm matches prior multi-phase changes: RED → GREEN per
-phase, commit per phase, FF on the last commit. Estimated total
-~10-12h.
+El ritmo de fases coincide con cambios multifase previos: RED →
+GREEN por fase, commit por fase, FF en el último commit. Total
+estimado ~10-12h.
 
-## Phase 1 — Schema + LaneSplitter (~2h)
+## Fase 1 — Esquema + LaneSplitter (~2h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/config/schema.py`
-  - New `HeavyLightLanesConfig` (frozen, extra=forbid).
+  - Nuevo `HeavyLightLanesConfig` (frozen, extra=forbid).
   - `ProcessingConfig.heavy_light_lanes: HeavyLightLanesConfig =
     Field(default_factory=...)`.
-  - Validators: `heavy_initial_ratio` in `[0.0, 1.0]`, all duration
-    fields `gt=0`, threshold `> 0`, min_batch `>= 1`.
+  - Validadores: `heavy_initial_ratio` en `[0.0, 1.0]`, todos los
+    campos de duración `gt=0`, threshold `> 0`, min_batch `>= 1`.
 
-- `src/cmcourier/services/lane_splitter.py` (new)
+- `src/cmcourier/services/lane_splitter.py` (nuevo)
   - `Lane = Literal["heavy", "light"]`
   - `@dataclass(frozen=True) class LaneAssignment: heavy: tuple[T,...]; light: tuple[T,...]; is_single_lane: bool`
   - `def split(items, threshold_bytes, min_batch, *, size_of) -> LaneAssignment`
-  - Pure function (no logging, no I/O).
+  - Función pura (sin logs, sin I/O).
 
 ### Tests
 
 - `tests/unit/config/test_schema.py::TestHeavyLightLanesConfig`
-  - Defaults.
-  - Validators reject negative / out-of-range values.
-- `tests/unit/services/test_lane_splitter.py` (new)
-  - Small batch → all light.
-  - Bimodal batch → correct split.
-  - All small → degenerate, single-lane.
-  - All large → degenerate, single-lane.
-  - Order preserved within each lane.
-  - Custom `size_of` accessor for different item types.
+  - Valores por defecto.
+  - Los validadores rechazan valores negativos / fuera de rango.
+- `tests/unit/services/test_lane_splitter.py` (nuevo)
+  - `Batch` pequeño → todos `light`.
+  - `Batch` bimodal → división correcta.
+  - Todos pequeños → degenerado, único `lane`.
+  - Todos grandes → degenerado, único `lane`.
+  - Orden preservado dentro de cada `lane`.
+  - `accessor` `size_of` custom para distintos tipos de ítem.
 
 ### Commit
 
@@ -40,49 +40,54 @@ phase, commit per phase, FF on the last commit. Estimated total
 feat(config,services): HeavyLightLanesConfig + LaneSplitter (036 Phase 1)
 ```
 
-## Phase 2 — LaneController + dual-pool S5 (~4h)
+## Fase 2 — LaneController + S5 con pool dual (~4h)
 
-### Files
+### Archivos
 
-- `src/cmcourier/services/lane_controller.py` (new)
+- `src/cmcourier/services/lane_controller.py` (nuevo)
   - `class LaneController`:
-    - Owns `heavy_sem: ResizableSemaphore`, `light_sem: ResizableSemaphore`.
-    - Owns per-lane `WorkerPoolStats` (or a small wrapper that reuses
-      the existing class twice).
-    - `start(rebalance_interval_s, idle_threshold_s)` — launches the
-      rebalance daemon thread.
-    - `stop()` — stops + joins.
-    - `set_total_budget(total: int)` — AIMD hook, redistributes
-      proportionally.
+    - Posee `heavy_sem: ResizableSemaphore`,
+      `light_sem: ResizableSemaphore`.
+    - Posee `WorkerPoolStats` por `lane` (o un envoltorio pequeño
+      que reutilice la clase existente dos veces).
+    - `start(rebalance_interval_s, idle_threshold_s)` — lanza el
+      `thread` daemon de `rebalance`.
+    - `stop()` — detiene + hace `join`.
+    - `set_total_budget(total: int)` — `hook` de `AIMD`,
+      redistribuye proporcionalmente.
     - `acquire(lane: Lane)` / `release(lane: Lane)`.
-    - `mark_queue_depth(lane, n)` — splitter feeds this once.
-    - Logs structured `lane_rebalance` events.
+    - `mark_queue_depth(lane, n)` — el `splitter` alimenta esto una
+      vez.
+    - Loggea eventos estructurados `lane_rebalance`.
 
 - `src/cmcourier/orchestrators/staged.py`
-  - In `__init__`: when `heavy_light_lanes.enabled`, build a
-    `LaneController` instead of (or alongside) the single
+  - En `__init__`: cuando `heavy_light_lanes.enabled`, construir un
+    `LaneController` en lugar de (o junto con) el único
     `ResizableSemaphore`.
-  - In `_stage_5`: when dual mode AND splitter says not-single-lane,
-    submit each item with its lane tag; `_upload_one` acquires the
-    lane sem instead of the global concurrency_limit.
-  - AIMD `on_workers_change`: when dual mode is on, forward to
-    `LaneController.set_total_budget(new)` instead of resizing the
-    single semaphore.
+  - En `_stage_5`: cuando el modo dual está activo Y el `splitter`
+    dice "no es único `lane`", enviar cada ítem con su etiqueta de
+    `lane`; `_upload_one` adquiere el `semaphore` del `lane` en
+    lugar del `concurrency_limit` global.
+  - `on_workers_change` de `AIMD`: cuando el modo dual está activo,
+    reenviar a `LaneController.set_total_budget(new)` en lugar de
+    redimensionar el `semaphore` único.
 
 ### Tests
 
-- `tests/unit/services/test_lane_controller.py` (new)
-  - Initial allocation respects `heavy_initial_ratio`.
-  - `set_total_budget` preserves ratio.
-  - `set_total_budget` enforces `≥1` per lane when total ≥ 2.
-  - Drain detection migrates workers (mock time).
-  - `acquire`/`release` correctly cap concurrency per lane.
-  - Logged rebalance events are structurally correct.
-- `tests/integration/pipeline/test_dual_lane_s5.py` (new)
-  - Bimodal batch + mock CMIS uploader. Verify all docs upload,
-    splits respected, no deadlocks.
-  - Regression: with `enabled=False`, identical outcomes to
-    single-lane reference fixture.
+- `tests/unit/services/test_lane_controller.py` (nuevo)
+  - La asignación inicial respeta `heavy_initial_ratio`.
+  - `set_total_budget` preserva el ratio.
+  - `set_total_budget` fuerza `≥1` por `lane` cuando `total ≥ 2`.
+  - La detección de drenado migra `worker`s (con `time` mockeado).
+  - `acquire`/`release` topean correctamente la concurrencia por
+    `lane`.
+  - Los eventos de `rebalance` loggeados son estructuralmente
+    correctos.
+- `tests/integration/pipeline/test_dual_lane_s5.py` (nuevo)
+  - `Batch` bimodal + uploader CMIS `mock`. Verificar que todos los
+    documentos suben, las divisiones se respetan, no hay deadlocks.
+  - Regresión: con `enabled=False`, resultados idénticos al fixture
+    de referencia de único `lane`.
 
 ### Commit
 
@@ -90,23 +95,26 @@ feat(config,services): HeavyLightLanesConfig + LaneSplitter (036 Phase 1)
 feat(pipeline): LaneController + dual-lane S5 (AIMD-coupled) (036 Phase 2)
 ```
 
-## Phase 3 — TUI dual sub-panels + structured events (~2h)
+## Fase 3 — Sub-paneles duales de TUI + eventos estructurados (~2h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/tui/data_provider.py`
-  - Expose `lane_controller: LaneController | None` snapshot —
+  - Exponer snapshot `lane_controller: LaneController | None` —
     `LaneSnapshot(heavy=PoolSnapshot, light=PoolSnapshot)`.
-- `src/cmcourier/tui/widgets/upload.py` (or current location)
-  - When `LaneSnapshot is not None`: render HEAVY/LIGHT sub-panels
-    side by side. Otherwise render the legacy single panel.
-- Rebalance event → TUI notification (Textual `notify`).
+- `src/cmcourier/tui/widgets/upload.py` (o ubicación actual)
+  - Cuando `LaneSnapshot is not None`: renderizar sub-paneles
+    HEAVY/LIGHT lado a lado. De lo contrario, renderizar el panel
+    único legado.
+- Evento de `rebalance` → notificación de TUI (Textual `notify`).
 
 ### Tests
 
-- `tests/integration/tui/test_dual_lane_panels.py` (new)
-  - Drive a fake `LaneSnapshot` and snapshot the rendered widget.
-  - Verify single-pane mode still renders unchanged.
+- `tests/integration/tui/test_dual_lane_panels.py` (nuevo)
+  - Manejar un `LaneSnapshot` falso y tomar `snapshot` del widget
+    renderizado.
+  - Verificar que el modo de panel único sigue renderizando sin
+    cambios.
 
 ### Commit
 
@@ -114,30 +122,33 @@ feat(pipeline): LaneController + dual-lane S5 (AIMD-coupled) (036 Phase 2)
 feat(tui): dual heavy/light UPLOAD sub-panels + rebalance notifications (036 Phase 3)
 ```
 
-## Phase 4 — Throughput proof + bandwidth property test + docs + FF (~3h)
+## Fase 4 — Prueba de throughput + property test de ancho de banda + docs + FF (~3h)
 
-### Files
+### Archivos
 
-- `tests/integration/pipeline/test_dual_lane_throughput.py` (new)
-  - 30 × 1 MB + 5 × 50 MB synthetic batch.
-  - Mock uploader sleeps 0.05 s/MB.
-  - Run single-lane → wall-clock T1.
-  - Run dual-lane → wall-clock T2.
-  - Assert `T2 ≤ T1 * 0.7`.
-  - `@pytest.mark.slow` if needed.
+- `tests/integration/pipeline/test_dual_lane_throughput.py` (nuevo)
+  - `Batch` sintético de 30 × 1 MB + 5 × 50 MB.
+  - Uploader `mock` duerme 0.05 s/MB.
+  - Correr un único `lane` → tiempo total T1.
+  - Correr dual-`lane` → tiempo total T2.
+  - Verificar `T2 ≤ T1 * 0.7`.
+  - `@pytest.mark.slow` si es necesario.
 
-- `tests/property/test_bandwidth_dual_lane.py` (new)
-  - Hypothesis: random bimodal batches, random worker budgets.
-  - Sum of bytes/sec recorded across both lanes ≤
-    `cmis.max_bandwidth_mbps` over any 1-second window.
+- `tests/property/test_bandwidth_dual_lane.py` (nuevo)
+  - Hypothesis: `batches` bimodales aleatorios, presupuestos de
+    `worker` aleatorios.
+  - Suma de bytes/seg registrados entre ambos `lane`s ≤
+    `cmis.max_bandwidth_mbps` en cualquier ventana de 1 segundo.
 
-- `docs/how-to/heavy-light-lanes.md` (new)
-  - When to enable, knob trade-offs, how to read the dual TUI panel,
-    how to read `lane_rebalance` events in offline log analysis.
+- `docs/how-to/heavy-light-lanes.md` (nuevo)
+  - Cuándo habilitar, `trade-offs` de las perillas, cómo leer el
+    panel dual de TUI, cómo leer eventos `lane_rebalance` en
+    análisis de logs offline.
 
-- `CHANGELOG.md` `[0.37.0]`, README tick, POST-MVP §1 mark SHIPPED.
+- `CHANGELOG.md` `[0.37.0]`, tilde del README, POST-MVP §1 marcado
+  como SHIPPED.
 
-### FF merge
+### Merge FF
 
 ```
 git checkout main

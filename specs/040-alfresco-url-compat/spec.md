@@ -1,48 +1,53 @@
-# 040 — Alfresco URL compatibility (`repo_id=""` semantics)
+# 040 — Compatibilidad de URL Alfresco (semánticas `repo_id=""`)
 
-## Why
+## Por qué
 
-The CmisUploader (010) was built against IBM Content Manager's
-Browser Binding endpoint, which expects the repository id to appear
-**inside the URL path** between the service URL and `/root/`:
+El CmisUploader (010) fue construido contra el endpoint Browser
+Binding de IBM Content Manager, que espera que el id del repositorio
+aparezca **dentro del path de la URL** entre la URL del servicio y
+`/root/`:
 
 ```
 http://ibm-cm:9080/.../cmis-browser/<repository_id>/root/<folder>
 ```
 
-CMCourier emits exactly that shape: `f"{base_url}/{repo_id}/root/..."`.
-Alfresco's CMIS Browser Binding 1.1, by contrast, **does not include
-the repository id in the path** when `base_url` already terminates in
-`.../browser`. The repository id is read from the JSON returned by
-`repositoryInfo`, never echoed in the URL:
+CMCourier emite exactamente esa forma:
+`f"{base_url}/{repo_id}/root/..."`. El Browser Binding CMIS 1.1 de
+Alfresco, por contraste, **no incluye el id del repositorio en el
+path** cuando `base_url` ya termina en `.../browser`. El id del
+repositorio se lee del JSON devuelto por `repositoryInfo`, nunca se
+muestra en la URL:
 
 ```
 http://alfresco:8080/alfresco/api/-default-/public/cmis/versions/1.1/browser/root/<folder>
 ```
 
-Today no config setting makes the adapter emit the Alfresco shape.
-Setting `repo_id=""` does NOT work — the f-string emits a doubled
-slash (`.../browser//root/<folder>`) which Alfresco rejects with
-HTTP 405 "Unknown operation". Setting `repo_id="-default-"` reaches
-the URL `.../browser/-default-/root/<folder>` which Alfresco also
-rejects.
+Hoy ninguna setting de config hace que el adaptador emita la forma
+Alfresco. Definir `repo_id=""` NO funciona — el f-string emite una
+barra duplicada (`.../browser//root/<folder>`) que Alfresco rechaza
+con HTTP 405 "Unknown operation". Definir `repo_id="-default-"`
+alcanza la URL `.../browser/-default-/root/<folder>` que Alfresco
+también rechaza.
 
-Operators who run the staging dry-run against the local Alfresco
-container shipped under `scripts/staging/` therefore cannot exercise
-the pipeline against it. The doctor cm-targets pre-flight FAILs
-folder + type checks even when the underlying resources exist.
+Por lo tanto, los operadores que corren el dry-run de staging
+contra el contenedor Alfresco local enviado bajo `scripts/staging/`
+no pueden ejercitar el `pipeline` contra él. El pre-flight
+`cm-targets` del doctor FAILea en los checks de carpetas + tipos
+incluso cuando los recursos subyacentes existen.
 
-040 closes that gap with a minimal additive change: when `repo_id`
-is empty, the adapter omits both the slash and the segment, emitting
-`.../browser/root/<folder>` directly. IBM CM behavior is preserved
-verbatim when `repo_id` is set (the historical default).
+040 cierra esa brecha con un cambio aditivo mínimo: cuando
+`repo_id` está vacío, el adaptador omite tanto la barra como el
+segmento, emitiendo `.../browser/root/<folder>` directamente. El
+comportamiento de IBM CM se preserva verbatim cuando `repo_id` está
+definido (el default histórico).
 
-## What
+## Qué
 
-### Adapter change
+### Cambio en el adaptador
 
-Add a single helper `CmisUploader._service_url(suffix: str = "") -> str`
-that builds URLs in a way that respects `repo_id=""`:
+Agregar un único helper
+`CmisUploader._service_url(suffix: str = "") -> str` que construye
+URLs respetando `repo_id=""`:
 
 ```python
 def _service_url(self, suffix: str = "") -> str:
@@ -53,76 +58,88 @@ def _service_url(self, suffix: str = "") -> str:
     return f"{url}/{suffix}" if suffix else url
 ```
 
-Replace every existing f-string URL build in `CmisUploader` that
-hard-codes `f"{base}/{repo_id}"` or `f"{base}/{repo_id}/root/..."`
-with a call to `self._service_url(...)`. The six call sites are:
+Reemplazar cada construcción de URL con f-string existente en
+`CmisUploader` que hardcodee `f"{base}/{repo_id}"` o
+`f"{base}/{repo_id}/root/..."` con una llamada a
+`self._service_url(...)`. Los seis puntos de llamada son:
 
 - `_warmup_session`: `self._service_url()`
 - `get_type_definition`: `self._service_url()`
 - `verify_folder_exists`: `self._service_url(f"root/{normalized}")`
 - `upload`: `self._service_url(f"root/{normalized}")`
-- `test_connection`: same as `_warmup_session`
-- (any future `_check_*` helper added by 038): same pattern
+- `test_connection`: igual a `_warmup_session`
+- (cualquier futuro helper `_check_*` agregado por 038): mismo
+  patrón
 
-No public API change. No port change. `CmisConfig.repo_id` already
-accepts any string, including `""`.
+Sin cambio de API pública. Sin cambio de puerto. `CmisConfig.repo_id`
+ya acepta cualquier string, incluyendo `""`.
 
-### Config schema
+### Esquema de config
 
-`CmisConfig.repo_id` becomes formally documented as "leave empty to
-target a Browser-Binding service URL that already encodes the
-repository id (Alfresco). Set to the IBM CM repository identifier
-(`$x!icmnlsdb_cmis` typically) for IBM CM."
+`CmisConfig.repo_id` queda formalmente documentado como "dejar vacío
+para apuntar a una URL de servicio Browser-Binding que ya codifica
+el id del repositorio (Alfresco). Definir al identificador del
+repositorio de IBM CM (`$x!icmnlsdb_cmis` típicamente) para IBM
+CM."
 
-`scripts/staging/config-staging.yaml.template` is updated to show
-both forms with a comment block explaining the Alfresco vs IBM CM
-distinction.
+`scripts/staging/config-staging.yaml.template` se actualiza para
+mostrar ambas formas con un bloque de comentarios explicando la
+distinción Alfresco vs IBM CM.
 
-### Default behavior
+### Comportamiento por defecto
 
-- `repo_id` set (any non-empty string) → identical URL shape to
-  pre-040 behavior. IBM CM consumers see no change.
-- `repo_id=""` → URLs lose the `/<repo_id>` segment entirely. The
-  adapter still works for warmup, type-definition, folder
-  verification, and upload — all against Alfresco's URL convention.
+- `repo_id` definido (cualquier string no vacío) → forma de URL
+  idéntica al comportamiento pre-040. Los consumidores de IBM CM
+  no ven cambio alguno.
+- `repo_id=""` → las URLs pierden el segmento `/<repo_id>`
+  completo. El adaptador sigue funcionando para warmup, definición
+  de tipo, verificación de carpeta, y subida — todo contra la
+  convención de URL de Alfresco.
 
-## Out of scope
+## Fuera de alcance
 
-- Switching the adapter's HTTP method semantics (Alfresco accepts
-  the same multipart createDocument shape; only URL changes).
-- Adapter rewrite for any other CMIS quirk (`cmisselector=object`
-  works in Alfresco against folder paths, `=repositoryInfo` works
-  at the service URL, etc.).
-- Auto-detection of "is this Alfresco or IBM CM?" — out of scope
-  forever; operator config is the single source of truth.
+- Cambiar las semánticas del método HTTP del adaptador (Alfresco
+  acepta la misma forma `multipart createDocument`; solo cambian
+  las URLs).
+- Reescritura del adaptador para cualquier otra rareza CMIS
+  (`cmisselector=object` funciona en Alfresco contra paths de
+  carpeta, `=repositoryInfo` funciona en la URL del servicio, etc.).
+- Auto-detección de "¿esto es Alfresco o IBM CM?" — fuera de
+  alcance para siempre; la config del operador es la única fuente
+  de verdad.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `_service_url()` exists, returns the correct shape for both
-  `repo_id=""` and `repo_id="something"`.
-- Six URL build sites in CmisUploader use the helper.
-- Unit tests for `_service_url` (4 cases: empty / set / with
-  suffix / without suffix).
-- Integration test against a fake Alfresco-style endpoint
-  (responses lib, `repo_id=""`) verifies the URLs emitted contain
-  `/browser/root/...` not `/browser//root/...`.
-- The existing integration tests with `repo_id` set keep passing.
-- `cmcourier doctor --check cm-targets` against the live staging
-  Alfresco at `testserver:8080` PASSes (cm_type_alignment,
-  cmis_folders_exist, cmis_properties_alignment) with
-  `repo_id: ""` in the config.
-- mypy + ruff clean.
-- CHANGELOG `[0.43.0]` entry.
+- `_service_url()` existe, devuelve la forma correcta tanto para
+  `repo_id=""` como para `repo_id="something"`.
+- Los seis puntos de construcción de URL en `CmisUploader` usan el
+  helper.
+- Tests unitarios para `_service_url` (4 casos: vacío / definido /
+  con sufijo / sin sufijo).
+- Test de integración contra un endpoint estilo Alfresco falso
+  (lib `responses`, `repo_id=""`) verifica que las URLs emitidas
+  contengan `/browser/root/...` no `/browser//root/...`.
+- Los tests de integración existentes con `repo_id` definido siguen
+  pasando.
+- `cmcourier doctor --check cm-targets` contra el Alfresco de
+  staging en vivo en `testserver:8080` PASSes
+  (`cm_type_alignment`, `cmis_folders_exist`,
+  `cmis_properties_alignment`) con `repo_id: ""` en la config.
+- `mypy` + `ruff` limpios.
+- Entrada `[0.43.0]` del CHANGELOG.
 
-## Notes
+## Notas
 
-This is a small, focused compatibility fix — single helper, six
-edits, ~1h total including the spec. Worth being a formal spec
-(040) rather than a chore commit because:
+Esta es una corrección de compatibilidad pequeña y focalizada —
+único helper, seis ediciones, ~1h en total incluyendo la spec. Vale
+la pena ser una spec formal (040) en lugar de un commit `chore`
+porque:
 
-1. It changes the contract of `CmisConfig.repo_id` (empty was
-   previously meaningless — now it has explicit semantics).
-2. CHANGELOG needs to call out the new Alfresco support so
-   operators know they can pivot the staging config.
-3. Tests demand the convention be locked in — without coverage,
-   the next adapter refactor could silently re-break Alfresco.
+1. Cambia el contrato de `CmisConfig.repo_id` (vacío antes no
+   tenía significado — ahora tiene semánticas explícitas).
+2. El CHANGELOG necesita anunciar el nuevo soporte de Alfresco para
+   que los operadores sepan que pueden pivotar la config de
+   staging.
+3. Los tests demandan que la convención quede fijada — sin
+   cobertura, el próximo refactor del adaptador podría romper
+   Alfresco silenciosamente.

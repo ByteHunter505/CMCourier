@@ -1,63 +1,68 @@
 # 039 — Plan
 
-Three phases, ~4-5h total. RED→GREEN per phase, commit per phase,
-FF on the last commit.
+Tres fases, ~4-5h en total. RED→GREEN por fase, commit por fase,
+FF en el último commit.
 
-## Phase 1 — Generator service + CLI subcommand (~2.5h)
+## Fase 1 — Servicio generador + subcomando CLI (~2.5h)
 
-### Files
+### Archivos
 
-- `src/cmcourier/services/mock/rvabrep_generator.py` (new)
-  - `RvabrepGenSpec` frozen dataclass — rows / seed / output /
-    idrvi_pool / image_mix / date range / clients /
-    delete_rate / cif_rate. All scalar; the IDRVI pool is a tuple
-    of strings already drawn from the source CSV by the caller.
-  - `generate_rvabrep(spec, out_path)` function — opens the output
-    path for write, streams rows via `csv.writer` so memory stays
-    bounded even for `rows=1_000_000`. Returns row count written.
-  - Internal helpers: `_pick_idrvi`, `_pick_image_type`,
+- `src/cmcourier/services/mock/rvabrep_generator.py` (nuevo)
+  - Dataclass frozen `RvabrepGenSpec` — rows / seed / output /
+    idrvi_pool / image_mix / date range / clients / delete_rate /
+    cif_rate. Todo escalar; el pool de IDRVI es una tupla de
+    strings ya sorteados desde el CSV fuente por el llamador.
+  - Función `generate_rvabrep(spec, out_path)` — abre el path de
+    salida para escritura, fluye filas vía `csv.writer` como
+    `streaming` para que la memoria quede acotada incluso para
+    `rows=1_000_000`. Devuelve el conteo de filas escritas.
+  - Helpers internos: `_pick_idrvi`, `_pick_image_type`,
     `_pick_creation_date`, `_pick_last_view_date`,
     `_pick_total_pages`, `_pick_file_name`, `_pick_image_path`,
-    `_pick_txn_num`, `_pick_client`, `_pick_cif`. Each takes the
-    shared `random.Random` instance.
-  - `_validate_row(row, spec, idx)` raises
-    `ConfigurationError` with the row index when an invariant
-    fails. Runs every row before write.
-- `src/cmcourier/cli/commands/mock.py` (edit)
-  - Add `rvabrep` subcommand to the existing `mock` group.
-  - Click options match the spec's CLI surface.
-  - The command builds an `RvabrepGenSpec` from flags, reads the
-    `--idrvi-source` CSV (defaults to
-    `docs/samples/csv/MapeoRVI_CM.csv`) via `TabularDataSource`,
-    drops blanks + dedupes IDRVIs, takes the top `--idrvi-top`
-    by lexicographic order (deterministic), and calls
+    `_pick_txn_num`, `_pick_client`, `_pick_cif`. Cada uno toma la
+    instancia compartida `random.Random`.
+  - `_validate_row(row, spec, idx)` lanza `ConfigurationError`
+    con el índice de fila cuando falla un invariante. Corre cada
+    fila antes de escribir.
+- `src/cmcourier/cli/commands/mock.py` (editar)
+  - Agregar el subcomando `rvabrep` al grupo `mock` existente.
+  - Las opciones Click coinciden con la superficie CLI de la spec.
+  - El comando construye un `RvabrepGenSpec` desde los flags, lee
+    el CSV `--idrvi-source` (por defecto
+    `docs/samples/csv/MapeoRVI_CM.csv`) vía `TabularDataSource`,
+    descarta blancos + deduplica IDRVIs, toma el top `--idrvi-top`
+    por orden lexicográfico (determinista), y llama a
     `generate_rvabrep`.
-  - On success, prints a one-line summary
+  - Al éxito, imprime un resumen de una línea
     `Wrote {rows} rows to {output} (image_mix={...}, idrvis={N}, seed={S}).`
 
 ### Tests
 
-- `tests/unit/services/mock/test_rvabrep_generator.py` (new)
-  - `test_deterministic_with_same_seed`: two runs same seed →
-    same bytes. Different seed → different bytes.
-  - `test_row_count_matches_spec`: spec.rows = N → output has N
-    data rows + 1 header.
-  - `test_txn_num_unique`: 5000-row run, all `txn_num` distinct.
-  - `test_image_mix_within_tolerance`: 5000-row run, observed
-    proportions within ±2% of configured mix.
-  - `test_idrvi_pool_respected`: every output `index7` is in the
-    given pool.
-  - `test_pdf_rows_have_pdf_extension_and_one_page`: every
-    `image_type=O` row has `file_name.endswith(".PDF")` and
+- `tests/unit/services/mock/test_rvabrep_generator.py` (nuevo)
+  - `test_deterministic_with_same_seed`: dos corridas con la
+    misma semilla → mismos bytes. Distinta semilla → bytes
+    distintos.
+  - `test_row_count_matches_spec`: `spec.rows = N` → la salida
+    tiene N filas de datos + 1 encabezado.
+  - `test_txn_num_unique`: corrida de 5000 filas, todos los
+    `txn_num` distintos.
+  - `test_image_mix_within_tolerance`: corrida de 5000 filas,
+    proporciones observadas dentro de ±2% de la mezcla
+    configurada.
+  - `test_idrvi_pool_respected`: cada `index7` de salida está en
+    el pool dado.
+  - `test_pdf_rows_have_pdf_extension_and_one_page`: cada fila
+    con `image_type=O` tiene `file_name.endswith(".PDF")` y
     `total_pages == 1`.
-  - `test_paged_rows_have_numeric_extension`: every `B` or `C`
-    row has `file_name` ending in a numeric extension.
-  - `test_creation_date_in_range`: every CYYMMDD is parseable
-    and falls in `[date_from, date_to]`.
-  - `test_last_view_zero_or_after_creation`: when `last_view_date
-    != "0"`, it parses and is ≥ creation_date.
-  - `test_invariant_failure_raises`: forcing a row to violate
-    (via monkeypatch) raises `ConfigurationError` before write.
+  - `test_paged_rows_have_numeric_extension`: cada fila `B` o `C`
+    tiene `file_name` terminando en una extensión numérica.
+  - `test_creation_date_in_range`: cada CYYMMDD es parseable y
+    cae en `[date_from, date_to]`.
+  - `test_last_view_zero_or_after_creation`: cuando
+    `last_view_date != "0"`, parsea y es ≥ `creation_date`.
+  - `test_invariant_failure_raises`: forzar a una fila a violar
+    (vía monkeypatch) lanza `ConfigurationError` antes de
+    escribir.
 
 ### Commit
 
@@ -65,27 +70,28 @@ FF on the last commit.
 feat(services,cli): cmcourier mock rvabrep — synthetic RVABREP CSV generator (039 Phase 1)
 ```
 
-## Phase 2 — Integration test + smoke against existing mock generate (~1h)
+## Fase 2 — Test de integración + smoke contra el mock generate existente (~1h)
 
-### Files
+### Archivos
 
-- `tests/integration/cli/test_mock_rvabrep.py` (new)
-  - End-to-end CliRunner test: `mock rvabrep --rows 100
+- `tests/integration/cli/test_mock_rvabrep.py` (nuevo)
+  - Test end-to-end con `CliRunner`: `mock rvabrep --rows 100
     --output {tmp}/r.csv --seed 100 --idrvi-source
     tests/fixtures/services/modelo_documental.csv`.
-  - Reads the CSV back through `TabularDataSource` +
-    `IndexingService` and asserts 100 documents materialize as
-    `RVABREPDocument` instances.
-  - Cross-references against the consolidated mapping fixture:
-    each `index7` joins against at least one row of the modelo
+  - Lee el CSV de vuelta a través de `TabularDataSource` +
+    `IndexingService` y verifica que 100 documentos materialicen
+    como instancias `RVABREPDocument`.
+  - Cruza referencias contra el fixture de mapeo consolidado:
+    cada `index7` se une contra al menos una fila del modelo
     documental.
-  - Chains into `cmcourier mock generate --rvabrep-csv {tmp}/r.csv
-    --output-root {tmp}/files` with small size bounds and asserts
-    100 physical files materialize.
+  - Encadena en `cmcourier mock generate --rvabrep-csv {tmp}/r.csv
+    --output-root {tmp}/files` con bordes de tamaño pequeños y
+    verifica que 100 archivos físicos materialicen.
 
 ### Tests
 
-- Run the full suite. Existing mock tests stay untouched.
+- Correr la suite completa. Los tests existentes de mock quedan
+  intactos.
 
 ### Commit
 
@@ -93,35 +99,39 @@ feat(services,cli): cmcourier mock rvabrep — synthetic RVABREP CSV generator (
 test(integration): rvabrep generator end-to-end + chained mock generate (039 Phase 2)
 ```
 
-## Phase 3 — Docs + CHANGELOG 0.42.0 + version bump + FF (~30min)
+## Fase 3 — Docs + CHANGELOG 0.42.0 + version bump + FF (~30min)
 
-### Files
+### Archivos
 
-- `docs/how-to/mock-rvabrep-generator.md` (new) — operator runbook:
-  - When to use this command.
-  - The flags, with examples for 1k / 50k / 1M scale runs.
-  - How to chain into `mock generate`.
-  - The implicit dependency on `--idrvi-source` and what happens
-    when the source has fewer than `--idrvi-top` distinct values.
-  - Determinism guarantee and how seeds interact with the
-    materialized-files generator (different seeds for the two
-    commands are independent — the file content is keyed on
-    `txn_num` + page index, not the row order).
-- `scripts/staging/README.md` — add a §X "Generating a synthetic
-  RVABREP" pointing at the new how-to.
-- `CHANGELOG.md` — `[0.42.0]` entry. Single Added section.
-- `README.md` — tick the feature row.
-- `pyproject.toml` version bump to `0.42.0`.
+- `docs/how-to/mock-rvabrep-generator.md` (nuevo) — `runbook` del
+  operador:
+  - Cuándo usar este comando.
+  - Los flags, con ejemplos para escalas de 1k / 50k / 1M corridas.
+  - Cómo encadenar en `mock generate`.
+  - La dependencia implícita sobre `--idrvi-source` y qué pasa
+    cuando la fuente tiene menos de `--idrvi-top` valores
+    distintos.
+  - Garantía de determinismo y cómo interactúan las semillas con
+    el generador de archivos materializados (las semillas
+    distintas para los dos comandos son independientes — el
+    contenido del archivo está keado en `txn_num` + índice de
+    página, no en el orden de fila).
+- `scripts/staging/README.md` — agregar una §X "Generando un
+  RVABREP sintético" apuntando al nuevo how-to.
+- `CHANGELOG.md` — entrada `[0.42.0]`. Una única sección Added.
+- `README.md` — tildar la fila de feature.
+- Bump de versión en `pyproject.toml` a `0.42.0`.
 
 ### Tests
 
-- Full suite green.
-- `mypy --strict src/cmcourier/{domain,services,orchestrators}` clean.
-- `ruff check` + `ruff format --check` clean.
-- Smoke at 50k: `cmcourier mock rvabrep --rows 50000 --output
-  /tmp/r50k.csv --seed 50000` completes in < 5s and the output
-  passes a quick CSV linter (column count, header match,
-  per-row parseable).
+- Suite completa en verde.
+- `mypy --strict src/cmcourier/{domain,services,orchestrators}`
+  limpio.
+- `ruff check` + `ruff format --check` limpios.
+- Smoke a 50k: `cmcourier mock rvabrep --rows 50000 --output
+  /tmp/r50k.csv --seed 50000` se completa en < 5s y la salida
+  pasa un linter de CSV rápido (conteo de columnas, match de
+  encabezado, parseable por fila).
 
 ### Commit
 
@@ -129,4 +139,4 @@ test(integration): rvabrep generator end-to-end + chained mock generate (039 Pha
 docs(039): mock-rvabrep how-to + CHANGELOG 0.42.0 + version bump (039 Phase 3)
 ```
 
-### FF merge to main. Branch stays (operator deletes when ready).
+### Merge FF a main. La rama queda (el operador la elimina cuando esté listo).

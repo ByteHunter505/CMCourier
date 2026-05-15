@@ -1,32 +1,34 @@
-# 039 — Mock RVABREP CSV generator
+# 039 — Generador de CSV RVABREP mock
 
-## Why
+## Por qué
 
-Staging dry-runs and stress tests need an RVABREP CSV at realistic
-scale (tens of thousands of rows). The existing `cmcourier mock
-generate` (031) materializes **on-disk files** from an RVABREP CSV
-but does not generate the CSV itself — the operator has to bring
-their own. Today the largest fixture in the repo is ~10 rows
-(`tests/fixtures/pipeline/rvabrep.csv`), curated by hand for unit
-tests, not representative of a real batch.
+Los dry-runs de staging y los tests de estrés necesitan un CSV
+RVABREP a escala realista (decenas de miles de filas). El
+`cmcourier mock generate` (031) existente materializa **archivos
+en disco** desde un CSV RVABREP pero no genera el CSV en sí — el
+operador tiene que traer el suyo. Hoy el fixture más grande del
+repo tiene ~10 filas (`tests/fixtures/pipeline/rvabrep.csv`),
+curado a mano para tests unitarios, no representativo de un `batch`
+real.
 
-Without a generator the operator either:
-- Crafts CSVs by hand (slow, error-prone, no determinism), or
-- Snapshots data from the bank (not allowed for PII reasons, plus
-  cross-environment pollution), or
-- Writes one-off Python scripts that disappear after the test
-  (no reproducibility, no shared distribution semantics).
+Sin un generador, el operador queda con:
+- Armar CSVs a mano (lento, propenso a errores, sin determinismo), o
+- Tomar `snapshots` de datos del banco (no permitido por razones de
+  PII, además de contaminación cruzada de entornos), o
+- Escribir scripts Python descartables que desaparecen tras el test
+  (sin reproducibilidad, sin semánticas de distribución
+  compartidas).
 
-039 closes that gap with a small additive CLI surface:
-`cmcourier mock rvabrep` writes a CSV honoring the column shape
-documented in `the spec`, with seed-deterministic distributions
-that match observed bank patterns.
+039 cierra esa brecha con una pequeña superficie CLI aditiva:
+`cmcourier mock rvabrep` escribe un CSV honrando la forma de
+columnas documentada en `la spec`, con distribuciones deterministas
+por semilla que coinciden con patrones observados del banco.
 
-## What
+## Qué
 
 ### CLI
 
-New subcommand under the existing `mock` group:
+Nuevo subcomando bajo el grupo `mock` existente:
 
 ```
 cmcourier mock rvabrep \
@@ -42,94 +44,103 @@ cmcourier mock rvabrep \
   [--cif-rate 0.95]
 ```
 
-All flags have defaults; `--rows` and `--output` are the only
-required positions (output as a positional is also acceptable).
+Todos los flags tienen valores por defecto; `--rows` y `--output`
+son las únicas posiciones requeridas (output como posicional
+también es aceptable).
 
-### Output shape
+### Forma de salida
 
-Header (friendly names — matches `IndexingService.IndexingColumnsConfig`
-defaults and what the existing `mock generate` subcommand reads):
+Encabezado (nombres amigables — coincide con los valores por
+defecto de `IndexingService.IndexingColumnsConfig` y con lo que el
+subcomando `mock generate` existente lee):
 
 ```
 shortname,system_id,txn_num,delete_code,index2,index3,index4,index5,index6,index7,image_type,image_path,file_name,creation_date,last_view_date,total_pages
 ```
 
-### Per-column generation rules
+### Reglas de generación por columna
 
-| Column | Rule |
+| Columna | Regla |
 | --- | --- |
-| `shortname` | One of `--clients` (default 5000) distinct identifiers, format `<NAME><NN>` where NAME is 6-10 uppercase ASCII letters from a small lexicon (`JUAN`, `MARIA`, `PEDRO`, `EMPRESA`, …) and NN is 2 digits. Uniform draw across clients — average ≈ `--rows / --clients` documents per client. |
-| `system_id` | 70% `"1"`, 15% `"5"`, 10% `"2"`, 5% `"3"`. Matches the observed mix in `RVILIB_RVABREP.xlsx`. Configurable in a future change if needed. |
-| `txn_num` | Globally unique. 7-character base32 (`A-Z` + `2-7`) deterministic from the row index + seed, prefixed with `T`. Format: `T<6 base32 chars>` → 32^6 = 1 073 741 824 distinct values (room for batches up to ~1G rows). |
-| `delete_code` | `"D"` with probability `--delete-rate` (default 0.05), `""` otherwise. |
-| `index2` (CIF) | `""` with probability `1 - --cif-rate` (default 0.95). Otherwise a 6-digit numeric. One CIF per client (each client has a stable CIF chosen at client-creation time, then reused for every document of that client). |
-| `index3` / `index4` / `index5` / `index6` | Always `""` (matches every sample we have). |
-| `index7` (ID RVI) | Drawn from a small set (`--idrvi-top`, default 20) sampled from `--idrvi-source` (default `docs/samples/csv/MapeoRVI_CM.csv`, IDRVI column). Distribution follows Zipf — most popular IDRVI captures ~30% of rows, second ~15%, etc. (Pareto 80/20 with α=1.07). |
-| `image_type` | Drawn from `--image-mix`. Default `tiff:60,pdf:20,jpeg:20`. Maps to `B` / `O` / `C` respectively. |
-| `image_path` | `PROD/<YYYY>/<MM>/<DD>` derived from the row's `creation_date`. |
-| `file_name` | Prefix letter aligned with `image_type` (`D`/`M` for B/TIFF, `C` for JPEG, `0` for PDF). Body: 7-character random alphanumeric. Extension: `.001` for paged (TIFF/JPEG), `.PDF` for PDF. |
-| `creation_date` | CYYMMDD format. Uniform draw in the range `[--date-from, --date-to]`. Default range 2024-01-01 to 2025-12-31. |
-| `last_view_date` | `"0"` with probability 0.9. Otherwise CYYMMDD between creation_date and `--date-to`. |
-| `total_pages` | `1` for PDF rows. Paged rows: 70% in `[1, 5]`, 25% in `[6, 50]`, 5% in `[51, 540]`. |
+| `shortname` | Uno de `--clients` (por defecto 5000) identificadores distintos, formato `<NAME><NN>` donde NAME son 6-10 letras ASCII mayúsculas de un léxico pequeño (`JUAN`, `MARIA`, `PEDRO`, `EMPRESA`, …) y NN son 2 dígitos. Sorteo uniforme entre clientes — promedio ≈ `--rows / --clients` documentos por cliente. |
+| `system_id` | 70% `"1"`, 15% `"5"`, 10% `"2"`, 5% `"3"`. Coincide con la mezcla observada en `RVILIB_RVABREP.xlsx`. Configurable en un cambio futuro si hace falta. |
+| `txn_num` | Globalmente único. 7 caracteres base32 (`A-Z` + `2-7`) deterministas a partir del índice de fila + semilla, prefijados con `T`. Formato: `T<6 base32 chars>` → 32^6 = 1 073 741 824 valores distintos (margen para `batches` de hasta ~1G filas). |
+| `delete_code` | `"D"` con probabilidad `--delete-rate` (por defecto 0.05), `""` de lo contrario. |
+| `index2` (CIF) | `""` con probabilidad `1 - --cif-rate` (por defecto 0.95). De lo contrario, un numérico de 6 dígitos. Un CIF por cliente (cada cliente tiene un CIF estable elegido al momento de creación del cliente, luego reusado para cada documento de ese cliente). |
+| `index3` / `index4` / `index5` / `index6` | Siempre `""` (coincide con todas las muestras que tenemos). |
+| `index7` (ID RVI) | Sorteado de un set pequeño (`--idrvi-top`, por defecto 20) muestreado desde `--idrvi-source` (por defecto `docs/samples/csv/MapeoRVI_CM.csv`, columna IDRVI). La distribución sigue Zipf — el IDRVI más popular captura ~30% de filas, el segundo ~15%, etc. (Pareto 80/20 con α=1.07). |
+| `image_type` | Sorteado desde `--image-mix`. Por defecto `tiff:60,pdf:20,jpeg:20`. Mapea a `B` / `O` / `C` respectivamente. |
+| `image_path` | `PROD/<YYYY>/<MM>/<DD>` derivado del `creation_date` de la fila. |
+| `file_name` | Letra de prefijo alineada con `image_type` (`D`/`M` para B/TIFF, `C` para JPEG, `0` para PDF). Cuerpo: 7 caracteres alfanuméricos random. Extensión: `.001` para paginado (TIFF/JPEG), `.PDF` para PDF. |
+| `creation_date` | Formato CYYMMDD. Sorteo uniforme en el rango `[--date-from, --date-to]`. Rango por defecto 2024-01-01 a 2025-12-31. |
+| `last_view_date` | `"0"` con probabilidad 0.9. De lo contrario CYYMMDD entre `creation_date` y `--date-to`. |
+| `total_pages` | `1` para filas PDF. Filas paginadas: 70% en `[1, 5]`, 25% en `[6, 50]`, 5% en `[51, 540]`. |
 
-### Determinism
+### Determinismo
 
-A single `random.Random(seed)` instance drives every choice. The
-same `--seed` always produces byte-identical output (modulo OS
-newline handling). This matches the existing `mock generate`
-behavior and is required by Constitution §VII (Spec Before Code —
-specs only get verified end-to-end if the generator is reproducible).
+Una única instancia `random.Random(seed)` dirige cada elección. La
+misma `--seed` produce siempre salida byte-idéntica (módulo el
+manejo de saltos de línea del OS). Coincide con el comportamiento
+existente de `mock generate` y es requerido por la Constitución §VII
+(Spec Antes de Código — las specs solo se verifican
+end-to-end si el generador es reproducible).
 
-### Validation invariants
+### Invariantes de validación
 
-The generator verifies before writing:
-- All `txn_num` values are unique.
-- All `shortname` values appear in at least one row.
-- All `index7` values are members of the `--idrvi-source` set.
-- Image-type / file-name extension are consistent
-  (`O` → `.PDF`, `B`/`C` → numeric extension).
-- `total_pages == 1` for PDF rows.
-- Date strings are valid CYYMMDD (parseable by
+El generador verifica antes de escribir:
+- Todos los valores `txn_num` son únicos.
+- Todos los valores `shortname` aparecen en al menos una fila.
+- Todos los valores `index7` son miembros del set
+  `--idrvi-source`.
+- `image_type` / extensión de `file_name` son consistentes
+  (`O` → `.PDF`, `B`/`C` → extensión numérica).
+- `total_pages == 1` para filas PDF.
+- Los strings de fecha son CYYMMDD válidos (parseables por
   `domain.models.parse_cymmdd`).
 
-Any invariant failure raises a `ConfigurationError` with a row index
-in `context`. Generator exits non-zero before writing partial CSV.
+Cualquier falla de invariante lanza `ConfigurationError` con el
+índice de fila en `context`. El generador sale con código no-cero
+antes de escribir un CSV parcial.
 
-## Out of scope
+## Fuera de alcance
 
-- Generating physical files on disk — already covered by
-  `cmcourier mock generate`. Operators chain the two:
-  `mock rvabrep` produces the CSV, then `mock generate
-  --rvabrep-csv <path>` materializes the files.
-- Trigger CSV generation. Triggers can be derived from the RVABREP
-  output if needed; deferred to a future spec.
-- AS400 NIARVILOG seeding. The mock RVABREP is filesystem-only.
-- Realistic OCR / content. Files materialized by `mock generate`
-  remain blank-page fillers — out of scope per 031.
-- The doctor cm-targets pre-flight against the generated IDRVI set.
-  If the operator points the doctor at the staging Alfresco with
-  20 IDRVIs but only one CMIS type registered, the doctor will FAIL
-  for 19 of them. That is the operator's responsibility to configure
-  (either register more types or override `--idrvi-top 1`).
+- Generar archivos físicos en disco — ya está cubierto por
+  `cmcourier mock generate`. Los operadores encadenan los dos:
+  `mock rvabrep` produce el CSV, luego `mock generate
+  --rvabrep-csv <path>` materializa los archivos.
+- Generación de CSV de trigger. Los triggers pueden derivarse de la
+  salida de RVABREP si hace falta; diferido a una spec futura.
+- Sembrado del AS400 NIARVILOG. El RVABREP mock es
+  filesystem-only.
+- OCR / contenido realistas. Los archivos materializados por
+  `mock generate` siguen siendo `fillers` de páginas en blanco —
+  fuera de alcance según 031.
+- El pre-flight `cm-targets` del doctor contra el set de IDRVI
+  generado. Si el operador apunta el doctor al Alfresco de staging
+  con 20 IDRVIs pero solo un tipo CMIS registrado, el doctor va a
+  FAIL para 19 de ellos. Es responsabilidad del operador
+  configurarlo (registrar más tipos o sobrescribir `--idrvi-top 1`).
 
-## Acceptance criteria
+## Criterios de aceptación
 
 - `cmcourier mock rvabrep --rows 50000 --output /tmp/r.csv --seed 50000`
-  runs in < 5 seconds on a laptop and produces a 50000-row CSV.
-- The generated CSV passes `cmcourier inspect rvabrep
-  --config <stub.yaml>` for every row.
-- Re-running with the same seed produces a byte-identical file
-  (modulo `\r\n` on Windows).
-- Re-running with a different seed produces a different file.
-- The generated CSV can be fed to the existing `cmcourier mock
-  generate --rvabrep-csv <path>` and 50000 physical files
-  materialize without error.
-- `parse_cymmdd` accepts every `creation_date` and
-  `last_view_date != "0"` value in the output.
-- Unit tests cover each generator function in isolation.
-- One integration test runs the full CLI with `--rows 100` and
-  asserts the CSV passes `MappingService` resolution end-to-end
-  (joinable against `docs/samples/csv/MapeoRVI_CM.csv`).
-- mypy --strict clean on the new service module.
-- ruff clean.
-- CHANGELOG `[0.42.0]` entry.
+  corre en < 5 segundos en una laptop y produce un CSV de 50000
+  filas.
+- El CSV generado pasa `cmcourier inspect rvabrep
+  --config <stub.yaml>` para cada fila.
+- Re-correr con la misma semilla produce un archivo byte-idéntico
+  (módulo `\r\n` en Windows).
+- Re-correr con una semilla distinta produce un archivo distinto.
+- El CSV generado puede alimentarse al `cmcourier mock generate
+  --rvabrep-csv <path>` existente y materializan 50000 archivos
+  físicos sin error.
+- `parse_cymmdd` acepta cada valor de `creation_date` y
+  `last_view_date != "0"` en la salida.
+- Los tests unitarios cubren cada función del generador en
+  aislamiento.
+- Un test de integración corre el CLI completo con `--rows 100` y
+  verifica que el CSV pase la resolución de `MappingService`
+  end-to-end (uniéndose contra `docs/samples/csv/MapeoRVI_CM.csv`).
+- `mypy --strict` limpio sobre el nuevo módulo de servicio.
+- `ruff` limpio.
+- Entrada `[0.42.0]` del CHANGELOG.

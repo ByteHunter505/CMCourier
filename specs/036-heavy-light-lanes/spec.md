@@ -1,21 +1,23 @@
-# 036 — Adaptive heavy / light upload lanes (POST-MVP §1)
+# 036 — Carriles adaptativos `heavy` / `light` para subida (POST-MVP §1)
 
-## Why
+## Por qué
 
-Today S5 uses a single `ThreadPoolExecutor` shared across all
-documents in a batch. On heterogeneous batches (a few 50 MB PDFs +
-many 200 KB JPEGs), the large docs **hog workers** while the small
-docs starve — classic head-of-line blocking.
+Hoy S5 usa un único `ThreadPoolExecutor` compartido entre todos los
+documentos de un `batch`. En `batches` heterogéneos (unos pocos PDFs
+de 50 MB + muchos JPEGs de 200 KB), los documentos grandes
+**acaparan los `worker`s** mientras los pequeños se mueren de hambre
+— clásico bloqueo de cabeza de fila.
 
-the spec + POST-MVP §1 describe a two-lane upload model that
-splits the batch by file size, runs each lane in its own slice of
-the worker budget, and rebalances as one lane drains.
+la especificación + POST-MVP §1 describen un modelo de subida de dos
+`lane`s que divide el `batch` por tamaño de archivo, corre cada
+`lane` en su porción del presupuesto de `worker`s, y rebalancea a
+medida que un `lane` se drena.
 
-## What
+## Qué
 
-### Configuration
+### Configuración
 
-New schema block under `ProcessingConfig`:
+Nuevo bloque de esquema bajo `ProcessingConfig`:
 
 ```python
 class HeavyLightLanesConfig(BaseModel):
@@ -27,106 +29,119 @@ class HeavyLightLanesConfig(BaseModel):
     idle_threshold_s: float = 15.0
 ```
 
-Default `enabled = False` — single-lane (pre-036) behavior unchanged.
+`enabled = False` por defecto — comportamiento de un único `lane`
+(pre-036) sin cambios.
 
 ### Splitter
 
-Pure-function service `LaneSplitter.split(items, threshold_bytes,
-min_batch) -> (heavy, light)`. Rules:
+Servicio de función pura `LaneSplitter.split(items, threshold_bytes,
+min_batch) -> (heavy, light)`. Reglas:
 
-1. If `len(items) < min_batch` → all light, no heavy. Returns
-   `(heavy=[], light=items)` and the caller falls back to single-lane.
-2. Otherwise: partition by `item.file_size_bytes >= threshold_bytes`.
-3. **Degenerate fallback**: if either partition ends up empty,
-   collapse back to single-lane (`(heavy=[], light=items)` or
-   `(heavy=items, light=[])` is normalized to single-lane downstream).
+1. Si `len(items) < min_batch` → todos `light`, ninguno `heavy`.
+   Devuelve `(heavy=[], light=items)` y el llamador cae al modo de
+   un único `lane`.
+2. De lo contrario: particionar por
+   `item.file_size_bytes >= threshold_bytes`.
+3. **Fallback degenerado**: si alguna partición queda vacía,
+   colapsar de vuelta a un único `lane` (`(heavy=[], light=items)`
+   o `(heavy=items, light=[])` se normaliza río abajo a un único
+   `lane`).
 
 ### LaneController
 
-Owns two `ResizableSemaphore`s — `heavy_sem`, `light_sem` — plus a
-total-budget AIMD coupling.
+Posee dos `ResizableSemaphore` — `heavy_sem`, `light_sem` — más un
+acoplamiento `AIMD` sobre el presupuesto total.
 
-* **Initial allocation**: `heavy_workers = ceil(total * heavy_initial_ratio)`,
-  `light_workers = total - heavy_workers`. Each lane gets at least 1
-  if total ≥ 2.
-* **AIMD integration** (user-locked: AIMD owns global budget,
-  rebalance owns split): when AIMD changes the total budget, the
-  controller redistributes proportionally to the current split
-  (preserves the current heavy:light ratio).
-* **Rebalance loop** runs in a daemon thread every
-  `rebalance_interval_s`. Two trigger rules:
-  - If heavy queue has been empty for ≥ `idle_threshold_s`: migrate
-    all heavy workers to light (heavy gets 0, light gets total).
-  - If light queue has been empty for ≥ `idle_threshold_s`: migrate
-    all light workers to heavy (vice versa).
-  - Otherwise: maintain the current split.
-* **Rebalance is non-preemptive**: in-flight uploads keep running
-  on whichever worker they're on. The semaphore caps determine
-  which queue future workers pull from.
-* **Structured rebalance events**: every migration emits a JSON line
-  via the standard pipeline logger with
+* **Asignación inicial**:
+  `heavy_workers = ceil(total * heavy_initial_ratio)`,
+  `light_workers = total - heavy_workers`. Cada `lane` recibe al
+  menos 1 si `total ≥ 2`.
+* **Integración `AIMD`** (restricción del usuario: `AIMD` posee el
+  presupuesto global, el `rebalance` posee la división): cuando
+  `AIMD` cambia el presupuesto total, el controlador redistribuye
+  proporcionalmente a la división actual (preserva el ratio
+  heavy:light vigente).
+* **Loop de `rebalance`** corre en un `thread` daemon cada
+  `rebalance_interval_s`. Dos reglas de disparo:
+  - Si la cola `heavy` está vacía por ≥ `idle_threshold_s`:
+    migrar todos los `worker`s `heavy` a `light` (heavy queda en 0,
+    light recibe total).
+  - Si la cola `light` está vacía por ≥ `idle_threshold_s`:
+    migrar todos los `worker`s `light` a `heavy` (viceversa).
+  - De lo contrario: mantener la división actual.
+* **El `rebalance` es no-apropiativo**: las subidas en vuelo siguen
+  corriendo en el `worker` donde estén. Los topes del `semaphore`
+  determinan de qué cola toman los próximos `worker`s.
+* **Eventos estructurados de `rebalance`**: cada migración emite una
+  línea JSON vía el `logger` estándar del `pipeline` con
   `{"event": "lane_rebalance", "from": "heavy", "to": "light",
    "previous_heavy": N, "previous_light": M, "new_heavy": 0,
-   "new_light": N + M}`. Picked up by `cmcourier analyze` (027).
+   "new_light": N + M}`. Recogida por `cmcourier analyze` (027).
 
-### S5 dispatch
+### Despacho en S5
 
-`StagedPipeline._stage_5` extended:
+`StagedPipeline._stage_5` extendido:
 
-* If `heavy_light_lanes.enabled` is False **OR** the splitter falls
-  back to single-lane → existing single-pool path (zero behavior
-  change).
-* Otherwise → split + dispatch to a SINGLE
-  `ThreadPoolExecutor(max_workers=total)`; each `_upload_one` carries
-  its lane and acquires the lane's semaphore. Two `WorkerPoolStats`
-  instances (one per lane) feed the TUI.
+* Si `heavy_light_lanes.enabled` es `False` **O** el `splitter` cae
+  a un único `lane` → camino existente de pool único (cero cambio
+  de comportamiento).
+* De lo contrario → dividir + despachar a un ÚNICO
+  `ThreadPoolExecutor(max_workers=total)`; cada `_upload_one` lleva
+  su `lane` y adquiere el `semaphore` del `lane`. Dos instancias de
+  `WorkerPoolStats` (una por `lane`) alimentan la TUI.
 
 ### TUI
 
-UPLOAD tab gains conditional dual sub-panels (only when dual mode is
-active for the current batch):
+La pestaña UPLOAD gana sub-paneles duales condicionales (solo cuando
+el modo dual está activo para el `batch` actual):
 
-* HEAVY panel: active workers, queue depth, bytes/sec, docs/sec, p95,
-  current operation per worker.
-* LIGHT panel: same layout.
-* Single-panel layout stays exactly as-is for single-lane runs.
+* Panel HEAVY: `worker`s activos, profundidad de cola, bytes/seg,
+  docs/seg, p95, operación actual por `worker`.
+* Panel LIGHT: mismo layout.
+* El layout de panel único se mantiene exactamente igual para
+  corridas de un solo `lane`.
 
-Rebalance events surface as TUI notifications
+Los eventos de `rebalance` se muestran como notificaciones de la TUI
 (`pipeline.notify("lane rebalance: 4→light")`).
 
-### Bandwidth limiter
+### Limitador de ancho de banda
 
-Already shared globally since 029. Both lanes use the same
-`BandwidthLimiter`. A new property test asserts total bytes/sec stays
-under `cmis.max_bandwidth_mbps` even under heavy dual-lane load.
+Ya es compartido globalmente desde 029. Ambos `lane`s usan el mismo
+`BandwidthLimiter`. Un nuevo `property test` verifica que el total
+de bytes/seg se mantenga bajo `cmis.max_bandwidth_mbps` incluso bajo
+carga dual-`lane` pesada.
 
-### Acceptance — synthetic throughput proof
+### Aceptación — prueba sintética de throughput
 
-POST-MVP §1 demands ≥ 30% throughput improvement vs single-lane on a
-bimodal batch. Achievable via synthetic test:
+POST-MVP §1 exige ≥ 30% de mejora de `throughput` vs único `lane`
+en un `batch` bimodal. Alcanzable vía prueba sintética:
 
-* 30 light docs (1 MB each) + 5 heavy docs (50 MB each) = 280 MB total.
-* Mocked CMIS uploader: `time.sleep(file_size_mb * 0.05s)` (50 ms/MB).
-  Predictable; head-of-line blocking IS the bottleneck.
-* Single-lane wall-clock: ~17.5 s (serialized through small worker
-  pool).
-* Dual-lane wall-clock: ~12 s.
-* Assert: `dual_lane_time ≤ single_lane_time * 0.7` (30% gain).
+* 30 documentos `light` (1 MB cada uno) + 5 documentos `heavy`
+  (50 MB cada uno) = 280 MB en total.
+* Uploader CMIS `mock`: `time.sleep(file_size_mb * 0.05s)` (50 ms/MB).
+  Predecible; el bloqueo de cabeza de fila ES el cuello de botella.
+* Tiempo total de un solo `lane`: ~17.5 s (serializado por un pool
+  pequeño de `worker`s).
+* Tiempo total dual-`lane`: ~12 s.
+* Aserción: `dual_lane_time ≤ single_lane_time * 0.7` (30% de
+  ganancia).
 
-If the assertion is flaky in CI, gate the proof behind a
-`@pytest.mark.slow` decorator + run nightly.
+Si la aserción es inestable en CI, encerrar la prueba detrás de un
+decorador `@pytest.mark.slow` + correr nightly.
 
-## Backwards compatibility
+## Compatibilidad hacia atrás
 
-`heavy_light_lanes.enabled` defaults False → byte-identical S5 path
-to pre-036. A regression test runs the same single-lane fixture
-twice (once with `enabled=False`, once without the config block
-entirely) and asserts identical outcomes.
+`heavy_light_lanes.enabled` por defecto en `False` → camino S5
+byte-idéntico a pre-036. Una prueba de regresión corre el mismo
+fixture de único `lane` dos veces (una con `enabled=False`, otra
+sin el bloque de config) y verifica resultados idénticos.
 
-## Out of scope
+## Fuera de alcance
 
-- Production tuning of `heavy_threshold_bytes`, `idle_threshold_s`,
-  etc. Those are operator-tuned after the real-data dry run.
-- Per-lane retry budgets — both lanes share the existing CMIS retry
-  policy (Tenacity).
-- Per-lane bandwidth quota — that is POST-MVP §8, separate change.
+- Tuning en producción de `heavy_threshold_bytes`,
+  `idle_threshold_s`, etc. Esos se ajustan por el operador después
+  del dry-run con datos reales.
+- Presupuestos de reintento por `lane` — ambos `lane`s comparten la
+  política de reintento CMIS existente (Tenacity).
+- Cuota de ancho de banda por `lane` — eso es POST-MVP §8, cambio
+  separado.

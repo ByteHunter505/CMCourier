@@ -1,11 +1,11 @@
 # 037 — Plan
 
-Four phases, ~6-7h total. RED→GREEN per phase, commit per phase, FF
-on the last commit.
+Cuatro fases, ~6-7h en total. RED→GREEN por fase, commit por fase,
+FF en el último commit.
 
-## Phase 1 — Schema + port + SQLite adapter (~2h)
+## Fase 1 — Esquema + puerto + adaptador SQLite (~2h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/config/schema.py`
   - `MetadataCacheConfig` (frozen, `enabled: bool=False`,
@@ -13,33 +13,33 @@ on the last commit.
   - `MetadataConfigModel.cache: MetadataCacheConfig = Field(
     default_factory=MetadataCacheConfig)`.
 - `src/cmcourier/domain/ports.py`
-  - `IDocumentCache` Protocol — `get`, `put`, `clear_txn`,
+  - Protocol `IDocumentCache` — `get`, `put`, `clear_txn`,
     `clear_all`, `clear_older_than`, `stats`.
-  - `CacheKey`, `CacheEntry`, `CacheStats` frozen dataclasses.
+  - Dataclasses frozen `CacheKey`, `CacheEntry`, `CacheStats`.
 - `src/cmcourier/adapters/tracking/sqlite.py`
-  - New `_CREATE_DOCUMENT_CACHE` DDL + `_CREATE_IDX_CACHE_AGE`
-    added to the migration list. Table is created at every
-    `SQLiteTrackingStore` open whether cache is enabled or not
-    (cheap; idempotent).
-- `src/cmcourier/adapters/tracking/sqlite_document_cache.py` (new)
-  - `SqliteDocumentCache(db_path: Path)` opening the same database
-    via a thin shared-connection wrapper. Methods map 1:1 to
-    `IDocumentCache`.
+  - Nuevo DDL `_CREATE_DOCUMENT_CACHE` + `_CREATE_IDX_CACHE_AGE`
+    agregados a la lista de migraciones. La tabla se crea en cada
+    apertura de `SQLiteTrackingStore` sin importar si el caché está
+    habilitado o no (es barato; idempotente).
+- `src/cmcourier/adapters/tracking/sqlite_document_cache.py` (nuevo)
+  - `SqliteDocumentCache(db_path: Path)` abriendo la misma base
+    vía un envoltorio fino de `connection` compartida. Los métodos
+    mapean 1:1 a `IDocumentCache`.
 
 ### Tests
 
 - `tests/unit/config/test_schema.py::TestMetadataCacheConfig`
-  - Defaults; TTL bounds; `metadata.cache` round-trips through
-    `PipelineConfig`.
-- `tests/integration/adapters/test_sqlite_document_cache.py` (new)
-  - `put` then `get` returns the entry.
-  - `get` miss when key absent.
-  - `put` upsert (same key replaces).
-  - `clear_txn` removes only that txn (different `fields_hash` for
-    same txn are independent rows; both go).
-  - `clear_all` truncates.
-  - `clear_older_than` deletes rows past the threshold.
-  - `stats()` returns total + oldest + newest.
+  - Valores por defecto; bordes de TTL; `metadata.cache` hace
+    `round-trip` a través de `PipelineConfig`.
+- `tests/integration/adapters/test_sqlite_document_cache.py` (nuevo)
+  - `put` y luego `get` devuelve la entrada.
+  - `get` miss cuando la `key` no existe.
+  - `put` `upsert` (misma `key` reemplaza).
+  - `clear_txn` elimina solo ese `txn` (distintos `fields_hash`
+    para el mismo `txn` son filas independientes; se van ambas).
+  - `clear_all` truncea.
+  - `clear_older_than` borra filas más viejas que el umbral.
+  - `stats()` devuelve total + más antigua + más nueva.
 
 ### Commit
 
@@ -47,44 +47,47 @@ on the last commit.
 feat(config,tracking): MetadataCacheConfig + document_cache schema + SqliteDocumentCache (037 Phase 1)
 ```
 
-## Phase 2 — DocumentCacheService + S3 short-circuit (~2h)
+## Fase 2 — DocumentCacheService + cortocircuito en S3 (~2h)
 
-### Files
+### Archivos
 
-- `src/cmcourier/services/document_cache.py` (new)
+- `src/cmcourier/services/document_cache.py` (nuevo)
   - `DocumentCacheService(cache: IDocumentCache, ttl_minutes: int,
     clock: Callable[[], datetime])`.
   - `try_get(*, txn, fields) -> CacheEntry | None`: cache.get +
-    TTL check.
+    chequeo de TTL.
   - `put(*, txn, fields, resolution)`.
   - `clear_txn`, `clear_all`, `clear_older_than` (pass-throughs).
-  - In-memory `_hits`, `_misses` counters.
-  - `stats_in_memory()` returns hits / misses since process start.
+  - Contadores en memoria `_hits`, `_misses`.
+  - `stats_in_memory()` devuelve hits / misses desde el inicio del
+    proceso.
 - `src/cmcourier/orchestrators/staged.py`
-  - `StagedPipeline.__init__` gains optional
-    `document_cache: DocumentCacheService | None = None`.
-  - `_stage_s3` calls `document_cache.try_get(...)` before
-    `metadata_service.resolve`. On hit, builds a
-    `MetadataResolution` from the entry. On miss, runs the resolver
-    and writes the cache after success.
+  - `StagedPipeline.__init__` gana
+    `document_cache: DocumentCacheService | None = None` opcional.
+  - `_stage_s3` llama a `document_cache.try_get(...)` antes que
+    `metadata_service.resolve`. En hit, construye un
+    `MetadataResolution` a partir de la entrada. En miss, corre el
+    `resolver` y escribe en el caché tras éxito.
 - `src/cmcourier/config/wiring.py`
-  - Build `DocumentCacheService` iff
-    `config.metadata.cache.enabled`. Pass to `StagedPipeline`.
+  - Construir `DocumentCacheService` solo si
+    `config.metadata.cache.enabled`. Pasarlo a `StagedPipeline`.
 
 ### Tests
 
 - `tests/unit/services/test_document_cache.py`
-  - Hit returns cached entry.
-  - Miss when absent.
-  - Miss when expired (synthetic clock).
-  - Put + get round-trip preserves properties + healed CIF.
-  - `fields_hash` collision is impossible across distinct field sets.
-- `tests/integration/pipeline/test_s3_cache.py` (new)
-  - StagedPipeline with `document_cache` set: second run for the
-    same `txn_num` skips `MetadataService.resolve` (counted via a
-    mock).
-  - Same pipeline without cache: both runs hit S3 (regression).
-  - TTL expiry → second run hits S3 again.
+  - Hit devuelve la entrada cacheada.
+  - Miss cuando no existe.
+  - Miss cuando expiró (clock sintético).
+  - `Put` + `get` `round-trip` preserva propiedades + CIF sanado.
+  - Las colisiones de `fields_hash` son imposibles entre sets de
+    campos distintos.
+- `tests/integration/pipeline/test_s3_cache.py` (nuevo)
+  - `StagedPipeline` con `document_cache` definido: la segunda
+    corrida para el mismo `txn_num` se saltea
+    `MetadataService.resolve` (contado vía un `mock`).
+  - El mismo `pipeline` sin caché: ambas corridas pegan en S3
+    (regresión).
+  - Expiración de TTL → la segunda corrida vuelve a pegar en S3.
 
 ### Commit
 
@@ -92,26 +95,26 @@ feat(config,tracking): MetadataCacheConfig + document_cache schema + SqliteDocum
 feat(services,pipeline): DocumentCacheService + S3 cache short-circuit (037 Phase 2)
 ```
 
-## Phase 3 — CLI commands (~1h)
+## Fase 3 — Comandos CLI (~1h)
 
-### Files
+### Archivos
 
-- `src/cmcourier/cli/commands/cache.py` (new)
+- `src/cmcourier/cli/commands/cache.py` (nuevo)
   - `@click.group("cache")`.
   - `cache stats [--config <path>] [--format text|json]`.
   - `cache clear --txn <num> [--config <path>]`.
   - `cache clear --all [--config <path>]`.
   - `cache clear --older-than <minutes> [--config <path>]`.
-- `src/cmcourier/cli/app.py`: register the group.
+- `src/cmcourier/cli/app.py`: registrar el grupo.
 
 ### Tests
 
-- `tests/integration/cli/test_cache_cli.py` (new)
-  - `cache stats` text + json formats.
-  - `cache clear --txn` removes one entry.
-  - `cache clear --all` empties the table.
-  - `cache clear --older-than` deletes only old rows (synthetic
-    `cached_at` via direct INSERT).
+- `tests/integration/cli/test_cache_cli.py` (nuevo)
+  - `cache stats` formato texto + json.
+  - `cache clear --txn` elimina una entrada.
+  - `cache clear --all` vacía la tabla.
+  - `cache clear --older-than` borra solo filas viejas (`cached_at`
+    sintético vía INSERT directo).
 
 ### Commit
 
@@ -119,22 +122,23 @@ feat(services,pipeline): DocumentCacheService + S3 cache short-circuit (037 Phas
 feat(cli): cmcourier cache stats|clear subcommands (037 Phase 3)
 ```
 
-## Phase 4 — Metrics + docs + CHANGELOG + FF (~1.5h)
+## Fase 4 — Métricas + docs + CHANGELOG + FF (~1.5h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/services/document_cache.py`
-  - On hit / miss, emit a structured INFO log line with
+  - En hit / miss, emitir una línea de log INFO estructurada con
     `event=document_cache_hit` / `_miss`.
 - `tests/unit/services/test_document_cache.py`
-  - Assert log records contain the right fields.
-- `docs/how-to/document-cache.md` (new)
-  - When to enable, TTL trade-offs, how to read `cache stats`,
-    backup implications.
-- `CHANGELOG.md` `[0.38.0]`, README tick, POST-MVP §9 marked
-  SHIPPED.
+  - Verificar que los registros de log contienen los campos
+    correctos.
+- `docs/how-to/document-cache.md` (nuevo)
+  - Cuándo habilitar, `trade-offs` del TTL, cómo leer
+    `cache stats`, implicaciones para `backup`s.
+- `CHANGELOG.md` `[0.38.0]`, tilde del README, POST-MVP §9 marcado
+  como SHIPPED.
 
-### FF merge
+### Merge FF
 
 ```
 git checkout main

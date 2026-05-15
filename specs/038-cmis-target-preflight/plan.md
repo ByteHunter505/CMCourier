@@ -1,58 +1,62 @@
 # 038 — Plan
 
-Five phases, ~10-12h total. RED→GREEN per phase, commit per phase,
-FF on the last commit.
+Cinco fases, ~10-12h en total. RED→GREEN por fase, commit por fase,
+FF en el último commit.
 
-The phases are ordered so each one is independently mergeable:
-phase 1 lands schema + service plumbing without behavior change,
-phase 2 lands the port refactor in isolation, phase 3 lands the
-two doctor checks on top of phases 1+2, phase 4 lands observability,
-phase 5 docs + bump.
+Las fases se ordenan para que cada una sea fusionable de forma
+independiente: la fase 1 deja esquema + plomería de servicio sin
+cambio de comportamiento, la fase 2 deja el refactor del puerto
+aislado, la fase 3 deja los dos checks del doctor sobre las fases
+1+2, la fase 4 deja la observabilidad, la fase 5 docs + bump.
 
-## Phase 1 — `CMISFolder` + `CMISPropertyId` columns through the stack (~2.5h)
+## Fase 1 — Columnas `CMISFolder` + `CMISPropertyId` a lo largo del stack (~2.5h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/config/schema.py`
   - `MappingConfig.rvi_cm_cmis_folder_column: str = "CMISFolder"`.
   - `MappingConfig.metadatos_cmis_property_id_column: str = "CMISPropertyId"`.
-  - Frozen, no env override — these are file-shape choices.
+  - Frozen, sin override por env — son decisiones de forma del
+    archivo.
 - `src/cmcourier/domain/models.py`
   - `CMMapping.cmis_folder: str | None = None`.
 - `src/cmcourier/services/mapping.py`
-  - When the CSV has the configured `CMISFolder` column, populate
-    `cmis_folder` (None for empty cells). Otherwise leave None.
-  - Backward-compat: missing column is a no-op.
+  - Cuando el CSV tiene la columna `CMISFolder` configurada,
+    poblar `cmis_folder` (`None` para celdas vacías). De lo
+    contrario, dejar `None`.
+  - Compat hacia atrás: columna ausente es un no-op.
 - `src/cmcourier/services/metadata.py`
-  - `MetadataService` reads `metadatos_cmis_property_id_column`
-    from the joined `MetadatosCM` rows. When present and
-    non-empty, `resolve_properties` keys the output dict by the
-    CMIS property ID; otherwise by the friendly name (existing
-    behavior).
+  - `MetadataService` lee `metadatos_cmis_property_id_column`
+    desde las filas unidas de `MetadatosCM`. Cuando está presente
+    y no vacía, `resolve_properties` clavea el dict de salida por
+    el ID de propiedad CMIS; de lo contrario, por el nombre
+    amigable (comportamiento existente).
 - `src/cmcourier/orchestrators/staged.py`
-  - S5 URL builder consumes `mapping.cmis_folder`:
-    `f"{base}/{repo}/root/{cmis_folder}"` when set,
-    `f"{base}/{repo}/root"` when None. **No call to ensure_folder
-    is added or modified in this phase** (that's phase 2).
+  - El constructor de URL de S5 consume `mapping.cmis_folder`:
+    `f"{base}/{repo}/root/{cmis_folder}"` cuando está definido,
+    `f"{base}/{repo}/root"` cuando es `None`. **Ninguna llamada a
+    `ensure_folder` se agrega o modifica en esta fase** (eso es
+    fase 2).
 
 ### Tests
 
 - `tests/unit/config/test_schema.py`
-  - Defaults: both column names default to the spec values.
+  - Valores por defecto: ambos nombres de columna toman los
+    valores de la spec.
 - `tests/unit/services/test_mapping.py`
-  - CSV with `CMISFolder` populated → `cmis_folder` carries through.
-  - CSV with empty `CMISFolder` cell → `cmis_folder is None`.
-  - CSV without the `CMISFolder` column → `cmis_folder is None` for
-    every row (no exception).
+  - CSV con `CMISFolder` poblado → `cmis_folder` se propaga.
+  - CSV con celda `CMISFolder` vacía → `cmis_folder is None`.
+  - CSV sin la columna `CMISFolder` → `cmis_folder is None` para
+    cada fila (sin excepción).
 - `tests/unit/services/test_metadata.py`
-  - With `CMISPropertyId` populated → resolved property dict keys
-    are CMIS IDs.
-  - With `CMISPropertyId` empty → falls back to friendly names.
-  - Column missing → falls back globally.
+  - Con `CMISPropertyId` poblado → las claves del dict de
+    propiedades resueltas son IDs CMIS.
+  - Con `CMISPropertyId` vacío → cae a los nombres amigables.
+  - Columna faltante → cae globalmente.
 - `tests/integration/orchestrators/test_staged_pipeline.py`
-  - Existing tests pass unchanged.
-  - New test: mapping row with `cmis_folder="$type/X"` produces an
-    upload URL containing `/$type/X`.
+  - Los tests existentes pasan sin cambios.
+  - Test nuevo: una fila de mapeo con `cmis_folder="$type/X"`
+    produce una URL de subida que contiene `/$type/X`.
 
 ### Commit
 
@@ -60,41 +64,45 @@ phase 5 docs + bump.
 feat(config,mapping,metadata,pipeline): CMISFolder + CMISPropertyId columns (038 Phase 1)
 ```
 
-## Phase 2 — `IUploader.verify_folder_exists` + remove creation surface (~2h)
+## Fase 2 — `IUploader.verify_folder_exists` + remover superficie de creación (~2h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/domain/ports.py`
-  - Rename `ensure_folder` → `verify_folder_exists`.
-  - Return `bool`. Docstring: returns True iff the folder exists
-    AND has `cmis:baseTypeId == cmis:folder`.
+  - Renombrar `ensure_folder` → `verify_folder_exists`.
+  - Devolver `bool`. Docstring: devuelve `True` si y solo si la
+    carpeta existe Y tiene `cmis:baseTypeId == cmis:folder`.
 - `src/cmcourier/adapters/upload/cmis_uploader.py`
-  - Replace `ensure_folder` body with a verify-only implementation
-    that does `GET ?cmisselector=object&objectId=<path>`.
-  - Map response:
-    - 200 + baseTypeId folder → True
-    - 200 + baseTypeId not-folder → False
-    - 404 → False
-    - other → raise connectivity / auth exception (existing classes)
-  - Delete `_create_folder_segment` private method.
+  - Reemplazar el cuerpo de `ensure_folder` por una implementación
+    de solo-verificación que haga
+    `GET ?cmisselector=object&objectId=<path>`.
+  - Mapeo de respuesta:
+    - 200 + `baseTypeId` folder → `True`
+    - 200 + `baseTypeId` no-folder → `False`
+    - 404 → `False`
+    - otra → lanzar excepción de conectividad / `auth` (clases
+      existentes)
+  - Eliminar el método privado `_create_folder_segment`.
 - `src/cmcourier/orchestrators/staged.py`
-  - Remove the existing `uploader.ensure_folder(...)` call from S5
-    (the one inside the per-doc upload). The new behavior is:
-    S5 trusts the operator ran `doctor --check cm-targets`.
+  - Remover la llamada existente `uploader.ensure_folder(...)` de
+    S5 (la que está dentro de la subida por documento). El nuevo
+    comportamiento es: S5 confía en que el operador corrió
+    `doctor --check cm-targets`.
 
 ### Tests
 
 - `tests/integration/adapters/test_cmis_uploader.py`
-  - Replace `ensure_folder_creates_when_missing` and similar with
-    `verify_folder_exists_returns_true_for_existing`,
+  - Reemplazar `ensure_folder_creates_when_missing` y similares
+    por `verify_folder_exists_returns_true_for_existing`,
     `verify_folder_exists_returns_false_on_404`,
     `verify_folder_exists_returns_false_when_not_folder`.
-  - Delete any test that relied on `_create_folder_segment`.
+  - Eliminar cualquier test que dependiera de
+    `_create_folder_segment`.
 - `tests/integration/orchestrators/test_staged_pipeline.py`
-  - Add assertion: a 10-doc pipeline run on a stub uploader records
-    **zero** `verify_folder_exists` calls on the happy path
-    (S5 no longer touches folder verification — that's doctor's
-    job).
+  - Agregar aserción: una corrida del `pipeline` de 10 documentos
+    contra un `stub` uploader registra **cero** llamadas a
+    `verify_folder_exists` en el camino feliz (S5 ya no toca la
+    verificación de carpeta — eso es trabajo del `doctor`).
 
 ### Commit
 
@@ -102,44 +110,48 @@ feat(config,mapping,metadata,pipeline): CMISFolder + CMISPropertyId columns (038
 refactor(uploader,pipeline): verify_folder_exists (read-only) + remove S5 folder-creation surface (038 Phase 2)
 ```
 
-## Phase 3 — `cmis_folders_exist` + `cmis_properties_alignment` doctor checks (~2.5h)
+## Fase 3 — Checks del doctor `cmis_folders_exist` + `cmis_properties_alignment` (~2.5h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/cli/doctor.py`
   - `_check_cmis_folders_exist(config, secrets) -> CheckResult`:
-    - Build mapping service, collect unique non-empty `cmis_folder`.
-    - Build uploader once (existing `_build_uploader` helper).
-    - For each folder, call `verify_folder_exists`; collect missing.
-    - SKIP if no `cmis_folder` populated anywhere.
-    - FAIL with `missing_folders` detail; instruction in message.
+    - Construir `mapping service`, recolectar `cmis_folder`
+      únicos no vacíos.
+    - Construir el uploader una vez (helper existente
+      `_build_uploader`).
+    - Por cada carpeta, llamar a `verify_folder_exists`;
+      recolectar faltantes.
+    - SKIP si no hay `cmis_folder` poblado en ningún lado.
+    - FAIL con detalle `missing_folders`; instrucción en el
+      mensaje.
   - `_check_cmis_properties_alignment(config, secrets) -> CheckResult`:
-    - Build mapping + metadata services.
-    - For each unique `(cm_object_type, cmis_property_id)` pair
-      (skipping rows where either is None), call
-      `get_type_definition(cm_object_type)` (memoized per type).
-    - Collect pairs whose `cmis_property_id` is not in the type's
-      `propertyDefinitions`.
-    - SKIP if no `cmis_property_id` populated anywhere.
-    - FAIL grouping missing properties by type.
+    - Construir `mapping` + `metadata` services.
+    - Por cada par único `(cm_object_type, cmis_property_id)`
+      (salteando filas donde alguno sea `None`), llamar a
+      `get_type_definition(cm_object_type)` (memoizado por tipo).
+    - Recolectar pares cuyo `cmis_property_id` no está en
+      `propertyDefinitions` del tipo.
+    - SKIP si no hay `cmis_property_id` poblado en ningún lado.
+    - FAIL agrupando las propiedades faltantes por tipo.
   - `_CHECK_GROUPS["cm-targets"] = frozenset({"cm_type_alignment",
     "cmis_folders_exist", "cmis_properties_alignment"})`.
-  - `run_doctor` invokes the new checks when the active group
-    includes them.
+  - `run_doctor` invoca los checks nuevos cuando el grupo activo
+    los incluye.
 
 ### Tests
 
 - `tests/unit/cli/test_doctor.py`
-  - `cmis_folders_exist`: PASS path (all exist), FAIL path
-    (some missing, deterministic listing), SKIP path (column
-    empty).
-  - `cmis_properties_alignment`: PASS, FAIL grouped, SKIP.
-  - `_CHECK_GROUPS["cm-targets"]` membership.
-- `tests/integration/cli/test_doctor_cm_targets.py` (new)
-  - Against a stub uploader that returns predictable
-    `verify_folder_exists` / `get_type_definition` responses,
-    exercise full `run_doctor(config, secrets, group="cm-targets")`
-    and assert the 3 checks come back in order.
+  - `cmis_folders_exist`: camino PASS (todas existen), camino FAIL
+    (algunas faltantes, listado determinista), camino SKIP
+    (columna vacía).
+  - `cmis_properties_alignment`: PASS, FAIL agrupado, SKIP.
+  - Membresía de `_CHECK_GROUPS["cm-targets"]`.
+- `tests/integration/cli/test_doctor_cm_targets.py` (nuevo)
+  - Contra un `stub` uploader que devuelve respuestas predecibles
+    de `verify_folder_exists` / `get_type_definition`, ejercitar
+    `run_doctor(config, secrets, group="cm-targets")` completo y
+    verificar que los 3 checks regresen en orden.
 
 ### Commit
 
@@ -147,45 +159,49 @@ refactor(uploader,pipeline): verify_folder_exists (read-only) + remove S5 folder
 feat(doctor): cmis_folders_exist + cmis_properties_alignment + cm-targets group (038 Phase 3)
 ```
 
-## Phase 4 — `s5_upload_attempt` / `s5_upload_failed` events + `unmask_pii` (~2h)
+## Fase 4 — Eventos `s5_upload_attempt` / `s5_upload_failed` + `unmask_pii` (~2h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/config/schema.py`
   - `ObservabilityConfig.unmask_pii: bool = Field(default=False)`.
 - `src/cmcourier/observability/pii.py`
-  - Confirm `mask_value(field_name, value)` exists and covers the
-    fields we emit (CIF, Nombre_Cliente, NUM_CUENTA_TARJETA,
-    NUM_CUENTA, NUM_PRESTAMO, NUM_AFILIADO, Short_Name).
-  - Add `mask_dict(properties: Mapping[str, str], *, unmask: bool)`
-    convenience.
+  - Confirmar que `mask_value(field_name, value)` existe y cubre
+    los campos que emitimos (CIF, Nombre_Cliente,
+    NUM_CUENTA_TARJETA, NUM_CUENTA, NUM_PRESTAMO, NUM_AFILIADO,
+    Short_Name).
+  - Agregar conveniencia
+    `mask_dict(properties: Mapping[str, str], *, unmask: bool)`.
 - `src/cmcourier/adapters/upload/cmis_uploader.py`
-  - Before each POST attempt, emit `s5_upload_attempt` via the
-    structured logger:
-    - url, object_type_id, masked properties, attempt index,
-      content_bytes, mime_type.
-  - On non-201 response, emit `s5_upload_failed` extending the
-    attempt event with status_code, truncated response_body,
-    and `curl_equivalent` string. Build the curl with the
-    **masked** values unless `observability.unmask_pii=True`.
+  - Antes de cada intento de POST, emitir `s5_upload_attempt` vía
+    el `logger` estructurado:
+    - `url`, `object_type_id`, propiedades enmascaradas, índice de
+      intento, `content_bytes`, `mime_type`.
+  - En respuesta no-201, emitir `s5_upload_failed` extendiendo el
+    evento de intento con `status_code`, `response_body`
+    truncado, y un `string` `curl_equivalent`. Construir el curl
+    con los valores **enmascarados** a menos que
+    `observability.unmask_pii=True`.
 - `src/cmcourier/cli/doctor.py`
-  - On startup, when `unmask_pii=True`, append a `WARNING` line
-    to the doctor summary (separate from the check results).
+  - Al arranque, cuando `unmask_pii=True`, agregar una línea
+    `WARNING` al resumen del `doctor` (separada de los resultados
+    de los checks).
 
 ### Tests
 
 - `tests/unit/observability/test_pii.py`
-  - Round-trip: known field names masked, unknowns pass through,
-    unmask flag returns raw.
-  - `mask_dict` behavior.
+  - `Round-trip`: nombres de campo conocidos enmascarados,
+    desconocidos pasan, el flag `unmask` devuelve crudo.
+  - Comportamiento de `mask_dict`.
 - `tests/integration/adapters/test_cmis_uploader.py`
-  - Mock 201 response → `s5_upload_attempt` written once.
-  - Mock 400 response → `s5_upload_attempt` + `s5_upload_failed`
-    written; failed event has `curl_equivalent` with masking applied.
-  - `unmask_pii=True` → values appear raw in the events.
-- `tests/integration/cli/test_doctor_warnings.py` (new)
-  - With `observability.unmask_pii=True`, doctor output contains
-    the unmask warning line.
+  - Respuesta 201 mockeada → `s5_upload_attempt` escrito una vez.
+  - Respuesta 400 mockeada → `s5_upload_attempt` +
+    `s5_upload_failed` escritos; el evento de falla tiene
+    `curl_equivalent` con enmascarado aplicado.
+  - `unmask_pii=True` → los valores aparecen crudos en los eventos.
+- `tests/integration/cli/test_doctor_warnings.py` (nuevo)
+  - Con `observability.unmask_pii=True`, la salida del `doctor`
+    contiene la línea de warning de `unmask`.
 
 ### Commit
 
@@ -193,40 +209,41 @@ feat(doctor): cmis_folders_exist + cmis_properties_alignment + cm-targets group 
 feat(observability,uploader): s5_upload_attempt + s5_upload_failed events + unmask_pii toggle (038 Phase 4)
 ```
 
-## Phase 5 — Docs + CHANGELOG 0.41.0 + FF (~1h)
+## Fase 5 — Docs + CHANGELOG 0.41.0 + FF (~1h)
 
-### Files
+### Archivos
 
-- `docs/how-to/cmis-target-preflight.md` (new) — operator runbook:
-  - Filling `CMISFolder` and `CMISPropertyId` in the sample CSVs.
-  - Running `cmcourier doctor --check cm-targets` and reading the
-    output.
-  - The unmask-pii toggle and when to use it.
-- `docs/how-to/validation-checklist.md` — append a new §X
-  "Pre-flight CMIS target" with the 3 checks.
-- `scripts/staging/README.md` — add the doctor-then-run section
-  to the quick start.
-- `CHANGELOG.md` — `[0.41.0]` entry. Sections:
-  - Added: CMISFolder + CMISPropertyId columns; cm-targets doctor
-    group + 2 new checks; s5_upload_attempt + s5_upload_failed
-    events; unmask_pii toggle.
+- `docs/how-to/cmis-target-preflight.md` (nuevo) — `runbook` del
+  operador:
+  - Llenar `CMISFolder` y `CMISPropertyId` en los CSV de muestra.
+  - Correr `cmcourier doctor --check cm-targets` y leer la salida.
+  - El toggle `unmask-pii` y cuándo usarlo.
+- `docs/how-to/validation-checklist.md` — agregar una nueva §X
+  "Pre-flight CMIS target" con los 3 checks.
+- `scripts/staging/README.md` — agregar la sección
+  doctor-luego-correr al quick start.
+- `CHANGELOG.md` — entrada `[0.41.0]`. Secciones:
+  - Added: columnas `CMISFolder` + `CMISPropertyId`; grupo
+    `cm-targets` del doctor + 2 nuevos checks; eventos
+    `s5_upload_attempt` + `s5_upload_failed`; toggle `unmask_pii`.
   - Changed: `IUploader.ensure_folder` → `verify_folder_exists`
-    (BREAKING for adapter implementers).
-  - Removed: `CmisUploader._create_folder_segment`; S5 folder
-    auto-creation.
-- `README.md` — tick the relevant feature row.
+    (BREAKING para implementadores del adaptador).
+  - Removed: `CmisUploader._create_folder_segment`;
+    auto-creación de carpetas en S5.
+- `README.md` — tildar la fila de feature correspondiente.
 - `pyproject.toml` — bump `version = "0.41.0"`.
 
 ### Tests
 
-- Full suite green.
-- `mypy --strict src/cmcourier/{domain,services,orchestrators}` clean.
-- `ruff check` + `ruff format --check` clean.
-- Smoke against the staging Alfresco:
-  - `cmcourier doctor --check cm-targets` PASS after pre-creating
+- Suite completa en verde.
+- `mypy --strict src/cmcourier/{domain,services,orchestrators}`
+  limpio.
+- `ruff check` + `ruff format --check` limpios.
+- Smoke contra el Alfresco de staging:
+  - `cmcourier doctor --check cm-targets` PASS tras pre-crear
     `/cmcourier-staging/CN01`.
-  - `cmcourier csv-trigger-pipeline run --total 5 --no-tui` writes
-    5 `s5_upload_attempt` events.
+  - `cmcourier csv-trigger-pipeline run --total 5 --no-tui`
+    escribe 5 eventos `s5_upload_attempt`.
 
 ### Commit
 
@@ -234,4 +251,4 @@ feat(observability,uploader): s5_upload_attempt + s5_upload_failed events + unma
 docs(038): cmis-target-preflight how-to + CHANGELOG 0.41.0 + IUploader contract bump (038 Phase 5)
 ```
 
-### FF merge + branch delete.
+### Merge FF + eliminar la rama.

@@ -1,75 +1,81 @@
-# 038 — CMIS target pre-flight + upload payload trace
+# 038 — Pre-flight de target CMIS + trazado del payload de subida
 
-## Why
+## Por qué
 
-Today CMCourier discovers CMIS-target problems **mid-run**: a
-missing folder, a typo in a property name, a CMISType the operator
-forgot to populate — all of these surface as 4xx errors on S5
-attempt N out of thousands. The operator finds out hours into the
-batch, the tracking DB fills with `S5_FAILED`, and the postmortem
-is a grep through HTTP responses with no context on what was sent.
+Hoy CMCourier descubre problemas con el target CMIS **a mitad de
+corrida**: una carpeta faltante, un typo en un nombre de propiedad,
+un CMISType que el operador olvidó completar — todo eso aparece
+como errores 4xx en el intento N de S5 de miles. El operador se
+entera horas adentro del `batch`, la DB de tracking se llena con
+`S5_FAILED`, y la postmortem es un grep entre respuestas HTTP sin
+contexto sobre qué fue enviado.
 
-Two failure modes drove this change:
+Dos modos de falla impulsaron este cambio:
 
-1. **Folder hierarchy is governed by the bank, not CMCourier.**
-   The current `CmisUploader.ensure_folder` creates folders on demand
-   (it iterates path segments and POSTs `cmisaction=createFolder`
-   for each missing one). This was inherited from the legacy
-   uploader and is wrong for our operational model: in production
-   the folder tree is owned by the bank's CMIS administrators; we
-   only deposit documents. An `ensure_folder` call that succeeds
-   silently can mask a configuration bug (CSV typo) by creating a
-   folder in the wrong place. We need verify-only semantics.
+1. **La jerarquía de carpetas la gobierna el banco, no CMCourier.**
+   El actual `CmisUploader.ensure_folder` crea carpetas a demanda
+   (itera los segmentos del path y hace POST con
+   `cmisaction=createFolder` por cada segmento faltante). Esto fue
+   heredado del uploader legado y es incorrecto para nuestro modelo
+   operativo: en producción el árbol de carpetas pertenece a los
+   administradores CMIS del banco; nosotros solo depositamos
+   documentos. Una llamada `ensure_folder` que tiene éxito de manera
+   silenciosa puede enmascarar un bug de configuración (typo en un
+   CSV) creando una carpeta en el lugar equivocado. Necesitamos
+   semánticas de verificación únicamente.
 
-2. **Pre-flight type alignment exists but is incomplete.** The
-   existing `cm_type_alignment` check (013) only validates that
-   the CMISType resolves on the CM server. It does not check that
-   the **folder destinations** exist, nor that the **per-field
-   CMIS property IDs** (now configurable via `MetadatosCM`) are
-   declared on those types. The operator can pass `doctor` with a
-   green output and still hit 100% failure rate on S5 because the
-   target folder doesn't exist.
+2. **El alineamiento de tipos de pre-flight existe pero es
+   incompleto.** El chequeo existente `cm_type_alignment` (013)
+   solo valida que el CMISType resuelva en el servidor CM. No
+   verifica que los **destinos de carpeta** existan, ni que los
+   **IDs de propiedad CMIS por campo** (ahora configurables vía
+   `MetadatosCM`) estén declarados en esos tipos. El operador puede
+   pasar `doctor` con salida en verde y aun así pegarse contra
+   100% de tasa de falla en S5 porque la carpeta destino no
+   existe.
 
-3. **No wire-level visibility on the failure path.** When S5
-   POSTs a multipart and the server replies 400, the existing
-   error log records HTTP status and a truncated body. It does
-   not record the property bag we sent — so the operator cannot
-   tell whether the problem is a bad value, a bad property ID, a
-   bad type ID, or an ordering issue. PII discipline (Principle
-   VIII) plus structured `metrics.jsonl` give us the tools to fix
-   this without leaking customer data into logs.
+3. **Sin visibilidad a nivel de cable en el camino de falla.**
+   Cuando S5 hace POST de un `multipart` y el servidor responde
+   400, el log de error existente registra el código HTTP y un
+   cuerpo truncado. No registra el bag de propiedades que enviamos
+   — así que el operador no puede saber si el problema es un valor
+   malo, un ID de propiedad malo, un ID de tipo malo, o un problema
+   de orden. La disciplina de PII (Principio VIII) más
+   `metrics.jsonl` estructurado nos dan las herramientas para
+   arreglar esto sin filtrar datos de clientes a los logs.
 
-This change closes all three gaps under one cm-targets pre-flight
-umbrella and adds an upload payload event to `metrics.jsonl` so
-post-mortems are deterministic.
+Este cambio cierra los tres huecos bajo un único paraguas de
+pre-flight cm-targets y agrega un evento de payload de subida a
+`metrics.jsonl` para que las postmortems sean deterministas.
 
-## What
+## Qué
 
-### 1. New `MapeoRVI_CM.CMISFolder` column
+### 1. Nueva columna `MapeoRVI_CM.CMISFolder`
 
-`MappingConfig` (config/schema.py):
+`MappingConfig` (`config/schema.py`):
 
 ```python
 rvi_cm_cmis_folder_column: str = "CMISFolder"
 ```
 
-`CMMapping` (domain/models.py) gains:
+`CMMapping` (`domain/models.py`) gana:
 
 ```python
 cmis_folder: str | None  # None when the CSV cell is empty / column missing
 ```
 
-`MappingService` populates `cmis_folder` from the configured column.
-When the column is absent (backward-compat for the consolidated
-`ClaseDocumentalCM.csv` mode), the field is always `None`.
+`MappingService` puebla `cmis_folder` desde la columna configurada.
+Cuando la columna está ausente (compat hacia atrás del modo
+consolidado `ClaseDocumentalCM.csv`), el campo siempre es `None`.
 
-The pipeline S5 uses `cmis_folder` to build the upload URL:
-- `cmis_folder` set → POST to `{base}/{repo}/root/{cmis_folder}`
-- `cmis_folder` None → POST to `{base}/{repo}/root` (existing
-  flat-root behavior, used by the consolidated-mapping mode and
-  by tests).
+El S5 del `pipeline` usa `cmis_folder` para construir la URL de
+subida:
+- `cmis_folder` definido → POST a `{base}/{repo}/root/{cmis_folder}`
+- `cmis_folder` en `None` → POST a `{base}/{repo}/root`
+  (comportamiento de raíz plana existente, usado por el modo de
+  mapeo consolidado y por los tests).
 
-### 2. New `MetadatosCM.CMISPropertyId` column
+### 2. Nueva columna `MetadatosCM.CMISPropertyId`
 
 `MappingConfig`:
 
@@ -77,8 +83,9 @@ The pipeline S5 uses `cmis_folder` to build the upload URL:
 metadatos_cmis_property_id_column: str = "CMISPropertyId"
 ```
 
-`MetadataService.resolve_properties()` returns the per-field CMIS
-property ID instead of the friendly name when the column is populated:
+`MetadataService.resolve_properties()` devuelve el ID de propiedad
+CMIS por campo en lugar del nombre amigable cuando la columna está
+poblada:
 
 ```
 friendly Metadato           "CIF"
@@ -86,39 +93,41 @@ CMISPropertyId (if set)     "clbNonGroup.BAC_CIF"      ← wire
                             (or "cmcourier:BAC_CIF" in staging)
 ```
 
-When `CMISPropertyId` is empty for a field, the service falls back
-to the friendly name verbatim (preserves current behavior). When
-the column is absent from the file, every field falls back. This is
-fully additive — existing configs do not need updates.
+Cuando `CMISPropertyId` está vacío para un campo, el servicio cae
+al nombre amigable tal cual (preserva el comportamiento actual).
+Cuando la columna está ausente del archivo, todos los campos caen
+al fallback. Es totalmente aditivo — las configuraciones existentes
+no necesitan actualizarse.
 
 ### 3. `IUploader.ensure_folder` → `IUploader.verify_folder_exists`
 
-Port rename (domain/ports.py):
+Renombrado de puerto (`domain/ports.py`):
 
 ```python
 def verify_folder_exists(self, folder_path: str) -> bool: ...
 ```
 
-Returns `True` if the folder exists in the CMIS repository and is
-a `cmis:folder` base type. Returns `False` on 404 or on a 200
-response whose `cmis:baseTypeId` is not `cmis:folder`. Raises only
-on connectivity / auth failures.
+Devuelve `True` si la carpeta existe en el repositorio CMIS y es un
+tipo base `cmis:folder`. Devuelve `False` en 404 o en una respuesta
+200 cuyo `cmis:baseTypeId` no sea `cmis:folder`. Lanza excepción
+solo en fallas de conectividad / `auth`.
 
-Implementation (`adapters/upload/cmis_uploader.py`):
-- Uses `GET ?cmisselector=object&objectId=workspace://SpacesStore/<folder>`
-  or the path-based equivalent the CM REST API exposes. No POST.
-- `_create_folder_segment` private helper is removed.
+Implementación (`adapters/upload/cmis_uploader.py`):
+- Usa `GET ?cmisselector=object&objectId=workspace://SpacesStore/<folder>`
+  o el equivalente basado en path que exponga la API REST de CM.
+  Sin POST.
+- El helper privado `_create_folder_segment` se elimina.
 
 Pipeline (`orchestrators/staged.py`, S5):
-- The current `uploader.ensure_folder(...)` call inside S5 is
-  **removed**. S5's URL builder simply consumes `cmis_folder` from
-  the CMMapping if set.
-- Verification is delegated entirely to the doctor checks defined
-  in §4. If the operator skips doctor and the folder is missing,
-  the first S5 attempt fails with a 4xx whose payload trace
-  (event from §5) makes the diagnostic obvious.
+- La llamada actual `uploader.ensure_folder(...)` dentro de S5 se
+  **elimina**. El constructor de URL de S5 simplemente consume
+  `cmis_folder` del `CMMapping` si está definido.
+- La verificación se delega por completo a los checks del doctor
+  definidos en §4. Si el operador se saltea el doctor y la carpeta
+  falta, el primer intento de S5 falla con un 4xx cuyo trazado de
+  payload (evento de §5) hace obvio el diagnóstico.
 
-### 4. Two new doctor checks + `cm-targets` group
+### 4. Dos nuevos checks del doctor + grupo `cm-targets`
 
 `cli/doctor.py`:
 
@@ -130,41 +139,42 @@ _CHECK_GROUPS["cm-targets"] = frozenset({
 })
 ```
 
-The existing `cm-types` group is kept (aliasing to the single
-`cm_type_alignment` check) for backward compatibility with any
-operator scripts; `cm-targets` is the new umbrella.
+El grupo `cm-types` existente se mantiene (aliaseado al único check
+`cm_type_alignment`) por compat hacia atrás con cualquier script
+del operador; `cm-targets` es el nuevo paraguas.
 
 #### `_check_cmis_folders_exist`
 
-- Iterates the unique non-empty `cmis_folder` values across the
-  mapping rows.
-- Calls `IUploader.verify_folder_exists` for each.
-- PASS when all return `True`.
-- FAIL listing the missing paths with the instruction
-  "create these folders in CMIS before running the pipeline".
-- SKIP when no row has `cmis_folder` populated (graceful for the
-  consolidated-mapping mode where folders aren't yet declared).
+- Itera los valores únicos no vacíos de `cmis_folder` a lo largo
+  de las filas del mapeo.
+- Llama a `IUploader.verify_folder_exists` por cada uno.
+- PASS cuando todos devuelven `True`.
+- FAIL listando los paths faltantes con la instrucción
+  "crear estas carpetas en CMIS antes de correr el pipeline".
+- SKIP cuando ninguna fila tiene `cmis_folder` poblado (manejo
+  amable para el modo de mapeo consolidado donde las carpetas
+  todavía no se declaran).
 
 #### `_check_cmis_properties_alignment`
 
-For each unique `(cm_object_type, cmis_property_id)` pair derived
-by joining `MapeoRVI` and `MetadatosCM` on `IDCM`:
-- Calls `IUploader.get_type_definition(cm_object_type)`.
-- Verifies `cmis_property_id` is present in
-  `propertyDefinitions` of that type.
-- FAIL groups missing pairs by type:
+Para cada par único `(cm_object_type, cmis_property_id)` derivado
+al unir `MapeoRVI` y `MetadatosCM` por `IDCM`:
+- Llama a `IUploader.get_type_definition(cm_object_type)`.
+- Verifica que `cmis_property_id` esté presente en
+  `propertyDefinitions` de ese tipo.
+- FAIL agrupa los pares faltantes por tipo:
   `BAC_01_01_02_04_01_15 missing 2: clbNonGroup.Fvenc_Inicio, clbNonGroup.Fvenc_Fin`.
-- SKIP when no row has `cmis_property_id` populated.
+- SKIP cuando ninguna fila tiene `cmis_property_id` poblado.
 
-Both checks honor `cmis.test_connection_timeout_seconds` from the
-existing config (no new knobs).
+Ambos checks honran `cmis.test_connection_timeout_seconds` de la
+config existente (sin perillas nuevas).
 
-### 5. Upload payload trace events
+### 5. Eventos de trazado del payload de subida
 
-`adapters/upload/cmis_uploader.py` emits two structured events
-through the existing `observability` channel into `metrics.jsonl`.
+`adapters/upload/cmis_uploader.py` emite dos eventos estructurados a
+través del canal existente de `observability` hacia `metrics.jsonl`.
 
-#### `s5_upload_attempt` — every POST attempt
+#### `s5_upload_attempt` — cada intento de POST
 
 ```jsonc
 {
@@ -187,9 +197,9 @@ through the existing `observability` channel into `metrics.jsonl`.
 }
 ```
 
-#### `s5_upload_failed` — only on non-201 responses
+#### `s5_upload_failed` — solo en respuestas no-201
 
-Superset of `s5_upload_attempt` with three extra fields:
+Superconjunto de `s5_upload_attempt` con tres campos extra:
 
 ```jsonc
 {
@@ -201,73 +211,79 @@ Superset of `s5_upload_attempt` with three extra fields:
 }
 ```
 
-#### PII masking
+#### Enmascarado de PII
 
-`observability/pii.py` already exists. Both events route every
-property value through `pii.mask_value(field_name, value)` before
-emission. The friendly-name → masking-rule map lives in
-`observability/pii.py` (existing); fields not in the map are
-emitted verbatim.
+`observability/pii.py` ya existe. Ambos eventos enrutan cada valor
+de propiedad a través de `pii.mask_value(field_name, value)` antes
+de emitir. El mapa nombre-amigable → regla-de-enmascarado vive en
+`observability/pii.py` (existente); los campos que no están en el
+mapa se emiten verbatim.
 
-#### Configuration
+#### Configuración
 
-`ObservabilityConfig` (config/schema.py) gains:
+`ObservabilityConfig` (`config/schema.py`) gana:
 
 ```python
 unmask_pii: bool = Field(default=False)
 ```
 
-When `true`, both events emit unmasked values. Surfaced only via
-config file (no CLI flag) to avoid accidental enables in PRD
-batches. A doctor `WARNING` is emitted at startup when
-`unmask_pii=true` is detected, reminding the operator.
+Cuando es `true`, ambos eventos emiten valores sin enmascarar. Se
+expone únicamente vía archivo de config (sin flag CLI) para evitar
+habilitaciones accidentales en `batches` PRD. Se emite un WARNING
+del doctor al arranque cuando se detecta `unmask_pii=true`,
+recordándoselo al operador.
 
-## Out of scope
+## Fuera de alcance
 
-- **Auto-provisioning CMIS folders.** Explicit non-goal — the
-  bank's team owns the folder tree.
-- **Generating `MetadatosCM.CMISPropertyId` from CMIS typeDefinition
-  reflection.** Operator fills the column manually with the wire-level
-  property ID per environment (`cmcourier:*` in staging,
-  `clbNonGroup.*` in PRD). A future spec could automate this.
-- **Curl-equivalent dump on the success path.** Only the failure
-  path emits it; success events have enough context already.
-- **Changes to `observability/pii.py` masking rules.** Reused as-is.
-- **Backporting `verify_folder_exists` semantics to existing
-  staging integration tests that depended on auto-creation.** Those
-  tests are rewritten to pre-create the folder via the staging
-  Alfresco container directly (or via the CMM upload sample we
-  already have).
+- **Aprovisionamiento automático de carpetas CMIS.** No-objetivo
+  explícito — el equipo del banco es dueño del árbol de carpetas.
+- **Generar `MetadatosCM.CMISPropertyId` desde reflexión de
+  `typeDefinition` CMIS.** El operador completa la columna a mano
+  con el ID de propiedad a nivel de cable por entorno
+  (`cmcourier:*` en staging, `clbNonGroup.*` en PRD). Una spec
+  futura podría automatizar esto.
+- **Volcado de equivalente curl en el camino de éxito.** Solo el
+  camino de falla lo emite; los eventos de éxito ya tienen
+  suficiente contexto.
+- **Cambios a las reglas de enmascarado de `observability/pii.py`.**
+  Se reutilizan tal cual.
+- **Backport de las semánticas de `verify_folder_exists` a tests de
+  integración de staging existentes que dependían de la auto-
+  creación.** Esos tests se reescriben para pre-crear la carpeta
+  vía el contenedor Alfresco de staging directamente (o vía el
+  sample CMM upload que ya tenemos).
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- All 9 existing doctor checks continue to PASS on a healthy
-  staging Alfresco.
-- `doctor --check cm-targets` after `register-model.sh` plus
-  pre-creating `/cmcourier-staging/CN01` reports **3 PASS**
-  (cm_type_alignment, cmis_folders_exist, cmis_properties_alignment).
-- Deleting the folder makes `cmis_folders_exist` FAIL and the
-  pipeline `doctor` exits non-zero.
-- Setting a `CMISPropertyId` on `CN01.CIF` that does not exist
-  on `D:cmcourier:bacDoc` makes `cmis_properties_alignment`
-  FAIL with the missing property listed.
-- Running `cmcourier csv-trigger-pipeline run --total 10` on the
-  staging stack writes 10 `s5_upload_attempt` events into
+- Los 9 checks de doctor existentes siguen en PASS contra un
+  Alfresco de staging saludable.
+- `doctor --check cm-targets` tras `register-model.sh` más
+  pre-crear `/cmcourier-staging/CN01` reporta **3 PASS**
+  (`cm_type_alignment`, `cmis_folders_exist`,
+  `cmis_properties_alignment`).
+- Borrar la carpeta hace que `cmis_folders_exist` FAIL y el
+  `doctor` del `pipeline` salga con código no-cero.
+- Definir un `CMISPropertyId` en `CN01.CIF` que no existe en
+  `D:cmcourier:bacDoc` hace que `cmis_properties_alignment` FAIL
+  con la propiedad faltante listada.
+- Correr `cmcourier csv-trigger-pipeline run --total 10` sobre el
+  stack de staging escribe 10 eventos `s5_upload_attempt` en
   `logs/<batch_id>/metrics.jsonl`.
-- Injecting a bad property name into MetadatosCM and re-running
-  produces at least one `s5_upload_failed` event with status
-  `400`, a truncated `response_body`, and a `curl_equivalent` whose
-  property values are PII-masked.
-- Setting `observability.unmask_pii: true` and re-running yields
-  the same events with raw values, and `doctor` startup emits a
-  WARNING about the unmasked-PII mode.
-- `CmisUploader._create_folder_segment` is removed and no test
-  references it. Pipeline S5 makes zero folder-creation requests
-  in a full run.
-- Existing tests pass without modification except those that
-  explicitly rely on auto-folder-creation (those are rewritten to
-  pre-create).
-- mypy --strict clean on `domain/`, `services/`, `orchestrators/`.
-- Ruff clean.
-- CHANGELOG entry `[0.41.0]`, POST-MVP roadmap unchanged (this is
-  not a POST-MVP item — it's a hardening / operability change).
+- Inyectar un nombre de propiedad malo en `MetadatosCM` y re-
+  correr produce al menos un evento `s5_upload_failed` con status
+  `400`, un `response_body` truncado, y un `curl_equivalent` cuyos
+  valores de propiedad están enmascarados por PII.
+- Definir `observability.unmask_pii: true` y re-correr produce los
+  mismos eventos con valores crudos, y el arranque del `doctor`
+  emite un WARNING sobre el modo `unmask_pii`.
+- `CmisUploader._create_folder_segment` se elimina y ningún test
+  lo referencia. El S5 del `pipeline` hace cero requests de
+  creación de carpeta en una corrida completa.
+- Los tests existentes pasan sin modificación excepto los que
+  dependen explícitamente de la auto-creación de carpetas (esos se
+  reescriben para pre-crear).
+- `mypy --strict` limpio en `domain/`, `services/`, `orchestrators/`.
+- Ruff limpio.
+- Entrada de CHANGELOG `[0.41.0]`, roadmap POST-MVP sin cambios
+  (esto no es un ítem POST-MVP — es un cambio de
+  endurecimiento / operabilidad).

@@ -1,35 +1,44 @@
 # 040 — Plan
 
-Two phases, ~1.5h total.
+Dos fases, ~1.5h en total.
 
-## Phase 1 — `_service_url` helper + 6 call-site swaps + tests (~1h)
+## Fase 1 — Helper `_service_url` + intercambio en 6 puntos + tests (~1h)
 
-### Files
+### Archivos
 
 - `src/cmcourier/adapters/upload/cmis_uploader.py`
-  - Add `_service_url(suffix: str = "") -> str` method.
-  - Replace 6 inline f-string URL builds:
-    - `_warmup_session` line ~388: `f"{base}/{repo_id}"` → `self._service_url()`.
-    - `test_connection` (if it shares the warmup pattern).
-    - `get_type_definition`: `f"{base}/{repo_id}"` → `self._service_url()`.
-    - `verify_folder_exists` line ~315: `f"{base}/{repo_id}/root/{normalized}"` → `self._service_url(f"root/{normalized}")`.
-    - `upload` line ~365: same.
-    - Any other future `_check_*` paths (none today).
+  - Agregar el método `_service_url(suffix: str = "") -> str`.
+  - Reemplazar 6 construcciones de URL inline con f-string:
+    - `_warmup_session` línea ~388: `f"{base}/{repo_id}"` →
+      `self._service_url()`.
+    - `test_connection` (si comparte el patrón de warmup).
+    - `get_type_definition`: `f"{base}/{repo_id}"` →
+      `self._service_url()`.
+    - `verify_folder_exists` línea ~315:
+      `f"{base}/{repo_id}/root/{normalized}"` →
+      `self._service_url(f"root/{normalized}")`.
+    - `upload` línea ~365: igual.
+    - Cualquier otro path `_check_*` futuro (ninguno hoy).
 - `tests/integration/adapters/test_cmis_uploader.py`
-  - New `TestServiceUrl` class with 4 unit-ish tests:
-    - `_service_url() == base_url` when `repo_id=""`.
-    - `_service_url() == f"{base_url}/{repo_id}"` when `repo_id` set.
-    - `_service_url("root/X") == f"{base_url}/root/X"` when empty.
-    - `_service_url("root/X") == f"{base_url}/{repo_id}/root/X"` when set.
-  - New `TestAlfrescoStyleUrls` integration class with 3 cases
-    using ``responses``:
-    - `verify_folder_exists` with `repo_id=""` issues a GET to
-      `.../browser/root/<path>` and accepts a folder JSON.
-    - `upload` with `repo_id=""` POSTs to `.../browser/root/<path>`.
-    - `get_type_definition` with `repo_id=""` queries `.../browser`
-      (no path-encoded id).
-  - Existing IBM-CM-style tests (with `repo_id` set) keep passing
-    unchanged — the helper is a pure refactor for those.
+  - Nueva clase `TestServiceUrl` con 4 tests tipo unitarios:
+    - `_service_url() == base_url` cuando `repo_id=""`.
+    - `_service_url() == f"{base_url}/{repo_id}"` cuando
+      `repo_id` está definido.
+    - `_service_url("root/X") == f"{base_url}/root/X"` cuando
+      vacío.
+    - `_service_url("root/X") == f"{base_url}/{repo_id}/root/X"`
+      cuando definido.
+  - Nueva clase de integración `TestAlfrescoStyleUrls` con 3
+    casos usando ``responses``:
+    - `verify_folder_exists` con `repo_id=""` hace GET a
+      `.../browser/root/<path>` y acepta un JSON de carpeta.
+    - `upload` con `repo_id=""` hace POST a
+      `.../browser/root/<path>`.
+    - `get_type_definition` con `repo_id=""` consulta
+      `.../browser` (sin id en el path).
+  - Los tests estilo IBM-CM existentes (con `repo_id` definido)
+    siguen pasando sin cambios — el helper es un refactor puro
+    para esos.
 
 ### Tests
 
@@ -45,13 +54,13 @@ Two phases, ~1.5h total.
 fix(uploader): repo_id='' emits Alfresco-style URLs without doubled-slash (040 Phase 1)
 ```
 
-## Phase 2 — Config docs + CHANGELOG 0.43.0 + smoke + FF (~30min)
+## Fase 2 — Docs de config + CHANGELOG 0.43.0 + smoke + FF (~30min)
 
-### Files
+### Archivos
 
 - `scripts/staging/config-staging.yaml.template`
-  - Add a comment block on the `cmis` section explaining the
-    Alfresco vs IBM CM distinction:
+  - Agregar un bloque de comentarios sobre la sección `cmis`
+    explicando la distinción Alfresco vs IBM CM:
     ```yaml
     cmis:
       # Browser Binding service URL.
@@ -63,29 +72,31 @@ fix(uploader): repo_id='' emits Alfresco-style URLs without doubled-slash (040 P
       repo_id: ""
     ```
 - `docs/how-to/local-staging-simulation.md`
-  - Step 4 reflects `repo_id: ""` for the staging Alfresco config.
+  - El Paso 4 refleja `repo_id: ""` para la config del Alfresco
+    de staging.
 - `docs/how-to/cmis-target-preflight.md`
-  - Add a note in §5 (operational discipline) about the URL
-    convention.
+  - Agregar una nota en §5 (disciplina operativa) sobre la
+    convención de URL.
 - `CHANGELOG.md`
-  - `[0.43.0]` — Added: Alfresco URL compatibility via
-    `repo_id=""`. Changed: `CmisConfig.repo_id` semantics
-    (empty was undefined → now explicit "no repo id in path").
+  - `[0.43.0]` — Added: compatibilidad de URL Alfresco vía
+    `repo_id=""`. Changed: semánticas de `CmisConfig.repo_id`
+    (vacío antes estaba indefinido → ahora explícito "sin id en
+    el path").
 - `README.md`
-  - Tick the feature row.
+  - Tildar la fila de feature.
 - `pyproject.toml`
-  - Version bump 0.42.0 → 0.43.0.
+  - Bump de versión 0.42.0 → 0.43.0.
 
 ### Smoke
 
-After commit:
+Tras el commit:
 
 ```bash
 .venv/bin/cmcourier doctor --config sample/config-staging.yaml --check cm-targets
 ```
 
-Expect 3 PASS (cm_type_alignment, cmis_folders_exist,
-cmis_properties_alignment) against `testserver:8080`.
+Esperar 3 PASS (`cm_type_alignment`, `cmis_folders_exist`,
+`cmis_properties_alignment`) contra `testserver:8080`.
 
 ### Commit
 
@@ -93,4 +104,4 @@ cmis_properties_alignment) against `testserver:8080`.
 docs(040): config doc updates + CHANGELOG 0.43.0 + version bump (040 Phase 2)
 ```
 
-### FF to main, branch stays.
+### FF a main, la rama queda.

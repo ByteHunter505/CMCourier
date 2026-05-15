@@ -1,25 +1,27 @@
-# 037 — Cross-batch document_cache table (POST-MVP §9)
+# 037 — Tabla `document_cache` cross-batch (POST-MVP §9)
 
-## Why
+## Por qué
 
-S3 (Metadata Resolution) is the most external-IO-heavy stage: every
-field source query touches a CSV adapter, an AS400 cursor, or the
-trigger/RVABREP row. Re-running the same doc in a different mode
-(e.g., resume after partial S5 failure, or migrating a backlog by
-chunks) pays that cost again — even when the resolved properties
-are byte-identical to the last successful resolve.
+S3 (Resolución de metadata) es la etapa con más I/O externo: cada
+consulta de fuente de campo toca un adaptador CSV, un cursor AS400,
+o la fila trigger/RVABREP. Re-correr el mismo documento en un modo
+distinto (por ejemplo, retomar tras una falla parcial de S5, o
+migrar un backlog por chunks) paga ese costo otra vez — incluso
+cuando las propiedades resueltas son byte-idénticas al último
+resolve exitoso.
 
-POST-MVP §9 introduces a **cross-batch metadata cache** keyed by
-`txn_num` + required-fields signature. After a successful S3, the
-resolved metadata + healed trigger CIF are upserted into a
-`document_cache` SQLite table. Before S3 begins, the cache is
-consulted; on hit (and TTL valid + fields match), S3 short-circuits.
+POST-MVP §9 introduce un **caché de metadata cross-batch** keado por
+`txn_num` + firma de campos requeridos. Tras un S3 exitoso, la
+metadata resuelta + el CIF del trigger sanado se `upsertean` en una
+tabla SQLite `document_cache`. Antes de que S3 comience, se consulta
+el caché; con hit (y TTL válido + match de campos), S3 se
+cortocircuita.
 
-## What
+## Qué
 
-### Configuration
+### Configuración
 
-New `MetadataCacheConfig` block under `MetadataConfigModel.cache`:
+Nuevo bloque `MetadataCacheConfig` bajo `MetadataConfigModel.cache`:
 
 ```python
 class MetadataCacheConfig(BaseModel):
@@ -27,12 +29,12 @@ class MetadataCacheConfig(BaseModel):
     ttl_minutes: int = Field(default=60, gt=0)
 ```
 
-Default `enabled = False` — opt-in. Single-batch behavior unchanged
-when off.
+`enabled = False` por defecto — opt-in. El comportamiento de
+`batch` único no cambia cuando está apagado.
 
-### Schema (SQLite)
+### Esquema (SQLite)
 
-Same DB as `migration_log` (single `tracking.db_path`):
+Misma DB que `migration_log` (único `tracking.db_path`):
 
 ```sql
 CREATE TABLE IF NOT EXISTS document_cache (
@@ -48,32 +50,33 @@ CREATE INDEX IF NOT EXISTS idx_document_cache_cached_at
 ON document_cache (cached_at);
 ```
 
-`fields_hash` is a SHA-256 hex digest of
-`",".join(sorted(required_metadata_fields))` — short, deterministic,
-mapping-evolution-safe.
+`fields_hash` es un digest hex SHA-256 de
+`",".join(sorted(required_metadata_fields))` — corto, determinista,
+seguro frente a evolución del mapeo.
 
-### Port + adapter
+### Puerto + adaptador
 
 * `cmcourier.domain.ports.IDocumentCache` — `get`, `put`, `clear`,
   `stats`.
-* `cmcourier.adapters.tracking.SqliteDocumentCache` — concrete
-  implementation reusing the existing connection pool of
-  `SQLiteTrackingStore`. New `_CREATE_DOCUMENT_CACHE` DDL added to
-  the migration list.
+* `cmcourier.adapters.tracking.SqliteDocumentCache` —
+  implementación concreta que reutiliza el `connection pool`
+  existente de `SQLiteTrackingStore`. Se agrega el nuevo DDL
+  `_CREATE_DOCUMENT_CACHE` a la lista de migraciones.
 
-### Service
+### Servicio
 
-`DocumentCacheService` wraps the port and adds:
+`DocumentCacheService` envuelve el puerto y agrega:
 
-- Clock injection for deterministic TTL tests.
-- Hit/miss in-memory counters surfaced via `stats()` (so the CLI
-  `cache stats` command works without reading the table again).
-- A single `try_get_or_resolve(*, txn, fields, resolver_fn)` helper
-  the pipeline calls.
+- Inyección de `clock` para tests deterministas de TTL.
+- Contadores en memoria de hits/misses expuestos vía `stats()` (para
+  que el comando CLI `cache stats` funcione sin volver a leer la
+  tabla).
+- Un único helper `try_get_or_resolve(*, txn, fields, resolver_fn)`
+  que llama el `pipeline`.
 
-### Pipeline integration
+### Integración con el pipeline
 
-`StagedPipeline._stage_s3` consults the cache before invoking
+`StagedPipeline._stage_s3` consulta el caché antes de invocar a
 `MetadataService.resolve`:
 
 ```python
@@ -88,51 +91,52 @@ else:
     if cache: cache.put(key, resolution, now)
 ```
 
-When `metadata.cache.enabled = False`, the cache reference is
-`None`, the consult / write paths are skipped, and behavior is
-byte-identical to pre-037.
+Cuando `metadata.cache.enabled = False`, la referencia del caché es
+`None`, los caminos de consulta/escritura se saltean, y el
+comportamiento es byte-idéntico a pre-037.
 
 ### CLI
 
-New `cmcourier cache` command group:
+Nuevo grupo de comandos `cmcourier cache`:
 
-- `cmcourier cache stats [--config <path>]`: rows total, oldest,
-  newest, hits / misses since last process start (in-memory).
-- `cmcourier cache clear --txn <num> [--config <path>]`: delete by
-  txn.
-- `cmcourier cache clear --all [--config <path>]`: truncate table.
+- `cmcourier cache stats [--config <path>]`: total de filas, más
+  antigua, más nueva, hits / misses desde el último inicio de
+  proceso (en memoria).
+- `cmcourier cache clear --txn <num> [--config <path>]`: borrar por
+  `txn`.
+- `cmcourier cache clear --all [--config <path>]`: truncar la tabla.
 - `cmcourier cache clear --older-than <minutes> [--config <path>]`:
-  delete entries older than N minutes.
+  borrar entradas más viejas que N minutos.
 
-### Metrics + observability
+### Métricas + observabilidad
 
-Each S3 dispatch emits one of:
+Cada despacho de S3 emite uno de:
 
 ```json
 {"event": "document_cache_hit",  "txn_num": "...", "age_s": 12.4, "fields_hash": "abc..."}
 {"event": "document_cache_miss", "txn_num": "...", "reason": "absent|expired"}
 ```
 
-A `cache.hits` / `cache.misses` counter feeds the existing
-`MetricsRecorder` so the JSONL pipeline log surfaces totals at the
-end of each batch.
+Un contador `cache.hits` / `cache.misses` alimenta el
+`MetricsRecorder` existente para que el log JSONL del `pipeline`
+exponga los totales al cierre de cada `batch`.
 
-## Backwards compatibility
+## Compatibilidad hacia atrás
 
-`metadata.cache.enabled = False` (the default) → cache reference is
-`None` everywhere → S3 path is byte-identical to pre-037. All 950
-existing tests keep passing. The new `document_cache` table is
-created in the SQLite migration list but stays empty unless the
-operator opts in.
+`metadata.cache.enabled = False` (el valor por defecto) → la
+referencia del caché es `None` en todas partes → el camino S3 es
+byte-idéntico a pre-037. Las 950 pruebas existentes siguen pasando.
+La nueva tabla `document_cache` se crea en la lista de migraciones
+SQLite pero queda vacía a menos que el operador opte por activarla.
 
-## Out of scope (deferred)
+## Fuera de alcance (diferido)
 
-- AS400-backed cache for §4 environments. The cross-process
-  coordination via NIARVILOG (034) handles idempotency cross-process
-  already; for the cache, single-host SQLite is enough until
-  multi-host deployments prove a need.
-- Per-field caching (cache hit on partial field overlap). All-or-
-  nothing on `fields_hash` keeps the correctness story simple.
-- Compaction / vacuum strategy. `cmcourier cache clear --older-than`
-  is the operator-driven cleanup; auto-vacuum is a future watchlist
-  item.
+- Caché respaldado por AS400 para entornos §4. La coordinación
+  cross-process vía NIARVILOG (034) ya maneja la idempotencia
+  cross-process; para el caché, SQLite single-host alcanza hasta
+  que los despliegues multi-host demuestren la necesidad.
+- Caché por campo (hit con solapamiento parcial). Todo-o-nada sobre
+  `fields_hash` mantiene la historia de corrección simple.
+- Estrategia de compactación / vacuum. `cmcourier cache clear
+  --older-than` es la limpieza dirigida por el operador; el
+  `auto-vacuum` es un ítem futuro de watchlist.
