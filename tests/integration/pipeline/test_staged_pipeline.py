@@ -514,3 +514,53 @@ class TestS1FilteredOutcome051:
             r for r in caplog.records if r.__dict__.get("reason") == "deleted_at_source"
         ]
         assert len(filtered_logs) == 2
+
+
+# ---------------------------------------------------------------------------
+# Group — 056: configurable prep workers (S2/S3/S4 on a fixed thread pool)
+# ---------------------------------------------------------------------------
+
+
+class TestPrepWorkers056:
+    @responses.activate
+    @pytest.mark.parametrize("prep_workers", [1, 4])
+    def test_prep_outcome_identical_serial_and_parallel(
+        self,
+        pipeline_harness,  # type: ignore[no-untyped-def]
+        tmp_path: Path,
+        prep_workers: int,
+    ) -> None:
+        # The rvabrep fixture has six docs with failures targeted at each
+        # prep stage: TESTUNMAPPED → S2, TESTMETAFAIL → S3,
+        # TESTMISSFILES → S4; CLIENT01 / CLIENT02 / HEAL succeed. The
+        # RunReport must be identical whether prep runs serial
+        # (prep_workers=1) or on a 4-thread pool — same survivors, same
+        # per-stage failure counts, no double-counting, no ordering drift.
+        pipeline_harness.register_cmis_for_docs(["TXN_PIPE_001", "TXN_PIPE_002", "TXN_PIPE_006"])
+        triggers = _write_trigger_csv(
+            tmp_path,
+            [
+                ("TESTCLIENT01", "123456", "1"),
+                ("TESTUNMAPPED", "123456", "1"),
+                ("TESTCLIENT02", "234567", "1"),
+                ("TESTMISSFILES", "123456", "1"),
+                ("TESTMETAFAIL", "999999", "1"),
+                ("TESTHEAL", "123456", "1"),
+            ],
+        )
+        report = pipeline_harness.build_pipeline(triggers, prep_workers=prep_workers).run(
+            source_descriptor=str(triggers)
+        )
+
+        assert report.total_docs == 6
+        assert report.s2_failed == 1  # TESTUNMAPPED — IDRViNotMappedError
+        assert report.s3_failed == 1  # TESTMETAFAIL — metadata resolution
+        assert report.s4_failed == 1  # TESTMISSFILES — source file missing
+        assert report.s5_done == 3  # CLIENT01, CLIENT02, HEAL
+        assert report.s5_failed == 0
+
+        pipeline_harness.tracking_store.flush()
+        assert _count_rows(pipeline_harness.db_path, report.batch_id, "S5_DONE") == 3
+        assert _count_rows(pipeline_harness.db_path, report.batch_id, "S2_FAILED") == 1
+        assert _count_rows(pipeline_harness.db_path, report.batch_id, "S3_FAILED") == 1
+        assert _count_rows(pipeline_harness.db_path, report.batch_id, "S4_FAILED") == 1

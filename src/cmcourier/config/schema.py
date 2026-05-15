@@ -564,12 +564,19 @@ class ProcessingConfig(BaseModel):
     (S0–S4) concurrently. Default ``2`` is the canonical
     "one preparing + one uploading" model.
 
+    ``prep_workers`` (056) sizes a fixed thread pool for the prep
+    stages S2 (mapping), S3 (metadata) and S4 (assembly) — these run
+    one document at a time otherwise. Default ``1`` keeps the serial
+    behaviour byte-identical. S0/S1 stay serial by design (they carry
+    the cross-batch idempotency + resume logic).
+
     ``heavy_light_lanes`` carries the dual-lane (POST-MVP §1) config —
     default-off; see :class:`HeavyLightLanesConfig`.
     """
 
     model_config = _STRICT
     batches_in_flight: int = Field(default=2, ge=1, le=2)
+    prep_workers: int = Field(default=1, ge=1)
     heavy_light_lanes: HeavyLightLanesConfig = Field(default_factory=HeavyLightLanesConfig)
 
 

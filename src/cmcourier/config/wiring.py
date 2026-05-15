@@ -159,6 +159,7 @@ def build_pipeline(
         uploader=uploader,
         tracking_store=tracking_store,
         workers=config.cmis.workers,
+        prep_workers=config.processing.prep_workers,
         auto_tune=config.cmis.auto_tune,
         sampler=sampler,
         coordinator=coordinator,

@@ -187,6 +187,14 @@ class TestNumericConstraints:
         with pytest.raises(ValidationError):
             CmisConfigModel(base_url="x", repo_id="y", retry_max_attempts=0)
 
+    def test_prep_workers_defaults_to_one(self) -> None:
+        # 056: default 1 keeps S2/S3/S4 serial — byte-identical to pre-056.
+        assert ProcessingConfig().prep_workers == 1
+
+    def test_prep_workers_must_be_ge_one(self) -> None:
+        with pytest.raises(ValidationError):
+            ProcessingConfig(prep_workers=0)
+
     def test_batch_size_must_be_ge_one(
         self, fixture_paths: dict[str, Path], tmp_path: Path
     ) -> None:

@@ -29,6 +29,7 @@ __all__ = ["StagedPipeline", "RunReport"]
 import logging
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -149,6 +150,7 @@ class StagedPipeline:
         metrics_recorder: MetricsRecorder | None = None,
         pipeline_name: str = "csv-trigger",
         workers: int = 1,
+        prep_workers: int = 1,
         pool_stats: WorkerPoolStats | None = None,
         auto_tune: AutoTuneConfig | None = None,
         sampler: SystemMetricsSampler | None = None,
@@ -172,6 +174,9 @@ class StagedPipeline:
         )
         self._pipeline_name = pipeline_name
         self._workers = max(1, int(workers))
+        # 056: fixed-size thread pool for the prep stages S2/S3/S4.
+        # 1 == serial (byte-identical to pre-056). S0/S1 stay serial.
+        self._prep_workers = max(1, int(prep_workers))
         self._pool_stats = pool_stats or WorkerPoolStats()
         # 025 phase 2: soft-cap concurrency limit. Auto-tune adjusts it.
         self._auto_tune_cfg = auto_tune
@@ -549,6 +554,31 @@ class StagedPipeline:
                 items.append(item)
         return items, skipped_cross_batch, filtered
 
+    def _run_prep_stage(
+        self,
+        items: list[_StageItem],
+        worker: Callable[[_StageItem], tuple[_StageItem | None, bool]],
+    ) -> tuple[list[_StageItem], int]:
+        """056: dispatch one prep stage's per-item worker.
+
+        ``prep_workers == 1`` runs serially — byte-identical to the
+        pre-056 loop. Above 1, a fixed ``ThreadPoolExecutor`` runs the
+        worker; ``pool.map`` preserves input order, so ``survivors``
+        stays deterministic regardless of completion order. Each
+        worker returns ``(survivor_or_None, counted_failure)``.
+        """
+        if self._prep_workers == 1:
+            results = [worker(item) for item in items]
+        else:
+            with ThreadPoolExecutor(
+                max_workers=self._prep_workers,
+                thread_name_prefix="cmcourier-prep",
+            ) as pool:
+                results = list(pool.map(worker, items))
+        survivors = [item for item, _ in results if item is not None]
+        failed = sum(1 for _, counted in results if counted)
+        return survivors, failed
+
     def _stage_s2(
         self,
         items: list[_StageItem],
@@ -557,36 +587,40 @@ class StagedPipeline:
         recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
         rec = recorder or self._metrics
-        survivors: list[_StageItem] = []
-        failed = 0
-        for item in items:
-            txn = item.document.txn_num
-            with StageTimer(
-                rec,
-                pipeline=self._pipeline_name,
-                stage="S2",
-                batch_id=batch_id,
-                txn_num=txn,
-            ) as timer:
-                try:
-                    mapping = self._mapping_service.get_mapping(item.document.index7)
-                except IDRViNotMappedError as exc:
-                    timer.mark_failed()
-                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
-                        record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
-                        self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
-                        self._tracking_store.mark_stage_failed(
-                            txn, batch_id, StageStatus.S2_FAILED, str(exc)
-                        )
-                        failed += 1
-                    continue
-            if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
-                record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
-                self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
-                self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S2_DONE)
-            item.mapping = mapping
-            survivors.append(item)
-        return survivors, failed
+        return self._run_prep_stage(items, lambda item: self._s2_one(item, batch_id, rec))
+
+    def _s2_one(
+        self, item: _StageItem, batch_id: str, rec: MetricsRecorder
+    ) -> tuple[_StageItem | None, bool]:
+        """S2 mapping for one item. Returns ``(survivor_or_None,
+        counted_failure)`` — a failure already marked done in a prior
+        run is dropped without being counted."""
+        txn = item.document.txn_num
+        with StageTimer(
+            rec,
+            pipeline=self._pipeline_name,
+            stage="S2",
+            batch_id=batch_id,
+            txn_num=txn,
+        ) as timer:
+            try:
+                mapping = self._mapping_service.get_mapping(item.document.index7)
+            except IDRViNotMappedError as exc:
+                timer.mark_failed()
+                if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
+                    record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
+                    self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
+                    self._tracking_store.mark_stage_failed(
+                        txn, batch_id, StageStatus.S2_FAILED, str(exc)
+                    )
+                    return None, True
+                return None, False
+        if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S2_DONE):
+            record = self._build_record(item, batch_id, StageStatus.S2_PENDING)
+            self._tracking_store.mark_stage_pending(record, StageStatus.S2_PENDING)
+            self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S2_DONE)
+        item.mapping = mapping
+        return item, False
 
     def _stage_s3(
         self,
@@ -596,78 +630,79 @@ class StagedPipeline:
         recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
         rec = recorder or self._metrics
-        survivors: list[_StageItem] = []
-        failed = 0
-        for item in items:
-            assert item.mapping is not None
-            txn = item.document.txn_num
-            fields = item.mapping.required_metadata_fields
-            with StageTimer(
-                rec,
-                pipeline=self._pipeline_name,
-                stage="S3",
-                batch_id=batch_id,
-                txn_num=txn,
-            ) as timer:
-                cached = (
-                    self._document_cache.try_get(txn_num=txn, fields=fields)
-                    if self._document_cache is not None
-                    else None
-                )
-                if cached is not None:
-                    # 037: cache hit — short-circuit MetadataService.
-                    # 046: triggers are polymorphic. For a ClientTrigger
-                    # we reconstruct with the cached CIF so downstream
-                    # code that reads ``.cif`` directly stays consistent;
-                    # for row-based triggers we keep the original (the row
-                    # is immutable, the cached cif lives in the metadata
-                    # bag's BAC_CIF property anyway).
-                    metadata = ResolvedMetadata.from_dict(dict(cached.properties))
-                    healed_trigger: Trigger
-                    if isinstance(item.trigger, ClientTrigger):
-                        healed_trigger = ClientTrigger(
-                            shortname=item.trigger.shortname,
-                            cif=cached.trigger_cif,
-                            system_id=item.trigger.system_id,
-                        )
-                    else:
-                        healed_trigger = item.trigger
-                    healed_cif: str | None = cached.trigger_cif
+        return self._run_prep_stage(items, lambda item: self._s3_one(item, batch_id, rec))
+
+    def _s3_one(
+        self, item: _StageItem, batch_id: str, rec: MetricsRecorder
+    ) -> tuple[_StageItem | None, bool]:
+        """S3 metadata resolution for one item. Returns
+        ``(survivor_or_None, counted_failure)``."""
+        assert item.mapping is not None
+        txn = item.document.txn_num
+        fields = item.mapping.required_metadata_fields
+        with StageTimer(
+            rec,
+            pipeline=self._pipeline_name,
+            stage="S3",
+            batch_id=batch_id,
+            txn_num=txn,
+        ) as timer:
+            cached = (
+                self._document_cache.try_get(txn_num=txn, fields=fields)
+                if self._document_cache is not None
+                else None
+            )
+            if cached is not None:
+                # 037: cache hit — short-circuit MetadataService.
+                # 046: triggers are polymorphic. For a ClientTrigger
+                # we reconstruct with the cached CIF so downstream
+                # code that reads ``.cif`` directly stays consistent;
+                # for row-based triggers we keep the original (the row
+                # is immutable, the cached cif lives in the metadata
+                # bag's BAC_CIF property anyway).
+                metadata = ResolvedMetadata.from_dict(dict(cached.properties))
+                healed_trigger: Trigger
+                if isinstance(item.trigger, ClientTrigger):
+                    healed_trigger = ClientTrigger(
+                        shortname=item.trigger.shortname,
+                        cif=cached.trigger_cif,
+                        system_id=item.trigger.system_id,
+                    )
                 else:
-                    try:
-                        resolution = self._metadata_service.resolve(
-                            item.trigger, item.document, item.mapping
+                    healed_trigger = item.trigger
+                healed_cif: str | None = cached.trigger_cif
+            else:
+                try:
+                    resolution = self._metadata_service.resolve(
+                        item.trigger, item.document, item.mapping
+                    )
+                except (SourceFailedError, DefaultValidationFailedError) as exc:
+                    timer.mark_failed()
+                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
+                        record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
+                        self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
+                        self._tracking_store.mark_stage_failed(
+                            txn, batch_id, StageStatus.S3_FAILED, str(exc)
                         )
-                    except (SourceFailedError, DefaultValidationFailedError) as exc:
-                        timer.mark_failed()
-                        if not self._tracking_store.is_stage_done(
-                            txn, batch_id, StageStatus.S3_DONE
-                        ):
-                            record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
-                            self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
-                            self._tracking_store.mark_stage_failed(
-                                txn, batch_id, StageStatus.S3_FAILED, str(exc)
-                            )
-                            failed += 1
-                        continue
-                    metadata = resolution.metadata
-                    healed_trigger = resolution.healed_trigger
-                    healed_cif = resolution.healed_cif
-                    if self._document_cache is not None:
-                        self._document_cache.put(
-                            txn_num=txn,
-                            fields=fields,
-                            metadata=metadata,
-                            trigger_cif=healed_cif,
-                        )
-            if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
-                record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
-                self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
-                self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S3_DONE)
-            item.metadata = metadata
-            item.trigger = healed_trigger
-            survivors.append(item)
-        return survivors, failed
+                        return None, True
+                    return None, False
+                metadata = resolution.metadata
+                healed_trigger = resolution.healed_trigger
+                healed_cif = resolution.healed_cif
+                if self._document_cache is not None:
+                    self._document_cache.put(
+                        txn_num=txn,
+                        fields=fields,
+                        metadata=metadata,
+                        trigger_cif=healed_cif,
+                    )
+        if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S3_DONE):
+            record = self._build_record(item, batch_id, StageStatus.S3_PENDING)
+            self._tracking_store.mark_stage_pending(record, StageStatus.S3_PENDING)
+            self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S3_DONE)
+        item.metadata = metadata
+        item.trigger = healed_trigger
+        return item, False
 
     def _stage_s4(
         self,
@@ -677,36 +712,39 @@ class StagedPipeline:
         recorder: MetricsRecorder | None = None,
     ) -> tuple[list[_StageItem], int]:
         rec = recorder or self._metrics
-        survivors: list[_StageItem] = []
-        failed = 0
-        for item in items:
-            txn = item.document.txn_num
-            with StageTimer(
-                rec,
-                pipeline=self._pipeline_name,
-                stage="S4",
-                batch_id=batch_id,
-                txn_num=txn,
-            ) as timer:
-                try:
-                    staged = self._assembler.assemble(item.document)
-                except (SourceFileMissingError, PDFAssemblyFailedError) as exc:
-                    timer.mark_failed()
-                    if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
-                        record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
-                        self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
-                        self._tracking_store.mark_stage_failed(
-                            txn, batch_id, StageStatus.S4_FAILED, str(exc)
-                        )
-                        failed += 1
-                    continue
-            if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
-                record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
-                self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
-                self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S4_DONE)
-            item.staged_file = staged
-            survivors.append(item)
-        return survivors, failed
+        return self._run_prep_stage(items, lambda item: self._s4_one(item, batch_id, rec))
+
+    def _s4_one(
+        self, item: _StageItem, batch_id: str, rec: MetricsRecorder
+    ) -> tuple[_StageItem | None, bool]:
+        """S4 PDF assembly for one item. Returns ``(survivor_or_None,
+        counted_failure)``."""
+        txn = item.document.txn_num
+        with StageTimer(
+            rec,
+            pipeline=self._pipeline_name,
+            stage="S4",
+            batch_id=batch_id,
+            txn_num=txn,
+        ) as timer:
+            try:
+                staged = self._assembler.assemble(item.document)
+            except (SourceFileMissingError, PDFAssemblyFailedError) as exc:
+                timer.mark_failed()
+                if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
+                    record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
+                    self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
+                    self._tracking_store.mark_stage_failed(
+                        txn, batch_id, StageStatus.S4_FAILED, str(exc)
+                    )
+                    return None, True
+                return None, False
+        if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):
+            record = self._build_record(item, batch_id, StageStatus.S4_PENDING)
+            self._tracking_store.mark_stage_pending(record, StageStatus.S4_PENDING)
+            self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S4_DONE)
+        item.staged_file = staged
+        return item, False
 
     def _stage_s5(
         self,

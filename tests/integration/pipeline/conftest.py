@@ -48,7 +48,7 @@ _CMIS_REPO_ID = "$x!testrepo"
 class PipelineHarness:
     """Bundle of long-lived adapters + a per-test pipeline factory."""
 
-    build_pipeline: Callable[[Path], StagedPipeline]
+    build_pipeline: Callable[..., StagedPipeline]
     tracking_store: SQLiteTrackingStore
     register_cmis_for_docs: Callable[..., None]
     db_path: Path
@@ -136,7 +136,7 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
     uploader = CmisUploader(uploader_config)
     tracking_store = SQLiteTrackingStore(tmp_path / "tracking.db")
 
-    def _build_pipeline(triggers_csv: Path) -> StagedPipeline:
+    def _build_pipeline(triggers_csv: Path, *, prep_workers: int = 1) -> StagedPipeline:
         trigger_src = TabularDataSource(triggers_csv)
         opened.append(trigger_src)
         trigger_strategy = CsvTriggerStrategy(trigger_src, CsvTriggerColumnsConfig())
@@ -148,6 +148,7 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
             assembler=assembler,
             uploader=uploader,
             tracking_store=tracking_store,
+            prep_workers=prep_workers,
         )
 
     def _register_cmis_for_docs(txn_nums: list[str], object_id_prefix: str = "cm-id-") -> None:
