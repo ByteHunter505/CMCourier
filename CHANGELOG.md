@@ -51,6 +51,59 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.69.0] — 2026-05-15 — **Streaming-mode TUI bug fixes: bar, timer, CHUNKS, lane queue**
+
+Operator-reported during the first end-to-end streaming run after
+0.68.0 shipped. Four distinct bugs in `StreamingOrchestrator`'s TUI
+binding surface — all because the orchestrator inherited the chunk-
+based binding shape from `MultiBatchOrchestrator` but never
+populated its live fields. All four fixes live entirely in
+`streaming.py`; no changes to the renderer or the batched path.
+
+### Fixed
+
+- **UPLOAD-tab progress bar stuck at `count/count`.** The bar's
+  target = `count + queue_depth`. The batched path calls
+  `pool_stats.set_queue_depth(...)` per cycle; streaming never did,
+  so queue_depth stayed at 0 and the bar showed
+  `count/count` permanently. Now the orchestrator publishes
+  `main_bucket.qsize() + heavy_queue.qsize() + light_queue.qsize()`
+  to `pool_stats` after every `put`/`get` — the bar now shows
+  `count / (count + currently-pending)`.
+- **Chunk timer never started, avg speed always 0.** Synthetic
+  `ChunkState.status` was hard-coded to `"PREP"` for the whole run.
+  `_current_chunk_progress` only computes `elapsed_s` when status is
+  `"UPLOAD"` or `"DONE"`. Streaming now seeds the synthetic chunk
+  with `status="UPLOAD"` and both monotonic stamps at run start, so
+  the per-chunk timer ticks immediately and `avg_mbps` populates as
+  the recorder accumulates bytes.
+- **CHUNKS tab frozen at zero during the run.** `s5_done`,
+  `s5_failed`, `doc_count`, `prep_done` were only set in the final
+  ChunkState update at end-of-run. New `_publish_chunk_state` helper
+  is called from both consumer loops after every S5 outcome — the
+  CHUNKS tab now shows live progress.
+- **LANES queue counter monotonic-up, exceeded `bucket_size`.** The
+  dispatcher maintained private `heavy_depth`/`light_depth` counters
+  that only incremented. After 5000 docs the tab showed
+  `queue 2500` even though the actual queue size never exceeds
+  `bucket_size=200`. The fix reports
+  `lane_queue.qsize()` (live occupancy) instead, and the consumer
+  also reports on `get()` so the counter decrements. This also
+  fixes the LaneController's drain-driven rebalance heuristic
+  (`_heavy_first_empty_at` / `_light_first_empty_at` never
+  triggered pre-067 because depth never hit zero).
+
+### Notes
+
+- The UPLOAD-tab "X/Y docs" denominator in streaming is now
+  `count + currently-pending`, which is honest but not the same as
+  "total trigger count". Knowing the *total* upfront requires a
+  config knob (`--total` already exists as a CLI override).
+  A future change can plumb that into the synthetic chunk_state
+  for a true `count / total` bar when total is known.
+
+---
+
 ## [0.68.0] — 2026-05-15 — **S4 PDF assembly in ProcessPoolExecutor (real CPU parallelism)**
 
 Diagnosed during a real streaming run with
