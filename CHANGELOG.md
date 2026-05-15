@@ -51,6 +51,55 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.60.0] — 2026-05-14 — **Size the S5 thread pool to the AIMD ceiling**
+
+The operator watched the UPLOAD tab's pool capacity climb — 4 → 8 → 12
+— while "in use" stayed pinned at 4. The auto-tune knob was
+disconnected from the engine.
+
+### Fixed
+
+- **The S5 `ThreadPoolExecutor` was sized to the initial
+  `cmis.workers`, not the AIMD ceiling.** Upload concurrency is gated
+  by two stacked limiters: the `ThreadPoolExecutor` (the *hard* limit
+  — only that many threads physically exist) and the
+  `ResizableSemaphore` acquired *inside* each worker (the *soft* limit
+  AIMD resizes, up to `auto_tune.max_threads`, default 50).
+  `_stage_5_single` and `_stage_5_dual` built their executors with
+  `max_workers=self._workers` (`cmis.workers`, fixed at construction).
+  So only `cmis.workers` threads ever reached the semaphore — however
+  high AIMD lifted it, there were no threads for the extra slots.
+  `pool_in_use` stayed pinned at the initial count while the TUI's
+  capacity (read from the semaphore) climbed; `idle` grew
+  fictitiously. The auto-tune machinery (025/043) had been steering a
+  disconnected knob.
+- A new `_pool_ceiling()` returns the real upper bound —
+  `max(cmis.workers, auto_tune.max_threads)` when AIMD is enabled,
+  `cmis.workers` when it is not — and both S5 executors
+  (`_stage_5_single` + the heavy/light pair in `_stage_5_dual`) are now
+  sized to it. The `ResizableSemaphore` / `LaneController` thus become
+  the *effective* limiter, which is what the `ResizableSemaphore`
+  docstring ("resize without tearing down the underlying
+  ThreadPoolExecutor") and `_stage_5_dual`'s ("sized to the TOTAL
+  worker budget") always intended. Surplus threads sit parked on the
+  work queue at near-zero cost.
+
+### Notes
+
+- With AIMD disabled, `_pool_ceiling()` returns `cmis.workers` — the
+  pre-060 value — so behaviour is byte-identical when auto-tune is off.
+- The TUI needed no change: `data_provider` already reads
+  `pool_capacity` from the semaphore and `pool_in_use` from
+  `WorkerPoolStats.busy`. Once real threads exist, `pool_in_use` rises
+  on its own.
+- The test gap that let this ship: the AIMD tests (043) assert the
+  *semaphore* resizes — never that real threads exist to use the extra
+  capacity. 060 closes it by capturing the actual `max_workers` passed
+  to every `cmcourier-s5*` `ThreadPoolExecutor` and asserting it is the
+  ceiling.
+
+---
+
 ## [0.59.0] — 2026-05-14 — **Configurable prep workers: parallelize S2/S3/S4**
 
 The assembly stage (S4) was crawling on the TUI — and it turned out
