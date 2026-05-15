@@ -1,8 +1,8 @@
-"""Integration tests for :class:`As400NiarvilogStore` (034 phase 2).
+"""Tests de integración para :class:`As400NiarvilogStore` (034 fase 2).
 
-Tests fake pyodbc at the cursor/connection boundary (same pattern as
-``test_as400_query.py``). The AS400 server itself is not mocked —
-Constitution Principle VI permits faking the driver bindings.
+Los tests fakean pyodbc en la frontera cursor/conexión (mismo patrón que
+``test_as400_query.py``). El servidor AS400 no se mockea — el Principio VI
+de la Constitución permite fakear los bindings del driver.
 """
 
 from __future__ import annotations
@@ -34,22 +34,22 @@ pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
-# pyodbc fakes
+# `fakes` de pyodbc
 # ---------------------------------------------------------------------------
 
 
 class _FakeCursor:
-    """Records every (sql, params) tuple and serves prepared results."""
+    """Registra cada tupla (sql, params) y sirve resultados pre-armados."""
 
     def __init__(self) -> None:
         self.executions: list[tuple[str, list[Any]]] = []
-        # Queue of (rows, columns) tuples — each execute() pops one.
+        # Cola de tuplas (rows, columns): cada execute() saca una.
         self.fetch_queue: list[tuple[Sequence[Sequence[Any]], Sequence[str]]] = []
-        # Queue of rowcounts (matched to executions).
+        # Cola de rowcounts (alineada con las ejecuciones).
         self.rowcount_queue: list[int] = []
         self.raise_on_execute: BaseException | None = None
-        # Queue of exceptions, one per execute(). Use None to indicate "no
-        # exception on this attempt". Items are consumed even on success.
+        # Cola de excepciones, una por execute(). Usar None significa "sin
+        # excepción en este intento". Los items se consumen incluso si hay éxito.
         self.raise_queue: list[BaseException | None] = []
         self._current_rows: list[list[Any]] = []
         self._current_columns: list[str] = []
@@ -67,7 +67,7 @@ class _FakeCursor:
                 raise exc
         if self.raise_on_execute is not None:
             raise self.raise_on_execute
-        # Advance the fetch + rowcount queues.
+        # Avanza las colas de fetch + rowcount.
         if self.fetch_queue:
             rows, columns = self.fetch_queue.pop(0)
             self._current_rows = [list(r) for r in rows]
@@ -134,7 +134,7 @@ def _patch_pyodbc(
 
 
 # ---------------------------------------------------------------------------
-# Fixtures / helpers
+# `Fixtures` / helpers
 # ---------------------------------------------------------------------------
 
 
@@ -231,9 +231,9 @@ def _make_record(
 
 class TestTryClaim:
     def test_claims_existing_n_row(self, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: N802
-        """UPDATE STSCOD='I' WHERE STSCOD='N' returns rowcount=1 → True."""
+        """UPDATE STSCOD='I' WHERE STSCOD='N' devuelve rowcount=1 → True."""
         cur = _FakeCursor()
-        cur.rowcount_queue = [1]  # UPDATE matched 1 row
+        cur.rowcount_queue = [1]  # el UPDATE matcheó 1 fila
         store, _, _ = _make_store(monkeypatch, cursor=cur)
         record, document, mapping, trigger = _make_record()
 
@@ -247,9 +247,9 @@ class TestTryClaim:
         assert "STSCOD = 'N'" in sql or "STSCOD='N'" in sql
 
     def test_inserts_when_row_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """rowcount=0 on UPDATE → INSERT new row with STSCOD='I'."""
+        """rowcount=0 en UPDATE → INSERT nueva fila con STSCOD='I'."""
         cur = _FakeCursor()
-        cur.rowcount_queue = [0, 1]  # UPDATE missed, INSERT succeeded
+        cur.rowcount_queue = [0, 1]  # el UPDATE no matcheó, el INSERT andó
         store, _, _ = _make_store(monkeypatch, cursor=cur)
         record, document, mapping, trigger = _make_record()
 
@@ -261,9 +261,9 @@ class TestTryClaim:
         assert "INSERT INTO" in cur.executions[1][0].upper()
 
     def test_returns_false_when_row_already_uploaded(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """UPDATE missed AND INSERT raises IntegrityError → already claimed → False."""
+        """UPDATE no matcheó Y el INSERT tira IntegrityError → ya estaba reclamado → False."""
         cur = _FakeCursor()
-        # First execute (UPDATE) succeeds with 0 rows; second (INSERT) raises IntegrityError.
+        # El primer execute (UPDATE) anda con 0 filas; el segundo (INSERT) tira IntegrityError.
         cur.rowcount_queue = [0]
 
         class _RaiseOnSecond:
@@ -317,7 +317,7 @@ class TestMarkUploaded:
         assert "cmis-object-abc123" in params
 
     def test_warning_on_zero_rows(self, monkeypatch: pytest.MonkeyPatch, caplog) -> None:
-        """rowcount=0 on mark_uploaded → log WARNING but don't raise."""
+        """rowcount=0 en mark_uploaded → loguea WARNING pero no levanta."""
         cur = _FakeCursor()
         cur.rowcount_queue = [0]
         store, _, _ = _make_store(monkeypatch, cursor=cur)
@@ -331,8 +331,8 @@ class TestMarkUploaded:
             cm_object_id="x",
         )
 
-        # Did not raise.
-        assert any("0 rows" in r.message for r in caplog.records) or True  # tolerate
+        # No levantó.
+        assert any("0 rows" in r.message for r in caplog.records) or True  # tolerante
 
 
 class TestMarkFailed:
@@ -423,7 +423,7 @@ class TestReadState:
 
     def test_returns_none_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cur = _FakeCursor()
-        cur.fetch_queue = [([], ("SISCOD",))]  # empty result
+        cur.fetch_queue = [([], ("SISCOD",))]  # resultado vacío
         store, _, _ = _make_store(monkeypatch, cursor=cur)
 
         row = store.read_state(
@@ -442,7 +442,7 @@ class TestReadState:
 
 
 class TestReadStateByTxn:
-    """034 Phase 4: TRNNUM-only lookup for pre-flight + CLI sync resolve."""
+    """034 Fase 4: lookup solo por TRNNUM para pre-flight + resolve del CLI sync."""
 
     def test_returns_row_when_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cur = _FakeCursor()
@@ -513,7 +513,7 @@ class TestReadStateByTxn:
 class TestCleanupStaleInProgress:
     def test_resets_stale_rows(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cur = _FakeCursor()
-        cur.rowcount_queue = [4]  # 4 rows reset
+        cur.rowcount_queue = [4]  # 4 filas reseteadas
         store, _, _ = _make_store(monkeypatch, cursor=cur, stale_minutes=30)
 
         count = store.cleanup_stale_in_progress()
@@ -536,7 +536,7 @@ class TestCleanupStaleInProgress:
 
 
 # ---------------------------------------------------------------------------
-# Error wrapping
+# Envoltura de errores
 # ---------------------------------------------------------------------------
 
 
@@ -545,7 +545,7 @@ class TestErrorWrapping:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         cur = _FakeCursor()
-        # Patch pyodbc + then raise its Error on execute.
+        # Parchea pyodbc + después levanta su Error en execute.
         store, cur2, _ = _make_store(monkeypatch, cursor=cur)
         cur.raise_on_execute = niarvilog_module.pyodbc.Error("connection lost")
 
@@ -554,7 +554,7 @@ class TestErrorWrapping:
 
 
 # ---------------------------------------------------------------------------
-# Resource lifecycle
+# Ciclo de vida de recursos
 # ---------------------------------------------------------------------------
 
 
@@ -563,7 +563,7 @@ class TestResourceLifecycle:
         cur = _FakeCursor()
         cur.rowcount_queue = [0]
         store, _, conn = _make_store(monkeypatch, cursor=cur)
-        # Trigger a connect.
+        # Dispara un connect.
         store.cleanup_stale_in_progress()
         assert conn.closed is False
         store.close()
@@ -571,7 +571,7 @@ class TestResourceLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# Retry / backoff (Phase 5)
+# Retry / backoff (Fase 5)
 # ---------------------------------------------------------------------------
 
 
@@ -597,12 +597,12 @@ def _make_store_with_retry(
 
 
 # ---------------------------------------------------------------------------
-# Configurable column names (049)
+# Nombres de columnas configurables (049)
 # ---------------------------------------------------------------------------
 
 
-# A NIARVILOG table in a different environment: same 15 columns, all
-# renamed. None of these names overlap the canonical ones.
+# Una tabla NIARVILOG en otro entorno: las mismas 15 columnas, todas
+# renombradas. Ninguno de estos nombres pisa los canónicos.
 _CUSTOM_COLUMNS = NiarvilogColumns(
     system_id="SISTID",
     txn_num="NUMTRX",
@@ -641,7 +641,7 @@ def _make_store_custom_cols(
 
 
 class TestConfigurableColumns:
-    """049: per-environment NIARVILOG physical column names."""
+    """049: nombres físicos de columnas de NIARVILOG por entorno."""
 
     def test_try_claim_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cur = _FakeCursor()
@@ -656,12 +656,12 @@ class TestConfigurableColumns:
         assert "ESTADO = 'I'" in sql
         assert "ESTADO = 'N'" in sql
         assert "SISTID = ?" in sql and "NUMTRX = ?" in sql
-        # No canonical name leaked through.
+        # No se filtró ningún nombre canónico.
         assert "STSCOD" not in sql and "SISCOD" not in sql
 
     def test_insert_uses_custom_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cur = _FakeCursor()
-        cur.rowcount_queue = [0, 1]  # UPDATE misses → INSERT
+        cur.rowcount_queue = [0, 1]  # UPDATE no matchea → INSERT
         store, _, _ = _make_store_custom_cols(monkeypatch, cursor=cur)
         record, document, mapping, trigger = _make_record()
 
@@ -747,7 +747,7 @@ class TestConfigurableColumns:
                         "",
                     )
                 ],
-                # Result set keyed by the CUSTOM physical names.
+                # Resultset con claves de los nombres físicos CUSTOM.
                 (
                     "SISTID",
                     "NUMTRX",
@@ -782,14 +782,14 @@ class TestConfigurableColumns:
         assert row.objidn == "cm-abc"
         assert row.numrei == 3
         sql, _ = cur.executions[0]
-        assert "SISTID, NUMTRX" in sql  # custom select list
+        assert "SISTID, NUMTRX" in sql  # lista de select custom
         assert "WHERE SISTID = ?" in sql
 
     def test_default_columns_emit_canonical_sql(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Omitting columns → byte-identical to pre-049 canonical SQL."""
+        """Omitir las columnas → SQL byte-idéntico al canónico pre-049."""
         cur = _FakeCursor()
         cur.rowcount_queue = [1]
-        store, _, _ = _make_store(monkeypatch, cursor=cur)  # default columns
+        store, _, _ = _make_store(monkeypatch, cursor=cur)  # columnas por defecto
         record, document, mapping, trigger = _make_record()
 
         store.try_claim(record=record, document=document, mapping=mapping, trigger=trigger)
@@ -801,14 +801,14 @@ class TestConfigurableColumns:
 
 
 class TestRetryBackoff:
-    """034 Phase 5: NIARVILOG writes retry transient OperationalErrors."""
+    """034 Fase 5: las escrituras de NIARVILOG re-intentan OperationalErrors transitorios."""
 
     def test_transient_error_retried_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cur = _FakeCursor()
-        # Patch pyodbc FIRST so the fake module (with OperationalError)
-        # is available before we build the raise_queue.
+        # Parchea pyodbc PRIMERO así el módulo fake (con OperationalError)
+        # ya está disponible cuando armamos la raise_queue.
         store, _, _ = _make_store_with_retry(monkeypatch, cursor=cur)
-        # First execute fails; second succeeds with rowcount=1.
+        # El primer execute falla; el segundo anda con rowcount=1.
         cur.raise_queue = [niarvilog_module.pyodbc.OperationalError("transient")]
         cur.rowcount_queue = [1]
         monkeypatch.setattr(
@@ -839,27 +839,27 @@ class TestRetryBackoff:
         assert len(cur.executions) == 3
 
     def test_integrity_error_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """IntegrityError is deterministic (PK race) — must not retry."""
+        """IntegrityError es determinístico (`race condition` de PK) — no se debe reintentar."""
         cur = _FakeCursor()
         store, _, _ = _make_store_with_retry(monkeypatch, cursor=cur)
-        # First execute (UPDATE in try_claim) returns rowcount=0 (no row
-        # matched STSCOD='N'), forcing the INSERT fallback.
+        # El primer execute (UPDATE de try_claim) devuelve rowcount=0
+        # (ninguna fila matcheó STSCOD='N'), forzando el fallback al INSERT.
         cur.rowcount_queue = [0]
         cur.raise_queue = [
-            None,  # UPDATE: no raise
+            None,  # UPDATE: no levanta
             niarvilog_module.pyodbc.IntegrityError("duplicate PK"),
         ]
         record, document, mapping, trigger = _make_record()
 
         result = store.try_claim(record=record, document=document, mapping=mapping, trigger=trigger)
 
-        # Lost the race → False. Exactly 2 executions: UPDATE + 1 INSERT
-        # (no retry of the INSERT).
+        # Perdió la `race condition` → False. Exactamente 2 ejecuciones: UPDATE + 1 INSERT
+        # (sin retry del INSERT).
         assert result is False
         assert len(cur.executions) == 2
 
     def test_backoff_delays_use_base(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Backoff sequence is base, base*2, base*4 capped at 300s."""
+        """La secuencia de backoff es base, base*2, base*4 con tope en 300s."""
         cur = _FakeCursor()
         store, _, _ = _make_store_with_retry(
             monkeypatch, cursor=cur, retry_attempts=3, retry_base_delay_s=2.0
@@ -868,7 +868,7 @@ class TestRetryBackoff:
             niarvilog_module.pyodbc.OperationalError("1"),
             niarvilog_module.pyodbc.OperationalError("2"),
         ]
-        cur.rowcount_queue = [0]  # third (successful) execute
+        cur.rowcount_queue = [0]  # tercer execute (el exitoso)
         slept: list[float] = []
         monkeypatch.setattr(
             "cmcourier.adapters.tracking.as400_niarvilog.time.sleep",
@@ -877,5 +877,5 @@ class TestRetryBackoff:
 
         store.cleanup_stale_in_progress()
 
-        # Two sleeps between attempts: 2s and 4s (base * 2^0, base * 2^1).
+        # Dos sleeps entre intentos: 2s y 4s (base * 2^0, base * 2^1).
         assert slept == [2.0, 4.0]

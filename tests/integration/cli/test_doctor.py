@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier doctor``."""
+"""Tests de integración para ``cmcourier doctor``."""
 
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ _ASSEMBLY_FIXTURES = _TESTS_ROOT / "fixtures" / "assembly"
 _CMIS_BASE_URL = "http://cmis.example.test:9080/opencmcmis/browser"
 _CMIS_REPO_ID = "$x!testrepo"
 
-# The Modelo Documental fixture has these distinct cm_object_types after
-# the FF17 duplicate is dropped (first-wins).
+# El `fixture` del Modelo Documental tiene estos cm_object_types distintos
+# después de descartar el duplicado FF17 (first-wins).
 _DISTINCT_TYPES: tuple[str, ...] = (
     "$t!-2_BAC_01_02_04_01_01v-1",
     "$t!-2_BAC_02_01_03_01_01v-1",
@@ -124,10 +124,10 @@ def _secrets() -> Secrets:
 
 
 def _stub_warmup_ok() -> None:
-    # 060: respx by default doesn't distinguish by querystring, but the doctor
-    # flow hits the SAME base URL for both `cmisselector=repositoryInfo` and
-    # `cmisselector=typeDefinition&typeId=...`. Use the params= kwarg so each
-    # stub matches a specific querystring.
+    # 060: respx por default no distingue por querystring, pero el flujo del
+    # doctor pega contra la MISMA base URL tanto para `cmisselector=repositoryInfo`
+    # como para `cmisselector=typeDefinition&typeId=...`. Usamos el kwarg
+    # params= así cada `stub` matchea una querystring específica.
     respx.get(
         f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
         params={"cmisselector": "repositoryInfo"},
@@ -145,7 +145,7 @@ def _stub_type_definitions_ok(types: tuple[str, ...] = _DISTINCT_TYPES) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 038 — split-mode helpers used by cm-targets tests
+# 038 — helpers del modo `split` usados por los tests de cm-targets
 # ---------------------------------------------------------------------------
 
 
@@ -244,7 +244,7 @@ def _write_split_yaml(
 
 
 # ---------------------------------------------------------------------------
-# run_doctor happy path
+# Happy path de run_doctor
 # ---------------------------------------------------------------------------
 
 
@@ -260,8 +260,8 @@ class TestRunDoctorHappyPath:
             for r in report.results
             if r.status == CheckStatus.FAIL
         ]
-        # PASS for every check except sample_dry_run which depends on
-        # filesystem fixtures (also PASS here).
+        # PASS para cada `check` excepto sample_dry_run que depende de
+        # `fixtures` del filesystem (también pasa acá).
         assert report.passed_count >= 5
 
     @respx.mock
@@ -287,7 +287,7 @@ class TestRunDoctorHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# Individual check failures
+# Fallas de `checks` individuales
 # ---------------------------------------------------------------------------
 
 
@@ -301,7 +301,7 @@ class TestCmisFailures:
         report = run_doctor(config, _secrets())
         conn_check = next(r for r in report.results if r.name == "cmis_connectivity")
         assert conn_check.status == CheckStatus.FAIL
-        # cm_type_alignment must be SKIPped, NOT crash.
+        # cm_type_alignment tiene que quedar en SKIP, NO crashear.
         align_check = next(r for r in report.results if r.name == "cm_type_alignment")
         assert align_check.status == CheckStatus.SKIP
 
@@ -312,7 +312,7 @@ class TestTrackingFailures:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
         config = load_config(_write_yaml(tmp_path))
-        # Inject a non-creatable db_path (under /dev/null which can't have subdirs).
+        # Inyecta un db_path no creable (bajo /dev/null que no acepta subdirs).
         broken = config.model_copy(
             update={
                 "tracking": config.tracking.model_copy(
@@ -329,10 +329,10 @@ class TestMappingWarn:
     @respx.mock
     def test_empty_mapping_warns(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
-        # Empty mapping CSV (header only).
+        # CSV de mapping vacío (solo header).
         empty_mapping = tmp_path / "empty_mapping.csv"
         empty_mapping.write_text("ID CLASE DOCUMENTAL,ID RVI,ID Corto,CLASE DOCUMENTAL,METADATOS\n")
-        # No type-definition stubs needed since alignment will see zero types.
+        # No hacen falta `stubs` de type-definition porque alignment ve cero tipos.
         config = load_config(_write_yaml(tmp_path, mapping_csv=empty_mapping))
         report = run_doctor(config, _secrets())
         m_check = next(r for r in report.results if r.name == "mapping_completeness")
@@ -358,9 +358,10 @@ class TestCmTypeMissing:
     @respx.mock
     def test_missing_type_fails(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
-        # Register only the FIRST type; the others 404.
-        # Register only the FIRST type as 200; the rest 404, distinguished
-        # by the typeId query param so the warmup route stays clean.
+        # Registra solo el PRIMER tipo; los otros van a 404.
+        # Registramos solo el PRIMER tipo como 200; el resto en 404,
+        # distinguidos por el query param typeId así la ruta del warmup
+        # queda limpia.
         respx.get(
             f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
             params={"cmisselector": "typeDefinition", "typeId": _DISTINCT_TYPES[0]},
@@ -374,7 +375,7 @@ class TestCmTypeMissing:
         report = run_doctor(config, _secrets())
         align = next(r for r in report.results if r.name == "cm_type_alignment")
         assert align.status == CheckStatus.FAIL
-        # All but the first type are missing.
+        # Todos menos el primer tipo están ausentes.
         for type_id in _DISTINCT_TYPES[1:]:
             assert type_id in align.details["missing_types"]
 
@@ -390,11 +391,12 @@ class TestLogDirWritable:
         assert check.status == CheckStatus.PASS
 
     def test_unwritable_dir_fails(self, tmp_path: Path) -> None:
-        # Point ``log_dir`` at an existing regular file. ``Path.mkdir(
-        # parents=True, exist_ok=True)`` raises ``FileExistsError``
-        # (subclass of ``OSError``) when the last component is a
-        # non-directory, on both POSIX and Windows — no need for a
-        # platform-specific unwritable path like ``/proc/1/...``.
+        # Apunta ``log_dir`` a un archivo regular existente. ``Path.mkdir(
+        # parents=True, exist_ok=True)`` levanta ``FileExistsError``
+        # (subclase de ``OSError``) cuando el último componente no es un
+        # directorio, tanto en POSIX como en Windows — no hace falta un
+        # path no-escribible específico de la plataforma estilo
+        # ``/proc/1/...``.
         blocker = tmp_path / "log_dir_is_a_file"
         blocker.write_text("not a directory")
         yaml_path = _write_yaml(tmp_path)
@@ -420,13 +422,13 @@ class TestAs400Connectivity:
 
 
 class TestAs400Sync:
-    """034: doctor check for AS400 NIARVILOG sync."""
+    """034: `check` del doctor para el sync de AS400 NIARVILOG."""
 
     @respx.mock
     def test_skips_when_disabled(self, tmp_path: Path) -> None:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
-        # Default config has as400_sync.enabled=false.
+        # La config por default tiene as400_sync.enabled=false.
         config = load_config(_write_yaml(tmp_path))
         report = run_doctor(config, _secrets())
         check = next(r for r in report.results if r.name == "as400_sync")
@@ -462,7 +464,7 @@ class TestSampleDryRun:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
         yaml_path = _write_yaml(tmp_path)
-        # Replace the trigger block with kind=single_doc.
+        # Reemplaza el bloque de trigger con kind=single_doc.
         text = yaml_path.read_text()
         text = text.replace(
             f"trigger:\n  csv_path: {tmp_path / 'triggers.csv'}\n",
@@ -478,7 +480,7 @@ class TestSampleDryRun:
 
 
 # ---------------------------------------------------------------------------
-# CLI integration
+# Integración CLI
 # ---------------------------------------------------------------------------
 
 
@@ -608,11 +610,11 @@ class TestDoctorCheckFilter:
     def test_cli_check_unknown_value_rejected(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         yaml_path = _write_yaml(tmp_path)
         result = cli_runner.invoke(main, ["doctor", "--config", str(yaml_path), "--check", "bogus"])
-        assert result.exit_code == 2  # Click validation
+        assert result.exit_code == 2  # validación de Click
 
 
 # ---------------------------------------------------------------------------
-# 038 — unmask_pii startup warning
+# 038 — warning de startup por unmask_pii
 # ---------------------------------------------------------------------------
 
 
@@ -622,7 +624,7 @@ class TestUnmaskPiiWarning:
         _stub_warmup_ok()
         _stub_type_definitions_ok()
         yaml_path = _write_yaml(tmp_path)
-        # Append the unmask flag to the YAML.
+        # Agrega el flag de unmask al final del YAML.
         yaml_path.write_text(
             yaml_path.read_text()
             + "observability:\n  log_dir: "
@@ -650,7 +652,7 @@ class TestUnmaskPiiWarning:
 
 
 # ---------------------------------------------------------------------------
-# 038 — cmis_folders_exist (cm-targets group)
+# 038 — cmis_folders_exist (grupo cm-targets)
 # ---------------------------------------------------------------------------
 
 
@@ -660,7 +662,7 @@ class TestCmisFoldersExist:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
         metadatos = tmp_path / "metadatos.csv"
-        # No CMISFolder values populated (all blank).
+        # Sin valores de CMISFolder cargados (todos vacíos).
         _write_rvi_cm_csv(
             rvi_cm,
             [
@@ -689,7 +691,7 @@ class TestCmisFoldersExist:
             ],
         )
         _write_metadatos_csv(metadatos, [("CN01", "CIF", "Yes", "")])
-        # Stub: verify_folder_exists for /cmcourier-staging/CN01 returns true.
+        # Stub: verify_folder_exists para /cmcourier-staging/CN01 devuelve true.
         respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}/root/cmcourier-staging/CN01").mock(
             return_value=httpx.Response(
                 200, json={"properties": {"cmis:baseTypeId": {"value": "cmis:folder"}}}
@@ -729,7 +731,7 @@ class TestCmisFoldersExist:
 
 
 # ---------------------------------------------------------------------------
-# 038 — cmis_properties_alignment (cm-targets group)
+# 038 — cmis_properties_alignment (grupo cm-targets)
 # ---------------------------------------------------------------------------
 
 
@@ -754,7 +756,7 @@ class TestCmisPropertiesAlignment:
         _stub_warmup_ok()
         rvi_cm = tmp_path / "rvi_cm.csv"
         metadatos = tmp_path / "metadatos.csv"
-        # cmis_type=D:cmcourier:bacDoc overrides the derived type.
+        # cmis_type=D:cmcourier:bacDoc pisa al tipo derivado.
         _write_rvi_cm_csv(
             rvi_cm,
             [("FB01", "CN01", "01.01.01.01.01", "D:cmcourier:bacDoc", "")],
@@ -766,7 +768,7 @@ class TestCmisPropertiesAlignment:
                 ("CN01", "Nombre_Cliente", "Yes", "cmcourier:Nombre_Cliente"),
             ],
         )
-        # The typeDefinition response declares both properties.
+        # La respuesta de typeDefinition declara ambas propiedades.
         respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
             return_value=httpx.Response(
                 200,
@@ -802,7 +804,7 @@ class TestCmisPropertiesAlignment:
                 ("CN01", "Bogus_Field", "Yes", "cmcourier:DoesNotExist"),
             ],
         )
-        # typeDefinition declares only one of the two catalogued properties.
+        # typeDefinition declara solo una de las dos propiedades catalogadas.
         respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
             return_value=httpx.Response(
                 200,

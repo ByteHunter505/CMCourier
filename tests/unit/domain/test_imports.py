@@ -1,8 +1,9 @@
-"""Verify that every public name is importable directly from ``cmcourier.domain``.
+"""Verifica que cada nombre público sea importable directamente desde
+``cmcourier.domain``.
 
-A reader should be able to write ``from cmcourier.domain import IDataSource``
-without knowing whether the symbol lives in ``models``, ``ports``, or
-``exceptions``. This test guards against re-export drift.
+Un lector debería poder escribir ``from cmcourier.domain import
+IDataSource`` sin saber si el símbolo vive en ``models``, ``ports`` o
+``exceptions``. Este test resguarda contra `drift` de re-exports.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ def test_models_importable() -> None:
         parse_cymmdd,
     )
 
-    # Just touch them to satisfy linters and prove they resolved.
+    # Solo los tocamos para satisfacer linters y demostrar que resolvieron.
     assert all(
         x is not None
         for x in (
@@ -107,11 +108,11 @@ def test_exceptions_importable() -> None:
 
 
 def test_dunder_all_is_complete() -> None:
-    """``__all__`` must list every re-exported name and nothing else."""
+    """``__all__`` debe listar cada nombre re-exportado y nada más."""
     import cmcourier.domain as domain
 
     expected = {
-        # Exceptions
+        # Excepciones
         "AssemblyError",
         "CMCourierError",
         "CMISClientError",
@@ -132,7 +133,7 @@ def test_dunder_all_is_complete() -> None:
         "TrackingError",
         "TriggerError",
         "UploadError",
-        # Models + helpers
+        # Modelos + helpers
         "CMMapping",
         "MigrationRecord",
         "ResolvedMetadata",
@@ -144,7 +145,7 @@ def test_dunder_all_is_complete() -> None:
         "compute_cm_object_type",
         "is_pdf_filename",
         "parse_cymmdd",
-        # Ports
+        # Puertos
         "IAssembler",
         "IDataSource",
         "ITrackingStore",

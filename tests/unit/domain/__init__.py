@@ -1,1 +1,1 @@
-"""Unit tests for ``cmcourier.domain`` (models, ports, exceptions)."""
+"""Tests unitarios para ``cmcourier.domain`` (modelos, puertos, excepciones)."""

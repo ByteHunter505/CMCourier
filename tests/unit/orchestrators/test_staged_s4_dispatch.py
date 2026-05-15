@@ -1,4 +1,4 @@
-"""Unit tests for S4 dispatch — direct vs ProcessPool (066)."""
+"""Tests unitarios para el `dispatch` de S4 — directo vs `ProcessPool` (066)."""
 
 from __future__ import annotations
 
@@ -75,12 +75,13 @@ def _pipeline_with_pool(pool: object | None) -> StagedPipeline:
 
 class TestS4DispatchByMode:
     def test_no_pool_calls_assembler_directly(self, tmp_path) -> None:
-        # 066: with ``s4_process_pool=None`` (pre-066 path), `_s4_one`
-        # must call ``self._assembler.assemble`` directly.
+        # 066: con ``s4_process_pool=None`` (camino pre-066), `_s4_one`
+        # debe llamar a ``self._assembler.assemble`` directamente.
         pipeline = _pipeline_with_pool(None)
         assembler = pipeline._assembler  # MagicMock
         assembler.assemble.return_value = _staged_file(tmp_path)
-        # Make tracking_store mark_stage_done a no-op + is_stage_done False
+        # Hace que `tracking_store.mark_stage_done` sea no-op y
+        # `is_stage_done` devuelva False.
         pipeline._tracking_store.is_stage_done.return_value = False
 
         item = _make_item()
@@ -91,8 +92,9 @@ class TestS4DispatchByMode:
         assembler.assemble.assert_called_once_with(item.document)
 
     def test_pool_provided_dispatches_via_submit(self, tmp_path) -> None:
-        # 066: with a pool, `_s4_one` must use ``pool.submit(_pool_assemble, doc).result()``
-        # — never calling ``self._assembler.assemble`` directly.
+        # 066: con `pool`, `_s4_one` debe usar
+        # ``pool.submit(_pool_assemble, doc).result()`` — sin llamar
+        # nunca a ``self._assembler.assemble`` directamente.
         staged = _staged_file(tmp_path)
         fake_future = MagicMock()
         fake_future.result.return_value = staged
@@ -107,13 +109,13 @@ class TestS4DispatchByMode:
 
         assert survivor is item
         assert failed is False
-        # The direct assembler must NOT have been called.
+        # El assembler directo NO debe haber sido llamado.
         pipeline._assembler.assemble.assert_not_called()
-        # The pool got the doc, and we awaited result().
+        # El `pool` recibió el doc y esperamos `result()`.
         fake_pool.submit.assert_called_once()
         args, _kwargs = fake_pool.submit.call_args
-        # First arg should be the module-level _pool_assemble function,
-        # second the document.
+        # El primer arg debe ser la función `_pool_assemble` a nivel de
+        # módulo, el segundo el documento.
         from cmcourier.adapters.assembly.pool import _pool_assemble
 
         assert args[0] is _pool_assemble
@@ -121,9 +123,9 @@ class TestS4DispatchByMode:
         fake_future.result.assert_called_once()
 
     def test_pool_propagates_assembler_failure(self) -> None:
-        # 066: failures from the worker process surface as the same
-        # exception type when ``Future.result()`` re-raises, so the
-        # error handling path is unchanged.
+        # 066: las fallas del proceso `worker` afloran como el mismo
+        # tipo de excepción cuando ``Future.result()`` re-lanza, así
+        # que el camino de manejo de errores queda igual.
         from cmcourier.domain.exceptions import PDFAssemblyFailedError
 
         fake_future = MagicMock()

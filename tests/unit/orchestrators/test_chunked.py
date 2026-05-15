@@ -1,4 +1,4 @@
-"""Unit tests for the chunker helper (028, REQ-005)."""
+"""Tests unitarios para el helper de `chunk`er (028, REQ-005)."""
 
 from __future__ import annotations
 

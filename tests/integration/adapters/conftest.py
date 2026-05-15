@@ -1,9 +1,10 @@
-"""Binary fixture generator for the PDF assembly tests.
+"""Generador de `fixtures` binarios para los tests de ensamblado de PDFs.
 
-Session-scoped autouse fixture that materializes the TIFF / JPEG / PDF
-test inputs under ``tests/fixtures/assembly/``. Generation is idempotent
-(skips files that already exist) and deterministic (small fixed-size
-images with hardcoded colors). The resulting binaries are gitignored.
+`fixture` con `scope=session` y `autouse` que materializa las entradas
+TIFF / JPEG / PDF de prueba bajo ``tests/fixtures/assembly/``. La
+generación es idempotente (saltea los archivos que ya existen) y
+determinística (imágenes chiquitas de tamaño fijo con colores
+hardcodeados). Los binarios resultantes están en `.gitignore`.
 """
 
 from __future__ import annotations
@@ -14,8 +15,8 @@ import pytest
 
 _ASSEMBLY_FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "assembly"
 
-# Distinct colors per page so a downstream visual check (not in this suite)
-# can tell pages apart.
+# Colores distintos por página para que un chequeo visual aguas abajo
+# (no incluido en esta suite) pueda distinguirlas.
 _PAGE_COLORS = [
     (220, 20, 20),
     (20, 220, 20),
@@ -27,8 +28,8 @@ _PAGE_COLORS = [
 
 @pytest.fixture(scope="session", autouse=True)
 def _generate_assembly_fixtures() -> None:
-    """Materialize every binary fixture the assembly tests need."""
-    from PIL import Image  # imported lazily so unrelated test runs stay cheap
+    """Materializa todos los `fixtures` binarios que necesitan los tests de ensamblado."""
+    from PIL import Image  # import perezoso para que las corridas no relacionadas sigan baratas
 
     _generate_native_pdf(Image)
     _generate_paged_tiff(Image)
@@ -54,7 +55,7 @@ def _make_image(image_mod: object, color_index: int, size: tuple[int, int] = (64
 
 
 # ---------------------------------------------------------------------------
-# Generators (one per fixture sub-tree)
+# Generadores (uno por sub-árbol de `fixture`)
 # ---------------------------------------------------------------------------
 
 
@@ -91,8 +92,8 @@ def _generate_variable_padding(image_mod: object) -> None:
     target_dir = _ensure_dir(
         _ASSEMBLY_FIXTURES / "variable_padding" / "PROD" / "2025" / "01" / "01"
     )
-    # .1, .2, .10 — lexical sort would order them [1, 10, 2]; the assembler
-    # MUST normalize via int(ext).
+    # .1, .2, .10 — el orden lexicográfico los pondría [1, 10, 2]; el
+    # `assembler` TIENE QUE normalizar vía int(ext).
     for ext in ("1", "2", "10"):
         target = target_dir / f"DCCCH9X4.{ext}"
         if target.exists():
@@ -102,7 +103,7 @@ def _generate_variable_padding(image_mod: object) -> None:
 
 
 def _generate_paged_mismatch(image_mod: object) -> None:
-    # 3 pages on disk, but the test will claim total_pages=5.
+    # 3 páginas en disco, pero el test va a declarar total_pages=5.
     target_dir = _ensure_dir(_ASSEMBLY_FIXTURES / "paged_mismatch" / "PROD" / "2025" / "11" / "17")
     for n in (1, 2, 3):
         target = target_dir / f"DEEEH9X4.{n:03d}"

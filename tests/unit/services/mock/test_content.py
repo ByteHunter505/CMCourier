@@ -1,4 +1,7 @@
-"""Unit tests for ``cmcourier.services.mock.content.MockContentWriter`` (031, REQ-017..REQ-026)."""
+"""Tests unitarios para ``cmcourier.services.mock.content.MockContentWriter``.
+
+031, REQ-017..REQ-026.
+"""
 
 from __future__ import annotations
 
@@ -71,17 +74,19 @@ class TestPdf:
         assert len(reader.pages) == pages
 
     def test_pdf_size_within_band(self, tmp_path: Path) -> None:
-        """REQ-023: best-effort size targeting. Each written file should
-        either land in the plan's [size_min, size_max] band or be the closest
-        achievable to that band given the 5 profile attempts."""
+        """REQ-023: targeting de tamaño `best-effort`. Cada archivo
+        escrito debe caer en la banda [size_min, size_max] del plan o
+        ser lo más cercano alcanzable a esa banda dados los 5 intentos
+        de perfil."""
         writer = MockContentWriter(seed=1)
         sizes: list[int] = []
         for i in range(5):
             plan = _pdf_plan(2, tmp_path, code=f"BAND{i}")
             (written,) = writer.write(plan, tmp_path, force=True)
             sizes.append(written.stat().st_size)
-        # At least 3 of 5 runs should land within the band (the rest within
-        # ±100% of the band edge as the closest-to-band fallback).
+        # Al menos 3 de 5 corridas deben caer dentro de la banda (el
+        # resto dentro de ±100% del borde de la banda como fallback
+        # `closest-to-band`).
         band_min = 10 * 1024
         band_max = 80 * 1024
         in_band = [s for s in sizes if band_min <= s <= band_max]
@@ -98,7 +103,7 @@ class TestPaged:
         assert len(written) == 2
         for p in written:
             with Image.open(p) as img:
-                # TIFF tag 259 = Compression; value 5 = LZW per TIFF spec.
+                # Tag TIFF 259 = Compression; valor 5 = LZW según la spec TIFF.
                 assert img.format == "TIFF"
                 assert img.tag_v2[259] == 5  # type: ignore[attr-defined]
 
@@ -119,10 +124,12 @@ class TestPaged:
         assert suffixes == [".001", ".002", ".003"]
 
     def test_large_tiff_band_reaches_multi_megabyte(self, tmp_path: Path) -> None:
-        # The two large profiles added on top of the original 5 produce
-        # multi-megabyte TIFFs — needed to mimic production banking scans
-        # (300 DPI per page routinely runs 5-15 MB). Pre-large-profiles the
-        # writer capped near 1 MB and emitted the "outside band" warning.
+        # Los dos perfiles `large` agregados sobre los 5 originales
+        # producen TIFFs de varios megabytes — necesarios para mimear
+        # escaneos bancarios de producción (300 DPI por página
+        # rutinariamente da 5-15 MB). Antes de los `large` profiles
+        # el writer topaba cerca de 1 MB y emitía el warning de
+        # "outside band".
         large_band_plan = FilePlan(
             dir_path=tmp_path,
             file_code="HUGE001",

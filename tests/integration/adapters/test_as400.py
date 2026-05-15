@@ -1,8 +1,8 @@
-"""Integration tests for :class:`As400DataSource`.
+"""Tests de integración para :class:`As400DataSource`.
 
-pyodbc is mocked at the module-attribute boundary
-(``cmcourier.adapters.sources.as400.pyodbc.connect``) so the real
-unixODBC driver is not required to run these tests.
+pyodbc se mockea en la frontera del atributo del módulo
+(``cmcourier.adapters.sources.as400.pyodbc.connect``) así no hace falta
+el driver real de unixODBC para correr estos tests.
 """
 
 from __future__ import annotations
@@ -19,12 +19,12 @@ pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
-# Fakes for the pyodbc cursor / connection protocol
+# `Fakes` para el protocolo de cursor / conexión de pyodbc
 # ---------------------------------------------------------------------------
 
 
 class _FakeAs400Cursor:
-    """Scriptable pyodbc-style cursor for tests."""
+    """Cursor estilo pyodbc programable para los tests."""
 
     def __init__(
         self,
@@ -71,7 +71,7 @@ class _FakeAs400Cursor:
 
 
 class _FakeAs400Connection:
-    """Scriptable pyodbc-style connection for tests."""
+    """Conexión estilo pyodbc programable para los tests."""
 
     def __init__(self, cursor: _FakeAs400Cursor) -> None:
         self._cursor = cursor
@@ -104,8 +104,8 @@ def _patch_pyodbc_connect(
         captured.append(connection_string)
         return connection
 
-    # Lazy import path: pyodbc is imported inside _connect(). We patch the
-    # module's pyodbc attribute after import.
+    # Import perezoso: pyodbc se importa adentro de _connect(). Parcheamos
+    # el atributo pyodbc del módulo después del import.
     import cmcourier.adapters.sources.as400 as as400_module
 
     monkeypatch.setattr(as400_module, "pyodbc", _FakePyodbcModule(_fake_connect))
@@ -113,10 +113,10 @@ def _patch_pyodbc_connect(
 
 
 class _FakePyodbcModule:
-    """Minimal stand-in for the pyodbc module."""
+    """Reemplazo mínimo del módulo pyodbc."""
 
     class Error(Exception):
-        """Mirrors pyodbc.Error for isinstance checks."""
+        """Espeja pyodbc.Error para los chequeos de isinstance."""
 
     def __init__(self, connect_fn: Any) -> None:
         self._connect_fn = connect_fn
@@ -143,7 +143,7 @@ def _make_source(table: str = "TRIGGERS") -> As400DataSource:
 
 
 # ---------------------------------------------------------------------------
-# Construction + connection
+# Construcción + conexión
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +151,7 @@ class TestConstruction:
     def test_construction_does_not_connect(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured = _patch_pyodbc_connect(monkeypatch, _FakeAs400Connection(_FakeAs400Cursor()))
         _make_source()
-        assert captured == []  # no connect() call yet
+        assert captured == []  # todavía no se llamó a connect()
 
     def test_first_method_call_connects(
         self,
@@ -160,9 +160,9 @@ class TestConstruction:
     ) -> None:
         captured = _patch_pyodbc_connect(monkeypatch, fake_connection)
         src = _make_source()
-        src.count()  # any method triggers the connect
+        src.count()  # cualquier método dispara el connect
         assert len(captured) == 1
-        # Connection string format matches REQ-002.
+        # El formato del connection string respeta REQ-002.
         cs = captured[0]
         assert "DRIVER={iSeries Access ODBC Driver}" in cs
         assert "SYSTEM=10.0.0.1" in cs
@@ -180,7 +180,7 @@ class TestConstruction:
         src = _make_source()
         src.count()
         src.count()
-        assert len(captured) == 1  # connected only once
+        assert len(captured) == 1  # solo se conectó una vez
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +218,8 @@ class TestQuery:
         src = _make_source()
         materialized = list(src.query_stream("SELECT V FROM T", []))
         assert len(materialized) == 750
-        # 750 rows / 500-batch = 2 full batches; the stream loop calls
-        # fetchmany until it returns < batch_size.
+        # 750 filas / `batch` de 500 = 2 `batches` completos; el loop de
+        # `streaming` llama a fetchmany hasta que devuelve < batch_size.
         assert cursor.fetchmany_calls >= 2
 
 
@@ -246,7 +246,7 @@ class TestGetByFields:
         src = _make_source()
         result = src.get_by_fields_in("CIF", values=[], fixed_filters={})
         assert result == []
-        assert cursor.executions == []  # never executed
+        assert cursor.executions == []  # nunca se ejecutó
 
     def test_get_by_fields_in_chunks_at_1000(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cursor = _FakeAs400Cursor(columns=("CIF",))
@@ -254,13 +254,13 @@ class TestGetByFields:
         src = _make_source()
         values = [str(i) for i in range(1500)]
         src.get_by_fields_in("CIF", values, fixed_filters={"SYS": "1"})
-        # Two chunks: 1000 + 500.
+        # Dos `chunks`: 1000 + 500.
         assert len(cursor.executions) == 2
         first_sql, first_params = cursor.executions[0]
         second_sql, second_params = cursor.executions[1]
-        # Each chunk has its IN-list params + the fixed filter value.
+        # Cada `chunk` tiene sus params del IN-list + el valor del filtro fijo.
         assert len(first_params) == 1001
-        assert first_params[-1] == "1"  # fixed filter
+        assert first_params[-1] == "1"  # filtro fijo
         assert len(second_params) == 501
 
 
@@ -290,13 +290,13 @@ class TestGetAllCount:
 
 
 # ---------------------------------------------------------------------------
-# Error wrapping
+# Envoltura de errores
 # ---------------------------------------------------------------------------
 
 
 class TestErrorWrapping:
     def test_pyodbc_error_wrapped_in_indexing_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Build a fake pyodbc.Error that mimics the (sqlstate, message) shape.
+        # Arma un pyodbc.Error fake que imita la forma (sqlstate, message).
         import cmcourier.adapters.sources.as400 as as400_module
 
         captured: list[str] = []
@@ -350,7 +350,7 @@ class TestLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# 018: per-source query override
+# 018: override de query por fuente
 # ---------------------------------------------------------------------------
 
 
@@ -374,15 +374,15 @@ class TestConstructionValidation:
             )
 
     def test_query_only_construction_ok(self) -> None:
-        # No exception expected — query mode.
+        # No se espera excepción — modo query.
         As400DataSource(
             **_BASE_KWARGS,
             query="SELECT CIF, NAME FROM CUSTOMERS WHERE ACTIVE = 'Y'",
         )
 
     def test_neither_table_nor_query_ok_raw_mode(self) -> None:
-        # Raw mode for callers that use query()/query_stream() directly
-        # (e.g. As400TriggerStrategy).
+        # Modo crudo para callers que usan query()/query_stream() directo
+        # (por ejemplo As400TriggerStrategy).
         As400DataSource(**_BASE_KWARGS)
 
 
@@ -424,12 +424,12 @@ class TestQueryMode:
         assert params == ["123"]
 
     def test_table_mode_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Backwards-compat regression: table mode still uses bare identifier.
+        # Regresión de backwards-compat: el modo tabla sigue usando el identificador pelado.
         cursor = _FakeAs400Cursor(rows=[(1,)], columns=("CNT",))
         _patch_pyodbc_connect(monkeypatch, _FakeAs400Connection(cursor))
         src = As400DataSource(**_BASE_KWARGS, table="CUSTOMERS")
         src.count()
         sql = cursor.executions[0][0]
-        # FROM clause references the bare table identifier; no derived-table alias.
+        # La cláusula FROM referencia el identificador pelado de tabla; sin alias de tabla derivada.
         assert "FROM CUSTOMERS" in sql
         assert " AS T" not in sql

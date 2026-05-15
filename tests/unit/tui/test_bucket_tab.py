@@ -1,4 +1,4 @@
-"""Unit tests for the BUCKET tab renderer (064)."""
+"""Tests unitarios para el renderizador de la pestaña BUCKET (064)."""
 
 from __future__ import annotations
 
@@ -39,20 +39,20 @@ def _streaming_snapshot(**kwargs: object) -> TUISnapshot:
 class TestRenderBucket:
     def test_streaming_mode_renders_all_blocks(self) -> None:
         out = render_bucket(_streaming_snapshot())
-        # Sections
+        # Secciones
         assert "BUCKET" in out
         assert "THROUGHPUT" in out
         assert "WORKERS" in out
         assert "OUTCOMES" in out
-        # Live data
-        assert "4 / 10" in out  # level
-        assert "8 / 10" in out  # peak
+        # Datos `live`
+        assert "4 / 10" in out  # nivel
+        assert "8 / 10" in out  # pico
         assert "12.00 docs/s" in out
         assert "10.50 docs/s" in out
-        # In-flight + worker counts
+        # Conteos `in-flight` + `worker`
         assert "2 in-flight / 4" in out
-        assert "8" in out  # upload workers
-        # Outcomes (cumulative)
+        assert "8" in out  # `worker`s de upload
+        # Outcomes (acumulados)
         assert "S5_DONE" in out
         assert "S5_FAILED" in out
         assert "S1_FILTERED" in out
@@ -72,7 +72,7 @@ class TestRenderBucket:
         assert "streaming mode only" in out
 
     def test_missing_bucket_in_streaming_mode_emits_stub(self) -> None:
-        # Defensive: streaming mode but no bucket data plumbed.
+        # Defensivo: modo `streaming` pero sin datos de `bucket` cableados.
         snap = TUISnapshot(
             pipeline="x",
             batch_id="b",
@@ -130,7 +130,7 @@ class TestRenderBucket:
         out = render_bucket(snap)
         assert "LANES" in out
         assert "heavy" in out and "light" in out
-        # heavy budget 3, busy 1, queue 4
+        # `heavy` budget 3, busy 1, queue 4
         assert "3" in out and "1" in out
-        # total budget 8
+        # `total budget` 8
         assert "total budget 8" in out

@@ -1,4 +1,4 @@
-"""Unit tests for the CHUNKS tab renderer (030)."""
+"""Tests unitarios para el renderizador de la pestaña CHUNKS (030)."""
 
 from __future__ import annotations
 
@@ -47,13 +47,13 @@ class TestRenderChunks:
             {"chunk_idx": 3, "batch_id": "", "status": "QUEUED", "s5_done": 0, "s5_failed": 0},
         )
         out = render_chunks(_snap(chunks))
-        # The counts header sums each status correctly.
+        # El encabezado de conteos suma cada `status` correctamente.
         assert "total 4" in out
         assert "done 1" in out
         assert "prep 1" in out
         assert "upload 1" in out
         assert "queued 1" in out
-        # Every batch_id appears.
+        # Cada `batch_id` aparece.
         for bid in ("AAA", "BBB", "CCC"):
             assert bid in out
 
@@ -67,7 +67,7 @@ class TestRenderChunks:
         assert "done 1" in out
 
     def test_long_batch_id_truncated(self) -> None:
-        long_id = "a" * 30  # > 14 char cap
+        long_id = "a" * 30  # > tope de 14 caracteres
         chunks = (
             {
                 "chunk_idx": 0,
@@ -78,13 +78,13 @@ class TestRenderChunks:
             },
         )
         out = render_chunks(_snap(chunks))
-        # First 14 chars present; full ID is not.
+        # Los primeros 14 caracteres están presentes; el ID completo no.
         assert "a" * 14 in out
         assert long_id not in out
 
 
 class TestRenderChunksBreakdown041:
-    """041: per-stage breakdown columns + aggregate TOTAL row."""
+    """041: columnas de desglose por etapa + fila TOTAL agregada."""
 
     def test_done_chunk_shows_full_breakdown(self) -> None:
         chunks = (
@@ -106,10 +106,10 @@ class TestRenderChunksBreakdown041:
             },
         )
         out = render_chunks(_snap(chunks))
-        # 051: PREP cell is done/skip/fail/filtered; UPLOAD stays done/skip/fail.
+        # 051: la celda PREP es done/skip/fail/filtered; UPLOAD queda como done/skip/fail.
         assert "95/0/0/3   (12.4s)" in out
         assert "95/0/0   (8.9s)" in out
-        assert "42.0" in out  # MB column
+        assert "42.0" in out  # columna MB
 
     def test_queued_chunk_dashes_in_both_stages(self) -> None:
         chunks = (
@@ -122,7 +122,7 @@ class TestRenderChunksBreakdown041:
             },
         )
         out = render_chunks(_snap(chunks))
-        # QUEUED rows have placeholders, not bogus zeros.
+        # Las filas QUEUED tienen `placeholder`s, no ceros falsos.
         assert "—/—/—" in out
         assert "0/0/0" not in out
 
@@ -157,16 +157,17 @@ class TestRenderChunksBreakdown041:
         )
         out = render_chunks(_snap(chunks))
         assert "TOTAL (2 chunks)" in out
-        assert "186" in out  # docs aggregate
-        assert "82.0" in out  # MB aggregate
-        # prep done = 95 + 91 = 186
+        assert "186" in out  # agregado de docs
+        assert "82.0" in out  # agregado de MB
+        # `prep` done = 95 + 91 = 186
         assert "186/0/0" in out
-        # upload done = 95 + 87 = 182 / failed = 0 + 4 = 4
+        # `upload` done = 95 + 87 = 182 / failed = 0 + 4 = 4
         assert "182/0/4" in out
 
     def test_upload_in_flight_uses_live_elapsed_value(self) -> None:
-        """When status==UPLOAD the data provider freezes prep_elapsed and
-        keeps upload_elapsed live; render just trusts the field.
+        """Cuando `status==UPLOAD` el `data_provider` congela
+        `prep_elapsed` y mantiene `upload_elapsed` `live`; el render
+        simplemente confía en el campo.
         """
         chunks = (
             {
@@ -190,22 +191,22 @@ class TestRenderChunksBreakdown041:
 
 
 class TestRenderChunksLiveCounters042:
-    """042 — when a chunk is in status UPLOAD, the row must reflect the
-    live s5_done/s5_failed/upload_skipped from the upload-active recorder
-    instead of waiting for the DONE transition (where the orchestrator
-    persists them into ChunkState)."""
+    """042 — cuando un `chunk` está en `status` UPLOAD, la fila debe
+    reflejar los `s5_done/s5_failed/upload_skipped` `live` del
+    `recorder` activo de upload en vez de esperar la transición a
+    DONE (donde el orquestador los persiste en `ChunkState`)."""
 
     def test_upload_row_shows_live_done_count(self) -> None:
-        # The data_provider already substitutes the live values when it
-        # has an upload_recorder; here we verify render_chunks renders
-        # whatever the dict provides (the snapshot dict carries the
-        # post-override values).
+        # El `data_provider` ya sustituye los valores `live` cuando
+        # tiene un `upload_recorder`; acá verificamos que
+        # `render_chunks` renderiza lo que el dict provee (el dict del
+        # snapshot trae los valores post-override).
         chunks = (
             {
                 "chunk_idx": 0,
                 "batch_id": "AAA",
                 "status": "UPLOAD",
-                "s5_done": 17,  # live count from upload_done_count()
+                "s5_done": 17,  # conteo `live` desde `upload_done_count()`
                 "s5_failed": 0,
                 "upload_skipped": 0,
                 "doc_count": 50,
@@ -216,20 +217,20 @@ class TestRenderChunksLiveCounters042:
             },
         )
         out = render_chunks(_snap(chunks))
-        # Cell renders as done/skip/fail (elapsed)
+        # La celda renderiza como done/skip/fail (elapsed)
         assert "17/0/0   (4.2s)" in out
-        # NOT showing the stale 0/0/0 the pre-042 code would have shown
+        # NO muestra el 0/0/0 `stale` que el código pre-042 mostraba
         assert "0/0/0   (4.2s)" not in out
 
 
 # ---------------------------------------------------------------------------
-# 052 — per-chunk UPLOAD throughput (MB/s · docs/s)
+# 052 — `throughput` UPLOAD por `chunk` (MB/s · docs/s)
 # ---------------------------------------------------------------------------
 
 
 class TestRenderChunksRate052:
-    """The CHUNKS tab shows per-chunk UPLOAD throughput; zero elapsed
-    renders a dash instead of dividing by zero."""
+    """La pestaña CHUNKS muestra el `throughput` UPLOAD por `chunk`;
+    `elapsed` cero renderiza un guion en vez de dividir por cero."""
 
     def test_chunk_shows_upload_rate(self) -> None:
         chunks = (
@@ -247,7 +248,7 @@ class TestRenderChunksRate052:
             },
         )
         out = render_chunks(_snap(chunks))
-        # 100 MB / 10s = 10.0 MB/s ; 50 docs / 10s = 5.0 docs/s
+        # 100 MB / 10s = 10.0 MB/s; 50 docs / 10s = 5.0 docs/s
         assert "10.0 · 5.0" in out
 
     def test_zero_upload_elapsed_renders_dash_no_crash(self) -> None:
@@ -262,8 +263,8 @@ class TestRenderChunksRate052:
                 "total_bytes": 10 * 1_048_576,
                 "prep_done": 50,
                 "prep_elapsed_s": 5.0,
-                "upload_elapsed_s": 0.0,  # not started → no divide-by-zero
+                "upload_elapsed_s": 0.0,  # no arrancó → sin división por cero
             },
         )
-        out = render_chunks(_snap(chunks))  # must not raise
+        out = render_chunks(_snap(chunks))  # no debe levantar excepción
         assert "— · —" in out

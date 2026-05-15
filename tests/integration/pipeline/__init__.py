@@ -1,1 +1,1 @@
-"""End-to-end pipeline integration tests against real adapters."""
+"""Tests de integración end-to-end del `pipeline` contra adapters reales."""

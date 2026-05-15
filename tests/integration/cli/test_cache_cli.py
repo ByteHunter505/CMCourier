@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier cache`` subcommands (037 Phase 3)."""
+"""Tests de integración para los subcomandos ``cmcourier cache`` (037 Fase 3)."""
 
 from __future__ import annotations
 
@@ -60,10 +60,10 @@ def _write_yaml(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def cache_setup(tmp_path: Path) -> tuple[Path, SqliteDocumentCache]:
-    """Provide a config + pre-bootstrapped cache pointing at the same DB."""
+    """Provee una config + cache pre-bootstrapeada apuntando a la misma DB."""
     yaml_path = _write_yaml(tmp_path)
     db_path = tmp_path / "tracking.db"
-    # Bootstrap schema by touching the tracking store.
+    # Bootstrap del schema tocando el `tracking store`.
     store = SQLiteTrackingStore(db_path)
     store.close()
     cache = SqliteDocumentCache(db_path)
@@ -86,7 +86,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Help discovery
+# Descubrimiento de ayuda
 # ---------------------------------------------------------------------------
 
 

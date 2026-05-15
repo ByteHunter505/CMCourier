@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier batch ...`` subcommands (021)."""
+"""Tests de integración para los subcomandos ``cmcourier batch ...`` (021)."""
 
 from __future__ import annotations
 
@@ -287,14 +287,14 @@ class TestBatchExportReport:
             ],
         )
         assert result.exit_code == 0, result.output
-        # Header + 6 stage rows.
+        # Header + 6 filas de stage.
         lines = result.stdout.strip().splitlines()
         assert lines[0].startswith("batch_id,status,started_at")
         assert len(lines) == 7
-        # Each row has the batch_id in column 0.
+        # Cada fila tiene el batch_id en la columna 0.
         for line in lines[1:]:
             assert line.startswith(f"{batch_id},")
-        # S5 row reports the failed count.
+        # La fila S5 reporta la cantidad de fallos.
         s5_line = next(ln for ln in lines if ",S5," in ln)
         assert s5_line.endswith(",0,1,0")
 

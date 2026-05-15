@@ -1,10 +1,11 @@
-"""Unit tests for the S5 thread-pool ceiling (057).
+"""Tests unitarios para el techo del `thread pool` de S5 (057).
 
-Pre-057 the S5 ``ThreadPoolExecutor`` was sized to the initial
-``cmis.workers``, so the AIMD-resized ``ResizableSemaphore`` could
-never exceed it — ``pool_in_use`` stayed pinned at the initial count.
-These tests pin both the ceiling computation and the actual
-``max_workers`` the executors are constructed with.
+Antes de 057 el ``ThreadPoolExecutor`` de S5 se dimensionaba al
+``cmis.workers`` inicial, así que el ``ResizableSemaphore`` redimensionado
+por `AIMD` nunca podía excederlo — ``pool_in_use`` quedaba clavado
+en el conteo inicial. Estos tests fijan tanto el cómputo del techo
+como el ``max_workers`` real con el que se construyen los
+ejecutores.
 """
 
 from __future__ import annotations
@@ -27,8 +28,9 @@ def _make_pipeline(
     auto_tune: AutoTuneConfig | None = None,
     heavy_light_lanes: HeavyLightLanesConfig | None = None,
 ) -> StagedPipeline:
-    """A StagedPipeline with mock collaborators — enough to exercise the
-    S5 dispatch helpers, which only touch the pool + lane controller."""
+    """Un `StagedPipeline` con colaboradores `mock` — suficiente para
+    ejercitar los helpers de `dispatch` de S5, que solo tocan el `pool`
+    + el controlador de `lane`."""
     return StagedPipeline(
         trigger_strategy=MagicMock(),
         indexing_service=MagicMock(),
@@ -44,9 +46,10 @@ def _make_pipeline(
 
 
 def _recording_executor_factory(captured: dict[str, int]):  # type: ignore[no-untyped-def]
-    """A drop-in for ``ThreadPoolExecutor`` that records ``max_workers``
-    for every ``cmcourier-s5*`` pool, then delegates to the real class.
-    The 056 prep pool (``cmcourier-prep``) is intentionally ignored."""
+    """Reemplazo `drop-in` para ``ThreadPoolExecutor`` que registra
+    ``max_workers`` para cada `pool` ``cmcourier-s5*``, luego delega
+    a la clase real. El `pool` de prep de 056 (``cmcourier-prep``) se
+    ignora a propósito."""
 
     def _factory(*args: Any, **kwargs: Any) -> _RealThreadPoolExecutor:
         prefix = str(kwargs.get("thread_name_prefix", ""))
@@ -71,8 +74,9 @@ class TestPoolCeiling057:
         assert pipeline._pool_ceiling() == 4  # noqa: SLF001
 
     def test_ceiling_never_below_initial_workers(self) -> None:
-        # cmis.workers deliberately above auto_tune.max_threads — the pool
-        # must not shrink below the operator's configured initial count.
+        # `cmis.workers` deliberadamente por encima de `auto_tune.max_threads`
+        # — el `pool` no debe achicarse por debajo del conteo inicial
+        # configurado por el operador.
         pipeline = _make_pipeline(workers=20, auto_tune=AutoTuneConfig(enabled=True, max_threads=8))
         assert pipeline._pool_ceiling() == 20  # noqa: SLF001
 
@@ -87,7 +91,7 @@ class TestSinglePoolSizing057:
             "cmcourier.orchestrators.staged.ThreadPoolExecutor",
             _recording_executor_factory(captured),
         )
-        # Empty batch — the executor is still constructed, no uploads run.
+        # `batch` vacío — el ejecutor igual se construye, sin uploads.
         pipeline._stage_5_single([], "B1", pipeline._metrics)  # noqa: SLF001
         assert captured == {"cmcourier-s5": 16}
 
@@ -116,7 +120,7 @@ class TestDualPoolSizing057:
             "cmcourier.orchestrators.staged.ThreadPoolExecutor",
             _recording_executor_factory(captured),
         )
-        # Empty assignment — both lane executors are still constructed.
+        # Asignación vacía — ambos ejecutores de `lane` igual se construyen.
         pipeline._stage_5_dual(((), ()), "B1", pipeline._metrics)  # noqa: SLF001
         assert captured == {
             "cmcourier-s5-heavy": 16,

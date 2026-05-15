@@ -1,8 +1,8 @@
-"""Unit tests for ``cmcourier.domain.ports``.
+"""Tests unitarios para ``cmcourier.domain.ports``.
 
-The ports are abstract base classes; this suite proves they cannot be
-instantiated directly and that every advertised abstract method is in fact
-declared with ``@abstractmethod``.
+Los puertos son clases base abstractas; esta suite demuestra que no se
+pueden instanciar directamente y que cada método abstracto declarado
+está, en efecto, decorado con ``@abstractmethod``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def test_port_inherits_from_abc(port_cls: type) -> None:
 
 @pytest.mark.parametrize("port_cls", ALL_PORTS)
 def test_port_cannot_be_instantiated(port_cls: type) -> None:
-    """Constructor must raise ``TypeError`` because methods remain abstract."""
+    """El constructor debe levantar ``TypeError`` porque los métodos siguen abstractos."""
     with pytest.raises(TypeError):
         port_cls()  # type: ignore[abstract]
 

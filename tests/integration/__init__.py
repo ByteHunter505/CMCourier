@@ -1,5 +1,5 @@
-"""Integration tests with real adapters.
+"""Tests de integración con adapters reales.
 
-Exercises SQLite (file or in-memory), CSV via pandas, and Alfresco in Docker for
-CMIS. AS400 is intentionally NOT mocked — Constitution Principle VI.
+Ejercita SQLite (en archivo o en memoria), CSV vía pandas, y Alfresco en Docker
+para `cmis`. AS400 NO se mockea a propósito — Principio VI de la Constitución.
 """

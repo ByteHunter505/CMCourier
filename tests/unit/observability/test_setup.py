@@ -1,4 +1,4 @@
-"""Unit tests for ``cmcourier.observability.setup.configure`` (041)."""
+"""Tests unitarios para ``cmcourier.observability.setup.configure`` (041)."""
 
 from __future__ import annotations
 
@@ -30,16 +30,18 @@ def obs_config(tmp_path: Path) -> ObservabilityConfig:
 
 @pytest.fixture(autouse=True)
 def _reset_cmcourier_logger() -> Iterator[None]:
-    """Reset every ``cmcourier*`` logger pre-and-post test.
+    """Resetea cada `logger` ``cmcourier*`` antes y después del test.
 
-    ``configure()`` sets ``propagate=False`` on ``cmcourier.metrics.pipeline
-    / network / slow_ops`` (so child handlers don't double-emit). Without
-    explicitly resetting that flag after each unit test, integration tests
-    that run later in the same pytest invocation can't capture network
-    events via ``caplog`` — propagate stays off, the events never reach
-    the root logger that caplog hooks. Pre-fix this manifested as flaky
-    failures in ``TestUploadPayloadTraceEvents`` whenever
-    ``tests/unit/observability`` ran in the same session.
+    ``configure()`` setea ``propagate=False`` en ``cmcourier.metrics.pipeline
+    / network / slow_ops`` (para que los `handler`s hijos no dupliquen
+    emisiones). Sin resetear ese flag explícitamente después de cada
+    test unitario, los tests de integración que corren después en la
+    misma invocación de `pytest` no pueden capturar eventos de red vía
+    ``caplog`` — `propagate` queda apagado y los eventos nunca llegan
+    al logger root al que `caplog` se engancha. Antes del fix esto se
+    manifestaba como fallas inestables en
+    ``TestUploadPayloadTraceEvents`` cada vez que
+    ``tests/unit/observability`` corría en la misma sesión.
     """
     targets = (
         "cmcourier",
@@ -95,7 +97,7 @@ def test_configure_tui_active_omits_stderr(obs_config: ObservabilityConfig) -> N
 
 
 def test_configure_stderr_only_overrides_tui_active(obs_config: ObservabilityConfig) -> None:
-    """The doctor early-fail path passes stderr_only=True; it must still print."""
+    """El camino de fallo temprano de `doctor` pasa stderr_only=True; debe seguir imprimiendo."""
     configure(obs_config, "INFO", stderr_only=True, tui_active=True)
     root = logging.getLogger("cmcourier")
     assert len(_stderr_handlers(root)) == 1, (
@@ -105,7 +107,7 @@ def test_configure_stderr_only_overrides_tui_active(obs_config: ObservabilityCon
 
 
 def test_configure_tui_active_with_disabled_observability_still_skips_stderr() -> None:
-    """tui_active gating must work even when no ObservabilityConfig is provided."""
+    """El gating de `tui_active` debe funcionar incluso sin `ObservabilityConfig`."""
     configure(None, "INFO", tui_active=True)
     root = logging.getLogger("cmcourier")
     assert _stderr_handlers(root) == []
@@ -113,7 +115,7 @@ def test_configure_tui_active_with_disabled_observability_still_skips_stderr() -
 
 
 def test_configure_idempotent_replaces_handlers(obs_config: ObservabilityConfig) -> None:
-    """Re-calling configure with a different mode swaps handler set without leaks."""
+    """Llamar `configure` con otro modo cambia el set de `handler`s sin leaks."""
     configure(obs_config, "INFO")
     configure(obs_config, "INFO", tui_active=True)
     root = logging.getLogger("cmcourier")

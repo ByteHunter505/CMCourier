@@ -1,4 +1,4 @@
-"""Unit tests for the polymorphic Trigger hierarchy (046 Phase 1)."""
+"""Tests unitarios para la jerarquía polimórfica de `Trigger` (046 Fase 1)."""
 
 from __future__ import annotations
 
@@ -18,15 +18,15 @@ pytestmark = pytest.mark.unit
 
 
 class TestBackwardCompat046:
-    """``TriggerRecord`` must keep pointing at ``ClientTrigger`` so every
-    pre-046 import (csv strategy, single-doc CLI, tracking adapter,
-    integration tests) compiles unchanged."""
+    """``TriggerRecord`` debe seguir apuntando a ``ClientTrigger`` para
+    que cada import pre-046 (estrategia `csv`, CLI single-doc, adaptador
+    de tracking, tests de integración) compile sin cambios."""
 
     def test_alias_is_identity(self) -> None:
         assert TriggerRecord is ClientTrigger
 
     def test_legacy_construction_still_works(self) -> None:
-        # The pre-046 shape: positional or named, all three fields.
+        # La forma pre-046: posicional o nombrada, los tres campos.
         t = TriggerRecord(shortname="ACME-001", cif="123456", system_id="PROD")
         assert isinstance(t, ClientTrigger)
         assert isinstance(t, Trigger)
@@ -42,7 +42,7 @@ class TestClientTrigger:
             ClientTrigger(shortname="A", cif="x", system_id="")
 
     def test_cif_may_be_none(self) -> None:
-        # CIF self-healing needs cif=None as a first-class state.
+        # El `self-healing` de CIF necesita `cif=None` como estado de primera clase.
         t = ClientTrigger(shortname="A", cif=None, system_id="1")
         assert t.cif is None
 
@@ -57,12 +57,12 @@ class TestClientTrigger:
 
 class TestRvabrepRowTrigger:
     def test_audit_row_projects_from_default_rvabrep_columns(self) -> None:
-        """Default column names are the AS400 physical schema."""
+        """Los nombres de columna por defecto son el esquema físico de AS400."""
         row = {
             "ABABCD": "ACME-001",  # shortname
             "ABACCD": "987654",  # cif
             "ABAACD": "PROD",  # system_id
-            "ABAJCD": "FILE001.PDF",  # file_name (not in audit)
+            "ABAJCD": "FILE001.PDF",  # file_name (no va en auditoría)
             "extra_col": "irrelevant",
         }
         t = RvabrepRowTrigger(row=row)
@@ -73,8 +73,8 @@ class TestRvabrepRowTrigger:
         }
 
     def test_audit_row_uses_overridden_columns(self) -> None:
-        """Strategies that read CSVs with friendly column names pass their
-        own column map at construction."""
+        """Las estrategias que leen CSVs con nombres de columna amigables
+        pasan su propio mapa de columnas en la construcción."""
         row = {"shortname": "X", "index2": "42", "system_id": "PROD"}
         t = RvabrepRowTrigger(
             row=row,
@@ -85,14 +85,15 @@ class TestRvabrepRowTrigger:
         assert t.audit_row() == {"shortname": "X", "cif": "42", "system_id": "PROD"}
 
     def test_audit_row_normalizes_blank_cif_to_none(self) -> None:
-        """RVABREP rows often have whitespace-only CIF for clients whose CIF
-        is later self-healed by S3. The audit row should report None, not
-        the raw whitespace."""
+        """Las filas RVABREP suelen tener CIF de solo whitespace para
+        clientes cuyo CIF es `self-healed` luego por S3. La fila de
+        auditoría debe reportar None, no el whitespace crudo."""
         t = RvabrepRowTrigger(row={"ABABCD": "X", "ABACCD": "   ", "ABAACD": "1"})
         assert t.audit_row()["cif"] is None
 
     def test_audit_row_handles_missing_columns(self) -> None:
-        # A row that doesn't even have the column key returns None for missing slots.
+        # Una fila que ni siquiera tiene la clave de columna devuelve None
+        # para los slots faltantes.
         t = RvabrepRowTrigger(row={"ABABCD": "X"})
         assert t.audit_row() == {"shortname": "X", "cif": None, "system_id": None}
 

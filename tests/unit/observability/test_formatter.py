@@ -1,7 +1,8 @@
-"""Unit tests for the JSON formatter + PII masking filter.
+"""Tests unitarios para el `formatter` JSON + filtro de enmascarado PII.
 
-The formatter renders one JSON object per ``LogRecord``; the filter
-redacts known PII field names before the formatter sees them.
+El `formatter` renderiza un objeto JSON por ``LogRecord``; el filtro
+redacta nombres de campo PII conocidos antes de que el `formatter`
+los vea.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ class TestJsonFormatter:
         assert payload["pipeline"] == "csv-trigger"
         assert payload["stage"] == "S2_MAPPING"
         assert payload["duration_ms"] == 12.5
-        # Unknown extras are NOT promoted to keep the schema stable.
+        # Los extras desconocidos NO se promueven para mantener el esquema estable.
         assert "unknown_extra" not in payload
 
     def test_exception_info_serialized(self) -> None:
@@ -83,7 +84,8 @@ class TestJsonFormatter:
         assert payload["exc_msg"] == "boom"
 
     def test_allowed_fields_constant_includes_core_set(self) -> None:
-        # Sanity guard: future schema changes shouldn't quietly drop these.
+        # Guarda de sanidad: cambios futuros de esquema no deberían
+        # tirar estos campos en silencio.
         required = {"pipeline", "stage", "batch_id", "txn_num", "outcome", "duration_ms"}
         assert required <= ALLOWED_EXTRA_FIELDS
 
@@ -93,7 +95,7 @@ class TestPiiMaskingFilter:
         record = _make_record(extra={"cif": "123456", "txn_num": "TXN_001"})
         PiiMaskingFilter().filter(record)
         assert record.__dict__["cif"] == MASK
-        # Non-PII field untouched.
+        # Campo no-PII intacto.
         assert record.__dict__["txn_num"] == "TXN_001"
 
     def test_pii_prefix_masks(self) -> None:
@@ -108,10 +110,11 @@ class TestPiiMaskingFilter:
         assert record.__dict__["Customer_Name"] == MASK
 
     def test_logger_name_not_masked(self) -> None:
-        # Regression: ``name`` is a LogRecord built-in attribute (the
-        # logger name). Masking it would corrupt the logger identity AND
-        # trigger an infinite audit-log recursion. Use customer_name /
-        # nombre for the customer-name field instead.
+        # Regresión: ``name`` es un atributo built-in del `LogRecord`
+        # (el nombre del logger). Enmascararlo corrompería la identidad
+        # del logger Y dispararía una recursión infinita de
+        # `audit-log`. En su lugar, usar `customer_name` / `nombre`
+        # para el campo de nombre del cliente.
         record = _make_record(name="cmcourier.adapters.upload.cmis_uploader")
         PiiMaskingFilter().filter(record)
         assert record.name == "cmcourier.adapters.upload.cmis_uploader"
@@ -130,6 +133,6 @@ class TestPiiMaskingFilter:
         assert record.__dict__["duration_ms"] == 1.5
 
     def test_filter_always_returns_true(self) -> None:
-        # Filter must not drop records — only mutate fields.
+        # El filtro no debe descartar registros — solo mutar campos.
         record = _make_record(extra={"cif": "999"})
         assert PiiMaskingFilter().filter(record) is True

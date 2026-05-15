@@ -1,4 +1,4 @@
-"""Unit tests for the PREP/UPLOAD tab renderers (025 phase 3)."""
+"""Tests unitarios para los renderizadores de pestañas PREP/UPLOAD (025 fase 3)."""
 
 from __future__ import annotations
 
@@ -86,17 +86,18 @@ class TestRenderPrep:
 
     def test_excludes_upload_slow_ops(self) -> None:
         out = render_prep(_baseline_snap())
-        assert "TXN_UP" not in out  # belongs to UPLOAD tab
+        assert "TXN_UP" not in out  # pertenece a la pestaña UPLOAD
 
     def test_shows_filtered_count(self) -> None:
-        # 051: docs filtered at S1 (delete-coded RVABREP rows) surface as a
-        # first-class line — not lost, not a skip, not a fail.
+        # 051: los docs filtrados en S1 (filas RVABREP marcadas como
+        # eliminadas) afloran como una línea de primera clase — no se
+        # pierden, no son un `skip`, no son un `fail`.
         out = render_prep(_baseline_snap(s1_filtered=12))
         assert "FILTERED (S1, deleted at source)" in out
         assert "12" in out
 
     def test_filtered_count_zero_still_renders_line(self) -> None:
-        out = render_prep(_baseline_snap())  # default s1_filtered=0
+        out = render_prep(_baseline_snap())  # default `s1_filtered=0`
         assert "FILTERED (S1, deleted at source)" in out
 
 
@@ -127,7 +128,7 @@ class TestRenderUpload:
 
     def test_chart_auto_scale_when_ceiling_zero(self) -> None:
         out = render_upload(_baseline_snap(bandwidth_ceiling_mbps=0.0))
-        # Network panel cites "(auto-scale)", chart caption says "y: 0 → peak".
+        # El panel `NETWORK` dice "(auto-scale)", el caption del chart dice "y: 0 → peak".
         assert "(auto-scale)" in out
         assert "y: 0 → peak" in out
 
@@ -152,7 +153,7 @@ class TestRenderUpload:
 
 
 # ---------------------------------------------------------------------------
-# 041: per-chunk MB progress + timer + ETA on the UPLOAD bar line
+# 041: progreso de MB por `chunk` + timer + ETA en la barra UPLOAD
 # ---------------------------------------------------------------------------
 
 
@@ -170,10 +171,10 @@ class TestRenderUploadChunkProgress041:
                 current_chunk_eta_s=None,
             )
         )
-        # Bar line carries the MB segment even at 0 %; total is known.
+        # La barra lleva el segmento de MB incluso al 0 %; el total es conocido.
         assert "0.0 MB" in out
         assert "200.0 MB" in out
-        # No timer line until at least one byte is uploaded.
+        # No hay línea de timer hasta que se haya subido al menos un byte.
         assert "chunk elapsed" not in out
         assert "est remaining" not in out
 
@@ -194,7 +195,7 @@ class TestRenderUploadChunkProgress041:
         assert "est remaining 00:03:18" in out
 
     def test_complete_progress_keeps_mb_and_drops_eta(self) -> None:
-        # progress >= 100 % → data provider passes eta_s=None.
+        # progreso >= 100 % → el `data_provider` pasa `eta_s=None`.
         out = render_upload(
             _baseline_snap(
                 current_chunk_bytes_uploaded=200 * _ONE_MB,
@@ -210,7 +211,7 @@ class TestRenderUploadChunkProgress041:
         assert "est remaining" not in out
 
     def test_unknown_total_renders_uploaded_only(self) -> None:
-        """Single-batch mode has no chunk-state ⇒ total bytes is 0."""
+        """El modo `single-batch` no tiene `chunk-state` ⇒ total de bytes es 0."""
         out = render_upload(
             _baseline_snap(
                 current_chunk_bytes_uploaded=12 * _ONE_MB,
@@ -222,13 +223,13 @@ class TestRenderUploadChunkProgress041:
         )
         assert "12.0 MB" in out
         assert " / " not in out.split("docs")[1].split("\n")[0], (
-            "no denominator when total is unknown"
+            "sin denominador cuando el total es desconocido"
         )
         assert "chunk elapsed 00:01:00" in out
 
 
 # ---------------------------------------------------------------------------
-# 036: dual heavy/light upload sub-panels
+# 036: subpaneles duales `heavy`/`light` de upload
 # ---------------------------------------------------------------------------
 
 
@@ -268,34 +269,35 @@ def _lane_snapshot(
 
 class TestRenderUploadDualLanes:
     def test_single_lane_panel_when_lane_snapshot_none(self) -> None:
-        # Default _baseline_snap() has lane_snapshot=None.
+        # `_baseline_snap()` por defecto tiene `lane_snapshot=None`.
         out = render_upload(_baseline_snap())
-        # Single-pool path: classic WORKERS panel labels.
+        # Camino single-pool: labels clásicos del panel WORKERS.
         assert "Pool capacity:" in out
         assert "Queue depth:     28" in out
-        # Dual-lane labels MUST NOT appear.
+        # Los labels dual-lane NO deben aparecer.
         assert "HEAVY" not in out
         assert "LIGHT" not in out
 
     def test_dual_lane_panels_when_snapshot_present(self) -> None:
         out = render_upload(_baseline_snap(lane_snapshot=_lane_snapshot()))
-        # Dual-panel labels present.
+        # Labels del panel dual presentes.
         assert "WORKERS (heavy/light" in out
         assert "total budget 10" in out
         assert "HEAVY" in out
         assert "LIGHT" in out
-        # Per-lane counters surfaced.
-        assert "queue    3" in out  # heavy queue=3
-        assert "queue   42" in out  # light queue=42
-        assert "done    17" in out  # heavy completed
-        assert "done   134" in out  # light completed
-        # Single-pool labels SHOULD NOT appear in dual mode.
+        # Contadores por `lane` aflorados.
+        assert "queue    3" in out  # queue `heavy`=3
+        assert "queue   42" in out  # queue `light`=42
+        assert "done    17" in out  # `heavy` completed
+        assert "done   134" in out  # `light` completed
+        # Los labels single-pool NO deben aparecer en modo dual.
         assert "Pool capacity:" not in out
 
     def test_dual_lane_preserves_network_and_chart(self) -> None:
         out = render_upload(_baseline_snap(lane_snapshot=_lane_snapshot()))
-        # The dual-panel only replaces the WORKERS block; network +
-        # bandwidth chart + slow-ops must still render.
+        # El panel dual solo reemplaza el bloque WORKERS; el panel
+        # `NETWORK` + chart de bandwidth + slow-ops deben seguir
+        # renderizando.
         assert "NETWORK (CMIS)" in out
         assert "UPLOAD SPEED" in out
         assert "SLOW OPS" in out

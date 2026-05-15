@@ -1,10 +1,11 @@
-"""Integration tests for :class:`PdfAssembler`.
+"""Tests de integración para :class:`PdfAssembler`.
 
-Exercises the adapter against real binary fixtures (TIFF / JPEG / PDF)
-generated at session start by ``conftest.py``. No mocking of img2pdf or
-Pillow — Constitution Principle VI. The single monkey-patched scenario
-forces the fallback path by replacing ``img2pdf.convert`` to raise; the
-fallback then runs against real Pillow + PyPDF2.
+Ejercita el adapter contra `fixtures` binarios reales (TIFF / JPEG / PDF)
+generados al inicio de la sesión por ``conftest.py``. Sin `mockear`
+img2pdf ni Pillow — Principio VI de la Constitución. El único escenario
+con `monkey-patch` fuerza el camino de fallback reemplazando
+``img2pdf.convert`` para que levante; el fallback después corre contra
+Pillow + PyPDF2 reales.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ def _make_doc(
     txn_num: str = "TXN0000001",
     **overrides: object,
 ) -> RVABREPDocument:
-    """Build a synthetic :class:`RVABREPDocument` for a specific fixture layout."""
+    """Arma un :class:`RVABREPDocument` sintético para un layout de `fixture` dado."""
     defaults: dict[str, object] = {
         "system_code": "1",
         "txn_num": txn_num,
@@ -69,7 +70,7 @@ def _config(tmp_path: Path, *, source_root: Path | None = None) -> AssemblerConf
 
 
 # ---------------------------------------------------------------------------
-# Group 1 — Construction & temp dir
+# Grupo 1 — Construcción y directorio temporal
 # ---------------------------------------------------------------------------
 
 
@@ -96,7 +97,7 @@ class TestConstruction:
 
 
 # ---------------------------------------------------------------------------
-# Group 2 — Native PDF passthrough
+# Grupo 2 — `Passthrough` de PDF nativo
 # ---------------------------------------------------------------------------
 
 
@@ -126,12 +127,12 @@ class TestNativePdfPassthrough:
             assembler.assemble(doc)
 
     def test_native_pdf_page_count_from_doc(self, tmp_path: Path) -> None:
-        # Even if Pillow's PDF would say 1 page, we trust doc.total_pages.
+        # Aunque el PDF de Pillow dijera 1 página, confiamos en doc.total_pages.
         assembler = PdfAssembler(_config(tmp_path))
         doc = _make_doc(
             file_name="0AAAUI0K.PDF",
             image_path="native_pdf/PROD/2025/11/17",
-            total_pages=7,  # arbitrary value
+            total_pages=7,  # valor arbitrario
             txn_num="TXN0000002",
         )
         staged = assembler.assemble(doc)
@@ -139,7 +140,7 @@ class TestNativePdfPassthrough:
 
 
 # ---------------------------------------------------------------------------
-# Group 3 — Paged-document assembly happy path
+# Grupo 3 — Happy path de ensamblado de documento paginado
 # ---------------------------------------------------------------------------
 
 
@@ -171,7 +172,7 @@ class TestPagedAssembly:
         assert len(reader.pages) == 2
 
     def test_variable_padding_sorted_numerically(self, tmp_path: Path) -> None:
-        # Pages on disk: .1, .2, .10 — lexical sort would order [1, 10, 2].
+        # Páginas en disco: .1, .2, .10 — el orden lexicográfico daría [1, 10, 2].
         assembler = PdfAssembler(_config(tmp_path))
         doc = _make_doc(
             file_name="DCCCH9X4.1",
@@ -185,7 +186,7 @@ class TestPagedAssembly:
         assert len(reader.pages) == 3
 
     def test_glob_excludes_unrelated_pdf(self, tmp_path: Path) -> None:
-        # Same directory holds 2 paged TIFFs AND an unrelated OTHER.PDF.
+        # El mismo directorio tiene 2 TIFFs paginados Y un OTHER.PDF no relacionado.
         assembler = PdfAssembler(_config(tmp_path))
         doc = _make_doc(
             file_name="DFFFH9X4.001",
@@ -194,17 +195,17 @@ class TestPagedAssembly:
             txn_num="TXN0000013",
         )
         staged = assembler.assemble(doc)
-        assert staged.page_count == 2  # not 3 — OTHER.PDF excluded
+        assert staged.page_count == 2  # no 3 — OTHER.PDF queda excluido
 
 
 # ---------------------------------------------------------------------------
-# Group 4 — Page-count mismatch
+# Grupo 4 — Mismatch de cantidad de páginas
 # ---------------------------------------------------------------------------
 
 
 class TestPageCountMismatch:
     def test_mismatch_emits_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        # 3 pages on disk, doc claims 5.
+        # 3 páginas en disco, el doc declara 5.
         assembler = PdfAssembler(_config(tmp_path))
         doc = _make_doc(
             file_name="DEEEH9X4.001",
@@ -214,7 +215,7 @@ class TestPageCountMismatch:
         )
         with caplog.at_level(logging.WARNING, logger="cmcourier.adapters.assembly.pdf_assembler"):
             staged = assembler.assemble(doc)
-        assert staged.page_count == 3  # filesystem wins
+        assert staged.page_count == 3  # gana el filesystem
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any(
             r.__dict__.get("expected") == 5 and r.__dict__.get("discovered") == 3 for r in warnings
@@ -222,7 +223,7 @@ class TestPageCountMismatch:
 
 
 # ---------------------------------------------------------------------------
-# Group 5 — Source-files missing
+# Grupo 5 — Source files faltantes
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +232,7 @@ class TestSourceFilesMissing:
         assembler = PdfAssembler(_config(tmp_path))
         doc = _make_doc(
             file_name="ZZZZZZZZ.001",
-            image_path="paged_tiff/PROD/2025/11/17",  # dir exists, file_code doesn't
+            image_path="paged_tiff/PROD/2025/11/17",  # el dir existe, el file_code no
             total_pages=1,
         )
         with pytest.raises(SourceFileMissingError):
@@ -239,7 +240,7 @@ class TestSourceFilesMissing:
 
 
 # ---------------------------------------------------------------------------
-# Group 6 — Fallback path (monkey-patch img2pdf)
+# Grupo 6 — Camino de fallback (monkey-patch a img2pdf)
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +269,7 @@ class TestFallbackPath:
         assert staged.page_count == 3
         reader = PdfReader(str(staged.path))
         assert len(reader.pages) == 3
-        # INFO log records the fast-path failure (message says "falling back").
+        # El log INFO registra la falla del fast-path (el mensaje dice "falling back").
         info_records = [r for r in caplog.records if r.levelno == logging.INFO]
         assert any("img2pdf" in r.getMessage().lower() for r in info_records)
         assert any("falling back" in r.getMessage().lower() for r in info_records)
@@ -297,7 +298,7 @@ class TestFallbackPath:
 
 
 # ---------------------------------------------------------------------------
-# Group 7 — Both paths fail
+# Grupo 7 — Fallan los dos caminos
 # ---------------------------------------------------------------------------
 
 
@@ -309,7 +310,7 @@ class TestBothPathsFail:
     ) -> None:
         from cmcourier.adapters.assembly import pdf_assembler as module
 
-        # Force img2pdf and the fallback to both fail.
+        # Fuerza a que fallen tanto img2pdf como el fallback.
         monkeypatch.setattr(
             module.img2pdf,
             "convert",
@@ -335,7 +336,7 @@ class TestBothPathsFail:
 
 
 # ---------------------------------------------------------------------------
-# Group 8 — Output validation (deeper PyPDF2 inspection)
+# Grupo 8 — Validación de output (inspección más profunda con PyPDF2)
 # ---------------------------------------------------------------------------
 
 
@@ -365,7 +366,7 @@ class TestOutputValidation:
 
 
 # ---------------------------------------------------------------------------
-# Group 9 — Logging discipline (Constitution VIII)
+# Grupo 9 — Disciplina de logging (Principio VIII de la Constitución)
 # ---------------------------------------------------------------------------
 
 
@@ -384,16 +385,16 @@ class TestLoggingDiscipline:
         )
         with caplog.at_level(logging.WARNING, logger="cmcourier.adapters.assembly.pdf_assembler"):
             assembler.assemble(doc)
-        # The WARNING must carry txn_num and counts, never raw bytes.
+        # El WARNING tiene que llevar txn_num y contadores, nunca bytes crudos.
         for record in caplog.records:
             message = record.getMessage()
-            # No b'...' literals or huge integer dumps.
+            # Sin literales b'...' ni dumps gigantes de enteros.
             assert "\\x" not in message
             assert "b'%" not in message
 
 
 # ---------------------------------------------------------------------------
-# Group 10 — Port conformance (019, Constitution I)
+# Grupo 10 — Conformidad del port (019, Principio I de la Constitución)
 # ---------------------------------------------------------------------------
 
 

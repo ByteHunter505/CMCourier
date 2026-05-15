@@ -1,1 +1,1 @@
-"""Adapter integration tests - real SQLite, real CSV, Alfresco in Docker."""
+"""Tests de integración de adapters: SQLite real, CSV real, Alfresco en Docker."""

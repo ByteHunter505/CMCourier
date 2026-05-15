@@ -1,4 +1,4 @@
-"""Integration tests for the `cmcourier analyze` subcommand suite (027)."""
+"""Tests de integración para la suite de subcomandos `cmcourier analyze` (027)."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
 
 
 def _seed_logs(log_dir: Path, batch_id: str, *, pipeline: str = "csv-trigger") -> None:
-    # batch_summary closes at 12:00:12.34 after a 12.34 s run → the
-    # network/system tiers are associated by the window [12:00:00, 12:00:12.34].
+    # batch_summary cierra a las 12:00:12.34 tras una corrida de 12.34 s →
+    # las capas network/system se asocian por la ventana [12:00:00, 12:00:12.34].
     _write_jsonl(
         log_dir / "metrics-2026-05-11.jsonl",
         [
@@ -159,9 +159,10 @@ class TestAnalyzeBatch:
             main,
             ["analyze", "batch", "missing", "--log-dir", str(log_dir)],
         )
-        # Empty report still renders; we surface a stderr note and exit 0
-        # for "no data" (operators may legitimately query a fresh batch).
-        # The bottleneck verdict is "under-utilized" by classifier fallback.
+        # El reporte vacío sigue renderizando; mostramos una nota por stderr
+        # y salimos con 0 ante "sin datos" (el operador puede legítimamente
+        # consultar un `batch` recién creado). El veredicto del `bottleneck`
+        # queda en "under-utilized" por el fallback del classifier.
         assert result.exit_code == 0
         assert "missing" in result.stdout
 
@@ -186,7 +187,7 @@ class TestAnalyzeCompare:
     def test_compare_text(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
         _seed_logs(log_dir, "B1")
-        # Second batch with different metrics — write a separate metrics line.
+        # Segundo `batch` con métricas distintas — escribimos otra línea de métricas.
         _write_jsonl(
             log_dir / "metrics-2026-05-11.jsonl",
             [
@@ -269,7 +270,7 @@ class TestAnalyzeTrends:
         )
         assert result.exit_code == 0, result.stderr
         out = result.stdout
-        # Last 3 batches (B2, B3, B4) listed; earlier ones omitted.
+        # Los últimos 3 `batches` (B2, B3, B4) listados; los previos omitidos.
         assert "B4" in out and "B3" in out and "B2" in out
         assert "B0" not in out
 

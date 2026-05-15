@@ -1,4 +1,4 @@
-"""Unit tests for ``parse_source_descriptor`` (023)."""
+"""Tests unitarios para ``parse_source_descriptor`` (023)."""
 
 from __future__ import annotations
 

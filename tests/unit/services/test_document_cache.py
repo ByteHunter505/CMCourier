@@ -1,8 +1,9 @@
-"""Unit tests for :class:`DocumentCacheService` (037 Phase 2).
+"""Tests unitarios para :class:`DocumentCacheService` (037 Fase 2).
 
-The service wraps an in-memory fake ``IDocumentCache`` so tests focus
-on TTL logic, hit / miss counters, and the fields-hash contract.
-SQLite-specific behavior is covered in
+El servicio envuelve un `fake` `IDocumentCache` en memoria para que
+los tests se enfoquen en la lógica de TTL, los contadores de
+`hit` / `miss` y el contrato del `fields-hash`. El comportamiento
+específico de SQLite se cubre en
 ``tests/integration/adapters/test_sqlite_document_cache.py``.
 """
 
@@ -28,7 +29,7 @@ pytestmark = pytest.mark.unit
 
 
 class _InMemoryCache(IDocumentCache):
-    """Minimal fake; not thread-safe, OK for single-threaded tests."""
+    """`Fake` mínimo; no es `thread-safe`, OK para tests `single-threaded`."""
 
     def __init__(self) -> None:
         self.rows: dict[tuple[str, str], CacheEntry] = {}
@@ -83,7 +84,7 @@ def _service(
 
 
 # ---------------------------------------------------------------------------
-# fields_hash determinism
+# Determinismo de `fields_hash`
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +154,7 @@ class TestTryGet:
             metadata=ResolvedMetadata.from_dict({"BAC_CIF": "x"}),
             trigger_cif=None,
         )
-        # Different fields → different fields_hash → miss.
+        # Fields distintos → `fields_hash` distinto → `miss`.
         got = svc.try_get(txn_num="TXN1", fields=["BAC_CIF", "Nombre_Cliente"])
         assert got is None
         assert svc.counters_snapshot().misses_absent == 1
@@ -168,7 +169,7 @@ class TestPut:
             metadata=ResolvedMetadata.from_dict({"BAC_CIF": "123", "Nombre_Cliente": "Test"}),
             trigger_cif="123",
         )
-        # Reach into the fake to confirm storage.
+        # Mete la mano en el `fake` para confirmar el almacenamiento.
         key = CacheKey(
             txn_num="TXN1",
             fields_hash=compute_fields_hash(["BAC_CIF", "Nombre_Cliente"]),
@@ -180,7 +181,7 @@ class TestPut:
 
 
 # ---------------------------------------------------------------------------
-# operator-facing pass-throughs
+# Pass-throughs de cara al operador
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +236,7 @@ class TestOperatorOps:
 
 
 # ---------------------------------------------------------------------------
-# Structured log events
+# Eventos de log estructurados
 # ---------------------------------------------------------------------------
 
 

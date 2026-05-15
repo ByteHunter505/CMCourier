@@ -1,13 +1,14 @@
-"""Integration tests for :class:`CmisUploader`.
+"""Tests de integración para :class:`CmisUploader`.
 
-Exercises the adapter end-to-end against the real ``httpx`` library,
-with the network stubbed by the ``respx`` library (Constitution
-Principle VI: no mocking of ``httpx`` internals — only the network).
-060 migrated from ``responses`` (requests-specific) to ``respx``.
+Ejercita el adapter end-to-end contra la librería real ``httpx``, con la
+red `stubeada` por la librería ``respx`` (Principio VI de la Constitución:
+sin `mockear` los internos de ``httpx`` — solo la red). 060 migró de
+``responses`` (específico de requests) a ``respx``.
 
-The retry-policy tests monkey-patch ``time.sleep`` inside the cmis_uploader
-module's namespace so retries do not actually wait. The bandwidth limiter
-test uses the real ``time.sleep`` because it asserts on elapsed time.
+Los tests de la política de retry hacen `monkey-patch` de ``time.sleep``
+dentro del namespace del módulo cmis_uploader, así los retries no esperan
+de verdad. El test del limitador de ancho de banda usa el ``time.sleep``
+real porque hace asserts sobre el tiempo transcurrido.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ def _make_config(**overrides: Any) -> CmisConfig:
 
 
 def _make_staged(tmp_path: Path, *, size_bytes: int = 1024) -> StagedFile:
-    """Write a synthetic PDF and return a :class:`StagedFile`."""
+    """Escribe un PDF sintético y devuelve un :class:`StagedFile`."""
     path = tmp_path / "TXN0000001.pdf"
     body = b"%PDF-1.4\n" + (b"x" * max(0, size_bytes - 9))
     path.write_bytes(body)
@@ -82,7 +83,7 @@ def _root_url(folder_path: str = "") -> str:
 
 
 def _stub_warmup(router: respx.MockRouter) -> None:
-    """Register a successful repositoryInfo response."""
+    """Registra una respuesta exitosa de repositoryInfo."""
     router.get(_repo_info_url()).mock(
         return_value=httpx.Response(
             200,
@@ -97,7 +98,7 @@ def _stub_warmup(router: respx.MockRouter) -> None:
 
 
 def _stub_warmup_alfresco_style(router: respx.MockRouter) -> None:
-    """Same as ``_stub_warmup`` but matches the Alfresco URL (no repo_id segment)."""
+    """Igual que ``_stub_warmup`` pero matchea la URL de Alfresco (sin segmento de repo_id)."""
     router.get(_BASE_URL).mock(
         return_value=httpx.Response(
             200,
@@ -119,7 +120,7 @@ def _skip_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Group 1 — CmisConfig
+# Grupo 1 — CmisConfig
 # ---------------------------------------------------------------------------
 
 
@@ -144,7 +145,7 @@ class TestCmisConfig:
 
 
 # ---------------------------------------------------------------------------
-# Group 2 — Warmup
+# Grupo 2 — Warmup
 # ---------------------------------------------------------------------------
 
 
@@ -174,7 +175,7 @@ class TestWarmup:
 
 
 # ---------------------------------------------------------------------------
-# Group 2b — Connection pool sizing + eager warm-up (038)
+# Grupo 2b — Dimensionamiento del pool de conexiones + warm-up agresivo (038)
 # ---------------------------------------------------------------------------
 
 
@@ -184,9 +185,10 @@ class TestConnectionPoolSizing:
         assert cfg.pool_size == 10
 
     def test_client_built_with_configured_limits(self) -> None:
-        # 060: httpx replaces requests' HTTPAdapter. The pool_size flows into
-        # httpx.Limits — verify both max_connections and max_keepalive_connections
-        # carry the configured value (otherwise concurrent workers fight the pool).
+        # 060: httpx reemplaza al HTTPAdapter de requests. El pool_size fluye
+        # hacia httpx.Limits: verificamos que tanto max_connections como
+        # max_keepalive_connections lleven el valor configurado (si no, los
+        # `workers` concurrentes pelean por el pool).
         uploader = CmisUploader(_make_config(pool_size=32))
         pool = uploader._client._transport._pool  # noqa: SLF001
         assert pool._max_connections == 32  # noqa: SLF001
@@ -200,7 +202,7 @@ class TestWarmConnectionPool:
         uploader = CmisUploader(_make_config(pool_size=8))
         succeeded = uploader.warm_connection_pool(8)
         assert succeeded == 8
-        # repositoryInfo got hit 8 times.
+        # repositoryInfo recibió 8 hits.
         info_calls = [
             c for c in respx_mock.calls if "cmisselector=repositoryInfo" in str(c.request.url)
         ]
@@ -208,13 +210,13 @@ class TestWarmConnectionPool:
 
     def test_warm_zero_is_noop(self) -> None:
         uploader = CmisUploader(_make_config())
-        # No HTTP mocks registered → would error if a request happened.
+        # Sin `mocks` HTTP registrados → daría error si saliera un request.
         assert uploader.warm_connection_pool(0) == 0
         assert uploader.warm_connection_pool(-3) == 0
 
     @respx.mock
     def test_warm_swallows_individual_failures(self, respx_mock: respx.MockRouter) -> None:
-        # First call succeeds; subsequent are 503 so most fail.
+        # La primera llamada anda; las siguientes son 503 así que casi todas fallan.
         respx_mock.get(_repo_info_url()).mock(
             side_effect=[
                 httpx.Response(
@@ -232,15 +234,15 @@ class TestWarmConnectionPool:
             ]
         )
         uploader = CmisUploader(_make_config(pool_size=4))
-        # Should NOT raise — failures only log.
+        # NO debería levantar — las fallas solo loguean.
         succeeded = uploader.warm_connection_pool(4)
-        # Order of completion is non-deterministic so just assert it
-        # is within [0, 4].
+        # El orden de finalización es no determinístico así que solo
+        # se verifica que esté dentro de [0, 4].
         assert 0 <= succeeded <= 4
 
 
 # ---------------------------------------------------------------------------
-# Group 3 — test_connection
+# Grupo 3 — test_connection
 # ---------------------------------------------------------------------------
 
 
@@ -275,7 +277,7 @@ class TestTestConnection:
 
 
 # ---------------------------------------------------------------------------
-# Group 4 — verify_folder_exists
+# Grupo 4 — verify_folder_exists
 # ---------------------------------------------------------------------------
 
 
@@ -348,7 +350,7 @@ class TestVerifyFolderExists:
 
     @respx.mock
     def test_does_not_post_anything(self, respx_mock: respx.MockRouter) -> None:
-        """Read-only contract: no folder is ever created."""
+        """Contrato read-only: nunca se crea una carpeta."""
         _stub_warmup(respx_mock)
         respx_mock.get(_root_url("X")).mock(
             return_value=httpx.Response(
@@ -362,7 +364,7 @@ class TestVerifyFolderExists:
 
 
 # ---------------------------------------------------------------------------
-# Group 5 — Upload happy path
+# Grupo 5 — Upload happy path
 # ---------------------------------------------------------------------------
 
 
@@ -454,7 +456,7 @@ class TestUploadHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# Group 6 — Retry policy
+# Grupo 6 — Política de retry
 # ---------------------------------------------------------------------------
 
 
@@ -531,7 +533,7 @@ class TestUploadRetry:
         )
         assert result == "ok"
         warmup_calls = [c for c in respx_mock.calls if c.request.method == "GET"]
-        # 401 triggers re-warmup — 2 GETs total (initial + re-warm).
+        # 401 dispara re-warmup — 2 GETs en total (inicial + re-warm).
         assert len(warmup_calls) == 2
 
     @respx.mock
@@ -557,7 +559,7 @@ class TestUploadRetry:
 
 
 # ---------------------------------------------------------------------------
-# Group 7 — Windows 10053
+# Grupo 7 — Windows 10053
 # ---------------------------------------------------------------------------
 
 
@@ -597,49 +599,49 @@ class TestUploadWindows10053:
 
         result = _run()
         assert result == "ok"
-        # 10053 sleep is doubled: base 1.0 * 2^0 * 2 = 2.0
+        # El sleep de 10053 se duplica: base 1.0 * 2^0 * 2 = 2.0
         assert any(s >= 2.0 for s in captured_delays), captured_delays
         assert any("10053" in r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
-# Group 8 — BandwidthLimiter
+# Grupo 8 — BandwidthLimiter
 # ---------------------------------------------------------------------------
 
 
 class TestTokenBucket:
-    """Direct tests for the new shared token bucket (029, REQ-001)."""
+    """Tests directos del nuevo `token bucket` compartido (029, REQ-001)."""
 
     def test_zero_mbps_is_noop(self) -> None:
         bucket = TokenBucket(mbps=0.0)
         start = time.monotonic()
         bucket.consume(10_000_000)  # 10 MB
         elapsed = time.monotonic() - start
-        assert elapsed < 0.05  # no throttling
+        assert elapsed < 0.05  # sin throttling
 
     def test_single_thread_throttles_to_rate(self) -> None:
-        # 0.5 MB/s for 1 MB ≈ 2.0 s nominal.
+        # 0.5 MB/s para 1 MB ≈ 2.0 s nominal.
         bucket = TokenBucket(mbps=0.5)
         start = time.monotonic()
-        # Drain 1 MB in 10×100 KB chunks (mimics a real upload).
+        # Drena 1 MB en 10×100 KB de `chunks` (imita un upload real).
         for _ in range(10):
             bucket.consume(100_000)
         elapsed = time.monotonic() - start
         assert 1.5 < elapsed < 3.0, elapsed
 
     def test_n_concurrent_workers_share_cap(self) -> None:
-        """REQ-004 property test: N workers consuming concurrently
-        against a shared bucket cannot exceed the configured rate.
+        """Test de propiedad REQ-004: N `workers` consumiendo concurrentemente
+        contra un `bucket` compartido no pueden exceder la tasa configurada.
 
-        4 workers × 0.5 MB each at 1 MB/s → ≈2.0 s aggregate.
-        Each worker draining alone would take 0.5 s; a per-worker
-        bucket would let them finish in parallel in 0.5 s and prove
-        the bug. The shared bucket forces them to serialize tokens.
+        4 `workers` × 0.5 MB cada uno a 1 MB/s → ≈2.0 s agregado.
+        Cada `worker` drenando solo tardaría 0.5 s; un `bucket` por `worker`
+        los dejaría terminar en paralelo en 0.5 s y probaría el bug. El
+        `bucket` compartido los fuerza a serializar los tokens.
         """
         import threading as _threading
 
-        bucket = TokenBucket(mbps=1.0)  # 1 MB/s aggregate
-        bytes_per_worker = 500_000  # 0.5 MB each
+        bucket = TokenBucket(mbps=1.0)  # 1 MB/s agregado
+        bytes_per_worker = 500_000  # 0.5 MB cada uno
         n_workers = 4
         results: list[float] = []
 
@@ -658,9 +660,9 @@ class TestTokenBucket:
         wall_elapsed = time.monotonic() - wall_start
 
         total_bytes = bytes_per_worker * n_workers  # 2 MB
-        # At 1 MB/s aggregate, 2 MB takes ~2.0 s. Anything well under
-        # 1.5 s would prove the cap leaked. Be lenient on upper bound
-        # (CI / GIL noise) — the lower bound is the real assertion.
+        # A 1 MB/s agregado, 2 MB tarda ~2.0 s. Cualquier valor muy debajo
+        # de 1.5 s probaría que el tope se filtró. Es tolerante con la cota
+        # superior (ruido de CI / GIL) — la cota inferior es el assert real.
         assert wall_elapsed > 1.5, (
             f"shared cap leaked: {n_workers} workers drained "
             f"{total_bytes} B in {wall_elapsed:.2f}s "
@@ -674,7 +676,7 @@ class TestBandwidthLimiter:
         size = 1_000_000  # 1 MB
         path = tmp_path / "blob.bin"
         path.write_bytes(b"x" * size)
-        # 0.5 MB/s on 1 MB ≈ 2.0 s nominal.
+        # 0.5 MB/s en 1 MB ≈ 2.0 s nominal.
         bucket = TokenBucket(mbps=0.5)
         with path.open("rb") as fh:
             limiter = BandwidthLimiter(fh, bucket)
@@ -696,7 +698,7 @@ class TestBandwidthLimiter:
         data = limiter.read(6)
         elapsed = time.monotonic() - start
         assert data == b"abcdef"
-        assert elapsed < 0.1  # no throttling
+        assert elapsed < 0.1  # sin throttling
 
     def test_passthrough_methods(self) -> None:
         stream = io.BytesIO(b"abcdef")
@@ -711,7 +713,7 @@ class TestBandwidthLimiter:
 
 
 # ---------------------------------------------------------------------------
-# Group 9 — Logging discipline (Constitution VIII)
+# Grupo 9 — Disciplina de logging (Principio VIII de la Constitución)
 # ---------------------------------------------------------------------------
 
 
@@ -750,7 +752,7 @@ class TestLoggingDiscipline:
 
 
 # ---------------------------------------------------------------------------
-# Group 10 — get_type_definition
+# Grupo 10 — get_type_definition
 # ---------------------------------------------------------------------------
 
 
@@ -792,7 +794,7 @@ class TestGetTypeDefinition:
 
 
 # ---------------------------------------------------------------------------
-# Port conformance (019, Constitution I)
+# Conformidad del port (019, Principio I de la Constitución)
 # ---------------------------------------------------------------------------
 
 
@@ -805,7 +807,7 @@ class TestPortConformance:
 
 
 # ---------------------------------------------------------------------------
-# 038 — s5_upload_attempt + s5_upload_failed events
+# 038 — eventos s5_upload_attempt + s5_upload_failed
 # ---------------------------------------------------------------------------
 
 
@@ -834,9 +836,9 @@ class TestUploadPayloadTraceEvents:
         rec = attempts[0]
         assert rec.object_type_id == "D:cmcourier:bacDoc"
         assert rec.document_name == "TXN1.pdf"
-        # PII masked by default: CIF value should not appear.
+        # PII enmascarada por default: el valor de CIF no debería aparecer.
         assert "00123456" not in rec.properties_json
-        # cmis:name and mime are safe — appear raw.
+        # `cmis:name` y mime son seguros — aparecen crudos.
         assert "TXN1.pdf" in rec.properties_json
         assert "application/pdf" in rec.properties_json
 
@@ -877,8 +879,8 @@ class TestUploadPayloadTraceEvents:
         assert fail.status_code == 400
         assert "createDocument" in fail.curl_equivalent
         assert "D:cmcourier:bacDoc" in fail.curl_equivalent
-        # PII masked: the raw CIF must not be in either the JSON
-        # properties or the curl-equivalent dump.
+        # PII enmascarada: el CIF crudo no debe estar ni en las propiedades
+        # JSON ni en el dump curl-equivalent.
         assert "00123456" not in fail.properties_json
         assert "00123456" not in fail.curl_equivalent
 
@@ -907,12 +909,12 @@ class TestUploadPayloadTraceEvents:
 
 
 # ---------------------------------------------------------------------------
-# 040 — Alfresco URL compatibility (repo_id="" semantics)
+# 040 — Compatibilidad de URL de Alfresco (semántica de repo_id="")
 # ---------------------------------------------------------------------------
 
 
 class TestServiceUrl:
-    """Unit-level — exercise the ``_service_url`` helper directly."""
+    """Nivel unitario — ejercita el helper ``_service_url`` directamente."""
 
     def test_empty_repo_id_no_suffix(self) -> None:
         uploader = CmisUploader(_make_config(repo_id=""))
@@ -933,8 +935,8 @@ class TestServiceUrl:
 
 
 class TestAlfrescoStyleUrls:
-    """Wire-level — when ``repo_id=""`` the adapter must NOT emit
-    ``.../base//root/...`` (Alfresco rejects with HTTP 405).
+    """Nivel wire — cuando ``repo_id=""`` el adapter NO debe emitir
+    ``.../base//root/...`` (Alfresco rechaza con HTTP 405).
     """
 
     @respx.mock
@@ -949,7 +951,7 @@ class TestAlfrescoStyleUrls:
         )
         uploader = CmisUploader(_make_config(repo_id=""))
         assert uploader.verify_folder_exists("/X") is True
-        # The GET URL must not contain a doubled slash anywhere after the host.
+        # La URL del GET no debe tener un slash duplicado en ningún lado después del host.
         for call in respx_mock.calls:
             url_str = str(call.request.url)
             path = url_str.split(_BASE_URL, 1)[1]
@@ -974,7 +976,7 @@ class TestAlfrescoStyleUrls:
             batch_id="B-no-repo-id",
         )
         assert result == "id"
-        # The POST URL must not contain a doubled slash.
+        # La URL del POST no debe tener un slash duplicado.
         post = [c for c in respx_mock.calls if c.request.method == "POST"][0]
         path = str(post.request.url).split(_BASE_URL, 1)[1]
         assert "//" not in path
@@ -991,7 +993,7 @@ class TestAlfrescoStyleUrls:
 
 
 # ---------------------------------------------------------------------------
-# 045 — idempotent 409 recovery
+# 045 — recuperación idempotente de 409
 # ---------------------------------------------------------------------------
 
 
@@ -1001,11 +1003,11 @@ class TestUpload409Recovery045:
         self, respx_mock: respx.MockRouter, tmp_path: Path
     ) -> None:
         _stub_warmup(respx_mock)
-        # Document POST collides on cmis:name → 409 from Alfresco.
+        # El POST de documento colisiona en cmis:name → 409 de Alfresco.
         respx_mock.post(_root_url("BAC_X")).mock(
             return_value=httpx.Response(409, json={"exception": "contentAlreadyExists"})
         )
-        # Children lookup of the same folder returns the prior orphan.
+        # El lookup de hijos de la misma carpeta devuelve el huérfano anterior.
         respx_mock.get(_root_url("BAC_X")).mock(
             return_value=httpx.Response(
                 200,
@@ -1043,7 +1045,7 @@ class TestUpload409Recovery045:
         respx_mock.post(_root_url("BAC_X")).mock(
             return_value=httpx.Response(409, json={"exception": "contentAlreadyExists"})
         )
-        # Children lookup returns NO match — the 409 was for some other reason.
+        # El lookup de hijos NO matchea — el 409 fue por otro motivo.
         respx_mock.get(_root_url("BAC_X")).mock(
             return_value=httpx.Response(200, json={"objects": []})
         )
@@ -1064,15 +1066,15 @@ class TestUpload409Recovery045:
     def test_200_does_not_trigger_lookup(
         self, respx_mock: respx.MockRouter, tmp_path: Path
     ) -> None:
-        """Happy path must NOT call the recovery lookup (no behavior drift)."""
+        """El happy path NO debe llamar al lookup de recuperación (sin drift de comportamiento)."""
         _stub_warmup(respx_mock)
         respx_mock.post(_root_url("BAC_X")).mock(
             return_value=httpx.Response(
                 201, json={"succinctProperties": {"cmis:objectId": "fresh-abc"}}
             )
         )
-        # If the uploader called the children GET, respx would raise on the
-        # unmatched route (default behaviour).
+        # Si el uploader llamara al GET de hijos, respx levantaría en la
+        # ruta no matcheada (comportamiento por default).
         uploader = CmisUploader(_make_config())
         result = uploader.upload(
             file=_make_staged(tmp_path),
@@ -1087,8 +1089,8 @@ class TestUpload409Recovery045:
 
 
 # ---------------------------------------------------------------------------
-# 055 — network events carry the batch_id so the per-batch bandwidth +
-# slow-op handlers actually receive them.
+# 055 — los eventos de red llevan el batch_id así los handlers por-batch de
+# ancho de banda + slow-op realmente los reciben.
 # ---------------------------------------------------------------------------
 
 
@@ -1122,10 +1124,10 @@ class TestNetworkEventBatchId055:
                 properties={},
                 batch_id="B1",
             )
-            # The bandwidth sampler received the uploaded bytes...
+            # El sampler de ancho de banda recibió los bytes subidos...
             assert recorder.bandwidth.cumulative_bytes() > 0
             assert recorder.bandwidth.peak_mbps() > 0.0
-            # ...and the slow-op aggregator saw the cmis_upload op.
+            # ...y el agregador de `slow-op` vio la op cmis_upload.
             assert any(op.get("kind") == "cmis_upload" for op in recorder.aggregator_snapshot())
         finally:
             net_log.setLevel(prev_level)
@@ -1155,16 +1157,16 @@ class TestNetworkEventBatchId055:
 
 
 # ---------------------------------------------------------------------------
-# 060 — HTTP/2 negotiation
+# 060 — Negociación HTTP/2
 # ---------------------------------------------------------------------------
 
 
 class TestHttp2Enabled060:
     def test_client_built_with_http2_enabled(self) -> None:
-        # The adapter advertises HTTP/2 via ALPN. The server decides whether
-        # to negotiate it. We pin that the client *offers* it.
+        # El adapter anuncia HTTP/2 vía ALPN. El servidor decide si lo
+        # negocia. Acá fijamos que el cliente lo *ofrezca*.
         uploader = CmisUploader(_make_config())
-        # httpx.Client._transport is HTTPTransport; the http2 flag is on the
-        # pool config. Easiest invariant: the AsyncClient/Client carries http2
-        # = True at construction time.
+        # httpx.Client._transport es HTTPTransport; el flag http2 está en
+        # la config del pool. Invariante más sencillo: el AsyncClient/Client
+        # lleva http2 = True al construirse.
         assert uploader._client._transport._pool._http2 is True  # noqa: SLF001

@@ -1,1 +1,1 @@
-"""Unit tests for ``cmcourier.services`` - business logic with mocked ports."""
+"""Tests unitarios para ``cmcourier.services`` — lógica de negocio con puertos `mock`."""

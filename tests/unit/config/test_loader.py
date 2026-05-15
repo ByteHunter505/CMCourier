@@ -1,4 +1,4 @@
-"""Unit tests for ``cmcourier.config.loader``."""
+"""Tests unitarios para ``cmcourier.config.loader``."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ class TestLoadConfig:
 
     def test_validation_failure_surfaces_errors(self, tmp_path: Path) -> None:
         yaml_path = _write_valid_yaml(tmp_path)
-        # Add an unknown top-level field by editing the file.
+        # Agrega un campo top-level desconocido editando el archivo.
         with yaml_path.open("a") as fh:
             fh.write("\ncosmic_settings:\n  intent: blast\n")
         with pytest.raises(ConfigurationError) as ei:
@@ -110,7 +110,7 @@ class TestLoadConfig:
     def test_missing_required_field_raises(self, tmp_path: Path) -> None:
         yaml_path = _write_valid_yaml(tmp_path)
         text = yaml_path.read_text()
-        # Remove the cmis.base_url line.
+        # Quita la línea `cmis.base_url`.
         text = text.replace("  base_url: http://cmis.test:9080/cmis\n", "")
         yaml_path.write_text(text)
         with pytest.raises(ConfigurationError):
@@ -118,7 +118,7 @@ class TestLoadConfig:
 
 
 class TestIndexingSource048:
-    """048 — RVABREP source is a discriminated union (csv ↔ as400)."""
+    """048 — la `source` de RVABREP es una unión discriminada (`csv` ↔ `as400`)."""
 
     def test_csv_source_variant_loads(self, tmp_path: Path) -> None:
         yaml_path = _write_valid_yaml(tmp_path)
@@ -131,7 +131,7 @@ class TestIndexingSource048:
     def test_as400_source_variant_loads(self, tmp_path: Path) -> None:
         yaml_path = _write_valid_yaml(tmp_path)
         text = yaml_path.read_text()
-        # Swap the csv source block for an as400 one.
+        # Intercambia el bloque de `source` `csv` por uno `as400`.
         text = text.replace(
             f"indexing:\n  source:\n    kind: csv\n    csv_path: {tmp_path / 'rvabrep.csv'}\n",
             "indexing:\n"
@@ -151,9 +151,9 @@ class TestIndexingSource048:
         assert "RVABREP" in config.indexing.source.query
 
     def test_trigger_kind_as400_rejected_with_directive_error(self, tmp_path: Path) -> None:
-        """048 removed ``trigger.kind: as400``. The loader must reject it
-        with a message pointing at the new ``indexing.source`` shape, not
-        a cryptic discriminated-union error."""
+        """048 quitó ``trigger.kind: as400``. El loader debe rechazarlo
+        con un mensaje que apunte a la nueva forma ``indexing.source``,
+        no un error críptico de unión discriminada."""
         yaml_path = _write_valid_yaml(tmp_path)
         text = yaml_path.read_text()
         text = text.replace(

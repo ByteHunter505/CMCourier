@@ -1,8 +1,9 @@
-"""Unit tests for ``cmcourier.domain.exceptions``.
+"""Tests unitarios para ``cmcourier.domain.exceptions``.
 
-Validates the typed hierarchy structure (so ``except MappingError`` catches all
-mapping-stage failures) and the structured-context contract (so loggers can
-extract ``txn_num``, ``id_rvi``, etc. without parsing the message).
+Valida la estructura jerárquica tipada (para que ``except
+MappingError`` capture todas las fallas de la etapa de mapping) y el
+contrato de contexto estructurado (para que los loggers puedan
+extraer ``txn_num``, ``id_rvi``, etc. sin parsear el mensaje).
 """
 
 from __future__ import annotations
@@ -34,13 +35,14 @@ from cmcourier.domain.exceptions import (
 
 
 class TestHierarchy:
-    """Every project exception MUST descend from CMCourierError, and stage-
-    specific subclasses MUST descend from their stage's base error."""
+    """Cada excepción del proyecto DEBE descender de `CMCourierError`,
+    y las subclases específicas de etapa DEBEN descender del error
+    base de su etapa."""
 
     @pytest.mark.parametrize(
         ("subclass", "ancestor"),
         [
-            # Direct children of root
+            # Hijos directos del root
             (ConfigurationError, CMCourierError),
             (TriggerError, CMCourierError),
             (IndexingError, CMCourierError),
@@ -49,23 +51,23 @@ class TestHierarchy:
             (AssemblyError, CMCourierError),
             (UploadError, CMCourierError),
             (TrackingError, CMCourierError),
-            # IndexingError children (S1)
+            # Hijos de `IndexingError` (S1)
             (RVABREPNotFoundError, IndexingError),
             (RVABREPDeletedError, IndexingError),
             (RVABREPDuplicateError, IndexingError),
-            (RVABREPNotFoundError, CMCourierError),  # transitively
-            # MappingError children (S2)
+            (RVABREPNotFoundError, CMCourierError),  # transitivamente
+            # Hijos de `MappingError` (S2)
             (IDRViNotMappedError, MappingError),
             (IDRViNotMappedError, CMCourierError),
-            # MetadataError children (S3)
+            # Hijos de `MetadataError` (S3)
             (SourceFailedError, MetadataError),
             (DefaultValidationFailedError, MetadataError),
             (SourceFailedError, CMCourierError),
-            # AssemblyError children (S4)
+            # Hijos de `AssemblyError` (S4)
             (SourceFileMissingError, AssemblyError),
             (PDFAssemblyFailedError, AssemblyError),
             (SourceFileMissingError, CMCourierError),
-            # UploadError children (S5)
+            # Hijos de `UploadError` (S5)
             (CMISClientError, UploadError),
             (CMISServerError, UploadError),
             (RetriesExhaustedError, UploadError),
@@ -82,8 +84,9 @@ class TestHierarchy:
 
 
 class TestStructuredContext:
-    """Subclasses with named context parameters MUST expose them as attributes
-    AND surface them in ``str(exc)`` for log discoverability."""
+    """Las subclases con parámetros de contexto nombrados DEBEN
+    exponerlos como atributos Y aflorarlos en ``str(exc)`` para
+    descubribilidad en los logs."""
 
     def test_id_rvi_not_mapped(self) -> None:
         exc = IDRViNotMappedError(id_rvi="ZZ99")
@@ -149,8 +152,8 @@ class TestStructuredContext:
 
 
 class TestRootBaseClass:
-    """The root CMCourierError accepts free-form context for handlers that
-    don't need a typed subclass (rare, but allowed)."""
+    """El root `CMCourierError` acepta contexto libre para `handler`s
+    que no necesitan una subclase tipada (raro, pero permitido)."""
 
     def test_no_context(self) -> None:
         exc = CMCourierError("just a message")
@@ -160,7 +163,7 @@ class TestRootBaseClass:
     def test_context_only(self) -> None:
         exc = CMCourierError(foo="bar", baz=42)
         assert exc.context == {"foo": "bar", "baz": 42}
-        # str includes both keys
+        # `str` incluye ambas claves
         assert "foo" in str(exc)
         assert "bar" in str(exc) or "'bar'" in str(exc)
 
@@ -172,10 +175,10 @@ class TestRootBaseClass:
 
 
 class TestAssemblyExceptionsPicklable066:
-    """066: SourceFileMissingError + PDFAssemblyFailedError cross
-    ProcessPoolExecutor boundaries when S4 is dispatched to a worker
-    process. ``pickle.loads(pickle.dumps(exc))`` must round-trip with
-    every attribute preserved."""
+    """066: `SourceFileMissingError` + `PDFAssemblyFailedError` cruzan
+    los límites del `ProcessPoolExecutor` cuando S4 se despacha a un
+    proceso `worker`. ``pickle.loads(pickle.dumps(exc))`` debe
+    `round-trip` con cada atributo preservado."""
 
     def test_source_file_missing_round_trips_through_pickle(self) -> None:
         import pickle

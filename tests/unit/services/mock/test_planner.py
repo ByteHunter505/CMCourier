@@ -1,4 +1,4 @@
-"""Unit tests for ``cmcourier.services.mock.planner`` (031, REQ-006..REQ-016)."""
+"""Tests unitarios para ``cmcourier.services.mock.planner`` (031, REQ-006..REQ-016)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from cmcourier.services.mock.planner import (
     plan_files,
 )
 
-# Defaults match IndexingColumnsModel() — see config/schema.py:149.
+# Los defaults coinciden con `IndexingColumnsModel()` — ver `config/schema.py:149`.
 _COLS = IndexingColumnsModel()
 
 _BOUNDS = SizeBounds(
@@ -101,7 +101,8 @@ class TestDispatch:
             list(plan_files([row], _COLS, PlannerFilters(), _BOUNDS))
 
     def test_pdf_with_lowercase_extension_dispatches_as_pdf(self) -> None:
-        # is_pdf_filename is case-insensitive; ABABST may say anything for PDFs.
+        # `is_pdf_filename` es case-insensitive; `ABABST` puede decir
+        # cualquier cosa para PDFs.
         row = _row(file_name="DOC.pdf", total_pages="2", image_type="O")
         plans = list(plan_files([row], _COLS, PlannerFilters(), _BOUNDS))
         assert plans[0].kind == "pdf"
@@ -193,12 +194,12 @@ class TestDedup:
         with caplog.at_level(logging.WARNING, logger="cmcourier.services.mock.planner"):
             plans = list(plan_files(rows, _COLS, PlannerFilters(), _BOUNDS))
         assert len(plans) == 1
-        assert plans[0].pages == 2  # first wins
+        assert plans[0].pages == 2  # gana el primero
         assert any("conflict" in rec.message.lower() for rec in caplog.records)
 
     def test_dedup_after_path_normalization(self) -> None:
-        # Two rows whose image_path differs only in separator style should
-        # still dedup against the normalized path.
+        # Dos filas cuyo `image_path` solo difiere en el estilo de
+        # separador igual deben deduplicarse contra el `path` normalizado.
         rows = [
             _row(txn="T1", file_name="DOC.001", image_path="p/x"),
             _row(txn="T2", file_name="DOC.001", image_path=r"\p\x"),

@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier mock generate`` (031, REQ-034)."""
+"""Tests de integración para ``cmcourier mock generate`` (031, REQ-034)."""
 
 from __future__ import annotations
 
@@ -72,26 +72,26 @@ class TestHappyPath:
         tif3 = root / "docs/2024/tif/IMG001.003"
         jpg1 = root / "docs/2024/jpg/JPG001.001"
 
-        # Files exist.
+        # Los archivos existen.
         for p in [pdf, tif1, tif2, tif3, jpg1]:
-            assert p.is_file(), f"missing {p}"
+            assert p.is_file(), f"falta {p}"
 
-        # PDF re-openable with correct page count.
+        # El PDF se abre con la cantidad correcta de páginas.
         reader = PdfReader(str(pdf))
         assert len(reader.pages) == 2
 
-        # TIFFs decodable.
+        # TIFFs decodificables.
         for p in [tif1, tif2, tif3]:
             with Image.open(p) as img:
                 assert img.format == "TIFF"
 
-        # JPEG decodable.
+        # JPEG decodificable.
         with Image.open(jpg1) as img:
             assert img.format == "JPEG"
 
-        # Summary line emitted.
+        # La línea de resumen se emitió.
         assert "wrote" in stdout
-        assert "5" in stdout  # 5 files created
+        assert "5" in stdout  # se crearon 5 archivos
 
 
 class TestDryRun:
@@ -117,13 +117,13 @@ class TestDryRun:
             "--dry-run",
         )
         assert code == 0
-        # Three planned plans (1 pdf row, 1 tiff row, 1 jpeg row).
+        # Tres planes (1 fila pdf, 1 fila tiff, 1 fila jpeg).
         plan_lines = [line for line in stdout.splitlines() if line.startswith("[plan]")]
-        # 5 files = 1 PDF + 3 TIFF pages + 1 JPEG (one [plan] line per file).
+        # 5 archivos = 1 PDF + 3 páginas TIFF + 1 JPEG (una línea [plan] por archivo).
         assert len(plan_lines) == 5
-        # Root either doesn't exist OR is empty.
+        # El root o no existe O está vacío.
         if root.exists():
-            assert not any(root.rglob("*")), "dry-run wrote files"
+            assert not any(root.rglob("*")), "el dry-run escribió archivos"
 
 
 class TestDeterminism:
@@ -154,7 +154,7 @@ class TestDeterminism:
 
         for fa, fb in zip(files_a, files_b, strict=True):
             assert fa.relative_to(root_a) == fb.relative_to(root_b)
-            assert _sha256(fa) == _sha256(fb), f"mismatch at {fa.name}"
+            assert _sha256(fa) == _sha256(fb), f"`mismatch` en {fa.name}"
 
 
 class TestValidationErrors:

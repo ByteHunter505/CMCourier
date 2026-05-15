@@ -1,9 +1,9 @@
-"""Integration tests for :class:`SqliteDocumentCache` (037 Phase 1).
+"""Tests de integración para :class:`SqliteDocumentCache` (037 Fase 1).
 
-Uses a real SQLite file under ``tmp_path``. The cache and the
-tracking store share a database, so each test opens a
-``SQLiteTrackingStore`` first to bootstrap the schema, then exercises
-the adapter.
+Usa un archivo SQLite real bajo ``tmp_path``. La cache y el `tracking store`
+comparten base de datos, así que cada test abre primero un
+``SQLiteTrackingStore`` para bootstrapear el schema y después ejercita el
+adapter.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ def db_path(tmp_path: Path) -> Path:
     p = tmp_path / "tracking.db"
     store = SQLiteTrackingStore(p)
     try:
-        # Just touching the store ensures the schema (including
-        # document_cache) lands.
+        # Solo con tocar el store ya se asegura que el schema
+        # (incluido document_cache) quede creado.
         store.flush()
     finally:
         store.close()

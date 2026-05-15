@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier background --pipeline <kind>`` (024)."""
+"""Tests de integración para ``cmcourier background --pipeline <kind>`` (024)."""
 
 from __future__ import annotations
 
@@ -15,9 +15,10 @@ from cmcourier.cli.commands._lock import acquire_config_lock
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-# Cron-canonical "transient failure" exit code. Hardcoded because ``os.EX_TEMPFAIL``
-# only exists on POSIX Python builds; the production code in
-# ``cli/commands/background.py`` uses the same literal.
+# Código de salida canónico de "fallo transitorio" para cron. Hardcodeado
+# porque ``os.EX_TEMPFAIL`` solo existe en builds POSIX de Python; el
+# código de producción en ``cli/commands/background.py`` usa el mismo
+# literal.
 _EXIT_TEMPFAIL = 75
 
 _TESTS_ROOT = Path(__file__).parent.parent.parent
@@ -31,7 +32,7 @@ _CMIS_REPO_ID = "$x!testrepo"
 
 @pytest.fixture(autouse=True)
 def isolated_runtime_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Pin XDG_RUNTIME_DIR per test so lock files don't collide."""
+    """Fija XDG_RUNTIME_DIR por test así los archivos de lock no chocan."""
     runtime = tmp_path / "xdg-runtime"
     runtime.mkdir()
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
@@ -180,7 +181,7 @@ class TestBackgroundHappyPath:
             ],
         )
         assert result.exit_code == 0, result.output
-        # Quiet mode: no batch summary line on stdout.
+        # Modo silencioso: sin línea de resumen del `batch` por stdout.
         assert "s5_done=" not in result.stdout
         assert "batch_id=" not in result.stdout
 
@@ -193,7 +194,7 @@ class TestBackgroundLockContention:
     ) -> None:
         _set_cmis_env(monkeypatch)
         yaml_path = _write_yaml(tmp_path)
-        # Hold the lock; the CLI invocation below should reject.
+        # Mantenemos el lock; la invocación del CLI de abajo debe rechazar.
         with acquire_config_lock(yaml_path) as lock_path:
             result = CliRunner().invoke(
                 main,
@@ -217,9 +218,9 @@ class TestBackgroundLockContention:
     ) -> None:
         _set_cmis_env(monkeypatch)
         yaml_path = _write_yaml(tmp_path)
-        # Pre-run: acquire and release.
+        # Pre-run: adquirimos y liberamos.
         with acquire_config_lock(yaml_path):
             pass
-        # Post-release: same config can be acquired again immediately.
+        # Post-release: la misma config se puede tomar de nuevo al toque.
         with acquire_config_lock(yaml_path):
             pass

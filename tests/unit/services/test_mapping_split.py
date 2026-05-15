@@ -1,16 +1,17 @@
-"""Unit tests for ``MappingService`` in split mode (035).
+"""Tests unitarios para ``MappingService`` en modo split (035).
 
-Split mode reads two ``IDataSource`` instances:
+El modo split lee dos instancias de ``IDataSource``:
 
-* ``rvi_cm`` — ``MapeoRVI_CM.csv``: one row per IDRVI with the columns
-  IDSistema, IDRVI, IDCM, IDClaseDocumental, CMISType.
-* ``metadatos`` — ``MetadatosCM.csv``: many rows per IDCorto with the
-  columns IDCorto, Metadato, Requerido.
+* ``rvi_cm`` — ``MapeoRVI_CM.csv``: una fila por `IDRVI` con las
+  columnas `IDSistema`, `IDRVI`, `IDCM`, `IDClaseDocumental`,
+  `CMISType`.
+* ``metadatos`` — ``MetadatosCM.csv``: muchas filas por `IDCorto`
+  con las columnas `IDCorto`, `Metadato`, `Requerido`.
 
-Tests use an in-memory ``IDataSource`` (a thin tuple-wrapping fake)
-because the SUT is the service, not the adapter. Constitution
-Principle VI: don't mock the port the SUT consumes; provide a real,
-fast, deterministic implementation.
+Los tests usan un ``IDataSource`` en memoria (un `fake` fino que
+envuelve tuplas) porque el SUT es el servicio, no el adaptador.
+Principio VI de la constitución: no `mock`ees el puerto que el SUT
+consume; provee una implementación real, rápida y determinística.
 """
 
 from __future__ import annotations
@@ -33,12 +34,12 @@ class _FakeSource:
     def get_all(self) -> Iterator[dict[str, object]]:
         return iter(self._rows)
 
-    def close(self) -> None:  # pragma: no cover - protocol completeness
+    def close(self) -> None:  # pragma: no cover — completitud de protocolo
         pass
 
 
 def _rvi_cm_rows(*items: tuple[str, str, str, str]) -> list[dict[str, object]]:
-    """Build MapeoRVI_CM rows from ``(idrvi, idcm, idclase, cmis_type)`` tuples."""
+    """Construye filas `MapeoRVI_CM` desde tuplas ``(idrvi, idcm, idclase, cmis_type)``."""
     return [
         {
             "IDSistema": "",
@@ -52,7 +53,7 @@ def _rvi_cm_rows(*items: tuple[str, str, str, str]) -> list[dict[str, object]]:
 
 
 def _metadatos_rows(*items: tuple[str, str, str]) -> list[dict[str, object]]:
-    """Build MetadatosCM rows from ``(idcorto, metadato, requerido)`` tuples."""
+    """Construye filas `MetadatosCM` desde tuplas ``(idcorto, metadato, requerido)``."""
     return [
         {"IDCorto": idcorto, "Metadato": meta, "Requerido": req} for idcorto, meta, req in items
     ]
@@ -91,9 +92,9 @@ class TestSplitModeBasics:
         metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
         svc = MappingService(rvi_cm, metadata_source=metadatos)  # type: ignore[arg-type]
         m = svc.get_mapping("FB01")
-        # Production CSV has no human-readable name column. The service
-        # falls back to clase_id so logs / inspect output still have
-        # something printable.
+        # El CSV de producción no tiene columna de nombre legible. El
+        # servicio cae a `clase_id` así los logs / `inspect` siguen
+        # teniendo algo imprimible.
         assert m.clase_name == m.clase_id == "01.01.01.01.01"
 
 
@@ -131,7 +132,8 @@ class TestSplitModeRequiredFilter:
 
 class TestSplitModeEdgeCases:
     def test_strips_whitespace_in_metadata_fields(self) -> None:
-        # Real MetadatosCM.csv has " Short_Name" with a leading space.
+        # El `MetadatosCM.csv` real tiene " Short_Name" con un espacio
+        # al inicio.
         rvi_cm = _FakeSource(_rvi_cm_rows(("FB01", "CN01", "01.01.01.01.01", "")))
         metadatos = _FakeSource(
             _metadatos_rows(
@@ -160,7 +162,7 @@ class TestSplitModeEdgeCases:
         rvi_cm = _FakeSource(
             _rvi_cm_rows(
                 ("FB01", "CN01", "01.01.01.01.01", ""),
-                ("FB01", "CN02", "01.01.01.01.02", ""),  # dup IDRVI
+                ("FB01", "CN02", "01.01.01.01.02", ""),  # `IDRVI` duplicado
             )
         )
         metadatos = _FakeSource(_metadatos_rows(("CN01", "CIF", "Yes")))
@@ -233,7 +235,7 @@ class TestSplitModeColumnOverrides:
 
 
 # ---------------------------------------------------------------------------
-# 038 — CMISFolder + CMISPropertyId columns
+# 038 — columnas `CMISFolder` + `CMISPropertyId`
 # ---------------------------------------------------------------------------
 
 

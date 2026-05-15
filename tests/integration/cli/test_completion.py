@@ -1,4 +1,4 @@
-"""Integration tests for the ``cmcourier completion <shell>`` subcommand (032)."""
+"""Tests de integración para el subcomando ``cmcourier completion <shell>`` (032)."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ class TestCompletionCommand:
         result = CliRunner().invoke(main, ["completion", "bash"])
         assert result.exit_code == 0, result.stderr
         out = result.stdout
-        # Click's bash completion script always sets _CMCOURIER_COMPLETE
-        # and registers via ``complete``.
+        # El script de completion de bash de Click siempre setea
+        # _CMCOURIER_COMPLETE y registra vía ``complete``.
         assert "_CMCOURIER_COMPLETE" in out
         assert "complete " in out
 
@@ -25,7 +25,7 @@ class TestCompletionCommand:
         assert result.exit_code == 0, result.stderr
         out = result.stdout
         assert "_CMCOURIER_COMPLETE" in out
-        # zsh script uses compdef.
+        # El script de zsh usa compdef.
         assert "compdef" in out
 
     def test_fish_emits_completion_script(self) -> None:
@@ -33,14 +33,14 @@ class TestCompletionCommand:
         assert result.exit_code == 0, result.stderr
         out = result.stdout
         assert "_CMCOURIER_COMPLETE" in out
-        # fish script uses ``complete -c cmcourier``.
+        # El script de fish usa ``complete -c cmcourier``.
         assert "complete" in out
 
     def test_unknown_shell_rejected_by_choice(self) -> None:
         result = CliRunner().invoke(main, ["completion", "powershell"])
-        # Click's Choice rejects with its own exit code 2.
+        # El Choice de Click rechaza con su propio exit code 2.
         assert result.exit_code == 2
-        # Confirm the supported shells are listed in the error.
+        # Confirma que los shells soportados aparecen en el error.
         for shell in ("bash", "zsh", "fish"):
             assert shell in result.stderr or shell in result.stdout
 
@@ -52,6 +52,6 @@ class TestCompletionCommand:
     def test_completion_help_lists_shells(self) -> None:
         result = CliRunner().invoke(main, ["completion", "--help"])
         assert result.exit_code == 0
-        # Shell choices are documented in --help.
+        # Las opciones de shell aparecen documentadas en --help.
         for shell in ("bash", "zsh", "fish"):
             assert shell in result.stdout

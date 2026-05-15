@@ -1,4 +1,4 @@
-"""Unit tests for :class:`WorkerPoolStats` (025)."""
+"""Tests unitarios para :class:`WorkerPoolStats` (025)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class TestWorkerPoolStats:
         stats.mark_busy("w2")
         snap = stats.snapshot()
         assert snap.busy == 2
-        assert snap.idle == 2  # pool_size - busy
+        assert snap.idle == 2  # `pool_size` - `busy`
 
         stats.mark_idle("w1")
         snap = stats.snapshot()
@@ -40,7 +40,7 @@ class TestWorkerPoolStats:
         assert snap.idle == 3
 
     def test_idle_never_negative(self) -> None:
-        """If busy somehow exceeds pool_size (race during shrink), idle clamps to 0."""
+        """Si `busy` excede `pool_size` (race durante shrink), `idle` se clampea a 0."""
         stats = WorkerPoolStats()
         stats.set_pool_size(2)
         stats.mark_busy("w1")
@@ -68,7 +68,7 @@ class TestWorkerPoolStats:
         assert stats.snapshot().queue_depth == 0
 
     def test_thread_safety_under_concurrency(self) -> None:
-        """Hammer the counters from 8 threads; final totals must match."""
+        """Martillea los contadores desde 8 `thread`s; los totales finales deben coincidir."""
         stats = WorkerPoolStats()
         stats.set_pool_size(8)
         n_ops = 1000
@@ -87,7 +87,7 @@ class TestWorkerPoolStats:
 
         snap = stats.snapshot()
         assert snap.completed == 8 * n_ops
-        assert snap.busy == 0  # every mark_busy paired with mark_idle
+        assert snap.busy == 0  # cada `mark_busy` apareado con `mark_idle`
 
     def test_snapshot_is_frozen(self) -> None:
         stats = WorkerPoolStats()
@@ -132,7 +132,7 @@ class TestResizableSemaphore:
 
         t = _t.Thread(target=second, daemon=True)
         t.start()
-        # Give the thread time to try and block.
+        # Le da tiempo al `thread` para intentar y bloquearse.
         _time.sleep(0.05)
         assert not acquired.is_set()
         sem.release()
@@ -160,28 +160,29 @@ class TestResizableSemaphore:
         t2.start()
         _time.sleep(0.05)
         assert results == []
-        # Grow capacity to 3 — both waiters should proceed.
+        # Crece capacidad a 3 — ambos `waiter`s deberían proceder.
         sem.set_capacity(3)
         t1.join(timeout=1.0)
         t2.join(timeout=1.0)
         assert sorted(results) == ["a", "b"]
-        # Clean up.
+        # Limpieza.
         sem.release()
         sem.release()
         sem.release()
 
     def test_set_capacity_shrink_does_not_revoke(self) -> None:
-        """Shrinking the cap with workers already in-flight doesn't yank them."""
+        """Bajar el `cap` con `worker`s ya `in-flight` no los corta."""
         from cmcourier.services.worker_pool_stats import ResizableSemaphore
 
         sem = ResizableSemaphore(4)
         for _ in range(3):
             sem.acquire()
         sem.set_capacity(2)
-        # 3 workers still in-flight; capacity reports 2 but in_use is 3.
+        # 3 `worker`s siguen `in-flight`; `capacity` reporta 2 pero
+        # `in_use` es 3.
         assert sem.capacity == 2
         assert sem.in_use == 3
-        # Subsequent releases bring in_use back down.
+        # Los `release` subsiguientes bajan `in_use` de nuevo.
         sem.release()
         sem.release()
         sem.release()

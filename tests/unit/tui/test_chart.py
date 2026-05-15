@@ -1,4 +1,4 @@
-"""Unit tests for the sparkline chart (025 phase 3)."""
+"""Tests unitarios para el gráfico `sparkline` (025 fase 3)."""
 
 from __future__ import annotations
 
@@ -18,17 +18,17 @@ class TestRenderSparkline:
         assert out == " " * 5
 
     def test_ceiling_zero_falls_back_to_auto_scale(self) -> None:
-        # Without a ceiling, the peak value maps to the top block.
+        # Sin techo, el valor pico se mapea al bloque superior.
         out = render_sparkline([1.0, 2.0, 5.0], y_max=0.0)
         assert "█" in out
         assert len(out) == 3
 
     def test_proportional_mapping(self) -> None:
         out = render_sparkline([0.0, 5.0, 10.0], y_max=10.0)
-        # 0 → space, 10 → full block.
+        # 0 → espacio, 10 → bloque completo.
         assert out[0] == " "
         assert out[-1] == "█"
-        assert out[1] in "▁▂▃▄▅"  # midrange somewhere
+        assert out[1] in "▁▂▃▄▅"  # algún rango intermedio
 
     def test_values_above_ceiling_cap_at_full(self) -> None:
         out = render_sparkline([15.0, 20.0], y_max=10.0)

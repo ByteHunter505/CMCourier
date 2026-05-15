@@ -1,9 +1,10 @@
-"""Unit tests for ``cmcourier.services.mapping.MappingService``.
+"""Tests unitarios para ``cmcourier.services.mapping.MappingService``.
 
-Uses a real ``TabularDataSource`` over a CSV fixture (no IDataSource mocks)
-because the SUT — the service — does no I/O of its own. The adapter is
-test wiring, not part of the unit under test. Constitution Principle VI:
-we do not mock our own ports when the real adapter is fast and local.
+Usa un ``TabularDataSource`` real sobre un `fixture` CSV (sin `mock`s
+de `IDataSource`) porque el SUT — el servicio — no hace I/O propio.
+El adaptador es cableado de test, no parte de la unidad bajo prueba.
+Principio VI de la constitución: no `mock`eamos nuestros propios
+puertos cuando el adaptador real es rápido y local.
 """
 
 from __future__ import annotations
@@ -40,13 +41,14 @@ def service(source: TabularDataSource) -> MappingService:
 
 
 # ---------------------------------------------------------------------------
-# Public API basics
+# Fundamentos de la API pública
 # ---------------------------------------------------------------------------
 
 
 class TestPublicApi:
     def test_count_excludes_empty_id_and_duplicates(self, service: MappingService) -> None:
-        # 8 fixture rows: 1 empty id_rvi + 1 duplicate FF17 + 6 unique = 6 cached.
+        # 8 filas en el `fixture`: 1 `id_rvi` vacío + 1 FF17 duplicado +
+        # 6 únicas = 6 cacheadas.
         assert service.count() == 6
 
     def test_get_mapping_vanilla(self, service: MappingService) -> None:
@@ -60,7 +62,8 @@ class TestPublicApi:
 
     def test_get_mapping_propagates_computed_properties(self, service: MappingService) -> None:
         m = service.get_mapping("FF17")
-        # CMMapping computes cm_folder + cm_object_type from clase_id.
+        # `CMMapping` computa `cm_folder` + `cm_object_type` a partir
+        # de `clase_id`.
         assert m.cm_folder == "/$type/BAC_01_02_04_01_01"
         assert m.cm_object_type == "$t!-2_BAC_01_02_04_01_01v-1"
 
@@ -83,12 +86,13 @@ class TestPublicApi:
 
     def test_get_all_yields_in_insertion_order(self, service: MappingService) -> None:
         ids = [m.id_rvi for m in service.get_all()]
-        # Source order: FF17, AA01, BB02, CC03, DD04, EE05 (DUP FF17 dropped, empty skipped).
+        # Orden de la `source`: FF17, AA01, BB02, CC03, DD04, EE05
+        # (FF17 DUP descartado, vacío skippeado).
         assert ids == ["FF17", "AA01", "BB02", "CC03", "DD04", "EE05"]
 
 
 # ---------------------------------------------------------------------------
-# METADATOS parsing edge cases
+# Casos borde del parseo de METADATOS
 # ---------------------------------------------------------------------------
 
 
@@ -115,7 +119,7 @@ class TestMetadatosParsing:
 
 
 # ---------------------------------------------------------------------------
-# Logging side-effects (duplicate, empty id_rvi)
+# Side-effects de logging (duplicado, `id_rvi` vacío)
 # ---------------------------------------------------------------------------
 
 
@@ -126,7 +130,8 @@ class TestLoggingSideEffects:
         caplog.set_level(logging.WARNING, logger="cmcourier.services.mapping")
         svc = MappingService(source)
         m = svc.get_mapping("FF17")
-        # First occurrence has id_corto="PT57"; the duplicate has "PT58".
+        # La primera ocurrencia tiene id_corto="PT57"; el duplicado
+        # tiene "PT58".
         assert m.id_corto == "PT57"
 
     def test_duplicate_emits_warning(
@@ -140,8 +145,9 @@ class TestLoggingSideEffects:
         assert "duplicate" in warnings[0].getMessage().lower()
 
     def test_empty_id_rvi_row_skipped(self, service: MappingService) -> None:
-        # The row with empty id_rvi (id_corto="GN19") has clase_name="Empty ID RVI Row".
-        # It should not be retrievable under any id_rvi key.
+        # La fila con `id_rvi` vacío (`id_corto="GN19"`) tiene
+        # `clase_name="Empty ID RVI Row"`. No debería ser recuperable
+        # bajo ninguna clave `id_rvi`.
         for m in service.get_all():
             assert m.id_corto != "GN19"
 
@@ -154,11 +160,11 @@ class TestLoggingSideEffects:
         assert len(infos) == 1
         msg = infos[0].getMessage()
         assert "skipped" in msg.lower()
-        assert "1" in msg  # one empty-id row in the fixture
+        assert "1" in msg  # una fila con `id` vacío en el `fixture`
 
 
 # ---------------------------------------------------------------------------
-# Custom MappingColumnsConfig
+# `MappingColumnsConfig` personalizado
 # ---------------------------------------------------------------------------
 
 
@@ -191,14 +197,14 @@ class TestCustomColumnsConfig:
 
 
 # ---------------------------------------------------------------------------
-# Validation
+# Validación
 # ---------------------------------------------------------------------------
 
 
 class TestValidation:
     def test_missing_required_column_raises(self, tmp_path: Path) -> None:
         bad_csv = tmp_path / "bad.csv"
-        # Missing the "ID RVI" column.
+        # Falta la columna "ID RVI".
         bad_csv.write_text(
             "ID CLASE DOCUMENTAL,ID Corto,CLASE DOCUMENTAL,METADATOS\n"
             "01.01.01.01.01,SH01,Bad,CIF\n",

@@ -1,9 +1,10 @@
-"""Unit tests for ``cmcourier.observability.pii.is_pii_name`` and
+"""Tests unitarios para ``cmcourier.observability.pii.is_pii_name`` y
 ``mask_dict`` (038).
 
-The classic ``PiiMaskingFilter`` (logging filter) is exercised
-indirectly by the existing logging tests; these tests target the
-new convenience helpers used by the upload payload trace events.
+El clásico ``PiiMaskingFilter`` (filtro de logging) se ejercita de
+forma indirecta a través de los tests de logging existentes; estos
+tests apuntan a los nuevos helpers de conveniencia usados por los
+eventos de traza del `payload` de upload.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ class TestIsPiiName:
         ],
     )
     def test_wire_property_id_normalization(self, field_name: str) -> None:
-        """Wire-level CMIS property ids strip group prefix + bank prefix."""
+        """Los ids de propiedad `cmis` (`wire`) strippean el prefijo grupo + banco."""
         assert is_pii_name(field_name) is True
 
     @pytest.mark.parametrize(
@@ -93,7 +94,7 @@ class TestMaskDict:
         original = {"cif": "00123456", "cmis:name": "foo.pdf"}
         result = mask_dict(original, unmask=True)
         assert result == original
-        # And it's a copy, not the same dict reference.
+        # Y es una copia, no la misma referencia de dict.
         assert result is not original
 
     def test_keys_preserved_verbatim(self) -> None:

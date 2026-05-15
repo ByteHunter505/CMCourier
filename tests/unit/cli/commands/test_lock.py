@@ -1,4 +1,4 @@
-"""Unit tests for the per-config lock module (024)."""
+"""Tests unitarios para el módulo de `lock` por config (024)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ _IS_WINDOWS = sys.platform == "win32"
 
 @pytest.fixture
 def runtime_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Isolate XDG_RUNTIME_DIR per test."""
+    """Aísla `XDG_RUNTIME_DIR` por test."""
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     return tmp_path
 
@@ -67,42 +67,43 @@ class TestAcquireConfigLock:
         config_path = _make_config_file(tmp_path)
         with acquire_config_lock(config_path) as lock_path:
             assert lock_path.exists()
-        # Second acquisition works after release.
+        # La segunda adquisición funciona después de release.
         with acquire_config_lock(config_path):
             pass
 
     def test_contention_raises_lock_held(self, runtime_dir: Path, tmp_path: Path) -> None:
         config_path = _make_config_file(tmp_path)
         with acquire_config_lock(config_path) as lock_path:
-            # Hold a second fd on the same path and try LOCK_EX | LOCK_NB.
-            # Our wrapper should reject identically.
+            # Mantiene un segundo fd sobre el mismo path y prueba
+            # `LOCK_EX | LOCK_NB`. El wrapper debería rechazar igual.
             with pytest.raises(LockHeldError) as ei, acquire_config_lock(config_path):
                 pass
             assert ei.value.path == lock_path
 
     def test_pid_and_timestamp_written(self, runtime_dir: Path, tmp_path: Path) -> None:
         config_path = _make_config_file(tmp_path)
-        # Read AFTER release: msvcrt.locking on Windows is a mandatory
-        # lock, so reading while the lock is held raises PermissionError.
-        # The lock file persists after release on both platforms.
+        # Lee DESPUÉS del release: `msvcrt.locking` en Windows es un
+        # `lock` mandatorio, así que leer mientras el `lock` está
+        # tomado levanta `PermissionError`. El archivo del `lock`
+        # persiste tras el release en ambas plataformas.
         with acquire_config_lock(config_path) as lock_path:
             pass
         content = lock_path.read_text()
-        # Expect "<pid> <iso-timestamp>".
+        # Espera "<pid> <iso-timestamp>".
         match = re.match(r"^(\d+) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})", content)
         assert match is not None
         assert int(match.group(1)) == os.getpid()
 
     def test_lock_file_truncated_on_reacquire(self, runtime_dir: Path, tmp_path: Path) -> None:
         config_path = _make_config_file(tmp_path)
-        # First acquire creates the file and writes pid+timestamp.
+        # El primer acquire crea el archivo y escribe pid+timestamp.
         with acquire_config_lock(config_path) as lock_path:
             pass
-        # Simulate stale junk left behind by a previous owner (between
-        # acquires, when nobody holds the lock — Windows mandatory lock
-        # would block this write otherwise).
+        # Simula basura `stale` dejada por un dueño previo (entre
+        # acquires, cuando nadie tiene el `lock` — el `lock` mandatorio
+        # de Windows bloquearía esta escritura de otra manera).
         lock_path.write_text("stale junk from a previous owner\n")
-        # Second acquire truncates first.
+        # El segundo acquire trunca primero.
         with acquire_config_lock(config_path):
             pass
         content = lock_path.read_text()
@@ -111,7 +112,7 @@ class TestAcquireConfigLock:
 
     @pytest.mark.skipif(_IS_WINDOWS, reason="fcntl is POSIX-only; msvcrt has different semantics")
     def test_low_level_fcntl_blocks_after_acquire(self, runtime_dir: Path, tmp_path: Path) -> None:
-        """Sanity check that the underlying fcntl semantics are non-blocking."""
+        """Sanity check de que la semántica subyacente de `fcntl` es no-bloqueante."""
         config_path = _make_config_file(tmp_path)
         with acquire_config_lock(config_path) as lock_path:
             fd = os.open(str(lock_path), os.O_RDWR)

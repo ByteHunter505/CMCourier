@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier as400-query "<SQL>"`` (021)."""
+"""Tests de integración para ``cmcourier as400-query "<SQL>"`` (021)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 
 # ---------------------------------------------------------------------------
-# pyodbc fakes (mirrored from test_pipeline_kinds.py)
+# `fakes` de pyodbc (espejados desde test_pipeline_kinds.py)
 # ---------------------------------------------------------------------------
 
 
@@ -90,7 +90,7 @@ def _patch_pyodbc(monkeypatch: pytest.MonkeyPatch, cursor: _FakeCursor) -> None:
 
 
 # ---------------------------------------------------------------------------
-# YAML builder — 048: the AS400 connection lives on indexing.source (kind=as400)
+# Builder de YAML — 048: la conexión AS400 vive en indexing.source (kind=as400)
 # ---------------------------------------------------------------------------
 
 
@@ -207,7 +207,7 @@ class TestAs400Query:
     def test_no_as400_connection_in_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # csv-trigger config has no as400 anywhere.
+        # La config csv-trigger no tiene AS400 en ningún lado.
         from textwrap import dedent as _d
 
         monkeypatch.setenv("CMIS_USERNAME", "u")

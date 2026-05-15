@@ -1,14 +1,15 @@
-"""Shared fixtures for csv-trigger-pipeline integration tests.
+"""`Fixtures` compartidos para los tests de integración del `pipeline` con
+trigger CSV.
 
-Builds the long-lived adapter graph (Constitution Principle VI: no mocks)
-plus a factory for building a :class:`StagedPipeline` against a
-per-test trigger CSV. Each test composes its scenario by:
+Arma el grafo de adapters de vida larga (Principio VI de la Constitución:
+sin `mocks`) más una `factory` para armar un :class:`StagedPipeline`
+contra un CSV de trigger por test. Cada test compone su escenario así:
 
-1. Writing its trigger CSV under ``tmp_path``.
-2. Calling ``harness.build_pipeline(triggers_csv_path)`` to get a pipeline
-   wired to that CSV.
-3. Registering CMIS stubs via ``harness.register_cmis_for_docs(...)``.
-4. Calling ``pipeline.run(...)``.
+1. Escribe su CSV de trigger bajo ``tmp_path``.
+2. Llama a ``harness.build_pipeline(triggers_csv_path)`` para obtener un
+   `pipeline` cableado contra ese CSV.
+3. Registra los `stubs` de CMIS vía ``harness.register_cmis_for_docs(...)``.
+4. Llama a ``pipeline.run(...)``.
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ _CMIS_REPO_ID = "$x!testrepo"
 
 @dataclass
 class PipelineHarness:
-    """Bundle of long-lived adapters + a per-test pipeline factory."""
+    """Conjunto de adapters de vida larga + `factory` de `pipeline` por test."""
 
     build_pipeline: Callable[..., StagedPipeline]
     tracking_store: SQLiteTrackingStore
@@ -83,7 +84,7 @@ def _friendly_indexing_config() -> IndexingColumnsConfig:
 
 
 def _build_metadata_config() -> MetadataConfig:
-    """Resolve BAC_CIF (trigger → rvabrep.index2 fallback) + BAC_Nombre_Cliente."""
+    """Resuelve BAC_CIF (trigger → fallback a rvabrep.index2) + BAC_Nombre_Cliente."""
     return MetadataConfig(
         field_aliases={"CIF": "BAC_CIF", "Nombre_Cliente": "BAC_Nombre_Cliente"},
         field_sources={
@@ -108,7 +109,7 @@ def _build_metadata_config() -> MetadataConfig:
 
 @pytest.fixture
 def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
-    """Wire long-lived adapters; expose a factory for per-test pipelines."""
+    """Cablea los adapters de vida larga; expone una `factory` para `pipelines` por test."""
     modelo_src = TabularDataSource(_SERVICES_FIXTURES / "modelo_documental.csv")
     rvabrep_src = TabularDataSource(_PIPELINE_FIXTURES / "rvabrep.csv")
     clients_src = TabularDataSource(_SERVICES_FIXTURES / "metadata" / "clients.csv")
@@ -159,11 +160,12 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
         )
 
     def _register_cmis_for_docs(txn_nums: list[str], object_id_prefix: str = "cm-id-") -> None:
-        """Pre-stub warmup + folder creation + per-doc upload responses.
+        """Pre-`stubea` el `warmup` + creación de carpetas + respuestas de
+        `upload` por documento.
 
-        060: migrated from ``responses`` to ``respx`` (httpx-native). Tests
-        must decorate with ``@respx.mock`` so the routes resolve against
-        the active mock router.
+        060: migrado de ``responses`` a ``respx`` (httpx-native). Los tests
+        tienen que decorarse con ``@respx.mock`` para que las rutas se
+        resuelvan contra el `mock router` activo.
         """
         respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
             return_value=httpx.Response(

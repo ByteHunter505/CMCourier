@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier inspect ...`` subcommands (021)."""
+"""Tests de integración para los subcomandos ``cmcourier inspect ...`` (021)."""
 
 from __future__ import annotations
 
@@ -239,7 +239,7 @@ class TestInspectTrigger:
             ],
         )
         assert result.exit_code == 0
-        # Header + 3 data rows = 4 lines (no trailing summary).
+        # Header + 3 filas de datos = 4 líneas (sin resumen al final).
         lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
         assert len(lines) == 4
 

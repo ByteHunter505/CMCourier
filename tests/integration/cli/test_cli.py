@@ -1,4 +1,4 @@
-"""Integration tests for ``cmcourier`` CLI."""
+"""Tests de integración del CLI ``cmcourier``."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _CMIS_REPO_ID = "$x!testrepo"
 
 
 # ---------------------------------------------------------------------------
-# YAML + CMIS helpers
+# Helpers de YAML + `cmis`
 # ---------------------------------------------------------------------------
 
 
@@ -97,16 +97,17 @@ def _write_config_yaml(tmp_path: Path, triggers_csv: Path | None = None) -> Path
 
 
 def _register_cmis_for_docs(txn_nums: list[str]) -> None:
-    # 060: warmup needs an explicit params= match because the doctor flow also
-    # hits the same base URL for typeDefinition lookups — without params, the
-    # last `.mock()` wins and the warmup response is shadowed.
+    # 060: el warmup necesita matchear con params= explícitos porque el flujo
+    # del doctor también pega contra la misma base URL para los lookups de
+    # typeDefinition — sin params, gana el último `.mock()` y la respuesta del
+    # warmup queda tapada.
     respx.get(
         f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}",
         params={"cmisselector": "repositoryInfo"},
     ).mock(
         return_value=httpx.Response(200, json={"repositoryId": _CMIS_REPO_ID, "productName": "IBM"})
     )
-    # Doctor pre-flight also fetches every cm_object_type definition.
+    # El pre-flight del doctor también `fetchea` cada definición de cm_object_type.
     respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
         return_value=httpx.Response(200, json={"id": "$t!-2_BAC_04_01_01_01_01v-1"})
     )
@@ -203,8 +204,8 @@ class TestRunErrors:
                 str(tmp_path / "nope.yaml"),
             ],
         )
-        # Click's click.Path(exists=True) rejects before our code runs,
-        # so exit code is Click's default 2.
+        # click.Path(exists=True) de Click rechaza antes de que corra nuestro
+        # código, así el exit code queda en el 2 por default de Click.
         assert result.exit_code == 2
 
     @respx.mock
@@ -239,10 +240,10 @@ class TestRunErrors:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_cmis_env(monkeypatch)
-        # Use a trigger that will fail at S2 (unmapped id_rvi).
+        # Usamos un trigger que va a fallar en S2 (id_rvi sin mapear).
         triggers = tmp_path / "triggers.csv"
         triggers.write_text("ShortName,CIF,SystemID\nTESTUNMAPPED,123456,1\n")
-        _register_cmis_for_docs([])  # no upload expected
+        _register_cmis_for_docs([])  # no se espera ningún upload
         yaml_path = _write_config_yaml(tmp_path, triggers_csv=triggers)
         result = cli_runner.invoke(
             main,
@@ -255,10 +256,11 @@ class TestRunErrors:
                 str(yaml_path),
             ],
         )
-        # s5_done == 0 means stage failures upstream → exit 1.
-        # But report.s5_failed is 0 (never reached S5), so technically REQ-020
-        # exits 0 in that case. Reset expectation: exit code is 0 iff
-        # s5_failed == 0. Upstream failures don't count. Adjust the test:
+        # s5_done == 0 significa fallas de stage aguas arriba → exit 1.
+        # Pero report.s5_failed es 0 (nunca llegó a S5), así que técnicamente
+        # REQ-020 sale con 0 en ese caso. Reseteamos la expectativa: exit code
+        # es 0 si y solo si s5_failed == 0. Las fallas aguas arriba no cuentan.
+        # Ajustamos el test:
         assert result.exit_code == 0
         assert "s5_done=0" in result.stdout
 
@@ -272,8 +274,8 @@ class TestRunOverrides:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_cmis_env(monkeypatch)
-        # The config points at one CSV (no rows that match RVABREP); the
-        # --triggers override points at another with TESTCLIENT01 → match.
+        # La config apunta a un CSV (sin filas que matcheen RVABREP); el
+        # override --triggers apunta a otro con TESTCLIENT01 → matchea.
         default_triggers = tmp_path / "default_triggers.csv"
         default_triggers.write_text("ShortName,CIF,SystemID\nNO_MATCH,000000,9\n")
         override_triggers = tmp_path / "override_triggers.csv"
@@ -320,8 +322,8 @@ class TestRunOverrides:
             ],
         )
         assert result.exit_code == 0, result.stderr
-        # DEBUG-level captures more records than INFO — at minimum some
-        # adapter / service module emits DEBUG.
+        # El nivel DEBUG captura más registros que INFO — como mínimo algún
+        # adapter / servicio emite DEBUG.
         assert "DEBUG" in result.stderr or len(result.stderr) > 0
 
 
@@ -330,7 +332,7 @@ class TestRunOverrides:
 # ---------------------------------------------------------------------------
 
 
-# Distinct cm_object_types emitted by the Modelo Documental fixture.
+# cm_object_types distintos emitidos por el `fixture` del Modelo Documental.
 _DOCTOR_TYPES = (
     "$t!-2_BAC_01_02_04_01_01v-1",
     "$t!-2_BAC_02_01_03_01_01v-1",
@@ -342,8 +344,8 @@ _DOCTOR_TYPES = (
 
 
 def _stub_doctor_type_definitions() -> None:
-    """Register typeDefinition responses for every cm_object_type the
-    Modelo Documental fixture references."""
+    """Registra respuestas de typeDefinition para cada cm_object_type que
+    referencia el `fixture` del Modelo Documental."""
     for type_id in _DOCTOR_TYPES:
         respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
             return_value=httpx.Response(200, json={"id": type_id})
@@ -366,10 +368,10 @@ class TestAutoDoctor:
             main, ["csv-trigger-pipeline", "run", "--no-tui", "--config", str(yaml_path)]
         )
         assert result.exit_code == 0, result.stderr
-        # Doctor report rendered.
+        # El reporte del doctor se renderizó.
         assert "[PASS] cmis_connectivity" in result.stdout
         assert "[PASS] log_dir_writable" in result.stdout
-        # Pipeline ran after doctor.
+        # El `pipeline` corrió después del doctor.
         assert "s5_done=1" in result.stdout
 
     @respx.mock
@@ -380,7 +382,7 @@ class TestAutoDoctor:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_cmis_env(monkeypatch)
-        # CMIS endpoint returns 503 → cmis_connectivity FAILs.
+        # El endpoint `cmis` devuelve 503 → cmis_connectivity FALLA.
         respx.get(f"{_CMIS_BASE_URL}/{_CMIS_REPO_ID}").mock(
             return_value=httpx.Response(503, json={"error": "boom"})
         )
@@ -388,10 +390,10 @@ class TestAutoDoctor:
         result = cli_runner.invoke(
             main, ["csv-trigger-pipeline", "run", "--no-tui", "--config", str(yaml_path)]
         )
-        # Doctor FAIL → exit 2 before the pipeline starts.
+        # FAIL del doctor → exit 2 antes de que el `pipeline` arranque.
         assert result.exit_code == 2
         assert "[FAIL] cmis_connectivity" in result.stdout
-        # The success summary should NOT appear.
+        # El resumen de éxito NO debe aparecer.
         assert "s5_done=" not in result.stdout
 
     def test_skip_doctor_bypasses_preflight(
@@ -401,9 +403,10 @@ class TestAutoDoctor:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_cmis_env(monkeypatch)
-        # No CMIS stubs at all: doctor would FAIL but --skip-doctor avoids it.
-        # The pipeline itself will fail at S5 (CMIS unreachable), exit 1
-        # or 3 depending on error class, but NOT exit 2 from doctor.
+        # Sin `stubs` de `cmis` para nada: el doctor FALLARÍA pero
+        # --skip-doctor lo evita. El `pipeline` va a fallar en S5 (con `cmis`
+        # inalcanzable), saliendo con 1 o 3 según la clase de error, pero NO
+        # con exit 2 del doctor.
         yaml_path = _write_config_yaml(tmp_path)
         result = cli_runner.invoke(
             main,
@@ -416,6 +419,6 @@ class TestAutoDoctor:
                 str(yaml_path),
             ],
         )
-        # Doctor report did NOT appear.
+        # El reporte del doctor NO apareció.
         assert "[FAIL] cmis_connectivity" not in result.stdout
         assert "[PASS] cmis_connectivity" not in result.stdout

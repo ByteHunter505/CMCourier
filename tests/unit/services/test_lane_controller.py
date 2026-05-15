@@ -1,9 +1,10 @@
-"""Unit tests for :class:`LaneController` (036 Phase 2).
+"""Tests unitarios para :class:`LaneController` (036 Fase 2).
 
-The controller owns two ``ResizableSemaphore``s plus stats; AIMD
-drives total budget, the controller distributes per-lane. A daemon
-thread runs the drain heuristic — tests invoke ``rebalance_tick``
-directly to keep them deterministic.
+El controlador posee dos ``ResizableSemaphore``s más estadísticas;
+`AIMD` maneja el `total budget`, el controlador lo distribuye por
+`lane`. Un `thread` daemon corre la heurística de drenado — los
+tests invocan ``rebalance_tick`` directamente para mantenerlos
+determinísticos.
 """
 
 from __future__ import annotations
@@ -28,10 +29,10 @@ def _build(
     clock_value: list[float] | None = None,
     logger: logging.Logger | None = None,
 ) -> tuple[LaneController, list[float]]:
-    """Build a controller wired to a tickable clock.
+    """Construye un controlador cableado a un reloj `tickable`.
 
-    Returns ``(controller, clock_list)``. Mutate ``clock_list[0]``
-    to advance simulated time.
+    Devuelve ``(controller, clock_list)``. Muta ``clock_list[0]``
+    para avanzar el tiempo simulado.
     """
     clock = clock_value if clock_value is not None else [0.0]
 
@@ -63,10 +64,10 @@ class TestInitialAllocation:
         ("total", "ratio", "expected_heavy", "expected_light"),
         [
             (10, 0.5, 5, 5),
-            (10, 0.0, 1, 9),  # floor: heavy >= 1
-            (10, 1.0, 9, 1),  # floor: light >= 1
+            (10, 0.0, 1, 9),  # piso: `heavy` >= 1
+            (10, 1.0, 9, 1),  # piso: `light` >= 1
             (4, 0.25, 1, 3),
-            (2, 0.5, 1, 1),  # min total
+            (2, 0.5, 1, 1),  # total mínimo
             (100, 0.2, 20, 80),
         ],
     )
@@ -78,23 +79,24 @@ class TestInitialAllocation:
         assert ctl.light_capacity == expected_light
 
     def test_total_lt_two_clamps_to_two(self) -> None:
-        # Edge case: total < 2 is meaningless for a dual-lane split.
-        # We clamp to 2 so both lanes get the floor (1 each).
+        # Caso borde: total < 2 no tiene sentido para un split de doble
+        # `lane`. Lo clampeamos a 2 para que ambas `lane`s reciban el
+        # piso (1 cada una).
         ctl, _ = _build(total=1, ratio=0.5)
         assert ctl.snapshot().total_budget == 2
 
 
 class TestAimdCoupling:
     def test_set_total_budget_preserves_ratio(self) -> None:
-        ctl, _ = _build(total=10, ratio=0.4)  # heavy=4, light=6
+        ctl, _ = _build(total=10, ratio=0.4)  # `heavy`=4, `light`=6
         ctl.set_total_budget(20)
-        # ratio 4/10 = 0.4 → new heavy = round(20*0.4) = 8
+        # ratio 4/10 = 0.4 → nuevo `heavy` = round(20*0.4) = 8
         assert ctl.heavy_capacity == 8
         assert ctl.light_capacity == 12
 
     def test_set_total_budget_floors_each_lane_at_one(self) -> None:
         ctl, _ = _build(total=100, ratio=0.99)
-        # heavy ~99, light ~1. Shrink to total=2.
+        # `heavy` ~99, `light` ~1. Shrink a total=2.
         ctl.set_total_budget(2)
         assert ctl.heavy_capacity == 1
         assert ctl.light_capacity == 1
@@ -114,7 +116,7 @@ class TestAimdCoupling:
 
 class TestAcquireReleaseDispatch:
     def test_acquire_then_release_balanced(self) -> None:
-        ctl, _ = _build(total=4, ratio=0.5)  # heavy=2, light=2
+        ctl, _ = _build(total=4, ratio=0.5)  # `heavy`=2, `light`=2
         ctl.acquire("heavy")
         ctl.acquire("light")
         assert ctl.snapshot().heavy.busy == 1
@@ -125,10 +127,10 @@ class TestAcquireReleaseDispatch:
         assert ctl.snapshot().light.busy == 0
 
     def test_acquire_blocks_at_lane_capacity(self) -> None:
-        ctl, _ = _build(total=4, ratio=0.5)  # heavy=2, light=2
+        ctl, _ = _build(total=4, ratio=0.5)  # `heavy`=2, `light`=2
         ctl.acquire("heavy")
         ctl.acquire("heavy")
-        # heavy is now saturated. A third acquire must block.
+        # `heavy` ahora está saturado. Un tercer `acquire` debe bloquear.
         blocked = threading.Event()
         released = threading.Event()
 
@@ -140,10 +142,10 @@ class TestAcquireReleaseDispatch:
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
-        # Give the worker time to attempt acquire.
+        # Dale tiempo al `worker` para intentar el `acquire`.
         time.sleep(0.05)
         assert not blocked.is_set()
-        # Free a heavy slot.
+        # Liberá un slot `heavy`.
         ctl.release("heavy")
         assert blocked.wait(1.0)
         assert released.wait(1.0)
@@ -165,23 +167,24 @@ class TestQueueDepthTracking:
     def test_zero_depth_stamps_first_empty_and_triggers_drain(self) -> None:
         clock = [100.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
-        ctl.set_queue_depth("heavy", 0)  # stamps first_empty at t=100
-        clock[0] = 110.0  # 10s past empty stamp > 5s threshold
+        ctl.set_queue_depth("heavy", 0)  # estampa `first_empty` en t=100
+        clock[0] = 110.0  # 10s después del stamp vacío > umbral 5s
         ctl.rebalance_tick()
         assert ctl.heavy_capacity == 1
-        # Drained heavy → light gets ALL workers (heavy keeps floor of 1,
-        # but no heavy items remain so the slot is unused).
+        # `heavy` drenado → `light` recibe TODOS los `worker`s
+        # (`heavy` se queda con el piso de 1, pero no quedan items
+        # `heavy` así que el slot queda sin uso).
         assert ctl.light_capacity == 10
 
     def test_positive_depth_after_empty_resets_first_empty(self) -> None:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
-        ctl.set_queue_depth("heavy", 0)  # stamp at t=0
+        ctl.set_queue_depth("heavy", 0)  # stamp en t=0
         clock[0] = 3.0
-        ctl.set_queue_depth("heavy", 7)  # new work arrives → clear stamp
-        clock[0] = 6.0  # 6s past resume, but stamp was cleared
+        ctl.set_queue_depth("heavy", 7)  # llega trabajo nuevo → limpia stamp
+        clock[0] = 6.0  # 6s después del resume, pero el stamp fue limpiado
         ctl.rebalance_tick()
-        # No migration: queue is non-empty (stamp was cleared at t=3).
+        # Sin migración: la `queue` no está vacía (stamp limpiado en t=3).
         assert ctl.heavy_capacity == 5
         assert ctl.light_capacity == 5
 
@@ -190,28 +193,29 @@ class TestDrainRebalance:
     def test_heavy_drain_migrates_to_light(self) -> None:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
-        # Initial: heavy=5, light=5.
-        # Heavy is empty from the start; light stays busy.
-        ctl.set_queue_depth("heavy", 0)  # stamp empty at t=0
+        # Inicial: `heavy`=5, `light`=5.
+        # `heavy` está vacío desde el arranque; `light` sigue ocupado.
+        ctl.set_queue_depth("heavy", 0)  # stamp vacío en t=0
         ctl.set_queue_depth("light", 100)
-        clock[0] = 6.0  # 6s past heavy's empty stamp
-        ctl.set_queue_depth("light", 99)  # light still busy
+        clock[0] = 6.0  # 6s después del stamp vacío de `heavy`
+        ctl.set_queue_depth("light", 99)  # `light` sigue ocupado
         ctl.rebalance_tick()
         assert ctl.heavy_capacity == 1
-        # Drained heavy → light gets ALL workers (heavy keeps floor of 1,
-        # but no heavy items remain so the slot is unused).
+        # `heavy` drenado → `light` recibe TODOS los `worker`s
+        # (`heavy` se queda con piso de 1, pero no quedan items
+        # `heavy` así que el slot no se usa).
         assert ctl.light_capacity == 10
 
     def test_light_drain_migrates_to_heavy(self) -> None:
         clock = [0.0]
         ctl, _ = _build(total=10, ratio=0.5, idle_threshold_s=5.0, clock_value=clock)
         ctl.set_queue_depth("heavy", 100)
-        ctl.set_queue_depth("light", 0)  # stamp empty
+        ctl.set_queue_depth("light", 0)  # stamp vacío
         clock[0] = 6.0
         ctl.set_queue_depth("heavy", 99)
         ctl.rebalance_tick()
         assert ctl.light_capacity == 1
-        # Drained light → heavy gets ALL workers (light keeps floor of 1).
+        # `light` drenado → `heavy` recibe TODOS los `worker`s (`light` se queda con piso 1).
         assert ctl.heavy_capacity == 10
 
     def test_both_active_no_migration(self) -> None:
@@ -223,7 +227,7 @@ class TestDrainRebalance:
         ctl.set_queue_depth("heavy", 5)
         ctl.set_queue_depth("light", 5)
         ctl.rebalance_tick()
-        # No migration: neither lane has reported empty.
+        # Sin migración: ninguna `lane` reportó vacío.
         assert ctl.heavy_capacity == 5
         assert ctl.light_capacity == 5
 
@@ -235,12 +239,12 @@ class TestDrainRebalance:
         clock[0] = 6.0
         ctl.rebalance_tick()
         assert ctl.light_capacity == 1
-        # Another tick later: nothing changes because light is already
-        # at the floor.
+        # Otro `tick` más tarde: nada cambia porque `light` ya está
+        # en el piso.
         clock[0] = 12.0
         ctl.rebalance_tick()
         assert ctl.light_capacity == 1
-        # Drained light → heavy gets ALL workers (light keeps floor of 1).
+        # `light` drenado → `heavy` recibe TODOS los `worker`s (`light` se queda con piso 1).
         assert ctl.heavy_capacity == 10
 
 
@@ -269,18 +273,18 @@ class TestRebalanceLogging:
         assert evt.previous_heavy == 5
         assert evt.previous_light == 5
         assert evt.new_heavy == 1
-        assert evt.new_light == 10  # full migration: drained side keeps floor
+        assert evt.new_light == 10  # migración total: el lado drenado se queda con el piso
 
 
 class TestDaemonLifecycle:
     def test_start_stop_idempotent_and_clean(self) -> None:
         ctl, _ = _build(total=4, ratio=0.5, rebalance_interval_s=0.05)
         ctl.start()
-        ctl.start()  # second call is a no-op
-        time.sleep(0.15)  # allow at least 2 ticks
+        ctl.start()  # la segunda llamada es no-op
+        time.sleep(0.15)  # permite al menos 2 `tick`s
         ctl.stop()
-        ctl.stop()  # idempotent
-        # No assertion needed beyond "doesn't hang or raise".
+        ctl.stop()  # idempotente
+        # No hace falta más aserción que "no se cuelga ni levanta excepción".
 
     def test_snapshot_is_frozen(self) -> None:
         ctl, _ = _build(total=4, ratio=0.5)

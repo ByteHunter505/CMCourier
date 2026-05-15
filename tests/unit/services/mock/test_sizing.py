@@ -1,4 +1,4 @@
-"""Unit tests for ``cmcourier.services.mock.sizing.parse_size`` (031, REQ-001..REQ-005)."""
+"""Tests unitarios para ``cmcourier.services.mock.sizing.parse_size`` (031, REQ-001..REQ-005)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from cmcourier.services.mock.sizing import parse_size
 
 
 class TestParseSizeHappyPath:
-    """REQ-001/002/003: parse byte counts with optional binary-unit suffixes."""
+    """REQ-001/002/003: parsea conteos de bytes con sufijos binarios opcionales."""
 
     def test_bytes_no_suffix(self) -> None:
         assert parse_size("500") == 500
@@ -36,7 +36,8 @@ class TestParseSizeHappyPath:
 
     @pytest.mark.parametrize("text", ["10KB", "10Kb", "10kB", "10MB", "10mB"])
     def test_case_insensitive_suffix(self, text: str) -> None:
-        # First two yield 10 kb; rest yield 10 mb — value parsed first.
+        # Los dos primeros dan 10 kb; el resto da 10 mb — el valor se parsea
+        # primero.
         value = 10 * (1024 if text.lower().endswith("kb") else 1024 * 1024)
         assert parse_size(text) == value
 
@@ -46,7 +47,7 @@ class TestParseSizeHappyPath:
 
 
 class TestParseSizeRejects:
-    """REQ-004: invalid inputs raise ``ValueError``."""
+    """REQ-004: entradas inválidas levantan ``ValueError``."""
 
     @pytest.mark.parametrize(
         "bad",

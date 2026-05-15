@@ -1,8 +1,9 @@
-"""Integration tests for ``TabularDataSource``.
+"""Tests de integración para ``TabularDataSource``.
 
-Exercises the real adapter against real CSV and XLSX files in
-``tests/fixtures/sources/``. Parametrized over both formats where the
-contract is identical; format-specific tests live in their own classes.
+Ejercita el adapter real contra archivos CSV y XLSX reales en
+``tests/fixtures/sources/``. Parametrizado sobre ambos formatos donde el
+contrato es idéntico; los tests específicos por formato viven en sus
+propias clases.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ pytestmark = pytest.mark.integration
 
 
 # ---------------------------------------------------------------------------
-# Parametrized contract tests (both formats must behave identically)
+# Tests de contrato parametrizados (los dos formatos deben comportarse igual)
 # ---------------------------------------------------------------------------
 
 
@@ -37,7 +38,7 @@ def adapter(request: pytest.FixtureRequest) -> Iterator[TabularDataSource]:
 
 
 class TestContract:
-    """Behaviors expected to hold for both CSV and XLSX (parametrized)."""
+    """Comportamientos que deben valer tanto para CSV como para XLSX (parametrizado)."""
 
     def test_count(self, adapter: TabularDataSource) -> None:
         assert adapter.count() == 5
@@ -49,7 +50,7 @@ class TestContract:
         assert set(rows[0].keys()) == {"Name", "Age", "Birth"}
 
     def test_nan_normalized_to_none(self, adapter: TabularDataSource) -> None:
-        # MARIAGOMEZ02 has a blank Age; must surface as None, not NaN, not "".
+        # MARIAGOMEZ02 tiene Age en blanco; tiene que aparecer como None, no NaN ni "".
         rows = list(adapter.get_all())
         maria = next(r for r in rows if r["Name"] == "MARIAGOMEZ02")
         assert maria["Age"] is None
@@ -75,7 +76,7 @@ class TestContract:
         )
         names = {r["Name"] for r in result}
         assert names == {"JUANPEREZ01", "PEPELOPEZ03"}
-        assert len(result) == 3  # JUANPEREZ01 twice + PEPELOPEZ03 once
+        assert len(result) == 3  # JUANPEREZ01 dos veces + PEPELOPEZ03 una
 
     def test_get_by_fields_in_with_fixed_filters(self, adapter: TabularDataSource) -> None:
         result = adapter.get_by_fields_in(
@@ -83,7 +84,7 @@ class TestContract:
             values=["JUANPEREZ01", "PEPELOPEZ03"],
             fixed_filters={"Age": "30"},
         )
-        # Only JUANPEREZ01 with Age=30 matches.
+        # Solo JUANPEREZ01 con Age=30 matchea.
         assert len(result) == 1
         assert result[0]["Name"] == "JUANPEREZ01"
         assert result[0]["Age"] == "30"
@@ -103,15 +104,15 @@ class TestContract:
 
 
 class TestGetAllLazy050:
-    """050: ``get_all`` iterates the DataFrame row by row — it must NOT
-    build the full ``to_dict(orient="records")`` list (which doubles the
-    transient peak for a 20M-row source)."""
+    """050: ``get_all`` itera el DataFrame fila por fila — NO debe armar la
+    lista completa con ``to_dict(orient="records")`` (que duplica el pico
+    transitorio para una fuente de 20M de filas)."""
 
     def test_get_all_does_not_call_to_dict(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import pandas as pd
 
         def _boom(*_args: object, **_kwargs: object) -> object:
-            raise AssertionError("get_all must not call DataFrame.to_dict (050)")
+            raise AssertionError("get_all no debe llamar a DataFrame.to_dict (050)")
 
         monkeypatch.setattr(pd.DataFrame, "to_dict", _boom)
         src = TabularDataSource(_SAMPLE_CSV)
@@ -126,12 +127,12 @@ class TestGetAllLazy050:
 class TestLifecycle:
     def test_close(self) -> None:
         src = TabularDataSource(_SAMPLE_CSV)
-        src.close()  # should not raise
+        src.close()  # no debe levantar
 
     def test_close_is_idempotent(self) -> None:
         src = TabularDataSource(_SAMPLE_CSV)
         src.close()
-        src.close()  # second call must NOT raise
+        src.close()  # la segunda llamada NO debe levantar
 
     def test_get_all_after_close_raises(self) -> None:
         src = TabularDataSource(_SAMPLE_CSV)
@@ -163,7 +164,7 @@ class TestExtensionDispatch:
             TabularDataSource(tmp_path / "nope.csv")
 
     def test_extension_case_insensitive(self, tmp_path: Path) -> None:
-        # Copy sample.csv to a path with uppercase extension.
+        # Copia sample.csv a un path con extensión en mayúsculas.
         upper_path = tmp_path / "SAMPLE.CSV"
         upper_path.write_text(_SAMPLE_CSV.read_text())
         src = TabularDataSource(upper_path)
@@ -189,7 +190,7 @@ class TestEncoding:
 class TestXlsxSpecific:
     def test_multi_sheet_default_is_first(self) -> None:
         path = _FIXTURES / "multi_sheet.xlsx"
-        src = TabularDataSource(path)  # sheet_name=0 by default
+        src = TabularDataSource(path)  # sheet_name=0 por default
         rows = list(src.get_all())
         assert len(rows) == 1
         assert rows[0]["Col"] == "sheet1_value"

@@ -1,4 +1,4 @@
-"""Unit tests for the tier-5 system metrics sampler (026, REQ-017)."""
+"""Tests unitarios para el `sampler` de métricas de sistema tier-5 (026, REQ-017)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from cmcourier.observability.system_metrics import (
 from cmcourier.services.worker_pool_stats import WorkerPoolStats
 
 # ---------------------------------------------------------------------------
-# Fake psutil — deterministic counters so we can assert deltas exactly
+# `psutil` falso — contadores determinísticos para aseverar deltas exactos
 # ---------------------------------------------------------------------------
 
 
@@ -40,7 +40,7 @@ class _FakeProcess:
 
 @pytest.fixture
 def patched_psutil(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[object]]:
-    """Patch psutil with deterministic values + a counter sequence for IO."""
+    """`Patch`ea `psutil` con valores determinísticos + una secuencia de contadores para I/O."""
     monkeypatch.setattr(psutil, "cpu_percent", lambda *a, **k: 42.0)
     monkeypatch.setattr(
         psutil,
@@ -87,7 +87,7 @@ class TestSystemMetricsSampler:
         cfg = SystemMetricsConfig(enabled=False, sample_interval_s=1.0)
         sampler = SystemMetricsSampler(cfg=cfg, output_dir=tmp_path)
         sampler.start()
-        # Nothing spawned, no file dropped.
+        # Nada lanzado, ningún archivo dropeado.
         assert sampler.is_running is False
         time.sleep(0.1)
         assert list(tmp_path.glob("system-*.jsonl")) == []
@@ -98,10 +98,10 @@ class TestSystemMetricsSampler:
         cfg = SystemMetricsConfig(enabled=True, sample_interval_s=1.0)
         sampler = SystemMetricsSampler(cfg=cfg, output_dir=tmp_path)
         sampler.start()
-        sampler.start()  # idempotent — second call is a no-op
+        sampler.start()  # idempotente — la segunda llamada es no-op
         assert sampler.is_running is True
         sampler.stop()
-        sampler.stop()  # idempotent
+        sampler.stop()  # idempotente
         assert sampler.is_running is False
 
     def test_first_sample_has_zero_deltas(
@@ -109,7 +109,7 @@ class TestSystemMetricsSampler:
     ) -> None:
         cfg = SystemMetricsConfig(enabled=True, sample_interval_s=1.0)
         sampler = SystemMetricsSampler(cfg=cfg, output_dir=tmp_path)
-        sample = sampler._take_sample()  # noqa: SLF001 — direct access for unit test
+        sample = sampler._take_sample()  # noqa: SLF001 — acceso directo en test unitario
         assert isinstance(sample, SystemSample)
         assert sample.disk_read_mbps == 0.0
         assert sample.disk_write_mbps == 0.0
@@ -130,7 +130,8 @@ class TestSystemMetricsSampler:
     ) -> None:
         cfg = SystemMetricsConfig(enabled=True, sample_interval_s=1.0)
         sampler = SystemMetricsSampler(cfg=cfg, output_dir=tmp_path)
-        # Freeze the clock so the elapsed window is exactly 1s between samples.
+        # Congela el reloj para que la ventana transcurrida sea
+        # exactamente 1s entre muestras.
         times = iter([100.0, 101.0])
         monkeypatch.setattr(
             "cmcourier.observability.system_metrics.time.monotonic",
@@ -139,9 +140,9 @@ class TestSystemMetricsSampler:
         first = sampler._take_sample()  # noqa: SLF001
         second = sampler._take_sample()  # noqa: SLF001
         assert first.disk_read_mbps == 0.0
-        # 10 MB read over 1 s = 10 MB/s = 80 Mb/s == 80.0
+        # 10 MB leídos en 1 s = 10 MB/s = 80 Mb/s == 80.0
         assert second.disk_read_mbps == pytest.approx(10.0 * 8, rel=1e-3)
-        # 20 MB write over 1 s = 160 Mb/s
+        # 20 MB escritos en 1 s = 160 Mb/s
         assert second.disk_write_mbps == pytest.approx(20.0 * 8, rel=1e-3)
         assert second.net_in_mbps == pytest.approx(5.0 * 8, rel=1e-3)
         assert second.net_out_mbps == pytest.approx(15.0 * 8, rel=1e-3)
@@ -185,7 +186,7 @@ class TestSystemMetricsSampler:
         cfg = SystemMetricsConfig(enabled=True, sample_interval_s=1.0)
         sampler = SystemMetricsSampler(cfg=cfg, output_dir=tmp_path)
         sampler.start()
-        time.sleep(0.3)  # one sample written immediately on loop start
+        time.sleep(0.3)  # una muestra se escribe ni bien arranca el loop
         sampler.stop()
         today_file = tmp_path / f"system-{date.today().isoformat()}.jsonl"
         assert today_file.exists()
@@ -207,7 +208,7 @@ class TestSystemMetricsSampler:
             "process_rss_mb",
             "active_workers",
         ):
-            assert key in parsed, f"missing key {key!r} in sample"
+            assert key in parsed, f"falta la clave {key!r} en la muestra"
 
 
 class TestBuildSampler:

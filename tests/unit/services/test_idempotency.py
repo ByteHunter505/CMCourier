@@ -1,13 +1,13 @@
-"""Unit tests for :class:`IdempotencyCoordinator` (034 phase 3).
+"""Tests unitarios para :class:`IdempotencyCoordinator` (034 fase 3).
 
-The coordinator composes ``SQLiteTrackingStore`` (always present) with
-an optional ``As400NiarvilogStore`` (only when
-``tracking.as400_sync.enabled=true``). When the AS400 store is
-``None``, behavior is byte-identical to pre-034 — the coordinator
-just delegates to SQLite.
+El coordinador compone ``SQLiteTrackingStore`` (siempre presente)
+con un ``As400NiarvilogStore`` opcional (solo cuando
+``tracking.as400_sync.enabled=true``). Cuando el store de AS400 es
+``None``, el comportamiento es byte-idéntico al pre-034 — el
+coordinador simplemente delega a SQLite.
 
-Tests use ``unittest.mock`` rather than real adapters because the
-coordinator is pure dispatch logic.
+Los tests usan ``unittest.mock`` en vez de adaptadores reales
+porque el coordinador es lógica pura de `dispatch`.
 """
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def _niarvilog_row(
 
 
 # ---------------------------------------------------------------------------
-# Disabled path (AS400 store is None)
+# Camino deshabilitado (store AS400 es None)
 # ---------------------------------------------------------------------------
 
 
@@ -147,8 +147,9 @@ class TestCoordinatorAs400Disabled:
             trigger=trigger,
             cm_object_id="cmis-abc",
         )
-        # 047: the coordinator forwards cm_object_id into the SQLite store
-        # so migration_log.cm_object_id is populated on the S5_DONE row.
+        # 047: el coordinador reenvía `cm_object_id` al store SQLite
+        # para que `migration_log.cm_object_id` se pueble en la fila
+        # S5_DONE.
         sqlite.mark_stage_done.assert_called_once_with(
             "0000001", "B1", StageStatus.S5_DONE, cm_object_id="cmis-abc"
         )
@@ -180,7 +181,7 @@ class TestCoordinatorAs400Disabled:
 
 
 # ---------------------------------------------------------------------------
-# Enabled path (AS400 store present)
+# Camino habilitado (store AS400 presente)
 # ---------------------------------------------------------------------------
 
 
@@ -190,8 +191,9 @@ class TestCoordinatorAs400Enabled:
         as400 = MagicMock()
         as400.read_state.return_value = _niarvilog_row(stscod="O")
         coord = IdempotencyCoordinator(sqlite_store=sqlite, as400_store=as400)
-        # is_uploaded only takes a txn_num; it has to know the PK.
-        # The coordinator's signature requires the full record for AS400.
+        # `is_uploaded` solo toma un `txn_num`; tiene que conocer la
+        # PK. La firma del coordinador requiere el record completo
+        # para AS400.
         record, document, mapping, trigger = _record()
         assert coord.is_uploaded_record(document=document, trigger=trigger) is True
         sqlite.is_uploaded.assert_not_called()
@@ -202,7 +204,7 @@ class TestCoordinatorAs400Enabled:
         as400.read_state.return_value = None
         coord = IdempotencyCoordinator(sqlite_store=sqlite, as400_store=as400)
         record, document, mapping, trigger = _record()
-        # Row absent in AS400 → not uploaded (regardless of SQLite).
+        # Fila ausente en AS400 → no está uploadeado (sin importar SQLite).
         assert coord.is_uploaded_record(document=document, trigger=trigger) is False
 
     def test_try_claim_delegates_to_as400(self) -> None:
@@ -263,16 +265,16 @@ class TestCoordinatorAs400Enabled:
 
 
 # ---------------------------------------------------------------------------
-# preflight_sync
+# `preflight_sync`
 # ---------------------------------------------------------------------------
 
 
 class TestPreflightSync:
     def test_imports_completed_from_as400(self) -> None:
-        """AS400 has STSCOD='O' for a doc SQLite doesn't know about → import."""
+        """AS400 tiene `STSCOD='O'` para un doc que SQLite no conoce → importa."""
         sqlite = MagicMock()
         sqlite.is_stage_done.return_value = False
-        sqlite.is_uploaded.return_value = False  # SQLite has no record
+        sqlite.is_uploaded.return_value = False  # SQLite no tiene record
         as400 = MagicMock()
         as400.cleanup_stale_in_progress.return_value = 0
         as400.read_state_by_txn.side_effect = lambda **kwargs: _niarvilog_row(
@@ -284,9 +286,9 @@ class TestPreflightSync:
         assert report.conflicts == []
 
     def test_detects_conflict_when_sqlite_done_but_as400_new(self) -> None:
-        """SQLite says S5_DONE, AS400 says STSCOD='N' → conflict."""
+        """SQLite dice S5_DONE, AS400 dice `STSCOD='N'` → conflicto."""
         sqlite = MagicMock()
-        sqlite.is_stage_done.return_value = True  # SQLite says done
+        sqlite.is_stage_done.return_value = True  # SQLite dice done
         as400 = MagicMock()
         as400.cleanup_stale_in_progress.return_value = 0
         as400.read_state_by_txn.return_value = _niarvilog_row(stscod="N")

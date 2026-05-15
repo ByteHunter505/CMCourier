@@ -1,5 +1,5 @@
-"""`run_test()` pilot tests for ``CMCourierTUI`` — DETAIL pane + chunk
-cursor (052)."""
+"""Tests `pilot` (`run_test()`) para ``CMCourierTUI`` — panel DETAIL + cursor
+de `chunk` (052)."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ pytestmark = pytest.mark.unit
 
 
 class _FakeProvider:
-    """Minimal provider for app pilot tests — two chunks, fixed per-doc
-    detail keyed by batch_id."""
+    """Provider mínimo para tests `pilot` de la app — dos `chunk`s, detalle
+    por-doc fijo indexado por `batch_id`."""
 
     def __init__(self) -> None:
         self._docs = {
@@ -51,19 +51,19 @@ class TestDetailPaneSelection:
         async def _run() -> None:
             app = CMCourierTUI(_FakeProvider())  # type: ignore[arg-type]
             async with app.run_test() as pilot:
-                # Nothing selected yet → the DETAIL pane prompts.
+                # Nada seleccionado todavía → el panel DETAIL muestra el prompt.
                 assert "no chunk selected" in _detail_text(app)
 
-                # ] selects chunk 0.
+                # ] selecciona el `chunk` 0.
                 await pilot.press("]")
                 await pilot.pause()
                 assert app._selected_chunk_idx == 0  # noqa: SLF001
-                app._refresh_panels()  # noqa: SLF001 — deterministic render
+                app._refresh_panels()  # noqa: SLF001 — renderizado determinístico
                 body = _detail_text(app)
                 assert "chunk 0" in body
                 assert "T0" in body
 
-                # ] again → chunk 1, with its failed doc + reason.
+                # ] otra vez → `chunk` 1, con su doc fallido + razón.
                 await pilot.press("]")
                 await pilot.pause()
                 assert app._selected_chunk_idx == 1  # noqa: SLF001
@@ -72,12 +72,12 @@ class TestDetailPaneSelection:
                 assert "T1" in body
                 assert "boom" in body
 
-                # ] at the last chunk clamps — does not run off the end.
+                # ] en el último `chunk` se clampa — no se va más allá del final.
                 await pilot.press("]")
                 await pilot.pause()
                 assert app._selected_chunk_idx == 1  # noqa: SLF001
 
-                # [ walks back to chunk 0.
+                # [ vuelve al `chunk` 0.
                 await pilot.press("[")
                 await pilot.pause()
                 assert app._selected_chunk_idx == 0  # noqa: SLF001
@@ -99,9 +99,10 @@ class TestDetailPaneSelection:
 
 class TestDetailPaneScroll058:
     def test_detail_body_is_inside_a_vertical_scroll(self) -> None:
-        # 058: the DETAIL pane is the only one that can produce more
-        # content than fits on screen. Its body must live inside a
-        # ``VerticalScroll`` so the operator can read past the fold.
+        # 058: el panel DETAIL es el único que puede producir más
+        # contenido del que cabe en pantalla. Su cuerpo debe vivir
+        # dentro de un ``VerticalScroll`` para que el operador pueda
+        # leer más allá del fold.
         async def _run() -> None:
             from textual.containers import VerticalScroll
 

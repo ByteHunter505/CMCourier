@@ -1,8 +1,8 @@
-"""Unit tests for ``cmcourier.cli.app._apply_resume`` (044).
+"""Tests unitarios para ``cmcourier.cli.app._apply_resume`` (044).
 
-Exercises every code path in the rewritten resume detection without
-spinning up a real pipeline or tracking DB — we patch
-``SQLiteTrackingStore`` to return canned ``BatchDetails``.
+Ejercita cada camino de código de la detección de resume reescrita
+sin levantar un `pipeline` real ni una DB de tracking — `patch`eamos
+``SQLiteTrackingStore`` para que devuelva ``BatchDetails`` canónicos.
 """
 
 from __future__ import annotations
@@ -20,14 +20,15 @@ pytestmark = pytest.mark.unit
 
 @dataclass
 class _FakeBatchInfo:
-    """Minimal stand-in for BatchInfo (only what BatchDetails carries)."""
+    """Reemplazo mínimo para `BatchInfo` (solo lo que carga `BatchDetails`)."""
 
     batch_id: str = "B-TEST"
 
 
 def _details(stage_counts: dict[str, dict[str, int]]) -> BatchDetails:
-    """Build a BatchDetails with the given pivot dict. Missing stages /
-    outcomes fall back to 0 to match the production pivot shape."""
+    """Construye un `BatchDetails` con el dict de pivot dado. Las
+    etapas / outcomes faltantes caen a 0 para igualar la forma del
+    `pivot` de producción."""
     full: dict[str, dict[str, int]] = {
         stage: dict.fromkeys(("DONE", "FAILED", "PENDING"), 0)
         for stage in ("S0", "S1", "S2", "S3", "S4", "S5")
@@ -35,14 +36,14 @@ def _details(stage_counts: dict[str, dict[str, int]]) -> BatchDetails:
     for stage, outcomes in stage_counts.items():
         full[stage].update(outcomes)
     return BatchDetails(
-        info=_FakeBatchInfo(),  # type: ignore[arg-type] — duck typed
+        info=_FakeBatchInfo(),  # type: ignore[arg-type] — duck typing
         stage_counts=full,
         failed_records=(),
     )
 
 
 class _FakeStore:
-    """Minimal substitute for SQLiteTrackingStore used by _apply_resume."""
+    """Sustituto mínimo para `SQLiteTrackingStore` usado por `_apply_resume`."""
 
     def __init__(self, details: BatchDetails | None) -> None:
         self._details = details
@@ -57,10 +58,11 @@ class _FakeStore:
 
 @pytest.fixture
 def patch_store(monkeypatch: pytest.MonkeyPatch):
-    """Patch the late import of SQLiteTrackingStore inside _apply_resume.
+    """`Patch`ea el import tardío de `SQLiteTrackingStore` dentro de `_apply_resume`.
 
-    The function does ``from cmcourier.adapters.tracking import
-    SQLiteTrackingStore`` lazily — we intercept that module attribute.
+    La función hace ``from cmcourier.adapters.tracking import
+    SQLiteTrackingStore`` de forma `lazy` — interceptamos ese
+    atributo del módulo.
     """
 
     def _patch(details: BatchDetails | None):
@@ -77,8 +79,8 @@ def patch_store(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def fake_config():
-    """A minimal config object with the .tracking.db_path attribute the
-    function reads."""
+    """Un objeto de config mínimo con el atributo `.tracking.db_path`
+    que la función lee."""
 
     class _Tracking:
         db_path = "/tmp/unused.db"
@@ -90,7 +92,7 @@ def fake_config():
 
 
 class TestApplyResume044:
-    """Each test drives _apply_resume through one decision branch."""
+    """Cada test guía a `_apply_resume` por una rama de decisión."""
 
     def test_missing_batch_id_exits_2(self, fake_config: Any) -> None:
         with pytest.raises(SystemExit) as exc:
@@ -98,7 +100,7 @@ class TestApplyResume044:
         assert exc.value.code == 2
 
     def test_unknown_batch_id_exits_1(self, fake_config: Any, patch_store: Any) -> None:
-        patch_store(None)  # store returns None for the batch
+        patch_store(None)  # el store devuelve None para el `batch`
         with pytest.raises(SystemExit) as exc:
             cli_app._apply_resume(fake_config, "MISSING", 1)
         assert exc.value.code == 1
@@ -114,8 +116,9 @@ class TestApplyResume044:
         assert "Nothing to resume" in captured.out
 
     def test_failed_pending_priority(self, fake_config: Any, patch_store: Any) -> None:
-        """FAILED/PENDING at stage N wins over DONE at later stage —
-        same-stage retry path is more conservative than skipping ahead.
+        """FAILED/PENDING en la etapa N gana sobre DONE en una etapa
+        posterior — el camino de retry en la misma etapa es más
+        conservador que saltar hacia adelante.
         """
         patch_store(
             _details(
@@ -128,10 +131,11 @@ class TestApplyResume044:
         assert cli_app._apply_resume(fake_config, "B-MIX", 1) == 3
 
     def test_s4_done_gap_resolves_to_5(self, fake_config: Any, patch_store: Any) -> None:
-        """The §H.1 staging scenario: kill mid-S5 leaves 543 docs at
-        S4_DONE (waiting for a worker to claim them) + 281 already at
-        S5_DONE. Pre-044 this looked 'clean' → 0 docs processed.
-        Post-044 the gap detection resolves to from_stage=5.
+        """Escenario §H.1 de staging: matar a mitad de S5 deja 543
+        docs en S4_DONE (esperando que un `worker` los reclame) + 281
+        ya en S5_DONE. Antes de 044 esto se veía 'clean' → 0 docs
+        procesados. Post-044 la detección de `gap` resuelve a
+        from_stage=5.
         """
         patch_store(
             _details(
@@ -144,15 +148,16 @@ class TestApplyResume044:
         assert cli_app._apply_resume(fake_config, "B-KILLED", 1) == 5
 
     def test_s2_done_gap_resolves_to_3(self, fake_config: Any, patch_store: Any) -> None:
-        """Symmetrical case: kill earlier in the pipeline."""
+        """Caso simétrico: matar más temprano en el `pipeline`."""
         patch_store(_details({"S2": {"DONE": 500}}))
         assert cli_app._apply_resume(fake_config, "B-EARLY", 1) == 3
 
     def test_explicit_from_stage_beats_clean(self, fake_config: Any, patch_store: Any) -> None:
-        """The operator escape hatch: --resume --batch-id X --from-stage N
-        where the batch APPEARS clean. Pre-044 the 'is clean' early-exit
-        killed the explicit override. Post-044 explicit-from-stage wins
-        unconditionally as long as the batch exists.
+        """`escape hatch` del operador: `--resume --batch-id X
+        --from-stage N` cuando el `batch` PARECE estar `clean`. Antes
+        de 044 el early-exit `is clean` mataba el override explícito.
+        Post-044 `explicit-from-stage` gana incondicionalmente
+        mientras el `batch` exista.
         """
         patch_store(_details({"S5": {"DONE": 824}}))
         assert cli_app._apply_resume(fake_config, "B-REPLAY", 5) == 5
@@ -160,8 +165,8 @@ class TestApplyResume044:
     def test_explicit_from_stage_beats_gap_detection(
         self, fake_config: Any, patch_store: Any
     ) -> None:
-        """If explicit override is set, gap auto-detection doesn't run —
-        we trust the operator."""
+        """Si el override explícito está seteado, la auto-detección de
+        `gap` no corre — confiamos en el operador."""
         patch_store(
             _details(
                 {

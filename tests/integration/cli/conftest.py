@@ -1,9 +1,9 @@
-"""Shared CLI integration fixtures.
+"""`Fixtures` compartidos para los tests de integración del CLI.
 
-The autouse ``_reset_root_logger`` fixture removes every handler on the
-root logger before AND after each test so the CLI's
-``logging_setup.configure(...)`` call cannot leak handler state across
-tests.
+El `fixture` con `autouse` ``_reset_root_logger`` saca todos los handlers
+del `logger` raíz ANTES y DESPUÉS de cada test, así la llamada a
+``logging_setup.configure(...)`` del CLI no puede filtrar estado de
+handlers entre tests.
 """
 
 from __future__ import annotations
@@ -32,5 +32,5 @@ def _reset_root_logger() -> Iterator[None]:
 
 @pytest.fixture
 def cli_runner() -> CliRunner:
-    # Click 8.2+ separates stdout/stderr by default — no kwargs needed.
+    # Click 8.2+ ya separa stdout/stderr por default — no hacen falta `kwargs`.
     return CliRunner()

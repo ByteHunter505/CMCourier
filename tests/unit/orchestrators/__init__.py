@@ -1,1 +1,4 @@
-"""Unit tests for ``cmcourier.orchestrators`` - pipeline composition with mocked services."""
+"""Tests unitarios para ``cmcourier.orchestrators``.
+
+Composición del `pipeline` con servicios `mock`.
+"""

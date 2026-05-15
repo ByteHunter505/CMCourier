@@ -1,1 +1,1 @@
-"""Unit tests - fast, mock domain ports, no real I/O."""
+"""Tests unitarios — rápidos, con `mock` de puertos de dominio, sin I/O real."""

@@ -1,8 +1,9 @@
-"""Unit tests for ``cmcourier.services.mock.rvabrep_generator`` (039).
+"""Tests unitarios para ``cmcourier.services.mock.rvabrep_generator`` (039).
 
-Each test runs against the streaming generator with a small ``rows``
-count so the suite stays fast. Determinism is exercised by re-running
-with the same seed and asserting byte-identical output.
+Cada test corre contra el generador `streaming` con un conteo de
+``rows`` chico para que la suite quede rápida. El determinismo se
+ejercita re-ejecutando con el mismo `seed` y aseverando salida
+byte-idéntica.
 """
 
 from __future__ import annotations
@@ -106,7 +107,7 @@ class TestImageMix:
             "O": sum(1 for r in rows if r["ABABST"] == "O") / n,
             "C": sum(1 for r in rows if r["ABABST"] == "C") / n,
         }
-        # ±3% tolerance at N=5000.
+        # Tolerancia ±3% con N=5000.
         assert abs(observed["B"] - 0.60) < 0.03
         assert abs(observed["O"] - 0.20) < 0.03
         assert abs(observed["C"] - 0.20) < 0.03
