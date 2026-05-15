@@ -51,6 +51,56 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.64.0] — 2026-05-15 — **Persist S1 filtered + cross-batch-skipped docs to migration_log**
+
+The operator inspected the DETAIL tab during a staging run and
+correctly noticed two gaps: the per-doc detail didn't show which docs
+were filtered at S1 (delete-coded at source, spec 051) and didn't show
+the docs skipped by cross-batch idempotency (REBIRTH §10). Both were
+counted but never persisted, so neither the DETAIL tab nor
+`analyze batch` nor `cmcourier batch show` could surface them.
+
+### Added
+
+- **`StageStatus.S1_FILTERED`** — terminal state for docs whose
+  RVABREP row was delete-coded at source. The row's
+  `rvabrep_txn_num` is synthetic
+  (`FILTERED__{shortname}__{system_id}`) because the exception fires
+  before any document txn_num is derived; `error_message` carries
+  `deleted_at_source; deleted_count=N` from the exception.
+- **`StageStatus.S1_SKIPPED`** — terminal state for docs already
+  `S5_DONE` in a prior batch. Real `rvabrep_txn_num`,
+  `error_message="cross_batch_uploaded"`.
+- **`ITrackingStore.mark_stage_terminal(txn, batch, stage, error_message)`**
+  — new port method. Terminal transition that is NOT a failure:
+  accepts any `*_FAILED` / `*_FILTERED` / `*_SKIPPED` suffix and
+  does NOT bump `retry_count`.
+
+### Changed
+
+- **REBIRTH §10's "silent skip" contract is intentionally reversed.**
+  Cross-batch skipped docs previously left no trace in `migration_log`
+  to keep re-run disk growth bounded. 062 trades that for full
+  traceability: the second run of a 1000-doc migration now writes
+  1000 `S1_SKIPPED` rows. On repeated re-runs the tracking DB grows
+  linearly; if that becomes an issue, a follow-up spec can add
+  `cmcourier tracking prune --older-than ...`.
+- The DETAIL tab picks up both new statuses automatically — the
+  existing `list_docs_for_batch` query and the `render_detail`
+  status + reason columns don't change.
+
+### Notes
+
+- `analyze batch <id>` and `cmcourier batch show <id>` also see the
+  new rows for free — both already pivot on `status` from
+  `migration_log`.
+- `S1_FILTERED` synthetic txn_nums collide cleanly across runs via
+  the `(rvabrep_txn_num, batch_id)` unique index — each batch gets at
+  most one row per `(shortname, system_id)` combination, even if the
+  same trigger appears multiple times.
+
+---
+
 ## [0.63.0] — 2026-05-14 — **AIMD min_samples guard: stop halving on outlier-with-few-samples**
 
 The operator reported that the AIMD controller **always** issued a
