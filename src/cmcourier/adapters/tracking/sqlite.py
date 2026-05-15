@@ -382,6 +382,27 @@ class SQLiteTrackingStore(ITrackingStore):
             (stage.value, error, txn_num, batch_id),
         )
 
+    def mark_stage_terminal(
+        self,
+        txn_num: str,
+        batch_id: str,
+        stage: StageStatus,
+        error_message: str,
+    ) -> None:
+        # 062: terminal transition that is NOT a failure — used for
+        # ``S1_FILTERED`` (deleted-at-source) and ``S1_SKIPPED`` (already
+        # uploaded in a prior batch). Unlike ``mark_stage_failed`` this
+        # does NOT bump ``retry_count``; the doc didn't "fail", it just
+        # ended its journey here for a non-error reason.
+        _require_terminal_state(stage)
+        completed_at = datetime.now().isoformat()
+        self._enqueue(
+            "UPDATE migration_log "
+            "SET status = ?, error_message = ?, completed_at = ? "
+            "WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            (stage.value, error_message, completed_at, txn_num, batch_id),
+        )
+
     def record_staged_file_metadata(
         self,
         txn_num: str,
@@ -576,6 +597,12 @@ def _require_state(stage: StageStatus, expected_suffix: str) -> None:
     """Reject stage values whose name does not end with the expected suffix."""
     if not stage.value.endswith(f"_{expected_suffix}"):
         raise ValueError(f"expected a {expected_suffix} stage, got {stage.value!r}")
+
+
+def _require_terminal_state(stage: StageStatus) -> None:
+    """062: accept any terminal (non-progressing) suffix — FAILED, FILTERED, SKIPPED."""
+    if not any(stage.value.endswith(f"_{s}") for s in ("FAILED", "FILTERED", "SKIPPED")):
+        raise ValueError(f"expected a terminal stage, got {stage.value!r}")
 
 
 def _row_to_batch_info(row: tuple[Any, ...]) -> BatchInfo:

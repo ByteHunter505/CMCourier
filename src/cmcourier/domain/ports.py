@@ -157,6 +157,30 @@ class ITrackingStore(ABC):
         store the human-readable error message."""
 
     @abstractmethod
+    def mark_stage_terminal(
+        self,
+        txn_num: str,
+        batch_id: str,
+        stage: StageStatus,
+        error_message: str,
+    ) -> None:
+        """062: terminal transition that is NOT a failure.
+
+        Used for the non-error outcomes that previously had no row in
+        ``migration_log``: ``S1_FILTERED`` (delete-coded at source —
+        spec 051) and ``S1_SKIPPED`` (already ``S5_DONE`` in a prior
+        batch — REBIRTH §10 cross-batch idempotency).
+
+        Distinct from :meth:`mark_stage_failed`:
+
+        * Accepts any terminal stage (``*_FAILED``, ``*_FILTERED``,
+          ``*_SKIPPED``).
+        * Does **NOT** bump ``retry_count`` — the doc didn't "fail",
+          it ended its journey here for a non-error reason.
+        * Sets ``completed_at``.
+        """
+
+    @abstractmethod
     def record_staged_file_metadata(
         self,
         txn_num: str,

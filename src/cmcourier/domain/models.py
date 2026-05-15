@@ -100,6 +100,12 @@ class StageStatus(StrEnum):
     S1_PENDING = "S1_PENDING"
     S1_DONE = "S1_DONE"
     S1_FAILED = "S1_FAILED"
+    # 062: terminal states that surface "didn't progress past S1, for a
+    # non-failure reason" outcomes. Persisted to ``migration_log`` so the
+    # DETAIL tab, ``analyze batch``, and ``cmcourier batch show`` can
+    # answer which specific docs fell into each bucket and why.
+    S1_FILTERED = "S1_FILTERED"  # delete-coded at source (spec 051)
+    S1_SKIPPED = "S1_SKIPPED"  # already S5_DONE in a prior batch
 
     S2_PENDING = "S2_PENDING"
     S2_DONE = "S2_DONE"

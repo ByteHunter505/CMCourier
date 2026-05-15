@@ -58,6 +58,7 @@ class TestITrackingStoreContract:
                 "mark_stage_done",
                 "mark_stage_failed",
                 "record_staged_file_metadata",
+                "mark_stage_terminal",
                 "list_batches",
                 "get_batch_details",
                 "retry_failed",

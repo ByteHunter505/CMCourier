@@ -8,8 +8,11 @@ counting (Constitution Principle III).
 Two top-level behaviors:
 
 * **Cross-batch idempotency** (REBIRTH §10): docs whose ``txn_num`` is
-  already at ``S5_DONE`` in any prior batch are skipped silently — no new
-  ``migration_log`` row, just a counter and an INFO log line.
+  already at ``S5_DONE`` in any prior batch are skipped — they don't
+  re-upload, but 062 reversed §10's "silent skip" contract and the
+  current batch now writes a ``migration_log`` row with
+  ``status=S1_SKIPPED`` so the DETAIL tab + analyzer + ``batch show``
+  can identify which specific docs landed in this bucket.
 * **Stage-by-stage resume** (REBIRTH §10.3): ``run(batch_id=..., from_stage=N)``
   re-uses an existing batch and SCOPES the run to its prior set of
   ``txn_num``s. Within each stage, ``is_stage_done`` per-doc short-circuits
@@ -516,10 +519,35 @@ class StagedPipeline:
                         extra={"batch_id": batch_id, "shortname": audit_shortname},
                     )
                     continue
-                except RVABREPDeletedError:
+                except RVABREPDeletedError as exc:
                     # 051: deleted-at-source is NOT a pipeline failure — the
                     # doc is correctly excluded. Count it, log it, move on.
+                    # 062: persist a `S1_FILTERED` row in migration_log so the
+                    # DETAIL tab + analyzer + `batch show` can see WHICH
+                    # triggers were filtered and why. The exception fires
+                    # before any txn_num is derived, so we use a synthetic
+                    # key keyed on the trigger identity — re-runs collide
+                    # idempotently via INSERT OR IGNORE.
                     filtered += 1
+                    audit_system_id = audit.get("system_id") or ""
+                    synthetic_txn = f"FILTERED__{audit_shortname}__{audit_system_id}"
+                    filtered_record = MigrationRecord(
+                        trigger_shortname=audit_shortname,
+                        trigger_cif=audit.get("cif") or "",
+                        trigger_system_id=audit_system_id,
+                        rvabrep_txn_num=synthetic_txn,
+                        rvabrep_file_name="",
+                        batch_id=batch_id,
+                        status=StageStatus.S1_PENDING,
+                        created_at=datetime.now(),  # noqa: DTZ005
+                    )
+                    self._tracking_store.mark_stage_pending(filtered_record, StageStatus.S1_PENDING)
+                    self._tracking_store.mark_stage_terminal(
+                        synthetic_txn,
+                        batch_id,
+                        StageStatus.S1_FILTERED,
+                        f"deleted_at_source; deleted_count={exc.deleted_count}",
+                    )
                     _log.info(
                         "pipeline: doc filtered at S1",
                         extra={
@@ -551,6 +579,20 @@ class StagedPipeline:
                     doc.txn_num, batch_id, StageStatus.S1_DONE
                 )
                 if not already_in_batch and self._tracking_store.is_uploaded(doc.txn_num):
+                    # 062: persist a ``S1_SKIPPED`` row so the DETAIL tab +
+                    # analyzer + `batch show` can see which docs were
+                    # cross-batch skipped (REBIRTH §10's "silently skipped"
+                    # contract is intentionally reversed for traceability).
+                    skipped_cross_batch += 1
+                    skip_item = _StageItem(trigger=trigger, document=doc)
+                    skip_record = self._build_record(skip_item, batch_id, StageStatus.S1_PENDING)
+                    self._tracking_store.mark_stage_pending(skip_record, StageStatus.S1_PENDING)
+                    self._tracking_store.mark_stage_terminal(
+                        doc.txn_num,
+                        batch_id,
+                        StageStatus.S1_SKIPPED,
+                        "cross_batch_uploaded",
+                    )
                     _log.info(
                         "pipeline: doc already uploaded in prior batch",
                         extra={
@@ -559,7 +601,6 @@ class StagedPipeline:
                             "reason": "cross_batch_uploaded",
                         },
                     )
-                    skipped_cross_batch += 1
                     continue
                 item = _StageItem(trigger=trigger, document=doc)
                 if not already_in_batch:

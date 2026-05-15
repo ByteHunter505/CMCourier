@@ -208,6 +208,22 @@ class TestCrossBatchSkip:
         assert second.s1_skipped_cross_batch == 1
         assert second.total_docs == 1
         assert second.s5_done == 0  # didn't upload again
+        # 062: the skipped doc now produces an S1_SKIPPED row in the
+        # second batch — the DETAIL tab + analyzer can identify it.
+        pipeline_harness.tracking_store.flush()
+        assert _count_rows(pipeline_harness.db_path, second.batch_id, "S1_SKIPPED") == 1
+        conn = sqlite3.connect(pipeline_harness.db_path)
+        try:
+            row = conn.execute(
+                "SELECT rvabrep_txn_num, error_message FROM migration_log "
+                "WHERE batch_id = ? AND status = 'S1_SKIPPED'",
+                (second.batch_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert row[0] == "TXN_PIPE_001"
+        assert row[1] == "cross_batch_uploaded"
 
     @respx.mock
     def test_cross_batch_skip_logged(
@@ -507,6 +523,28 @@ class TestS1FilteredOutcome051:
             r for r in caplog.records if r.__dict__.get("reason") == "deleted_at_source"
         ]
         assert len(filtered_logs) == 2
+        # 062: each filtered trigger now produces a row in migration_log with
+        # status=S1_FILTERED and a synthetic txn_num so the DETAIL tab can
+        # show it. The error_message carries the deleted_count from the
+        # exception.
+        pipeline._tracking_store.flush()  # noqa: SLF001
+        conn = sqlite3.connect(pipeline_harness.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT rvabrep_txn_num, error_message FROM migration_log "
+                "WHERE batch_id = ? AND status = 'S1_FILTERED' "
+                "ORDER BY rvabrep_txn_num",
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(rows) == 2, f"expected 2 S1_FILTERED rows, got {rows}"
+        # Synthetic txn_num is FILTERED__{shortname}__{system_id}.
+        synthetic_txns = {r[0] for r in rows}
+        assert synthetic_txns == {"FILTERED__B__1", "FILTERED__D__1"}
+        for _, err in rows:
+            assert "deleted_at_source" in err
+            assert "deleted_count=" in err
 
 
 # ---------------------------------------------------------------------------

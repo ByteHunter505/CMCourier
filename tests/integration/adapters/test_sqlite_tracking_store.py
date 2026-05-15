@@ -292,6 +292,71 @@ class TestPerStageState:
         store.close()
         assert retry == 3
 
+    def test_mark_stage_terminal_writes_filtered_with_reason(
+        self, store: SQLiteTrackingStore, tmp_path: Path
+    ) -> None:
+        # 062: terminal transition for S1_FILTERED (delete-coded source rows).
+        batch_id = store.start_batch(total_records=1)
+        record = _make_record(batch_id, "FILTERED__SHORTNAME__1")
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        store.mark_stage_terminal(
+            "FILTERED__SHORTNAME__1",
+            batch_id,
+            StageStatus.S1_FILTERED,
+            "deleted_at_source; deleted_count=3",
+        )
+        store.flush()
+        conn = sqlite3.connect(tmp_path / "tracking.db")
+        row = conn.execute(
+            "SELECT status, error_message, retry_count, completed_at "
+            "FROM migration_log WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            ("FILTERED__SHORTNAME__1", batch_id),
+        ).fetchone()
+        conn.close()
+        store.close()
+        assert row[0] == "S1_FILTERED"
+        assert "deleted_at_source" in row[1]
+        assert "deleted_count=3" in row[1]
+        # 062 contract: filtered is NOT a failure → retry_count unchanged.
+        assert row[2] == 0
+        assert row[3] is not None  # completed_at set
+
+    def test_mark_stage_terminal_writes_skipped_with_reason(
+        self, store: SQLiteTrackingStore, tmp_path: Path
+    ) -> None:
+        # 062: terminal transition for S1_SKIPPED (cross-batch idempotency).
+        batch_id = store.start_batch(total_records=1)
+        record = _make_record(batch_id, "TXN_SKIPPED_001")
+        store.mark_stage_pending(record, StageStatus.S1_PENDING)
+        store.mark_stage_terminal(
+            "TXN_SKIPPED_001",
+            batch_id,
+            StageStatus.S1_SKIPPED,
+            "cross_batch_uploaded",
+        )
+        store.flush()
+        conn = sqlite3.connect(tmp_path / "tracking.db")
+        row = conn.execute(
+            "SELECT status, error_message, retry_count "
+            "FROM migration_log WHERE rvabrep_txn_num = ? AND batch_id = ?",
+            ("TXN_SKIPPED_001", batch_id),
+        ).fetchone()
+        conn.close()
+        store.close()
+        assert row[0] == "S1_SKIPPED"
+        assert row[1] == "cross_batch_uploaded"
+        assert row[2] == 0  # not a failure → retry not bumped
+
+    def test_mark_stage_terminal_rejects_non_terminal_status(
+        self, store: SQLiteTrackingStore
+    ) -> None:
+        # The validator only accepts FAILED / FILTERED / SKIPPED.
+        with pytest.raises(ValueError, match="terminal"):
+            store.mark_stage_terminal("x", "b", StageStatus.S1_DONE, "ignored")
+        with pytest.raises(ValueError, match="terminal"):
+            store.mark_stage_terminal("x", "b", StageStatus.S1_PENDING, "ignored")
+        store.close()
+
     def test_record_staged_file_metadata_updates_existing_row(
         self, store: SQLiteTrackingStore, tmp_path: Path
     ) -> None:
