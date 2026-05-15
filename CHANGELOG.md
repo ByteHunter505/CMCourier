@@ -51,6 +51,73 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.65.0] — 2026-05-15 — **Streaming orchestrator: bucket-based producer-consumer pipeline**
+
+The batched pipeline has two structural costs that hurt at the
+20M-doc scale: memory peak grows as
+`batch_size × batches_in_flight` (today ~200 docs at 100×2), and
+there is an idle "valley" between chunks where PREP and UPLOAD
+out-pace each other and one side blocks. 063 ships a new
+**streaming mode** that runs adjacent to the batched mode (the
+operator picks one via `processing.mode`), built around the
+canonical producer-consumer pattern: a bounded **bucket** of
+prepared docs sits between PREP (S1–S4 producers) and UPLOAD
+(S5 consumers), so memory peak collapses to `bucket_size` and
+neither side ever waits for the other to finish a "batch".
+
+### Added
+
+- **`processing.mode: "batched" | "streaming"`** — orchestrator
+  selector. Default `"batched"` keeps every byte of pre-063
+  behaviour intact. `"streaming"` activates the new
+  `StreamingOrchestrator`.
+- **`processing.streaming.bucket_size: int = 100`** — the
+  bounded-buffer size between PREP and S5. Memory peak is
+  `bucket_size` (independent of total trigger count).
+- **`StreamingOrchestrator`** (`cmcourier.orchestrators.streaming`)
+  — same `.run(...)` shape as `MultiBatchOrchestrator` for CLI
+  parity. Returns a `MultiBatchRunReport` with a single synthetic
+  `RunReport`. Internals: one batch_id per run, one global
+  `MetricsRecorder`, `prep_workers` producer threads + S5 consumer
+  threads sized to `_pool_ceiling()`, poison-pill shutdown.
+- **`StagedPipeline.streaming_prep_one`** — public entry point
+  for producers; runs S1→S4 on a single trigger and returns
+  `(survivor, skipped_cross_batch, s1_filtered)`. Reuses the
+  existing per-stage helpers so filter / skip / failure
+  persistence stays identical to the batched path.
+- **`StagedPipeline.streaming_upload_one`** — public S5 thin
+  wrapper used by streaming consumers.
+
+### Changed
+
+- **Resume in streaming mode = a new run.** `--from-stage > 1`
+  and operator-named `--batch-id` raise `ValueError` when
+  `processing.mode == "streaming"`. 062's cross-batch
+  `S1_SKIPPED` rows provide traceability for docs already
+  uploaded in any prior run.
+- The CLI orchestrator factory now branches on `processing.mode`.
+  Both orchestrators expose the same TUI binding surface
+  (`active_recorder`, `upload_recorder`, `chunks_snapshot`) so the
+  TUI degrades gracefully — the CHUNKS tab shows a single
+  synthetic row in streaming mode; spec 064 replaces it with a
+  real BUCKET tab.
+
+### Notes
+
+- **Heavy/light lanes** (036) are deferred in streaming mode for
+  this spec — the wiring emits a clear WARN when
+  `heavy_light_lanes.enabled: true` is combined with
+  `mode: "streaming"`. Spec 065 integrates per-item lane choice
+  into the streaming consumer.
+- **TUI BUCKET tab** is deferred to spec 064. The other tabs
+  (PREP / UPLOAD / DETAIL) work unchanged — they read the single
+  global recorder.
+- AIMD operates against the same single recorder for the whole
+  run; 061's `min_samples` guard handles the cold-start outlier
+  exactly as in batched mode.
+
+---
+
 ## [0.64.0] — 2026-05-15 — **Persist S1 filtered + cross-batch-skipped docs to migration_log**
 
 The operator inspected the DETAIL tab during a staging run and
