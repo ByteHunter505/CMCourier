@@ -1,18 +1,19 @@
 """AIMD auto-tune controller for the S5 worker pool (025 phase 2).
 
-Algorithm (REBIRTH §12, mirrored from the legacy implementation):
+Algorithm (REBIRTH §12, retuned for heavy-file workloads in 068):
 
-* **AI** (additive increase) — when observed p95 latency falls below
-  80 % of the target, add one worker and tighten the request
-  timeout (halve toward ``min_timeout_s``). System is healthy;
-  give it more concurrency, less per-call slack.
-* **MD** (multiplicative decrease) — when observed p95 climbs above
-  120 % of the target, halve the worker count (floor at
-  ``min_threads``) and double the timeout (cap at
-  ``max_timeout_s``). System is under pressure; back off
-  concurrency, give each call more headroom.
-* **Noop** — within the 80/120 % band, keep the worker count and
-  tighten the timeout (same as AI).
+* **MI** (multiplicative increase) — when observed p95 latency falls
+  below 80 % of the target, grow workers to
+  ``max(current + 1, ceil(current * growth_factor))`` and tighten
+  the request timeout. Default `growth_factor` is 1.25 (+25 % per
+  tick, never less than +1). Pre-068 this was always `+1`.
+* **Soft halve** — when observed p95 climbs above
+  ``halve_threshold_ratio × target`` (default 1.5×, pre-068 was
+  1.2×), reduce workers to
+  ``max(min_threads, ceil(current * halve_factor))`` (default 0.75,
+  pre-068 was 0.5). Less panic on a single bad tick.
+* **Noop** — within the lower/upper band, keep the worker count and
+  tighten the timeout.
 * **Warmup** — during ``warmup_seconds`` after start, never adjust.
 
 The controller runs as a background thread that wakes on
@@ -28,6 +29,7 @@ from __future__ import annotations
 __all__ = ["AutoTuneController", "Decision", "decide"]
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -44,7 +46,7 @@ _AUTO_TUNE_LOG = "auto_tune_decision"
 class Decision:
     """One AIMD round's resolved adjustment."""
 
-    action: str  # "+1" | "halve" | "noop" | "warmup" | "insufficient_data"
+    action: str  # "+N" | "halve" | "noop" | "warmup" | "insufficient_data"
     workers: int
     timeout_s: float
 
@@ -76,10 +78,16 @@ def decide(
         )
 
     lower = 0.8 * config.target_p95_ms
-    upper = 1.2 * config.target_p95_ms
+    upper = config.halve_threshold_ratio * config.target_p95_ms
 
     if observed_p95_ms > upper:
-        new_workers = max(current_workers // 2, config.min_threads)
+        # 068: soft halve. Pre-068 was ``current // 2`` (drop 50 % in
+        # one tick); now ``ceil(current * halve_factor)`` (default 0.75
+        # → drop 25 %). Recovery from a false-positive halve is much
+        # cheaper, which matters when natural p95 variance on heavy
+        # files keeps tripping the threshold.
+        halved = math.ceil(current_workers * config.halve_factor)
+        new_workers = max(halved, config.min_threads)
         new_timeout = (
             min(current_timeout_s * 2, float(config.max_timeout_s))
             if config.timeout_auto_adjust
@@ -93,8 +101,15 @@ def decide(
         else current_timeout_s
     )
     if observed_p95_ms < lower:
-        new_workers = min(current_workers + 1, config.max_threads)
-        return Decision(action="+1", workers=new_workers, timeout_s=new_timeout)
+        # 068: multiplicative growth with a ``+1`` floor. Pre-068 was
+        # always ``+1`` per tick — at 15 s/tick, going from 6 to 50
+        # workers took 44 ticks = 11 min. Default 1.25× reaches 50 in
+        # ~10 ticks (~2.5 min) starting from 6. The ``+1`` floor keeps
+        # progress at small ``current_workers`` (1.25 × 2 = 2 without
+        # the floor).
+        grown = math.ceil(current_workers * config.growth_factor)
+        new_workers = min(max(current_workers + 1, grown), config.max_threads)
+        return Decision(action="+N", workers=new_workers, timeout_s=new_timeout)
     return Decision(action="noop", workers=current_workers, timeout_s=new_timeout)
 
 

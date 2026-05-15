@@ -41,7 +41,10 @@ class TestDecide:
         assert d.workers == 4
         assert d.timeout_s == 300.0
 
-    def test_additive_increase_under_target(self) -> None:
+    def test_growth_under_target_uses_multiplicative_floor_plus_one(self) -> None:
+        # 068: growth is ``max(current+1, ceil(current * growth_factor))``.
+        # current=4 with default 1.25 → max(5, ceil(5.0)) = 5. The +1 floor
+        # matches the multiplicative result here.
         cfg = _cfg()
         d = decide(
             cfg,
@@ -51,12 +54,26 @@ class TestDecide:
             current_workers=4,
             current_timeout_s=300.0,
         )
-        assert d.action == "+1"
+        assert d.action == "+N"
         assert d.workers == 5
-        # Timeout tightens on stable/AI: halve toward min.
+        # Timeout tightens on stable/grow: halve toward min.
         assert d.timeout_s == max(300.0 / 2, cfg.min_timeout_s)
 
-    def test_additive_increase_caps_at_max_threads(self) -> None:
+    def test_growth_uses_multiplicative_factor_when_above_plus_one(self) -> None:
+        # 068: current=20, growth_factor=1.25 → ceil(25.0) = 25; max(21, 25) = 25.
+        cfg = _cfg(max_threads=50)
+        d = decide(
+            cfg,
+            observed_p95_ms=200.0,
+            sample_count=100,
+            elapsed_s=120.0,
+            current_workers=20,
+            current_timeout_s=300.0,
+        )
+        assert d.action == "+N"
+        assert d.workers == 25
+
+    def test_growth_caps_at_max_threads(self) -> None:
         cfg = _cfg(max_threads=8)
         d = decide(
             cfg,
@@ -66,25 +83,50 @@ class TestDecide:
             current_workers=8,  # already at cap
             current_timeout_s=300.0,
         )
-        assert d.action == "+1"
+        assert d.action == "+N"
         assert d.workers == 8  # capped, no change
 
-    def test_multiplicative_decrease_over_target(self) -> None:
+    def test_halve_over_threshold_uses_halve_factor(self) -> None:
+        # 068: halve fires when p95 > halve_threshold_ratio * target_p95_ms.
+        # Default ratio=1.5 → upper=1500. Halve uses ceil(current*halve_factor).
+        # current=8, halve_factor=0.75 → ceil(6.0)=6.
         cfg = _cfg()
         d = decide(
             cfg,
-            observed_p95_ms=2000.0,  # > 1.2 * 1000 = 1200
+            observed_p95_ms=2000.0,  # > 1.5 * 1000 = 1500
             sample_count=100,
             elapsed_s=120.0,
             current_workers=8,
             current_timeout_s=300.0,
         )
         assert d.action == "halve"
-        assert d.workers == 4  # 8 // 2
-        # Timeout DOUBLES on MD (give each call more headroom).
+        assert d.workers == 6  # ceil(8 * 0.75)
+        # Timeout DOUBLES on halve (give each call more headroom).
         assert d.timeout_s == min(300.0 * 2, cfg.max_timeout_s)
 
-    def test_multiplicative_decrease_floors_at_min_threads(self) -> None:
+    def test_halve_threshold_ratio_honors_the_knob(self) -> None:
+        # 068: ratio=1.2 (pre-068 hardcoded) halves at p95=1300 (above 1200);
+        # ratio=1.5 (new default) keeps noop at that p95.
+        d_tight = decide(
+            _cfg(halve_threshold_ratio=1.2),
+            observed_p95_ms=1300.0,
+            sample_count=100,
+            elapsed_s=120.0,
+            current_workers=8,
+            current_timeout_s=300.0,
+        )
+        d_loose = decide(
+            _cfg(halve_threshold_ratio=1.5),
+            observed_p95_ms=1300.0,
+            sample_count=100,
+            elapsed_s=120.0,
+            current_workers=8,
+            current_timeout_s=300.0,
+        )
+        assert d_tight.action == "halve"
+        assert d_loose.action == "noop"
+
+    def test_halve_floors_at_min_threads(self) -> None:
         cfg = _cfg(min_threads=2)
         d = decide(
             cfg,
@@ -116,7 +158,7 @@ class TestDecide:
         cfg = _cfg(timeout_auto_adjust=False)
         d = decide(
             cfg,
-            observed_p95_ms=2000.0,  # MD trigger
+            observed_p95_ms=2000.0,  # > 1.5 × 1000 = halve trigger
             sample_count=100,
             elapsed_s=120.0,
             current_workers=8,
@@ -180,6 +222,8 @@ class TestMinSamplesGuard061:
 
     def test_guard_releases_at_floor(self) -> None:
         # The guard is a floor — at exactly min_samples the real decision runs.
+        # 068: target=6000, ratio=1.5 → upper=9000. p95=12000 > 9000 → halve.
+        # current=6, halve_factor=0.75 → ceil(4.5)=5.
         cfg = _cfg(target_p95_ms=6000.0, min_samples=20)
         d = decide(
             cfg,
@@ -190,7 +234,7 @@ class TestMinSamplesGuard061:
             current_timeout_s=120.0,
         )
         assert d.action == "halve"
-        assert d.workers == 3
+        assert d.workers == 5
 
     def test_warmup_takes_precedence_over_min_samples(self) -> None:
         # During warmup we never act, regardless of sample count.

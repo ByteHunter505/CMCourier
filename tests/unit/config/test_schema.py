@@ -251,6 +251,46 @@ class TestNumericConstraints:
         cfg = ProcessingConfig(s4_max_processes=4)
         assert cfg.s4_max_processes == 4
 
+    def test_auto_tune_growth_factor_defaults_to_1_25(self) -> None:
+        # 068: aggressive growth — current * 1.25 with +1 floor.
+        from cmcourier.config.schema import AutoTuneConfig
+
+        assert AutoTuneConfig().growth_factor == 1.25
+
+    def test_auto_tune_growth_factor_range(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(growth_factor=0.99)
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(growth_factor=4.01)
+
+    def test_auto_tune_halve_factor_defaults_to_0_75(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        assert AutoTuneConfig().halve_factor == 0.75
+
+    def test_auto_tune_halve_factor_range(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(halve_factor=0.0)
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(halve_factor=1.01)
+
+    def test_auto_tune_halve_threshold_ratio_defaults_to_1_5(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        assert AutoTuneConfig().halve_threshold_ratio == 1.5
+
+    def test_auto_tune_halve_threshold_ratio_range(self) -> None:
+        from cmcourier.config.schema import AutoTuneConfig
+
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(halve_threshold_ratio=1.0)
+        with pytest.raises(ValidationError):
+            AutoTuneConfig(halve_threshold_ratio=10.01)
+
     def test_batch_size_must_be_ge_one(
         self, fixture_paths: dict[str, Path], tmp_path: Path
     ) -> None:

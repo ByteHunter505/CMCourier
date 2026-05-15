@@ -432,6 +432,14 @@ class AutoTuneConfig(BaseModel):
     timeout_auto_adjust: bool = True
     min_timeout_s: int = Field(default=30, ge=1)
     max_timeout_s: int = Field(default=600, ge=1)
+    # 068: growth + halve shape knobs. Pre-068 was hardcoded to
+    # additive +1 growth, divide-by-2 halve, halve fires at 1.2 ×
+    # target_p95_ms. That oscillated capacity at 4-8 for the
+    # production 30 MB-file workload (one outlier per ~10 ticks
+    # halved 6 min of growth).
+    growth_factor: float = Field(default=1.25, ge=1.0, le=4.0)
+    halve_factor: float = Field(default=0.75, ge=0.05, le=1.0)
+    halve_threshold_ratio: float = Field(default=1.5, ge=1.05, le=10.0)
 
     @model_validator(mode="after")
     def _validate_ranges(self) -> AutoTuneConfig:
