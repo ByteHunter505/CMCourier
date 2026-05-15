@@ -2,21 +2,25 @@
 
 ## Phase 1 — Size the S5 pool to the AIMD ceiling + tests
 
-- [ ] 1.1 `staged.py`: `_pool_ceiling()` helper — `max(workers,
+- [x] 1.1 `staged.py`: `_pool_ceiling()` helper — `max(workers,
       auto_tune.max_threads)` when AIMD enabled, else `workers`.
-- [ ] 1.2 `staged.py`: `_stage_5_single` builds its
+- [x] 1.2 `staged.py`: `_stage_5_single` builds its
       `ThreadPoolExecutor` with `max_workers=self._pool_ceiling()`;
       `set_pool_size` uses the ceiling too.
-- [ ] 1.3 `staged.py`: `_stage_5_dual` builds both the heavy + light
+- [x] 1.3 `staged.py`: `_stage_5_dual` builds both the heavy + light
       `ThreadPoolExecutor`s with `max_workers=self._pool_ceiling()`.
-- [ ] 1.4 Tests: `_pool_ceiling()` unit — AIMD on → `max_threads`,
+- [x] 1.4 Tests: `_pool_ceiling()` unit — AIMD on → `max_threads`,
       AIMD off → `workers`, `workers > max_threads` → `workers`.
-- [ ] 1.5 Tests: capture `max_workers` on a real run — S5 single pool
-      is the ceiling with AIMD on, `cmis.workers` with AIMD off; both
-      dual pools are the ceiling. Prep (056) pools excluded by
-      thread-name prefix.
-- [ ] 1.6 Full unit + integration suite green; mypy + ruff clean.
-- [ ] 1.7 Commit
+- [x] 1.5 Tests: capture `max_workers` via an instrumented
+      `ThreadPoolExecutor` — `_stage_5_single` over an empty batch is
+      the ceiling with AIMD on, `cmis.workers` with AIMD off; both
+      `_stage_5_dual` pools are the ceiling. 056 prep pool excluded by
+      the `cmcourier-s5*` thread-name prefix filter.
+- [x] 1.6 Full unit + integration suite green (1218 passed; the lone
+      failure is the known timing-flaky `test_dual_lane_throughput` —
+      passes in isolation, unaffected by 057 since `_pool_ceiling()`
+      returns `cmis.workers` when AIMD is off). mypy + ruff clean.
+- [x] 1.7 Commit
       `fix(s5): size the upload thread pool to the AIMD ceiling, not the initial worker count (057 Phase 1)`.
 
 ## Phase 2 — CHANGELOG 0.60.0 + version bump + README + FF

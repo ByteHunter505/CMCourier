@@ -284,6 +284,21 @@ class StagedPipeline:
         else:
             self._concurrency_limit.set_capacity(new_total)
 
+    def _pool_ceiling(self) -> int:
+        """057: the maximum thread count S5 could ever need.
+
+        The S5 ``ThreadPoolExecutor`` must be sized to this — NOT to the
+        initial ``cmis.workers``. AIMD resizes the ``ResizableSemaphore``
+        / ``LaneController`` up to ``auto_tune.max_threads``; if the pool
+        only has ``cmis.workers`` threads, those extra semaphore slots
+        have no thread to run them and ``pool_in_use`` stays pinned at
+        the initial count. With AIMD disabled nothing resizes the
+        semaphore, so ``cmis.workers`` is already the correct ceiling.
+        """
+        if self._auto_tune_cfg is not None and self._auto_tune_cfg.enabled:
+            return max(self._workers, self._auto_tune_cfg.max_threads)
+        return self._workers
+
     def _set_upload_timeout(self, new_timeout_s: float) -> None:
         """AIMD pushes a new timeout; uploader picks it up on the next call."""
         self._uploader._timeout_s = float(new_timeout_s)
@@ -778,13 +793,19 @@ class StagedPipeline:
         batch_id: str,
         rec: MetricsRecorder,
     ) -> tuple[int, int]:
-        """Legacy single-pool S5 (pre-036). Byte-identical to 025."""
-        self._pool_stats.set_pool_size(self._workers)
+        """Legacy single-pool S5 (pre-036). Byte-identical to 025.
+
+        057: the pool is sized to ``_pool_ceiling()`` (the AIMD max),
+        not the initial ``cmis.workers`` — otherwise the AIMD-resized
+        ``ResizableSemaphore`` has no threads to honour its extra slots.
+        """
+        ceiling = self._pool_ceiling()
+        self._pool_stats.set_pool_size(ceiling)
         self._pool_stats.set_queue_depth(len(items))
         s5_done = 0
         failed = 0
         with ThreadPoolExecutor(
-            max_workers=self._workers,
+            max_workers=ceiling,
             thread_name_prefix="cmcourier-s5",
         ) as pool:
             futures = {pool.submit(self._upload_one, item, batch_id, rec): item for item in items}
@@ -828,12 +849,13 @@ class StagedPipeline:
         """036: dual heavy/light dispatch via two cooperating executors.
 
         Each lane gets its own ``ThreadPoolExecutor`` sized to the
-        TOTAL worker budget; the per-lane semaphore inside the
-        ``LaneController`` caps actual concurrency. Two executors
-        avoid the starvation that would occur if a single executor's
-        workers grabbed heavies first and then blocked on the heavy
-        semaphore — leaving light items queued without a thread to
-        run them.
+        TOTAL worker budget ceiling (057: ``_pool_ceiling()``, the AIMD
+        max — not the initial ``cmis.workers``); the per-lane semaphore
+        inside the ``LaneController`` caps actual concurrency. Two
+        executors avoid the starvation that would occur if a single
+        executor's workers grabbed heavies first and then blocked on
+        the heavy semaphore — leaving light items queued without a
+        thread to run them.
         """
         assert self._lane_controller is not None
         heavy_items, light_items = assignment
@@ -841,16 +863,17 @@ class StagedPipeline:
         self._lane_controller.set_queue_depth("heavy", depths["heavy"])
         self._lane_controller.set_queue_depth("light", depths["light"])
         self._lane_controller.start()
+        ceiling = self._pool_ceiling()
         s5_done = 0
         failed = 0
         try:
             with (
                 ThreadPoolExecutor(
-                    max_workers=self._workers,
+                    max_workers=ceiling,
                     thread_name_prefix="cmcourier-s5-heavy",
                 ) as heavy_pool,
                 ThreadPoolExecutor(
-                    max_workers=self._workers,
+                    max_workers=ceiling,
                     thread_name_prefix="cmcourier-s5-light",
                 ) as light_pool,
             ):
