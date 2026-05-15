@@ -69,6 +69,12 @@ class _FakePipeline:
         self._tracking_store.complete_batch = MagicMock()
         self.auto_tune_controller = None
         self.sampler = None
+        # 067: streaming orchestrator publishes live pending counts here.
+        # Use a real WorkerPoolStats so its snapshot returns the values
+        # the orchestrator wrote.
+        from cmcourier.services.worker_pool_stats import WorkerPoolStats
+
+        self.pool_stats = WorkerPoolStats()
 
     def _fake_start_batch(self, *, total_records: int) -> str:  # noqa: ARG002
         self._batch_counter += 1
@@ -363,3 +369,131 @@ class TestStreamingHeavyLightLanes:
         orch = _build_orch(pipeline, tmp_path, lanes_enabled=False)
         snap = orch.streaming_snapshot()
         assert snap.lane_snapshot is None
+
+
+class TestStreaming067LiveTUIBindings:
+    def test_chunk_state_status_is_upload_during_run(self, tmp_path: Path) -> None:
+        # 067: streaming must set status="UPLOAD" with upload_started_monotonic
+        # the moment threads spawn — otherwise the UPLOAD-tab chunk
+        # timer stays at 0 forever.
+        triggers = _make_triggers(20)
+        pipeline = _FakePipeline(triggers=triggers, pool_ceiling=2, prep_sleep_s=0.01)
+        orch = _build_orch(pipeline, tmp_path, bucket_size=2, prep_workers=2)
+
+        observed_statuses: list[str] = []
+        observed_stamps: list[float | None] = []
+
+        def _poll() -> None:
+            for _ in range(60):
+                snap_list = orch.chunks_snapshot()
+                if snap_list:
+                    observed_statuses.append(snap_list[0].status)
+                    observed_stamps.append(snap_list[0].upload_started_monotonic)
+                time.sleep(0.005)
+
+        t = threading.Thread(target=_poll)
+        t.start()
+        orch.run(source_descriptor="", batch_size=100, batches_in_flight=2)
+        t.join()
+
+        assert "UPLOAD" in observed_statuses
+        # The monotonic stamp must be a float (not None) once status flipped.
+        upload_stamps = [s for s in observed_stamps if isinstance(s, float)]
+        assert upload_stamps, "upload_started_monotonic was never set during run"
+
+    def test_pool_stats_queue_depth_published_during_run(self, tmp_path: Path) -> None:
+        # 067: ``pool_stats.queue_depth`` must reflect live pending so
+        # the UPLOAD-tab progress bar shows real progress instead of
+        # ``count/count``.
+        triggers = _make_triggers(30)
+        pipeline = _FakePipeline(triggers=triggers, pool_ceiling=2, upload_sleep_s=0.01)
+        orch = _build_orch(pipeline, tmp_path, bucket_size=4, prep_workers=4)
+
+        observed_depths: list[int] = []
+
+        def _poll() -> None:
+            for _ in range(80):
+                observed_depths.append(pipeline.pool_stats.snapshot().queue_depth)
+                time.sleep(0.005)
+
+        t = threading.Thread(target=_poll)
+        t.start()
+        orch.run(source_descriptor="", batch_size=100, batches_in_flight=2)
+        t.join()
+
+        # At least once during the run we must have observed pending > 0.
+        assert max(observed_depths) > 0, (
+            "pool_stats.queue_depth never went above 0 — UPLOAD bar would show count/count"
+        )
+
+    def test_chunk_state_s5_done_grows_during_run(self, tmp_path: Path) -> None:
+        # 067: the synthetic chunk_state's s5_done must grow during the
+        # run so the CHUNKS tab shows live progress.
+        triggers = _make_triggers(15)
+        pipeline = _FakePipeline(triggers=triggers, pool_ceiling=2, upload_sleep_s=0.005)
+        orch = _build_orch(pipeline, tmp_path, bucket_size=4, prep_workers=2)
+
+        observed_s5_done: list[int] = []
+
+        def _poll() -> None:
+            for _ in range(80):
+                snap_list = orch.chunks_snapshot()
+                if snap_list:
+                    observed_s5_done.append(snap_list[0].s5_done)
+                time.sleep(0.005)
+
+        t = threading.Thread(target=_poll)
+        t.start()
+        orch.run(source_descriptor="", batch_size=100, batches_in_flight=2)
+        t.join()
+
+        # s5_done must have reached a mid-run value > 0 (not just final).
+        observed_mid = [v for v in observed_s5_done if 0 < v < 15]
+        assert observed_mid, (
+            "chunk_state.s5_done never grew mid-run — CHUNKS tab would show 0 forever"
+        )
+
+    def test_lane_queue_depth_never_exceeds_bucket_size(self, tmp_path: Path) -> None:
+        # 067: dispatcher and consumer report lane_queue.qsize() now, not
+        # a monotonic counter — depth must never exceed bucket_size.
+        triggers = _make_triggers(50)
+        sizes = {i: (20 * 1024 * 1024 if i % 2 == 0 else 1 * 1024 * 1024) for i in range(50)}
+        pipeline = _FakePipeline(
+            triggers=triggers,
+            pool_ceiling=4,
+            size_bytes_by_idx=sizes,
+            upload_sleep_s=0.002,
+        )
+        orch = _build_orch(
+            pipeline,
+            tmp_path,
+            bucket_size=4,
+            prep_workers=2,
+            lanes_enabled=True,
+            heavy_threshold_bytes=10 * 1024 * 1024,
+        )
+
+        observed_heavy: list[int] = []
+        observed_light: list[int] = []
+
+        def _poll() -> None:
+            for _ in range(120):
+                if orch.lane_controller is None:
+                    return
+                snap = orch.lane_controller.snapshot()
+                observed_heavy.append(snap.heavy.queue_depth)
+                observed_light.append(snap.light.queue_depth)
+                time.sleep(0.003)
+
+        t = threading.Thread(target=_poll)
+        t.start()
+        orch.run(source_descriptor="", batch_size=100, batches_in_flight=2)
+        t.join()
+
+        # The dispatcher routes 25 heavy + 25 light items. Pre-067 the
+        # depth would reach 25 (monotonic). Post-067 it caps at the
+        # lane queue's maxsize = bucket_size = 4.
+        assert max(observed_heavy) <= 4
+        assert max(observed_light) <= 4
+        # Sanity: it actually got SOME items routed (test isn't trivially passing).
+        assert max(observed_heavy + observed_light) >= 1

@@ -185,6 +185,12 @@ class StreamingOrchestrator:
         self._prep_in_flight_lock = threading.Lock()
         self._prep_window = _ThroughputWindow(window_s=5.0)
         self._upload_window = _ThroughputWindow(window_s=5.0)
+        # 067: per-lane queue refs (only populated when lanes enabled).
+        # Used by ``_publish_pending_count`` to compute live pending
+        # work + by the dispatcher/consumers to report real qsize back
+        # into pool_stats and the lane controller.
+        self._heavy_queue: queue.Queue[_StageItem | object] | None = None
+        self._light_queue: queue.Queue[_StageItem | object] | None = None
         # 065: heavy/light lanes. ``None`` keeps the 063 single-lane path
         # byte-identical. When enabled, a LaneController owns the per-lane
         # semaphore split + drain-driven rebalance, and a dispatcher
@@ -258,6 +264,59 @@ class StreamingOrchestrator:
         """065: read-only handle for the TUI / tests. ``None`` in single-lane mode."""
         return self._lane_controller
 
+    # ----------------------------------------------------- 067 live TUI bindings
+
+    def _publish_pending_count(self) -> None:
+        """067: report live total pending (main bucket + per-lane queues)
+        to the pipeline's ``pool_stats``. This drives ``snap.queue_depth``
+        on the UPLOAD-tab snapshot — without this, ``target = count + 0``
+        and the progress bar shows ``count/count`` permanently."""
+        bucket = self._bucket
+        if bucket is None:
+            return
+        total = int(bucket.qsize())
+        if self._heavy_queue is not None:
+            total += int(self._heavy_queue.qsize())
+        if self._light_queue is not None:
+            total += int(self._light_queue.qsize())
+        self._pipeline.pool_stats.set_queue_depth(total)
+
+    def _publish_chunk_state(
+        self,
+        *,
+        batch_id: str,
+        tally: _StreamingTally,
+        tally_lock: threading.Lock,
+    ) -> None:
+        """067: write the live counters into the synthetic ChunkState so
+        the CHUNKS tab + UPLOAD-tab timer/avg-speed reflect in-progress
+        work. Called after every S5 outcome by both consumer loops."""
+        with tally_lock:
+            s5d = tally.s5_done
+            s5f = tally.s5_failed
+            s5sk = tally.s5_skipped
+            fil = tally.s1_filtered
+            csk = tally.cross_batch_skipped
+        completed = s5d + s5f + s5sk
+        with self._state_lock:
+            prev = self._chunk_state
+            self._chunk_state = ChunkState(
+                chunk_idx=0,
+                batch_id=batch_id,
+                status="UPLOAD",
+                s5_done=s5d,
+                s5_failed=s5f,
+                doc_count=completed + fil + csk,
+                prep_done=completed,
+                prep_skipped=csk,
+                prep_filtered=fil,
+                upload_skipped=s5sk,
+                prep_started_monotonic=(prev.prep_started_monotonic if prev is not None else None),
+                upload_started_monotonic=(
+                    prev.upload_started_monotonic if prev is not None else None
+                ),
+            )
+
     # ----------------------------------------------------------- public API
 
     def run(
@@ -300,14 +359,6 @@ class StreamingOrchestrator:
         batch_id = self._pipeline._tracking_store.start_batch(total_records=0)  # noqa: SLF001
         recorder = self._build_run_recorder()
         recorder.start_batch(pipeline=self._pipeline.pipeline_name, batch_id=batch_id)
-        with self._state_lock:
-            self._recorder = recorder
-            self._chunk_state = ChunkState(
-                chunk_idx=0,
-                batch_id=batch_id,
-                status="PREP",
-            )
-
         bucket: queue.Queue[_StageItem | object] = queue.Queue(maxsize=self._bucket_size)
         self._bucket = bucket
         self._peak_qsize = 0
@@ -315,6 +366,21 @@ class StreamingOrchestrator:
         tally_lock = threading.Lock()
 
         start = time.monotonic()
+        # 067: seed the synthetic chunk_state in "UPLOAD" status with both
+        # monotonic stamps set to run start. In streaming mode PREP and
+        # UPLOAD run simultaneously, so "UPLOAD" is the dominant phase
+        # for the UPLOAD-tab timer + avg-speed binding. Pre-067 this was
+        # ``status="PREP"`` for the whole run, which made the
+        # ``_current_chunk_progress`` helper return elapsed_s=0 forever.
+        with self._state_lock:
+            self._recorder = recorder
+            self._chunk_state = ChunkState(
+                chunk_idx=0,
+                batch_id=batch_id,
+                status="UPLOAD",
+                upload_started_monotonic=start,
+                prep_started_monotonic=start,
+            )
         sampler = self._pipeline.sampler
         controller = self._pipeline.auto_tune_controller
         if sampler is not None:
@@ -352,6 +418,10 @@ class StreamingOrchestrator:
                 light_queue: queue.Queue[_StageItem | object] = queue.Queue(
                     maxsize=self._bucket_size
                 )
+                # 067: stash queue refs so ``_publish_pending_count`` can
+                # read their live qsize from any thread.
+                self._heavy_queue = heavy_queue
+                self._light_queue = light_queue
                 heavy_consumers = [
                     threading.Thread(
                         target=self._lane_upload_loop,
@@ -444,6 +514,10 @@ class StreamingOrchestrator:
                 controller.stop(timeout=2.0)
             if sampler is not None:
                 sampler.stop()
+            # 067: release lane-queue refs so a follow-up run does not
+            # leak the previous run's queues into ``_publish_pending_count``.
+            self._heavy_queue = None
+            self._light_queue = None
 
         elapsed = time.monotonic() - start
         self._pipeline._tracking_store.flush()  # noqa: SLF001
@@ -546,6 +620,10 @@ class StreamingOrchestrator:
                 current = bucket.qsize()
                 if current > self._peak_qsize:
                     self._peak_qsize = current
+                # 067: report live in-flight count to pool_stats so the
+                # UPLOAD-tab progress bar shows real progress instead of
+                # ``count/count``.
+                self._publish_pending_count()
             finally:
                 with self._prep_in_flight_lock:
                     self._prep_in_flight -= 1
@@ -563,6 +641,8 @@ class StreamingOrchestrator:
             try:
                 if item is _POISON:
                     return
+                # 067: a consumer just popped → pending dropped by 1.
+                self._publish_pending_count()
                 # ``bucket`` carries _StageItem instances except for the
                 # poison sentinel (handled above).
                 stage_item: _StageItem = item  # type: ignore[assignment]
@@ -575,6 +655,7 @@ class StreamingOrchestrator:
                     )
                     with tally_lock:
                         tally.s5_failed += 1
+                    self._publish_chunk_state(batch_id=batch_id, tally=tally, tally_lock=tally_lock)
                     continue
                 with tally_lock:
                     if outcome == "done":
@@ -587,6 +668,8 @@ class StreamingOrchestrator:
                         tally.s5_skipped += 1
                         recorder.record_upload_skipped()
                 self._upload_window.record()
+                # 067: refresh CHUNKS tab + UPLOAD-tab live bindings.
+                self._publish_chunk_state(batch_id=batch_id, tally=tally, tally_lock=tally_lock)
             finally:
                 bucket.task_done()
 
@@ -605,10 +688,13 @@ class StreamingOrchestrator:
 
         On ``_POISON`` from the main bucket: push N poison pills into
         each lane queue (one per consumer) and exit.
+
+        067: queue depth reported to LaneController is the live
+        ``lane_queue.qsize()`` — the pre-067 monotonic counter only
+        went up, exceeded ``bucket_size``, and broke the drain-driven
+        rebalance heuristic.
         """
         threshold = self._lanes_config.heavy_threshold_bytes
-        heavy_depth = 0
-        light_depth = 0
         while True:
             item = bucket.get()
             try:
@@ -624,14 +710,14 @@ class StreamingOrchestrator:
                 )
                 if size_bytes >= threshold:
                     heavy_queue.put(stage_item)
-                    heavy_depth += 1
                     if self._lane_controller is not None:
-                        self._lane_controller.set_queue_depth("heavy", heavy_depth)
+                        self._lane_controller.set_queue_depth("heavy", heavy_queue.qsize())
                 else:
                     light_queue.put(stage_item)
-                    light_depth += 1
                     if self._lane_controller is not None:
-                        self._lane_controller.set_queue_depth("light", light_depth)
+                        self._lane_controller.set_queue_depth("light", light_queue.qsize())
+                # 067: tick pool_stats so the UPLOAD-tab bar progresses.
+                self._publish_pending_count()
             finally:
                 bucket.task_done()
 
@@ -652,6 +738,13 @@ class StreamingOrchestrator:
             try:
                 if item is _POISON:
                     return
+                # 067: consumer just popped → report live qsize so the
+                # LaneController's drain heuristic sees the decrement
+                # and the BUCKET/UPLOAD tabs reflect the live lane
+                # occupancy.
+                if self._lane_controller is not None:
+                    self._lane_controller.set_queue_depth(lane, lane_queue.qsize())
+                self._publish_pending_count()
                 stage_item: _StageItem = item  # type: ignore[assignment]
                 try:
                     outcome = self._pipeline.streaming_upload_one(
@@ -668,6 +761,7 @@ class StreamingOrchestrator:
                     )
                     with tally_lock:
                         tally.s5_failed += 1
+                    self._publish_chunk_state(batch_id=batch_id, tally=tally, tally_lock=tally_lock)
                     continue
                 with tally_lock:
                     if outcome == "done":
@@ -680,6 +774,7 @@ class StreamingOrchestrator:
                         tally.s5_skipped += 1
                         recorder.record_upload_skipped()
                 self._upload_window.record()
+                self._publish_chunk_state(batch_id=batch_id, tally=tally, tally_lock=tally_lock)
             finally:
                 lane_queue.task_done()
 
