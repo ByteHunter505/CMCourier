@@ -28,14 +28,15 @@
 
 ## Phase 2 — CHANGELOG 0.59.0 + version bump + docs + FF
 
-- [ ] 2.1 `CHANGELOG.md [0.59.0]` — Added.
-- [ ] 2.2 `pyproject.toml` 0.58.0 → 0.59.0.
-- [ ] 2.3 `.venv/bin/pip install -e . --no-deps`.
-- [ ] 2.4 `cmcourier --version` reports 0.59.0.
-- [ ] 2.5 `README.md` feature row tick.
-- [ ] 2.6 `docs/samples/config-reference.yaml` documents
+- [x] 2.1 `CHANGELOG.md [0.59.0]` — Added.
+- [x] 2.2 `pyproject.toml` 0.58.0 → 0.59.0.
+- [x] 2.3 `.venv/bin/pip install -e . --no-deps`.
+- [x] 2.4 `cmcourier --version` reports 0.59.0.
+- [x] 2.5 `README.md` feature row tick.
+- [x] 2.6 `docs/samples/config-reference.yaml` documents
       `processing.prep_workers`.
-- [ ] 2.7 Full suite + ruff + mypy clean.
-- [ ] 2.8 Commit
+- [x] 2.7 Full suite + ruff + mypy clean (verified in Phase 1, 1212
+      passed; Phase 2 touches no source — docs/CHANGELOG/version only).
+- [x] 2.8 Commit
       `docs(056): CHANGELOG 0.59.0 + version bump + prep_workers config docs (056 Phase 2)`.
 - [ ] 2.9 FF to main.

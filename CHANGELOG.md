@@ -51,6 +51,50 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.59.0] — 2026-05-14 — **Configurable prep workers: parallelize S2/S3/S4**
+
+The assembly stage (S4) was crawling on the TUI — and it turned out
+`_stage_s4`, like `_stage_s2` and `_stage_s3`, was a plain serial
+`for item in items:` loop, one document at a time on a single thread,
+while S5 has run on an N-thread pool since spec 025.
+
+### Added
+
+- **`processing.prep_workers`** — a YAML knob for how many threads the
+  prep stages **S2 (mapping), S3 (metadata), S4 (assembly)** may use.
+  Each per-item body was extracted into a helper; a shared dispatch
+  runs them serially when `prep_workers == 1` (the default —
+  byte-identical to pre-059) or on a fixed `ThreadPoolExecutor` when
+  `> 1`. `pool.map` preserves input order, so the survivor list stays
+  deterministic regardless of completion order. Deliberately *not* the
+  S5 machinery — no AIMD auto-tune, no heavy/light lanes, no bandwidth
+  limiter, no TUI panel. Just a thread count.
+
+### Notes
+
+- **S0/S1 stay serial by design.** `_stage_s0_s1` carries the
+  cross-batch idempotency, the `resume_scope`, and the
+  `RVABREPDeletedError` filtering (051) — ordered, stateful work where
+  parallelism stops being simple and adds real risk. It is also not
+  the stage that hurts.
+- The collaborators were already concurrency-safe: the tracking store
+  is the same one S5's threads drive today (async writer queue +
+  reader lock), and S3's `DocumentCacheService` + its
+  `SqliteDocumentCache` adapter are both `threading.Lock`-guarded —
+  verified, no new locks needed.
+- S2/S3/S4 are I/O-bound (file copies, reading page images, metadata
+  source I/O), so the GIL is released during the work and threads
+  scale — no `ProcessPoolExecutor` needed. The practical ceiling is
+  the storage backing `source_root` (local disk vs. a network share),
+  not CPU.
+- Regression gate: the 6-doc pipeline fixture — with failures targeted
+  at S2, S3 and S4 individually — runs byte-identical at
+  `prep_workers = 1` and `prep_workers = 4` (same per-stage failure
+  counts, same `S5_DONE` rows), which proves ordering + no
+  double-counting in one parametrized test.
+
+---
+
 ## [0.58.0] — 2026-05-14 — **Network events carry the batch_id: unbreak the bandwidth + slow-op handlers**
 
 The root cause behind the dead UPLOAD tab. Spec 054 fixed *which
