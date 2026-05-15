@@ -51,6 +51,61 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.67.0] — 2026-05-15 — **Heavy/light lanes in streaming mode**
+
+063 shipped streaming with a single S5 consumer pool — a single
+heavy PDF could starve a flock of small ones queued behind it.
+036's heavy/light lanes existed for batched mode but had not been
+wired into the streaming path. 065 closes the gap by inserting a
+**dispatcher** thread between the main bucket and the S5
+consumers; the dispatcher routes each prepared item into a
+per-lane queue by `staged_file.size_bytes >= heavy_threshold_bytes`.
+Heavy and light lanes each get their own consumer pool gated by
+the existing `LaneController` semaphores + drain-driven rebalance.
+
+### Added
+
+- **Streaming dual-lane path** — when
+  `processing.mode == "streaming"` **and**
+  `heavy_light_lanes.enabled == true`, `StreamingOrchestrator`
+  builds a `LaneController` and spawns: 1 dispatcher thread +
+  `_pool_ceiling()` heavy consumers + `_pool_ceiling()` light
+  consumers.
+- **`StreamingSnapshot.lane_snapshot`** — `LaneSnapshot | None`
+  field surfaces per-lane budget/busy/queue depth + total budget
+  to the TUI. `None` keeps the single-lane shape.
+- **`StreamingOrchestrator.lane_controller`** — read-only handle
+  for tests + the TUI.
+- **BUCKET-tab LANES sub-block** — renders heavy/light budget,
+  busy, queue depth, and total budget when dual mode is active.
+  Hidden in single-lane mode.
+
+### Changed
+
+- **`StagedPipeline.streaming_upload_one(..., lane=None)`** — new
+  kwarg threads the lane choice to `_upload_one`, which already
+  knows how to acquire the per-lane semaphore (036 wiring intact).
+- The 063 startup WARN about
+  "heavy/light lanes deferred to spec 065" is removed — the
+  combination now works.
+
+### Notes
+
+- The dispatcher is a single thread — one comparison + one
+  `queue.put` per item. It is not a bottleneck for any realistic
+  workload (millions of docs at >>1k items/s would still fit).
+- The total in-flight upper bound becomes
+  `3 × bucket_size` (main bucket + heavy queue + light queue), so
+  the operator's memory knob remains `bucket_size`. Bumping it 3×
+  to compensate is unnecessary because the lane queues drain
+  symmetrically — they are not all full at once.
+- Lane choice is at *consume time*, not *queue time*. Items
+  arrive in the main bucket in the order PREP finishes; the
+  dispatcher then routes. This eliminates head-of-line blocking
+  on a single heavy doc.
+
+---
+
 ## [0.66.0] — 2026-05-15 — **TUI BUCKET tab for streaming mode**
 
 063 introduced streaming mode but the live TUI was built for the
