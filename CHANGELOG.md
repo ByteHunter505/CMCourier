@@ -51,6 +51,52 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.71.0] — 2026-05-15 — **Bandwidth sampler: distribute bytes over real transmission window**
+
+Operator-reported during the same 068 staging run: even after AIMD
+scales aggressively, the TUI shows `current 11 MB/s` one second
+and `0 MB/s` the next. The sparkline doesn't look like sustained
+transmission — it looks like spikes.
+
+Root cause: `_BandwidthSampler.record_upload(size, completed_at)`
+credited the **entire file size to the second of completion**. A
+30 MB upload that took 3 seconds put all 30 MB in one bucket and
+zero in the other two — even though the bytes were actively
+transmitting during them. `current_mbps()` (which reads the
+previous full bucket) became completion-event aliased: it flipped
+between "spike" and "valley" depending on the bucket's luck.
+
+### Fixed
+
+- **`_BandwidthSampler.record_upload`** new signature
+  `(size_bytes, *, started_at, completed_at)`. Distributes bytes
+  uniformly across the second-buckets that overlap
+  `[started_at, completed_at]`. For a 30 MB upload from t=10.5 to
+  t=13.5: 5 MB → bucket 10, 10 MB → 11, 10 MB → 12, 5 MB → 13.
+  `current_mbps`, `peak_mbps`, and the 60-bucket sparkline now
+  reflect sustained throughput instead of completion aliasing.
+- **`_BandwidthHandler.emit`** reads `duration_ms` off the
+  `cmis_upload` log record (already emitted by
+  `CmisUploader._emit_network`) and derives
+  `started_at = completed_at - duration_ms / 1000`. Defensive
+  fallback to crediting at completion when `duration_ms` is
+  missing or zero.
+
+### Notes
+
+- `cumulative_bytes` is unchanged — still the authoritative
+  running total. The change is only in how bytes are *distributed
+  across the rolling window*, not in their sum.
+- `peak_mbps` now caps at the actual sustained rate.
+  Pre-069 a 30 MB completion in one second reported
+  `peak 30 MB/s` even when sustained throughput was 10 MB/s.
+  Post-069 it reports 10 MB/s — honest.
+- One existing caller in tests
+  (`tests/unit/tui/test_data_provider.py`) updated to the new
+  signature.
+
+---
+
 ## [0.70.0] — 2026-05-15 — **AIMD aggressive growth + soft halve (heavy-file workloads)**
 
 Operator-reported during a `mockfiles-mixed` streaming run against
