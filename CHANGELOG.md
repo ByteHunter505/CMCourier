@@ -51,6 +51,47 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.61.0] — 2026-05-14 — **DETAIL tab fixes: persist staged-file metadata + scrollable pane**
+
+Two bugs on the DETAIL tab (spec 052) the operator hit during a real
+staging run — the `size` column always read `—`, and chunks bigger
+than the visible height could not be scrolled.
+
+### Fixed
+
+- **The `file_size_bytes` of every doc was never persisted.**
+  `_build_record` takes the metadata from `item.staged_file`, but
+  that field is `None` until S4 finishes assembling — and the row is
+  first inserted in S1 with `INSERT OR IGNORE`. So the initial INSERT
+  wrote `None`, the S4 INSERT was silently ignored (the row already
+  existed), and no later `UPDATE` ever touched those columns. The
+  DETAIL tab's `_human_size(0)` therefore rendered `—` forever. Same
+  fate for `source_file_path` and `page_count`. A new port method
+  `ITrackingStore.record_staged_file_metadata(...)` UPDATEs the
+  existing row with the assembler's output; `_s4_one` calls it after
+  every successful assemble (outside the `is_stage_done` guard, so
+  resume runs also backfill pre-061 rows).
+- **The DETAIL pane was not scrollable.** Its body was a `Static`
+  inside a plain `Container`, which crops overflow instead of
+  scrolling. Spec 052 had truncated the render at `_MAX_ROWS = 100` as
+  a workaround. 061 wraps the body in a `VerticalScroll` (with
+  `#detail_body { height: auto }`), so the operator can scroll past
+  the fold; `_MAX_ROWS` is raised to `2000` — well above the default
+  `batch_size` of 1000 — and the `… N more — full list: cmcourier
+  batch show ...` hint stays for genuinely huge chunks.
+
+### Notes
+
+- The PREP / UPLOAD / CHUNKS panes are fixed-size dashboards that fit
+  on screen — they keep the existing `Static.tab_body { height: 1fr }`
+  CSS and are not scrollable. Only the DETAIL pane needs it.
+- `record_staged_file_metadata` is idempotent — rewriting the same
+  values is a no-op, so the resume-backfill is safe.
+- Rows written before 0.61.0 still show `—` in DETAIL until they are
+  re-run through S4 (or backfilled with a one-shot SQL UPDATE).
+
+---
+
 ## [0.60.0] — 2026-05-14 — **Size the S5 thread pool to the AIMD ceiling**
 
 The operator watched the UPLOAD tab's pool capacity climb — 4 → 8 → 12

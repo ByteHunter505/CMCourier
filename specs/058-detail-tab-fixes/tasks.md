@@ -28,12 +28,13 @@
 
 ## Phase 2 — CHANGELOG 0.61.0 + version bump + README + FF
 
-- [ ] 2.1 `CHANGELOG.md [0.61.0]` — Fixed.
-- [ ] 2.2 `pyproject.toml` 0.60.0 → 0.61.0.
-- [ ] 2.3 `.venv/bin/pip install -e . --no-deps`.
-- [ ] 2.4 `cmcourier --version` reports 0.61.0.
-- [ ] 2.5 `README.md` feature row tick.
-- [ ] 2.6 Full suite + ruff + mypy clean.
-- [ ] 2.7 Commit
+- [x] 2.1 `CHANGELOG.md [0.61.0]` — Fixed.
+- [x] 2.2 `pyproject.toml` 0.60.0 → 0.61.0.
+- [x] 2.3 `.venv/bin/pip install -e . --no-deps`.
+- [x] 2.4 `cmcourier --version` reports 0.61.0.
+- [x] 2.5 `README.md` feature row tick.
+- [x] 2.6 Full suite + ruff + mypy clean (verified in Phase 1, 1224
+      passed; Phase 2 touches no source — docs/CHANGELOG/version only).
+- [x] 2.7 Commit
       `docs(058): CHANGELOG 0.61.0 + version bump (058 Phase 2)`.
 - [ ] 2.8 FF to main.
