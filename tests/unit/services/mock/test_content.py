@@ -118,6 +118,27 @@ class TestPaged:
         suffixes = sorted(p.suffix for p in written)
         assert suffixes == [".001", ".002", ".003"]
 
+    def test_large_tiff_band_reaches_multi_megabyte(self, tmp_path: Path) -> None:
+        # The two large profiles added on top of the original 5 produce
+        # multi-megabyte TIFFs — needed to mimic production banking scans
+        # (300 DPI per page routinely runs 5-15 MB). Pre-large-profiles the
+        # writer capped near 1 MB and emitted the "outside band" warning.
+        large_band_plan = FilePlan(
+            dir_path=tmp_path,
+            file_code="HUGE001",
+            kind="tiff",
+            pages=1,
+            size_min=5 * 1024 * 1024,
+            size_max=40 * 1024 * 1024,
+            extensions=(".001",),
+        )
+        writer = MockContentWriter(seed=1)
+        (written,) = writer.write(large_band_plan, tmp_path, force=False)
+        size = written.stat().st_size
+        assert 5 * 1024 * 1024 <= size <= 40 * 1024 * 1024, (
+            f"large TIFF landed at {size} bytes — outside the 5-40 MB band"
+        )
+
 
 class TestDeterminism:
     def test_same_seed_byte_identical(self, tmp_path: Path) -> None:

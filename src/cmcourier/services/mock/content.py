@@ -33,15 +33,19 @@ _DEFAULT_TOLERANCE = 0.10
 
 # (dims_wh, jpeg_quality, fill_mode). Ordered small → large output.
 # fill_mode: "grey" = solid grey (low entropy, compresses well); "random" =
-# full RGB noise (near-incompressible). Spectrum picked to span ~1KB..1MB
-# across the three formats, with finer granularity in the 5-200KB band
-# (typical operator targets).
+# full RGB noise (near-incompressible). Spectrum spans ~1 KB to ~40 MB
+# across the three formats: dense granularity in the 5-200 KB band (the
+# typical operator target) plus two large profiles (1500×1800 and
+# 3000×3600 random RGB) for production-realistic banking scans — TIFFs at
+# 300 DPI routinely run 5-15 MB per page in the real RVABREP corpus.
 _PROFILES_SMALL_TO_LARGE: tuple[tuple[tuple[int, int], int, str], ...] = (
     ((100, 120), 30, "grey"),
     ((300, 400), 50, "grey"),
     ((80, 100), 70, "random"),
     ((200, 250), 80, "random"),
     ((500, 600), 90, "random"),
+    ((1500, 1800), 92, "random"),
+    ((3000, 3600), 95, "random"),
 )
 
 
