@@ -44,8 +44,13 @@ _PROFILES_SMALL_TO_LARGE: tuple[tuple[tuple[int, int], int, str], ...] = (
     ((80, 100), 70, "random"),
     ((200, 250), 80, "random"),
     ((500, 600), 90, "random"),
-    ((1500, 1800), 92, "random"),
-    ((3000, 3600), 95, "random"),
+    # Intermediates filling the 2-10 MB gap (TIFF LZW barely compresses random
+    # data, so size ≈ w × h × 3 bytes minus a small constant).
+    ((800, 1000), 90, "random"),  # TIFF ≈ 2.3 MB
+    ((1100, 1400), 91, "random"),  # TIFF ≈ 4.5 MB
+    ((1500, 1800), 92, "random"),  # TIFF ≈ 10 MB
+    ((2100, 2500), 93, "random"),  # TIFF ≈ 16 MB
+    ((3000, 3600), 95, "random"),  # TIFF ≈ 42 MB
 )
 
 
