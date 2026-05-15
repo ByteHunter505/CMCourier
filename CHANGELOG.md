@@ -52,6 +52,46 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.73.0] — 2026-05-15 — **Refactor cosmético: comentarios y docstrings en español + remoción de referencias al code-name antiguo**
+
+Cambio puramente cosmético, sin modificaciones funcionales. Dos
+transformaciones en un mismo refactor:
+
+### Cambiado
+
+- **Todos los comentarios y docstrings traducidos a español.**
+  Cubre todos los archivos `.py` en `src/cmcourier/` y `tests/`
+  (~184 archivos), más todas las specs bajo `specs/` (~213
+  archivos `.md`), `README.md`, `docs/` (excluyendo el doc
+  histórico de dominio) y la estructura del `CHANGELOG`.
+  Nombres de identificadores (clases, funciones, variables,
+  módulos) quedan en inglés. Términos técnicos sin traducción
+  natural (`back-pressure`, `race condition`, `multipart`,
+  `worker pool`, `bucket`, `chunk`, `AIMD`, etc.) quedan en
+  inglés entre backticks dentro del texto español.
+- **Removidas todas las referencias al code-name antiguo**
+  (`REBIRTH §X.Y` y enlaces al archivo histórico). Esa
+  convención ya no es relevante — el código se mantiene
+  autocontenido sin esa muleta.
+
+### Notas
+
+- Cero cambios funcionales. La suite completa (1306 tests)
+  pasa idénticamente. ruff + mypy limpios.
+- `CHANGELOG.md`: headers y estructura traducidos. Los cuerpos
+  de prosa de versiones individuales mantienen su idioma
+  original (mezcla parcial inglés/español) — el "esqueleto
+  navegable" es consistente; los detalles técnicos densos no
+  se forzaron a una sola pasada.
+- `docs/domain/CMCOURIER_REBIRTH.md` (1434 líneas) queda en
+  inglés como documento histórico de handover. Si se necesita
+  traducir, va en una spec separada.
+- Strings literales (mensajes de log, errores, output del CLI,
+  texto del TUI) quedan en inglés — eso es lo que el operador
+  ve hoy en producción.
+
+---
+
 ## [0.72.0] — 2026-05-15 — **Unificar el LaneController entre streaming + batched**
 
 Operator-reported in the post-067 streaming run: UPLOAD tab's
