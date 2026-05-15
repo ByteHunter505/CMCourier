@@ -254,6 +254,12 @@ cmis:
     target_p95_ms: 5000.0                  # (default: 5000.0)  > 0
     adjustment_interval_s: 30              # (default: 30)  >= 1
     warmup_seconds: 60                     # (default: 60)  >= 0  (no adjustments during warmup)
+    # 061: don't act on a tick that has seen fewer than this many S5 samples.
+    # Nearest-rank p95 with few samples is dominated by a single outlier
+    # (typical case: the first cold-connection upload of a chunk). 20 is the
+    # empirical floor where one 30-second outlier among 19 normal 1.5-second
+    # samples cannot dominate the p95.
+    min_samples: 20                        # (default: 20)  >= 1
     timeout_auto_adjust: true              # (default: true)  also tune the CMIS timeout
     min_timeout_s: 30                      # (default: 30)  >= 1
     max_timeout_s: 600                     # (default: 600) >= 1  (must be >= min_timeout_s)

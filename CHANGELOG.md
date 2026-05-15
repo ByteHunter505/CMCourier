@@ -51,6 +51,48 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.63.0] — 2026-05-14 — **AIMD min_samples guard: stop halving on outlier-with-few-samples**
+
+The operator reported that the AIMD controller **always** issued a
+`halve` a few seconds after the first chunk's S5 upload began —
+reproducible, deterministic, every run.
+
+### Fixed
+
+- **AIMD halved on a single cold-connection outlier in the first
+  chunk.** With nearest-rank p95 and N=5..6 samples, one upload that
+  paid the TCP+TLS+JSESSIONID handshake (8-12 s) becomes the p95
+  itself. Empirically: 5 normal 1.5 s uploads + 1 handshake 12 s →
+  p95 = 12000 ms; with `target_p95_ms=6000` that crosses the 1.2×
+  upper band and AIMD halves the pool. Subsequent chunks didn't
+  suffer because the connections stayed warm and all samples were
+  uniform. The bug was a property of the AIMD algorithm interacting
+  with a small-sample regime — standard AIMD implementations gate on
+  a minimum sample count for exactly this reason.
+- A new `cmis.auto_tune.min_samples` config field (default **20**)
+  gates the decision: `decide()` short-circuits to a new action
+  `insufficient_data` when the recorder has fewer samples, leaving
+  workers and timeout where they are. The `p95_provider` callback now
+  returns `(p95_ms, sample_count)` so the count is read atomically
+  with the percentile.
+- The TUI treats `insufficient_data` like `warmup` — it does NOT
+  promote to `last_decision`, so the "last move" line keeps showing
+  the most recent real decision instead of a noisy transient.
+
+### Notes
+
+- `MetricsRecorder.current_stage_p95_with_count(stage)` is the new
+  primitive — atomic `(p95, count)`. The single-value
+  `current_stage_p95` stays for the TUI and the analyzer.
+- The analyzer's reported p95 is unchanged. The percentile itself is
+  correct; only the AIMD's *gate* on small samples needed a guard.
+- 20 was picked empirically: it's small enough that AIMD still reacts
+  quickly to genuine sustained load, large enough that a single
+  30-second outlier among 19 normal 1.5 s samples cannot dominate the
+  p95.
+
+---
+
 ## [0.62.0] — 2026-05-14 — **HTTP client migrated to httpx[http2]**
 
 The 058 staging diagnosis pinned the bottleneck OUTSIDE the program — at
