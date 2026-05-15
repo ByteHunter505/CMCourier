@@ -51,6 +51,59 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.66.0] — 2026-05-15 — **TUI BUCKET tab for streaming mode**
+
+063 introduced streaming mode but the live TUI was built for the
+batched model — its CHUNKS tab showed a single synthetic row in
+streaming mode, useless for live observability. 064 fills the gap
+with a dedicated BUCKET tab showing the back-pressure state of
+the bounded buffer, throughput on both sides of the bucket, and
+cumulative outcomes.
+
+### Added
+
+- **BUCKET tab** (`b` keybind) — bucket level vs cap with an
+  ASCII bar, peak level since run start, 5s sliding-window
+  throughput for both PREP (docs entering the bucket) and S5
+  (docs leaving), live producer in-flight count, configured worker
+  totals, cumulative `S5_DONE` / `S5_FAILED` / `S1_FILTERED` /
+  `S1_SKIPPED`.
+- **`StreamingOrchestrator.streaming_snapshot()`** + new
+  `StreamingSnapshot` dataclass — single read of every BUCKET-tab
+  field. Reusable in tests; not coupled to Textual.
+- **`StreamingOrchestrator.bucket_level()` /
+  `prep_in_flight()`** — granular read accessors for tests and
+  ad-hoc probes.
+- **`_ThroughputWindow`** — internal 5s sliding-window rate
+  estimator backed by a `deque` + lock. PREP records on each
+  bucket-put, S5 records after each upload outcome.
+- **`TUIDataProvider.mode` + `bucket_provider`** — orchestration
+  mode propagates to the snapshot; the bucket provider is a
+  callable so the data provider stays decoupled from the
+  orchestrator type.
+
+### Changed
+
+- The TUI always mounts both CHUNKS and BUCKET tabs. The renderer
+  prints a one-line stub on the inactive tab pointing the operator
+  at the active one — recomposing tabs at runtime is unsupported
+  by Textual after mount.
+- `cli/app.py` passes `mode=config.processing.mode` and the
+  orchestrator's `streaming_snapshot` callable (only when
+  `StreamingOrchestrator`) into `TUIDataProvider`.
+
+### Notes
+
+- PREP `in_flight` increments before `streaming_prep_one` and
+  decrements in `finally`, so the counter never leaks across
+  exceptions.
+- The throughput window is rate-only (events / window-seconds);
+  for a low-rate run it round-trips to zero correctly once the
+  window expires. No EWMA, no smoothing — the operator gets a
+  literal "what happened in the last 5 seconds" read.
+
+---
+
 ## [0.65.0] — 2026-05-15 — **Streaming orchestrator: bucket-based producer-consumer pipeline**
 
 The batched pipeline has two structural costs that hurt at the
