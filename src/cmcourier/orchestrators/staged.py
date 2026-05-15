@@ -33,7 +33,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from cmcourier.services.idempotency import IdempotencyCoordinator
 
 from cmcourier.adapters.assembly import PdfAssembler
+from cmcourier.adapters.assembly.pool import _pool_assemble
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
 from cmcourier.config.schema import AutoTuneConfig, HeavyLightLanesConfig
 from cmcourier.domain.exceptions import (
@@ -160,6 +161,7 @@ class StagedPipeline:
         coordinator: IdempotencyCoordinator | None = None,
         heavy_light_lanes: HeavyLightLanesConfig | None = None,
         document_cache: DocumentCacheService | None = None,
+        s4_process_pool: ProcessPoolExecutor | None = None,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -202,6 +204,11 @@ class StagedPipeline:
         # 037: cross-batch metadata cache. None when disabled (default)
         # — S3 always invokes MetadataService.resolve (pre-037 behavior).
         self._document_cache = document_cache
+        # 066: optional process pool for S4 (PDF assembly). When set,
+        # ``_s4_one`` submits to the pool instead of calling the
+        # assembler directly — bypasses the GIL for CPU-bound work.
+        # ``None`` runs S4 inline (pre-066 behaviour, byte-identical).
+        self._s4_process_pool = s4_process_pool
         # 036: heavy/light lane coordinator. None when dual mode is off
         # (the default) — S5 keeps the legacy single-pool path.
         self._lanes_config = heavy_light_lanes
@@ -833,7 +840,14 @@ class StagedPipeline:
         self, item: _StageItem, batch_id: str, rec: MetricsRecorder
     ) -> tuple[_StageItem | None, bool]:
         """S4 PDF assembly for one item. Returns ``(survivor_or_None,
-        counted_failure)``."""
+        counted_failure)``.
+
+        066: when ``_s4_process_pool`` is set, dispatches via
+        ``pool.submit(_pool_assemble, ...).result()`` so the
+        CPU-bound work runs in a separate process — bypassing the
+        GIL. The producer thread blocks waiting for the future but
+        releases the GIL, letting other producers run S1-S3 work.
+        """
         txn = item.document.txn_num
         with StageTimer(
             rec,
@@ -843,7 +857,10 @@ class StagedPipeline:
             txn_num=txn,
         ) as timer:
             try:
-                staged = self._assembler.assemble(item.document)
+                if self._s4_process_pool is not None:
+                    staged = self._s4_process_pool.submit(_pool_assemble, item.document).result()
+                else:
+                    staged = self._assembler.assemble(item.document)
             except (SourceFileMissingError, PDFAssemblyFailedError) as exc:
                 timer.mark_failed()
                 if not self._tracking_store.is_stage_done(txn, batch_id, StageStatus.S4_DONE):

@@ -137,7 +137,12 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
     uploader = CmisUploader(uploader_config)
     tracking_store = SQLiteTrackingStore(tmp_path / "tracking.db")
 
-    def _build_pipeline(triggers_csv: Path, *, prep_workers: int = 1) -> StagedPipeline:
+    def _build_pipeline(
+        triggers_csv: Path,
+        *,
+        prep_workers: int = 1,
+        s4_process_pool: object | None = None,
+    ) -> StagedPipeline:
         trigger_src = TabularDataSource(triggers_csv)
         opened.append(trigger_src)
         trigger_strategy = CsvTriggerStrategy(trigger_src, CsvTriggerColumnsConfig())
@@ -150,6 +155,7 @@ def pipeline_harness(tmp_path: Path) -> Iterator[PipelineHarness]:
             uploader=uploader,
             tracking_store=tracking_store,
             prep_workers=prep_workers,
+            s4_process_pool=s4_process_pool,  # type: ignore[arg-type]
         )
 
     def _register_cmis_for_docs(txn_nums: list[str], object_id_prefix: str = "cm-id-") -> None:

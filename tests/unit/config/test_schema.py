@@ -234,6 +234,23 @@ class TestNumericConstraints:
         with pytest.raises(ValidationError):
             StreamingConfig(bucket_size=-1)
 
+    def test_s4_use_processes_defaults_to_true(self) -> None:
+        # 066: default-on to give real CPU-bound parallelism out of the
+        # box. Operators can opt out via `s4_use_processes: false`.
+        assert ProcessingConfig().s4_use_processes is True
+
+    def test_s4_max_processes_defaults_to_none(self) -> None:
+        # 066: None → os.cpu_count() at construction time.
+        assert ProcessingConfig().s4_max_processes is None
+
+    def test_s4_max_processes_rejects_zero(self) -> None:
+        with pytest.raises(ValidationError):
+            ProcessingConfig(s4_max_processes=0)
+
+    def test_s4_max_processes_accepts_explicit_int(self) -> None:
+        cfg = ProcessingConfig(s4_max_processes=4)
+        assert cfg.s4_max_processes == 4
+
     def test_batch_size_must_be_ge_one(
         self, fixture_paths: dict[str, Path], tmp_path: Path
     ) -> None:

@@ -10,7 +10,14 @@ from __future__ import annotations
 
 __all__ = ["build_pipeline"]
 
-from cmcourier.adapters.assembly import AssemblerConfig, PdfAssembler
+import atexit
+from concurrent.futures import ProcessPoolExecutor
+
+from cmcourier.adapters.assembly import (
+    AssemblerConfig,
+    PdfAssembler,
+    build_s4_process_pool,
+)
 from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.adapters.tracking import SqliteDocumentCache, SQLiteTrackingStore
 from cmcourier.adapters.tracking.as400_niarvilog import (
@@ -100,13 +107,25 @@ def build_pipeline(
         _metadata_config_from_schema(config.metadata),
         metadata_sources,
     )
-    assembler = PdfAssembler(
-        AssemblerConfig(
-            source_root=config.assembly.source_root,
-            temp_dir=config.assembly.temp_dir,
-            image_type_map=config.assembly.image_type_map,
-        )
+    assembler_config = AssemblerConfig(
+        source_root=config.assembly.source_root,
+        temp_dir=config.assembly.temp_dir,
+        image_type_map=config.assembly.image_type_map,
     )
+    assembler = PdfAssembler(assembler_config)
+    # 066: optional ProcessPoolExecutor for S4 (PDF assembly).
+    # Bypasses the GIL for the CPU-bound img2pdf/PIL/PyPDF2 work;
+    # default-on via ``processing.s4_use_processes`` because every
+    # benchmark above ~5 docs/s benefits. The pool is shut down at
+    # process exit via ``atexit`` — a follow-up spec can move it to
+    # a pipeline ``close()`` if explicit lifecycle is needed.
+    s4_process_pool: ProcessPoolExecutor | None = None
+    if config.processing.s4_use_processes:
+        s4_process_pool = build_s4_process_pool(
+            assembler_config,
+            max_workers=config.processing.s4_max_processes,
+        )
+        atexit.register(s4_process_pool.shutdown, wait=True)
     # 038: size the connection pool to the highest worker count AIMD
     # might reach so the urllib3 default (10) is never the bottleneck
     # at peak concurrency.
@@ -165,6 +184,7 @@ def build_pipeline(
         coordinator=coordinator,
         heavy_light_lanes=config.processing.heavy_light_lanes,
         document_cache=document_cache,
+        s4_process_pool=s4_process_pool,
     )
 
 

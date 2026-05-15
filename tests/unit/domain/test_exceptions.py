@@ -169,3 +169,36 @@ class TestRootBaseClass:
         s = str(exc)
         assert "boom" in s
         assert "reason" in s
+
+
+class TestAssemblyExceptionsPicklable066:
+    """066: SourceFileMissingError + PDFAssemblyFailedError cross
+    ProcessPoolExecutor boundaries when S4 is dispatched to a worker
+    process. ``pickle.loads(pickle.dumps(exc))`` must round-trip with
+    every attribute preserved."""
+
+    def test_source_file_missing_round_trips_through_pickle(self) -> None:
+        import pickle
+
+        from cmcourier.domain.exceptions import SourceFileMissingError
+
+        original = SourceFileMissingError(file_path="/share/PROD/2025/MISSING.001")
+        restored = pickle.loads(pickle.dumps(original))
+        assert isinstance(restored, SourceFileMissingError)
+        assert restored.file_path == original.file_path
+        assert str(restored) == str(original)
+
+    def test_pdf_assembly_failed_round_trips_through_pickle(self) -> None:
+        import pickle
+
+        from cmcourier.domain.exceptions import PDFAssemblyFailedError
+
+        original = PDFAssemblyFailedError(
+            txn_num="TXN_BANK_42",
+            reason="img2pdf: encoding failed",
+        )
+        restored = pickle.loads(pickle.dumps(original))
+        assert isinstance(restored, PDFAssemblyFailedError)
+        assert restored.txn_num == original.txn_num
+        assert restored.reason == original.reason
+        assert str(restored) == str(original)

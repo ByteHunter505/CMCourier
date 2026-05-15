@@ -615,6 +615,14 @@ class ProcessingConfig(BaseModel):
     batches_in_flight: int = Field(default=2, ge=1, le=2)
     prep_workers: int = Field(default=1, ge=1)
     heavy_light_lanes: HeavyLightLanesConfig = Field(default_factory=HeavyLightLanesConfig)
+    # 066: real CPU-bound parallelism for S4 (PDF assembly).
+    # Threading parallelism is GIL-serialized for img2pdf/PIL/PyPDF2 work;
+    # moving S4 to a ProcessPoolExecutor gives N-core throughput.
+    # Default ``True`` because every benchmark above ~5 docs/s benefits.
+    # ``False`` runs S4 inline in the producer thread (pre-066 behaviour).
+    s4_use_processes: bool = True
+    # ``None`` => ``os.cpu_count()``; explicit int overrides.
+    s4_max_processes: int | None = Field(default=None, ge=1)
 
 
 class SystemMetricsConfig(BaseModel):

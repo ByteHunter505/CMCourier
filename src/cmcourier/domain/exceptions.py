@@ -220,6 +220,17 @@ class SourceFileMissingError(AssemblyError):
         )
         self.file_path = file_path
 
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        # 066: pickle-safe reconstruction. Without ``__reduce__``,
+        # ``pickle`` defaults to ``cls(*args)`` which fails because
+        # ``__init__`` is keyword-only. Required when this exception
+        # crosses a ProcessPoolExecutor boundary (S4 worker → main).
+        return (_reconstruct_source_file_missing, (self.file_path,))
+
+
+def _reconstruct_source_file_missing(file_path: str) -> SourceFileMissingError:
+    return SourceFileMissingError(file_path=file_path)
+
 
 class PDFAssemblyFailedError(AssemblyError):
     """Underlying PDF assembly tooling raised."""
@@ -232,6 +243,14 @@ class PDFAssemblyFailedError(AssemblyError):
         )
         self.txn_num = txn_num
         self.reason = reason
+
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        # 066: pickle-safe reconstruction across process boundaries.
+        return (_reconstruct_pdf_assembly_failed, (self.txn_num, self.reason))
+
+
+def _reconstruct_pdf_assembly_failed(txn_num: str, reason: str) -> PDFAssemblyFailedError:
+    return PDFAssemblyFailedError(txn_num=txn_num, reason=reason)
 
 
 # ---------------------------------------------------------------------------
