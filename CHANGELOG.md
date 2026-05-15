@@ -51,6 +51,69 @@ Operational milestones outside the roadmap doc:
 
 ---
 
+## [0.70.0] — 2026-05-15 — **AIMD aggressive growth + soft halve (heavy-file workloads)**
+
+Operator-reported during a `mockfiles-mixed` streaming run against
+Alfresco staging: bandwidth peak `<20 MB/s` despite a 300 Mbps
+internet ceiling. UPLOAD-tab `pool capacity 4-8` for the whole
+run despite `auto_tune.max_threads: 50`. AIMD never reached its
+ceiling.
+
+Root cause: the pre-068 AIMD was tuned for small, latency-sensitive
+uploads. With heavy files (10-30 MB) the per-upload p95 has natural
+variance — a single 40-second outlier (server commit + TLS
+re-handshake + GC pause) trips the `1.2× target` halve threshold
+and `÷2`s the pool. Then recovery is `+1 per 15s tick`, so a single
+halve costs ~6 minutes of growth.
+
+### Added
+
+Three tunable knobs on `cmis.auto_tune`:
+
+- **`growth_factor: float = 1.25`** (range [1.0, 4.0]) —
+  multiplier per grow tick. Grow step is
+  `max(current + 1, ceil(current * growth_factor))`. Default 1.25
+  takes 6 → 50 workers in ~10 ticks (2.5 min at 15s/tick) vs the
+  pre-068 11 minutes. Setting `1.0` recovers the additive `+1`
+  shape (degenerate to the `+1` floor).
+- **`halve_factor: float = 0.75`** (range [0.05, 1.0]) — multiplier
+  per halve tick. Halve step is
+  `max(min_threads, ceil(current * halve_factor))`. Default 0.75
+  drops 25 % vs the pre-068 50 %. A false-positive halve no longer
+  costs 6 min of growth. Setting `0.5` recovers the pre-068 shape.
+- **`halve_threshold_ratio: float = 1.5`** (range [1.05, 10.0]) —
+  the multiplier of `target_p95_ms` above which a halve fires.
+  Default 1.5 means halve at `p95 > 1.5 × target` instead of
+  `1.2 × target` — more tolerance for heavy-file p95 variance.
+  Setting `1.2` recovers the pre-068 shape.
+
+### Changed
+
+- The `Decision.action` label changed from `"+1"` to `"+N"` —
+  steps are no longer always 1. TUI `auto_tune_last_action` shows
+  `"+N"` for grow ticks. Operators reading `state.yaml` or
+  `auto_tune_decision` log records will see the new label.
+- AIMD module header rewrote the **AI / MD** description as
+  **MI (multiplicative increase) / Soft halve**.
+
+### Notes on impact
+
+* For your `mockfiles-mixed` 30 MB workload: capacity should
+  reach the 50-thread ceiling within the first ~3 minutes and
+  stay there. Bandwidth aggregate should rise from
+  `<20 MB/s` peak toward whatever Alfresco + your 300 Mbps router
+  can sustain — typically somewhere in the 30-150 MB/s range
+  depending on Alfresco's per-request commit time. The next
+  bottleneck is per-upload speed against the server, not Python.
+* Operators wanting the pre-068 conservative shape can pin the
+  three knobs to their pre-068 values in YAML.
+* `min_threads` still floors the halve step — operators can also
+  raise that defensively (e.g. `min_threads: 10`) to guarantee a
+  hard floor on parallelism regardless of how many bad ticks
+  AIMD sees.
+
+---
+
 ## [0.69.0] — 2026-05-15 — **Streaming-mode TUI bug fixes: bar, timer, CHUNKS, lane queue**
 
 Operator-reported during the first end-to-end streaming run after
