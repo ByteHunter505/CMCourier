@@ -173,6 +173,59 @@ class TestTUIDataProvider:
         assert provider.docs_for_batch("B1") == []
         assert provider.docs_for_batch("") == []
 
+    def test_mode_defaults_to_batched(self, tmp_path: Path) -> None:
+        provider, *_ = _make_provider(tmp_path)
+        assert provider.mode == "batched"
+        snap = provider.snapshot()
+        assert snap.mode == "batched"
+        assert snap.bucket is None
+
+    def test_mode_streaming_propagates(self, tmp_path: Path) -> None:
+        from cmcourier.orchestrators.streaming import StreamingSnapshot
+
+        snap_value = StreamingSnapshot(
+            bucket_level=3,
+            bucket_cap=10,
+            bucket_peak=7,
+            prep_workers=4,
+            prep_in_flight=2,
+            upload_workers=8,
+            prep_docs_per_s=15.5,
+            upload_docs_per_s=14.0,
+        )
+        recorder = MetricsRecorder(
+            log_dir=tmp_path / "logs",
+            slow_op_threshold_ms=0.0,
+            slow_op_top_n=10,
+            enabled=True,
+            pipeline_metrics_enabled=True,
+        )
+        cmis = CmisConfigModel(
+            base_url="http://x",
+            repo_id="r",
+            workers=4,
+            max_bandwidth_mbps=0.0,
+            auto_tune=AutoTuneConfig(enabled=False),
+        )
+        uploader = MagicMock()
+        uploader._timeout_s = 300.0
+        provider = TUIDataProvider(
+            pipeline_name="csv-trigger",
+            metrics_recorder=recorder,
+            pool_stats=WorkerPoolStats(),
+            concurrency_limit=ResizableSemaphore(4),
+            cmis_config=cmis,
+            uploader=uploader,
+            mode="streaming",
+            bucket_provider=lambda: snap_value,
+        )
+        snap = provider.snapshot()
+        assert snap.mode == "streaming"
+        assert snap.bucket is not None
+        assert snap.bucket.bucket_level == 3
+        assert snap.bucket.bucket_cap == 10
+        assert snap.bucket.prep_in_flight == 2
+
     def test_slow_ops_passes_through_aggregator(self, tmp_path: Path) -> None:
         provider, recorder, _p, _s = _make_provider(tmp_path)
         recorder.start_batch(pipeline="csv-trigger", batch_id="b1")

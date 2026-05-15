@@ -34,7 +34,7 @@ already uploaded in prior runs.
 
 from __future__ import annotations
 
-__all__ = ["StreamingOrchestrator", "_TriggerIter"]
+__all__ = ["StreamingOrchestrator", "StreamingSnapshot", "_TriggerIter"]
 
 import itertools
 import logging
@@ -100,6 +100,53 @@ class _StreamingTally:
     cross_batch_skipped: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class StreamingSnapshot:
+    """064 — read-only snapshot of streaming-mode state for the TUI."""
+
+    bucket_level: int
+    bucket_cap: int
+    bucket_peak: int
+    prep_workers: int
+    prep_in_flight: int
+    upload_workers: int
+    prep_docs_per_s: float
+    upload_docs_per_s: float
+
+
+class _ThroughputWindow:
+    """Sliding-window throughput estimator (064).
+
+    Records the monotonic timestamp of each event into a deque and
+    returns ``count / window_s`` for events newer than the cut-off.
+    Thread-safe via an internal lock.
+    """
+
+    __slots__ = ("_events", "_lock", "_window_s")
+
+    def __init__(self, window_s: float = 5.0) -> None:
+        from collections import deque
+
+        self._events: deque[float] = deque()
+        self._lock = threading.Lock()
+        self._window_s = window_s
+
+    def record(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._events.append(now)
+            cutoff = now - self._window_s
+            while self._events and self._events[0] < cutoff:
+                self._events.popleft()
+
+    def rate(self) -> float:
+        cutoff = time.monotonic() - self._window_s
+        with self._lock:
+            while self._events and self._events[0] < cutoff:
+                self._events.popleft()
+            return len(self._events) / self._window_s if self._events else 0.0
+
+
 class StreamingOrchestrator:
     """Continuous producer-consumer pipeline (063).
 
@@ -127,6 +174,11 @@ class StreamingOrchestrator:
         self._recorder: MetricsRecorder | None = None
         self._bucket: queue.Queue[_StageItem | object] | None = None
         self._peak_qsize = 0
+        # 064: live-observability counters for the BUCKET tab.
+        self._prep_in_flight = 0
+        self._prep_in_flight_lock = threading.Lock()
+        self._prep_window = _ThroughputWindow(window_s=5.0)
+        self._upload_window = _ThroughputWindow(window_s=5.0)
 
     # ------------------------------------------- TUI binding hooks (063)
 
@@ -154,6 +206,30 @@ class StreamingOrchestrator:
     @property
     def peak_qsize(self) -> int:
         return self._peak_qsize
+
+    # ------------------------------------------- 064 BUCKET-tab accessors
+
+    def bucket_level(self) -> int:
+        """Approximate current bucket occupancy (0 outside a run)."""
+        bucket = self._bucket
+        return int(bucket.qsize()) if bucket is not None else 0
+
+    def prep_in_flight(self) -> int:
+        with self._prep_in_flight_lock:
+            return self._prep_in_flight
+
+    def streaming_snapshot(self) -> StreamingSnapshot:
+        """Single read of every BUCKET-tab field."""
+        return StreamingSnapshot(
+            bucket_level=self.bucket_level(),
+            bucket_cap=self._bucket_size,
+            bucket_peak=self._peak_qsize,
+            prep_workers=self._prep_workers,
+            prep_in_flight=self.prep_in_flight(),
+            upload_workers=self._consumer_count,
+            prep_docs_per_s=self._prep_window.rate(),
+            upload_docs_per_s=self._upload_window.rate(),
+        )
 
     # ----------------------------------------------------------- public API
 
@@ -337,30 +413,37 @@ class StreamingOrchestrator:
                 trigger = next(trigger_iter)
             except StopIteration:
                 return
+            with self._prep_in_flight_lock:
+                self._prep_in_flight += 1
             try:
-                survivor, skipped, filtered = self._pipeline.streaming_prep_one(
-                    trigger, batch_id, recorder
-                )
-            except BaseException as exc:  # noqa: BLE001 — log + count, run continues
-                _log.exception(
-                    "streaming: prep failed",
-                    extra={"batch_id": batch_id, "reason": type(exc).__name__},
-                )
+                try:
+                    survivor, skipped, filtered = self._pipeline.streaming_prep_one(
+                        trigger, batch_id, recorder
+                    )
+                except BaseException as exc:  # noqa: BLE001 — log + count, run continues
+                    _log.exception(
+                        "streaming: prep failed",
+                        extra={"batch_id": batch_id, "reason": type(exc).__name__},
+                    )
+                    with tally_lock:
+                        tally.prep_failed += 1
+                    continue
                 with tally_lock:
-                    tally.prep_failed += 1
-                continue
-            with tally_lock:
-                tally.cross_batch_skipped += skipped
-                tally.s1_filtered += filtered
-            if survivor is None:
-                # filtered / cross-batch-skipped / failed at S2-S4. Already
-                # persisted by the inner helpers; counters above capture
-                # the outcome for the synthetic RunReport.
-                continue
-            bucket.put(survivor)
-            current = bucket.qsize()
-            if current > self._peak_qsize:
-                self._peak_qsize = current
+                    tally.cross_batch_skipped += skipped
+                    tally.s1_filtered += filtered
+                if survivor is None:
+                    # filtered / cross-batch-skipped / failed at S2-S4. Already
+                    # persisted by the inner helpers; counters above capture
+                    # the outcome for the synthetic RunReport.
+                    continue
+                bucket.put(survivor)
+                self._prep_window.record()
+                current = bucket.qsize()
+                if current > self._peak_qsize:
+                    self._peak_qsize = current
+            finally:
+                with self._prep_in_flight_lock:
+                    self._prep_in_flight -= 1
 
     def _upload_loop(
         self,
@@ -398,6 +481,7 @@ class StreamingOrchestrator:
                     elif outcome == "skipped":
                         tally.s5_skipped += 1
                         recorder.record_upload_skipped()
+                self._upload_window.record()
             finally:
                 bucket.task_done()
 

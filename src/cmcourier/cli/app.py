@@ -672,6 +672,10 @@ def _run_with_optional_tui(
     # logging every event to disk.
     configure_observability(config.observability, log_level, tui_active=True)
 
+    # 064: streaming mode plumbs the bucket snapshot into the BUCKET tab.
+    bucket_provider = (
+        orchestrator.streaming_snapshot if isinstance(orchestrator, StreamingOrchestrator) else None
+    )
     data_provider = TUIDataProvider(
         pipeline_name=pipeline.pipeline_name,
         metrics_recorder=pipeline.metrics_recorder,
@@ -690,6 +694,9 @@ def _run_with_optional_tui(
         lane_controller=pipeline.lane_controller,
         # 052: tracking store for the DETAIL tab's per-chunk drill-down.
         tracking_store=pipeline.tracking_store,
+        # 064: orchestration mode + BUCKET-tab data source.
+        mode=config.processing.mode,
+        bucket_provider=bucket_provider,
     )
     outcome = run_orchestrator_with_tui(
         orchestrator=orchestrator,

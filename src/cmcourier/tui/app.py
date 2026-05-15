@@ -21,6 +21,7 @@ from textual.containers import Container, VerticalScroll
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 
 from cmcourier.domain.models import DocDetail
+from cmcourier.tui.bucket_tab import render_bucket
 from cmcourier.tui.chunks_tab import render_chunks
 from cmcourier.tui.data_provider import TUIDataProvider, TUISnapshot
 from cmcourier.tui.detail_tab import render_detail
@@ -41,6 +42,7 @@ class CMCourierTUI(App[None]):
         Binding("p", "show_prep", "PREP"),
         Binding("u", "show_upload", "UPLOAD"),
         Binding("c", "show_chunks", "CHUNKS"),
+        Binding("b", "show_bucket", "BUCKET"),
         Binding("d", "show_detail", "DETAIL"),
         Binding("[", "select_prev_chunk", "◀chunk"),
         Binding("]", "select_next_chunk", "chunk▶"),
@@ -76,6 +78,10 @@ class CMCourierTUI(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
+        # 064: BUCKET tab is mounted unconditionally; the renderer prints
+        # a one-line stub in batched mode pointing to CHUNKS. Keeping the
+        # tab list static across modes avoids re-composing on mode-change
+        # (which Textual doesn't support after mount anyway).
         with TabbedContent(initial="prep"):
             with TabPane("PREP", id="prep"):
                 yield Container(Static(id="prep_body", classes="tab_body"))
@@ -83,6 +89,8 @@ class CMCourierTUI(App[None]):
                 yield Container(Static(id="upload_body", classes="tab_body"))
             with TabPane("CHUNKS", id="chunks"):
                 yield Container(Static(id="chunks_body", classes="tab_body"))
+            with TabPane("BUCKET", id="bucket"):
+                yield Container(Static(id="bucket_body", classes="tab_body"))
             with TabPane("DETAIL", id="detail"):
                 # 058: VerticalScroll so chunks bigger than the visible
                 # height are scrollable. ``#detail_body`` is sized to
@@ -107,6 +115,10 @@ class CMCourierTUI(App[None]):
     def action_show_chunks(self) -> None:
         tabbed = self.query_one(TabbedContent)
         tabbed.active = "chunks"
+
+    def action_show_bucket(self) -> None:
+        tabbed = self.query_one(TabbedContent)
+        tabbed.active = "bucket"
 
     def action_show_detail(self) -> None:
         tabbed = self.query_one(TabbedContent)
@@ -156,10 +168,12 @@ class CMCourierTUI(App[None]):
         prep_body = self.query_one("#prep_body", Static)
         upload_body = self.query_one("#upload_body", Static)
         chunks_body = self.query_one("#chunks_body", Static)
+        bucket_body = self.query_one("#bucket_body", Static)
         detail_body = self.query_one("#detail_body", Static)
         prep_body.update(render_prep(snap))
         upload_body.update(render_upload(snap))
         chunks_body.update(render_chunks(snap))
+        bucket_body.update(render_bucket(snap))
         detail_body.update(render_detail(*self._resolve_detail(snap)))
 
         status = self.query_one("#status_bar", Static)

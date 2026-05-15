@@ -24,13 +24,14 @@ __all__ = ["TUIDataProvider", "TUISnapshot"]
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from cmcourier.adapters.upload.cmis_uploader import CmisUploader
 from cmcourier.config.schema import CmisConfigModel
 from cmcourier.domain.models import DocDetail
 from cmcourier.domain.ports import ITrackingStore
 from cmcourier.observability.metrics import MetricsRecorder
+from cmcourier.orchestrators.streaming import StreamingSnapshot
 from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.lane_controller import LaneController, LaneSnapshot
 from cmcourier.services.worker_pool_stats import ResizableSemaphore, WorkerPoolStats
@@ -102,6 +103,12 @@ class TUISnapshot:
     # summed across all chunk states. 0 in the rare monolithic path.
     s1_filtered: int = 0
 
+    # ---------- 064: orchestration mode (drives BUCKET vs CHUNKS tab)
+    mode: Literal["batched", "streaming"] = "batched"
+
+    # ---------- 064: streaming BUCKET-tab snapshot (None in batched mode)
+    bucket: StreamingSnapshot | None = None
+
 
 class TUIDataProvider:
     """Snapshot factory the TUI polls every refresh tick.
@@ -125,6 +132,8 @@ class TUIDataProvider:
         chunks_provider: Callable[[], list[Any]] | None = None,
         lane_controller: LaneController | None = None,
         tracking_store: ITrackingStore | None = None,
+        mode: Literal["batched", "streaming"] = "batched",
+        bucket_provider: Callable[[], StreamingSnapshot | None] | None = None,
     ) -> None:
         self._pipeline_name = pipeline_name
         self._fallback_recorder = metrics_recorder
@@ -155,6 +164,14 @@ class TUIDataProvider:
         # ticking forever after the last chunk finishes.
         self._batch_completed_monotonic: float | None = None
         self._is_complete = False
+        # 064: orchestration mode + BUCKET-tab data source.
+        self._mode: Literal["batched", "streaming"] = mode
+        self._bucket_provider: Callable[[], StreamingSnapshot | None] | None = bucket_provider
+
+    @property
+    def mode(self) -> Literal["batched", "streaming"]:
+        """064: ``"streaming"`` activates the BUCKET tab + hides CHUNKS."""
+        return self._mode
 
     @property
     def _metrics(self) -> MetricsRecorder:
@@ -289,6 +306,8 @@ class TUIDataProvider:
             current_chunk_elapsed_s=chunk_elapsed_s,
             current_chunk_avg_mbps=chunk_avg_mbps,
             current_chunk_eta_s=chunk_eta_s,
+            mode=self._mode,
+            bucket=(self._bucket_provider() if self._bucket_provider is not None else None),
         )
 
     def _chunks_state_snapshot(self) -> tuple[dict[str, object], ...]:

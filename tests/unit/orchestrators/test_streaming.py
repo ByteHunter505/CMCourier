@@ -249,3 +249,56 @@ class TestStreamingOrchestrator:
         assert run.s5_done == 2
         assert run.s5_failed == 1
         assert run.total_docs == 4
+
+
+class TestStreamingSnapshot:
+    def test_initial_snapshot_is_zero(self, tmp_path: Path) -> None:
+        pipeline = _FakePipeline(triggers=_make_triggers(1), pool_ceiling=3)
+        orch = _build_orch(pipeline, tmp_path, bucket_size=10, prep_workers=2)
+        snap = orch.streaming_snapshot()
+        assert snap.bucket_level == 0
+        assert snap.bucket_cap == 10
+        assert snap.bucket_peak == 0
+        assert snap.prep_workers == 2
+        assert snap.upload_workers == 3
+        assert snap.prep_in_flight == 0
+        assert snap.prep_docs_per_s == 0.0
+        assert snap.upload_docs_per_s == 0.0
+
+    def test_snapshot_after_run_records_peak_and_throughput(self, tmp_path: Path) -> None:
+        triggers = _make_triggers(20)
+        pipeline = _FakePipeline(triggers=triggers, pool_ceiling=4)
+        orch = _build_orch(pipeline, tmp_path, bucket_size=4, prep_workers=2)
+        orch.run(source_descriptor="", batch_size=100, batches_in_flight=2)
+        snap = orch.streaming_snapshot()
+        # Peak qsize is sampled after each producer put; over 20 docs
+        # against a small bucket it must have been observed > 0 at least
+        # once.
+        assert snap.bucket_peak >= 1
+        assert snap.bucket_level == 0  # drained at end-of-run
+        # Throughput is rate-over-window; we just assert the windows ran.
+        assert snap.prep_docs_per_s >= 0.0
+        assert snap.upload_docs_per_s >= 0.0
+
+    def test_prep_in_flight_visible_mid_run(self, tmp_path: Path) -> None:
+        # Sleep producers; sample snapshot during the run by polling.
+        triggers = _make_triggers(8)
+        pipeline = _FakePipeline(
+            triggers=triggers,
+            pool_ceiling=2,
+            prep_sleep_s=0.05,
+        )
+        orch = _build_orch(pipeline, tmp_path, bucket_size=2, prep_workers=3)
+        observed_in_flight: list[int] = []
+
+        def _poll() -> None:
+            for _ in range(60):
+                observed_in_flight.append(orch.prep_in_flight())
+                time.sleep(0.01)
+
+        t = threading.Thread(target=_poll)
+        t.start()
+        orch.run(source_descriptor="", batch_size=100, batches_in_flight=2)
+        t.join()
+        # At some point during the run, prep_in_flight was > 0.
+        assert max(observed_in_flight) >= 1
