@@ -1,6 +1,6 @@
 # 071 — Comentarios en español + remoción del code-name antiguo
 
-## Why
+## Por qué
 
 Cambio cosmético solicitado por el operador. Dos transformaciones en
 una sola spec:
@@ -18,7 +18,7 @@ una sola spec:
    `back-pressure`, `multipart`, `multiplexing`, `fan-out`, etc.)
    quedan entre backticks en inglés.
 
-## What
+## Qué
 
 ### Alcance
 
@@ -93,7 +93,7 @@ Detalle en `plan.md`. Resumen:
    cero hits del code-name antiguo (case-insensitive grep debe dar
    cero), release dance (0.72.0 → 0.73.0), FF a main.
 
-## Out of scope
+## Fuera de alcance
 
 * Reescribir el contenido técnico de los docstrings — esto es solo
   traducción + remoción del code-name antiguo.
@@ -102,7 +102,7 @@ Detalle en `plan.md`. Resumen:
 * Cambios funcionales — cero cambios a la lógica.
 * Tests nuevos.
 
-## Acceptance criteria
+## Criterios de aceptación
 
 * Un grep case-insensitive del code-name antiguo en `src tests
   specs CHANGELOG.md README.md` retorna cero hits.

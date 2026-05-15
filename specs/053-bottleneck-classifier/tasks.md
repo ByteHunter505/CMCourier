@@ -1,39 +1,46 @@
 # 053 — Tasks
 
-## Phase 1 — Stage-aware classifier + time-window log association
+## Fase 1 — Clasificador stage-aware + asociación de logs por ventana de tiempo
 
-- [x] 1.1 `analyze.py`: `_stage_dominance(stage_summary)` helper +
-      `_STAGE_DOMINANCE` constant + `_STAGE_TO_CLASS` map.
-- [x] 1.2 `analyze.py`: rewrite `classify_bottleneck` — stage
-      breakdown PRIMARY; system metrics become appended reasons;
-      `worker-saturated` is a symptom reason, not the verdict;
-      `under-utilized` only when nothing dominates.
+- [x] 1.1 `analyze.py`: helper `_stage_dominance(stage_summary)` +
+      constante `_STAGE_DOMINANCE` + mapa `_STAGE_TO_CLASS`.
+- [x] 1.2 `analyze.py`: reescribir `classify_bottleneck` —
+      desglose de stages PRIMARIO; las métricas de sistema pasan
+      a ser razones apendizadas; `worker-saturated` es una razón
+      de síntoma, no el veredicto; `under-utilized` solo cuando
+      nada domina.
 - [x] 1.3 `analyze.py`: `_read_windowed(glob, window, *, ts_field)`;
-      `read_batch` derives the batch window from the `batch_summary`
-      and uses it for the network (`ts`) + system (`ts_iso`) tiers.
-- [x] 1.4 Tests: `classify_bottleneck` — upload-bound regression
-      (95-doc shape), assembly-bound, under-utilized-when-balanced,
-      worker-saturation-is-a-reason, network-bound-with-zero-cap.
-- [x] 1.5 Tests: `LogReader` time-window association for network
-      (`ts`) + system (`ts_iso`).
-- [x] 1.6 Full unit + integration suite green; mypy + ruff clean.
-      (1199 passed; the one dual-lane-throughput failure is a known
-      timing-flaky test — passes in isolation, unrelated to analyze.)
+      `read_batch` deriva la ventana del batch desde el
+      `batch_summary` y la usa para los tiers de red (`ts`) +
+      sistema (`ts_iso`).
+- [x] 1.4 Tests: `classify_bottleneck` — regresión upload-bound
+      (forma del run de 95 docs), assembly-bound,
+      under-utilized-cuando-balanceado,
+      worker-saturation-es-una-razón,
+      network-bound-con-cap-cero.
+- [x] 1.5 Tests: asociación por ventana de tiempo del
+      `LogReader` para network (`ts`) + sistema (`ts_iso`).
+- [x] 1.6 Suite completa unit + integration verde; mypy + ruff
+      limpios. (1199 pasados; la única falla de dual-lane-throughput
+      es un test conocido como timing-flaky — pasa aislado, no
+      relacionado a analyze.)
 - [x] 1.7 Commit
       `feat(analyze): stage-aware bottleneck classifier + time-window log association (053 Phase 1)`.
 
-## Phase 2 — CHANGELOG 0.56.0 + version bump + docs + FF
+## Fase 2 — CHANGELOG 0.56.0 + bump de versión + docs + FF
 
 - [x] 2.1 `CHANGELOG.md [0.56.0]` — Fixed / Changed.
 - [x] 2.2 `pyproject.toml` 0.55.0 → 0.56.0.
 - [x] 2.3 `.venv/bin/pip install -e . --no-deps`.
-- [x] 2.4 `cmcourier --version` reports 0.56.0.
-- [x] 2.5 `README.md` feature row tick.
-- [x] 2.6 `docs/how-to/log-analysis.md` — stage-led classification +
-      inside/outside-the-program labels + time-window caveat + the
-      CI regression gate reframed around INSIDE-the-program stages.
-- [x] 2.7 Full suite + ruff + mypy clean (verified in Phase 1; Phase 2
-      touches no source — docs/CHANGELOG/version/README only).
+- [x] 2.4 `cmcourier --version` reporta 0.56.0.
+- [x] 2.5 Tick en fila de features de `README.md`.
+- [x] 2.6 `docs/how-to/log-analysis.md` — clasificación
+      stage-led + labels adentro/afuera-del-programa + caveat
+      de ventana de tiempo + el gate de regresión de CI
+      reframeado alrededor de stages ADENTRO-del-programa.
+- [x] 2.7 Suite completa + ruff + mypy limpios (verificado en
+      Fase 1; la Fase 2 no toca código — solo
+      docs/CHANGELOG/version/README).
 - [x] 2.8 Commit
       `docs(053): CHANGELOG 0.56.0 + version bump + bottleneck-classifier docs (053 Phase 2)`.
-- [ ] 2.9 FF to main.
+- [ ] 2.9 FF a main.

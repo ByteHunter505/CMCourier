@@ -1,4 +1,4 @@
-# How-to: Validation Checklist (full E2E, cross-platform)
+# How-to: Checklist de Validación (E2E completo, cross-platform)
 
 Checklist comprensivo para validar que **CMCourier funciona en todos sus
 modos** contra una instancia local de Alfresco staging. Cubre setup

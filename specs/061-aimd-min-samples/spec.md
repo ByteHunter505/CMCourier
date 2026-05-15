@@ -1,129 +1,151 @@
-# 061 — AIMD min-samples guard: stop halving on outlier-with-few-samples
+# 061 — Guard de min-samples para AIMD: dejar de halvear ante outlier-con-pocas-muestras
 
-## Why
+## Por qué
 
-The operator reported that the AIMD controller **always** issues
-`halve` shortly after the first chunk's S5 upload begins. Repro
-verified — and it is deterministic.
+El operador reportó que el controlador AIMD **siempre** emite
+`halve` poco después de que arranca el upload de S5 del primer
+chunk. Repro verificado — y es determinístico.
 
-### The cause
+### La causa
 
-The S5 stage records per-doc durations into a per-chunk
-`MetricsRecorder`. `current_stage_p95("S5")` returns the nearest-rank
-p95 of whatever samples it has. The AIMD compares that p95 against
-`1.2 × target_p95_ms` and halves the worker count when it crosses.
+El stage S5 graba duraciones per-doc en un `MetricsRecorder`
+per-chunk. `current_stage_p95("S5")` devuelve el p95
+nearest-rank de las muestras que tenga. El AIMD compara ese
+p95 contra `1.2 × target_p95_ms` y halvea la cantidad de
+workers cuando lo cruza.
 
-With a **few samples** and an **outlier**, the nearest-rank p95
-**becomes the outlier**. Empirical verification (target=6000, halve at
-p95 > 7200):
+Con **pocas muestras** y un **outlier**, el p95 nearest-rank
+**pasa a ser el outlier**. Verificación empírica (target=6000,
+halvear cuando p95 > 7200):
 
 ```
-6 uploads (5 normal 1.5s, 1 handshake 12s) → p95 = 12000ms  → HALVE
-3 uploads (2 normal 1.5s, 1 handshake  8s) → p95 =  8000ms  → HALVE
-1 sample alone of 10s                        → p95 = 10000ms  → HALVE
+6 uploads (5 normales 1.5s, 1 handshake 12s) → p95 = 12000ms  → HALVE
+3 uploads (2 normales 1.5s, 1 handshake  8s) → p95 =  8000ms  → HALVE
+1 muestra sola de 10s                          → p95 = 10000ms  → HALVE
 ```
 
-The first chunk reliably produces such an outlier:
+El primer chunk produce confiablemente ese outlier:
 
-1. `warm_connection_pool(cmis.workers)` warms only the initial worker
-   count's worth of HTTP connections.
-2. AIMD warmup ends at 60 s; first post-warmup tick fires.
-3. By then only a handful of uploads have completed; at least one of
-   the first uploads paid the TCP+TLS+JSESSIONID handshake (cold
-   connection, race, or the server's first connection of the day).
-4. Nearest-rank p95 with a tiny N and one big spike = the spike.
-5. AIMD reads "p95 = 12000 ms", thinks the server is on fire, and
-   halves the pool to `current_workers // 2`.
+1. `warm_connection_pool(cmis.workers)` calienta solo la
+   cuenta inicial de workers de conexiones HTTP.
+2. El warmup de AIMD termina a los 60 s; el primer tick
+   post-warmup dispara.
+3. Para entonces solo un puñado de uploads completaron; al
+   menos uno de los primeros uploads pagó el handshake
+   TCP+TLS+JSESSIONID (conexión fría, `race condition`, o la
+   primera conexión del día al server).
+4. p95 nearest-rank con N chico y un pico grande = el pico.
+5. AIMD lee "p95 = 12000 ms", piensa que el server está
+   prendido fuego, y halvea el pool a `current_workers // 2`.
 
-Subsequent chunks don't suffer — the connections stay warm in the pool,
-all samples are uniform, no outlier, p95 ≈ p50 ≈ 1.5 s.
+Los chunks subsiguientes no sufren — las conexiones quedan
+calientes en el pool, todas las muestras son uniformes, sin
+outlier, p95 ≈ p50 ≈ 1.5 s.
 
-The bug is not in any specific commit — it is a property of the AIMD
-algorithm interacting with a small-sample regime. Standard AIMD
-implementations gate decisions on a minimum sample count for exactly
-this reason.
+El bug no está en ningún commit específico — es una propiedad
+del algoritmo AIMD interactuando con un régimen de pocas
+muestras. Las implementaciones estándar de AIMD gateean las
+decisiones sobre un conteo mínimo de muestras exactamente por
+esta razón.
 
-## What
+## Qué
 
-### 1. Configuration — `min_samples`
+### 1. Configuración — `min_samples`
 
-`AutoTuneConfig` gains a new field:
+`AutoTuneConfig` gana un campo nuevo:
 
 ```python
 min_samples: int = Field(default=20, ge=1)
 ```
 
-Default `20` is enough that a single 30-second outlier among
-~20 normal 1.5-second samples cannot dominate the p95 — and small
-enough that the AIMD still reacts quickly to genuine sustained load.
+Default `20` es suficiente para que un solo outlier de 30
+segundos entre ~20 muestras normales de 1.5 segundos no pueda
+dominar el p95 — y suficientemente chico para que AIMD
+todavía reaccione rápido a carga sostenida genuina.
 
-### 2. `decide()` — new short-circuit branch
+### 2. `decide()` — nueva rama de cortocircuito
 
-`decide()` takes a new keyword argument `sample_count: int` and
-returns `Decision(action="insufficient_data", workers=current, timeout_s=current)`
-**before** the band comparison when `sample_count < config.min_samples`.
+`decide()` toma un nuevo argumento keyword `sample_count: int`
+y devuelve
+`Decision(action="insufficient_data", workers=current, timeout_s=current)`
+**antes** de la comparación de banda cuando
+`sample_count < config.min_samples`.
 
-The new action sits next to `"warmup"` semantically: it represents "we
-heard the question but don't have enough data to answer responsibly".
-Like `"warmup"`, it does NOT update `last_decision` on the controller,
-so the TUI's "last move" line shows the most recent **real** decision,
-not the temporary stall.
+La nueva acción se sienta al lado de `"warmup"`
+semánticamente: representa "escuchamos la pregunta pero no
+tenemos suficiente data para contestar responsablemente". Como
+`"warmup"`, NO actualiza `last_decision` en el controlador,
+así la línea "last move" de la TUI muestra la decisión **real**
+más reciente, no el stall temporario.
 
-### 3. Provider signature — tuple
+### 3. Firma del provider — tupla
 
-`p95_provider: Callable[[], float]` becomes
-`p95_provider: Callable[[], tuple[float, int]]` — returns `(p95_ms,
-sample_count)`. Both the constructor-time provider in
-`StagedPipeline.__init__` and the `MultiBatchOrchestrator
-._upload_p95_observer` swap-target return the tuple.
+`p95_provider: Callable[[], float]` pasa a
+`p95_provider: Callable[[], tuple[float, int]]` — devuelve
+`(p95_ms, sample_count)`. Tanto el provider de tiempo de
+construcción en `StagedPipeline.__init__` como el target de
+swap `MultiBatchOrchestrator._upload_p95_observer` devuelven
+la tupla.
 
-`MetricsRecorder` gains `current_stage_p95_with_count(stage) -> tuple[float, int]`
-that reads the `_StageBucket.summary()` dict and returns
-`(p95_ms, count)` — the lock is already held inside `summary()` so it
-is atomic for both fields.
+`MetricsRecorder` gana
+`current_stage_p95_with_count(stage) -> tuple[float, int]`
+que lee el dict `_StageBucket.summary()` y devuelve
+`(p95_ms, count)` — el lock ya se sostiene dentro de
+`summary()` así que es atómico para ambos campos.
 
-### 4. The 3 staging YAMLs
+### 4. Los 3 YAMLs de staging
 
 `sample/config-staging-rvabrep.yaml`,
 `sample/config-staging-rvabrep-mega-heavy.yaml`,
 `sample/config-staging-rvabrep-frequent-heavy-lanes.yaml` —
-add `min_samples: 20` under `cmis.auto_tune` with a comment pointing
-at this spec.
+agregar `min_samples: 20` bajo `cmis.auto_tune` con un
+comentario apuntando a esta spec.
 
-## Out of scope
+## Fuera de alcance
 
-- Changing `_percentile` (the nearest-rank algorithm). The percentile
-  itself is correct; the bug is using it on too-few samples.
-- Trimmed/winsorized p95 in the analyzer (`analyze batch`). The
-  reported p95 stays pure; only AIMD gates on min_samples.
-- Removing or shortening the existing `warmup_seconds` guard. The
-  two guards layer: warmup gates on elapsed time, min_samples gates
-  on sample count. Both are needed.
+- Cambiar `_percentile` (el algoritmo nearest-rank). El
+  percentil mismo es correcto; el bug es usarlo en muy pocas
+  muestras.
+- p95 trimmed/winsorized en el analyzer (`analyze batch`). El
+  p95 reportado se queda puro; solo el AIMD gateea sobre
+  min_samples.
+- Remover o acortar el guard `warmup_seconds` existente. Los
+  dos guards se capean: warmup gateea sobre tiempo
+  transcurrido, min_samples gateea sobre conteo de muestras.
+  Los dos son necesarios.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `AutoTuneConfig.min_samples` defaults to 20, rejects `< 1`.
-- `decide(..., sample_count=0, ...)` → `Decision(action="insufficient_data", ...)`
-  regardless of `observed_p95_ms`. Test pins this.
-- `decide(..., sample_count=5, observed_p95_ms=12000, ...)` with
-  `min_samples=20` → `"insufficient_data"`, NOT `"halve"`. **Named
-  regression test for the bug**.
-- `decide(..., sample_count=20, observed_p95_ms=12000, ...)` with
-  `min_samples=20` → `"halve"`. The guard is a floor, not a ceiling.
-- `AutoTuneController._tick` treats the new action like `"warmup"` —
-  no `last_decision` mutation, no `on_pool_resize` / `on_timeout_change`
-  call (workers/timeout stay the same).
-- `MetricsRecorder.current_stage_p95_with_count("S5")` returns
-  `(0.0, 0)` for an empty stage; the right tuple for a populated one.
-- The 3 staging YAMLs carry `min_samples: 20` under `auto_tune`.
-- Full unit + integration suite green; mypy + ruff clean.
+- `AutoTuneConfig.min_samples` default a 20, rechaza `< 1`.
+- `decide(..., sample_count=0, ...)` →
+  `Decision(action="insufficient_data", ...)`
+  independientemente de `observed_p95_ms`. Un test lo clava.
+- `decide(..., sample_count=5, observed_p95_ms=12000, ...)`
+  con `min_samples=20` → `"insufficient_data"`, NO `"halve"`.
+  **Test de regresión nombrado para el bug**.
+- `decide(..., sample_count=20, observed_p95_ms=12000, ...)`
+  con `min_samples=20` → `"halve"`. El guard es un piso, no
+  un techo.
+- `AutoTuneController._tick` trata la nueva acción como
+  `"warmup"` — sin mutación de `last_decision`, sin llamada a
+  `on_pool_resize` / `on_timeout_change` (los workers/timeout
+  se quedan iguales).
+- `MetricsRecorder.current_stage_p95_with_count("S5")`
+  devuelve `(0.0, 0)` para un stage vacío; la tupla correcta
+  para uno poblado.
+- Los 3 YAMLs de staging llevan `min_samples: 20` bajo
+  `auto_tune`.
+- Suite completa unit + integration verde; mypy + ruff
+  limpios.
 - `CHANGELOG.md [0.63.0]`; `pyproject.toml` 0.62.0 → 0.63.0;
-  `config-reference.yaml` documents the field.
+  `config-reference.yaml` documenta el campo.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The regression test is the keystone: `decide` with `sample_count=5` +
-high `observed_p95_ms` must NOT halve under default `min_samples=20`.
-This is the test that would have caught the bug. Existing AIMD tests
-get a small constant `sample_count=100` (well above default min) so
-their assertions about `"halve" / "+1" / "noop"` keep holding.
+El test de regresión es la piedra angular: `decide` con
+`sample_count=5` + `observed_p95_ms` alto NO debe halvear
+bajo el default `min_samples=20`. Este es el test que habría
+agarrado el bug. Los tests AIMD existentes reciben un
+`sample_count=100` constante chico (bien arriba del default
+min) así sus aserciones sobre `"halve" / "+1" / "noop"`
+siguen sosteniéndose.

@@ -1,9 +1,8 @@
-# How to: run multiple batches in flight (`processing.batches_in_flight`)
+# How to: correr múltiples batches en vuelo (`processing.batches_in_flight`)
 
-> Available since change **028** (2026-05-11). Lets a long
-> migration chunk its triggers into batches and run the prep
-> (S0-S4) of one batch overlapped with the upload (S5) of
-> another.
+> Disponible desde el cambio **028** (2026-05-11). Permite que una
+> migración larga parta sus triggers en `batch`es y corra el prep
+> (S0-S4) de un `batch` superpuesto con el upload (S5) de otro.
 
 ---
 
@@ -12,75 +11,75 @@
 ```yaml
 # config.yaml
 processing:
-  batches_in_flight: 2     # default — one preparing, one uploading
-batch_size: 1000           # size of each chunk
+  batches_in_flight: 2     # default — uno preparando, uno subiendo
+batch_size: 1000           # tamaño de cada chunk
 ```
 
 ```bash
-# Use the YAML default (N=2)
+# Usar el default del YAML (N=2)
 cmcourier csv-trigger-pipeline run --config prod.yaml
 
-# Override at the CLI to force single-batch (legacy behavior)
+# Override en el CLI para forzar single-batch (comportamiento legacy)
 cmcourier csv-trigger-pipeline run --config prod.yaml --batches-in-flight 1
 
-# --resume always forces N=1 — resuming a specific batch is a single-shot.
+# --resume siempre fuerza N=1 — resumir un batch específico es un one-shot.
 ```
 
 ---
 
-## What changed
+## Qué cambió
 
-Before 028, `pipeline.run()` was a one-shot:
+Antes de 028, `pipeline.run()` era one-shot:
 
 ```
 [acquire 20 000 triggers] → S0 → S1 → S2 → S3 → S4 → S5
                                                        ↑
-                                                idle while
-                                                S0-S4 ran
+                                                idle mientras
+                                                corría S0-S4
 ```
 
-After 028 with `batches_in_flight=2` and `batch_size=1000`:
+Después de 028 con `batches_in_flight=2` y `batch_size=1000`:
 
 ```
                   ┌────────────────┐
-trigger source ──►│   chunker      │  20 chunks of 1 000
+fuente trigger ──►│   chunker      │  20 chunks de 1 000
                   └────────────────┘
                           │
                           ▼
                   ┌────────────────┐
-                  │ prep thread    │  S0–S4 of chunk N+1
+                  │ thread prep    │  S0–S4 del chunk N+1
                   └────────────────┘
                           │
-                          ▼   (queue, capacity 1)
+                          ▼   (queue, capacidad 1)
                   ┌────────────────┐
-                  │ upload thread  │  S5 of chunk N
+                  │ thread upload  │  S5 del chunk N
                   └────────────────┘
 ```
 
-While the network is busy uploading chunk N, the CPU + the
-trigger source + RVABREP + the metadata services prepare chunk
-N+1. Each chunk gets its own `batch_id` in the tracking DB and
-its own `batch_summary` log event.
+Mientras la red está ocupada subiendo el chunk N, la CPU + la fuente
+de triggers + RVABREP + los servicios de metadatos preparan el chunk
+N+1. Cada chunk recibe su propio `batch_id` en la DB de tracking y
+su propio evento de log `batch_summary`.
 
-## What's *not* in 028
+## Lo que *no* está en 028
 
-- **N > 2** — only `1` and `2` are accepted. `3..5` (the
-  original aspirational range in POST-MVP §7) needs a deeper
-  refactor of the shared S5 worker pool semantics; it's
-  documented as a future change.
-- **TUI multi-batch view** — the TUI currently shows one
-  batch at a time. When the TUI is on (`--tui`),
-  `batches_in_flight` is silently forced to 1 so the operator
-  sees coherent live data. Headless runs (`--no-tui` or a
-  non-TTY shell like cron) use the configured value.
-- **Per-batch bandwidth quota** — that's POST-MVP §8.
+- **N > 2** — solo se aceptan `1` y `2`. `3..5` (el rango aspiracional
+  original en POST-MVP §7) necesita un refactor más profundo de la
+  semántica del `worker pool` S5 compartido; queda documentado como un
+  cambio futuro.
+- **Vista multi-batch en TUI** — el TUI actualmente muestra un `batch`
+  por vez. Cuando el TUI está encendido (`--tui`),
+  `batches_in_flight` se fuerza silenciosamente a 1 para que el operador
+  vea datos live coherentes. Las corridas headless (`--no-tui` o una
+  shell non-TTY como cron) usan el valor configurado.
+- **Cuota de bandwidth por-batch** — eso es POST-MVP §8.
 
 ---
 
-## Operator output
+## Salida para el operador
 
-When `len(chunks) > 1`, the CLI prints one line per chunk plus
-a TOTALS line:
+Cuando `len(chunks) > 1`, el CLI imprime una línea por chunk más
+una línea TOTALS:
 
 ```
 chunk 1/20  batch_id=AAA  total_docs=1000 s5_done=998  s5_failed=2  elapsed_seconds=42.10
@@ -89,38 +88,37 @@ chunk 2/20  batch_id=BBB  total_docs=1000 s5_done=1000 s5_failed=0  elapsed_seco
 TOTALS batch_count=20 total_docs=20000 s5_done=19987 s5_failed=13 failed_chunks=0 elapsed_seconds=812.43
 ```
 
-When only one chunk runs (e.g. small source, or `N=1`), the
-output is the legacy single-line summary — byte-identical to
-pre-028 behavior.
+Cuando solo corre un chunk (ej. fuente chica, o `N=1`), la salida
+es el resumen legacy de una línea — byte-idéntico al comportamiento
+pre-028.
 
-## Failure isolation
+## Aislamiento de fallos
 
-If a chunk crashes during prep or upload, the orchestrator
-catches the exception, logs it at ERROR, adds the chunk to
-`failed_chunks`, and continues with the remaining chunks.
-Exit code:
+Si un chunk crashea durante prep o upload, el orquestador captura la
+excepción, la loguea a ERROR, agrega el chunk a `failed_chunks`, y
+continúa con los chunks restantes. Exit code:
 
-- `0` — every chunk succeeded.
-- `1` — at least one chunk had `s5_failed > 0` OR ended up in
+- `0` — todos los chunks tuvieron éxito.
+- `1` — al menos un chunk tuvo `s5_failed > 0` O terminó en
   `failed_chunks`.
 
-## Memory budgeting
+## Presupuesto de memoria
 
-Each in-flight prepared chunk holds staged file paths +
-metadata in memory and PDFs on disk in
-`assembly.temp_dir/<batch_id>/`. With `batch_size=1000` and
-~10 MB average per staged file:
+Cada chunk preparado en vuelo retiene paths de archivos staged +
+metadatos en memoria y PDFs en disco en
+`assembly.temp_dir/<batch_id>/`. Con `batch_size=1000` y
+~10 MB promedio por archivo staged:
 
-- N=1: ~10 GB peak disk, single-digit MB RAM.
-- N=2: ~20 GB peak disk while two chunks are in flight,
-  roughly 2× metadata RAM.
+- N=1: ~10 GB pico de disco, MB de un dígito de RAM.
+- N=2: ~20 GB pico de disco mientras dos chunks están en vuelo,
+  aproximadamente 2× RAM de metadatos.
 
-The peak is brief — the upload thread consumes prepared
-chunks as fast as it can.
+El pico es breve — el thread de upload consume los chunks preparados
+tan rápido como puede.
 
 ## Cross-references
 
 - POST-MVP roadmap §7: `docs/roadmap/POST-MVP.md`.
 - Spec: `specs/028-multi-batch-orchestrator/`.
-- Sister change 025 (S5 worker pool + AIMD) — the shared
-  resource that all chunks compete for.
+- Cambio hermano 025 (`worker pool` S5 + AIMD) — el recurso compartido
+  por el cual compiten todos los chunks.

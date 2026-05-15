@@ -1,117 +1,139 @@
-# 056 — Configurable prep workers: parallelize S2/S3/S4
+# 056 — Workers de prep configurables: paralelizar S2/S3/S4
 
-## Why
+## Por qué
 
-Watching the TUI on a staging run, the operator saw the assembly stage
-(S4) crawling. It is — `_stage_s4` is a plain serial `for item in
-items:` loop, one document at a time, on a single thread. So are
-`_stage_s2` and `_stage_s3`. Meanwhile S5 (upload) has run on an
-N-thread pool since spec 025.
+Mirando la TUI en un run de staging, el operador vio el stage
+de armado (S4) avanzando a paso de tortuga. Y lo está —
+`_stage_s4` es un loop serial `for item in items:` plano, un
+documento a la vez, en un solo thread. Lo mismo
+`_stage_s2` y `_stage_s3`. Mientras tanto S5 (upload) corre en
+un pool de N threads desde la spec 025.
 
-The operator's ask, verbatim and deliberately scoped: *not* the full
-S5 machinery (no AIMD auto-tune, no heavy/light lanes, no bandwidth
-limiter) — just **a YAML knob for how many threads the prep can use**.
+El pedido del operador, textual y deliberadamente acotado:
+*no* la maquinaria S5 completa (sin AIMD auto-tune, sin lanes
+heavy/light, sin limitador de bandwidth) — solo **una palanca
+YAML de cuántos threads puede usar el prep**.
 
-### What the prep actually is
+### Qué es el prep en realidad
 
-The prep is five stages, chained serially over the item list:
-**S0** (acquire the index) → **S1** (indexing) → **S2** (mapping) →
-**S3** (metadata) → **S4** (assembly). They split into two groups:
+El prep son cinco stages, encadenados serialmente sobre la
+lista de items: **S0** (acquire el index) → **S1** (indexing)
+→ **S2** (mapping) → **S3** (metadata) → **S4** (assembly).
+Se separan en dos grupos:
 
-- **S2 / S3 / S4 — homogeneous, parallel-safe.** All three have the
-  identical shape: `for item in items:`, independent per-document
-  work, then a tracking-store write. The tracking store is *already*
-  thread-safe (it is the same store S5's N threads hammer today — an
-  async writer queue + a reader lock). S3's `DocumentCacheService` and
-  its `SqliteDocumentCache` adapter are *both* `threading.Lock`-guarded
-  (verified). The `StageTimer` / `MetricsRecorder` are thread-safe
-  ("per-stage metrics use a lock under the hood").
-- **S0 / S1 — ordered, stateful.** `_stage_s0_s1` carries the
-  cross-batch idempotency logic, the `resume_scope`, the
-  `RVABREPDeletedError` filtering (051). Parallelizing it stops being
-  "simple" and introduces real risk — and it is not the stage that
-  hurts. **Out of scope.**
+- **S2 / S3 / S4 — homogéneos, parallel-safe.** Los tres tienen
+  la forma idéntica: `for item in items:`, trabajo
+  independiente per-documento, después un write al tracking
+  store. El tracking store *ya* es thread-safe (es el mismo
+  store que los N threads de S5 martillan hoy — una cola async
+  writer + un lock de reader). El `DocumentCacheService` de S3
+  y su adapter `SqliteDocumentCache` están *los dos* protegidos
+  por `threading.Lock` (verificado). El `StageTimer` /
+  `MetricsRecorder` son thread-safe ("las métricas per-stage
+  usan un lock bajo el capó").
+- **S0 / S1 — ordenados, stateful.** `_stage_s0_s1` lleva la
+  lógica de idempotencia cross-batch, el `resume_scope`, el
+  filtering de `RVABREPDeletedError` (051). Paralelizarlo deja
+  de ser "simple" e introduce riesgo real — y no es el stage
+  que duele. **Fuera de alcance.**
 
-## What
+## Qué
 
-### 1. `processing.prep_workers` — new YAML knob
+### 1. `processing.prep_workers` — nueva palanca YAML
 
-Add `prep_workers: int = Field(default=1, ge=1)` to
-`ProcessingConfig` (it already holds the processing-level concurrency
-knob `batches_in_flight`). Default `1` → behaviour byte-identical to
-today, so existing configs are unaffected and nobody is surprised.
+Agregar `prep_workers: int = Field(default=1, ge=1)` a
+`ProcessingConfig` (ya tiene la palanca de concurrencia a
+nivel processing `batches_in_flight`). Default `1` →
+comportamiento byte-idéntico al de hoy, así que los configs
+existentes no se ven afectados y nadie se sorprende.
 
-### 2. `StagedPipeline` takes `prep_workers`
+### 2. `StagedPipeline` toma `prep_workers`
 
-`__init__` gains `prep_workers: int = 1` (beside the existing
-`workers`); stored as `self._prep_workers = max(1, int(prep_workers))`.
-The wiring layer passes `config.processing.prep_workers`.
+`__init__` gana `prep_workers: int = 1` (al lado del
+`workers` existente); guardado como
+`self._prep_workers = max(1, int(prep_workers))`. La capa de
+wiring pasa `config.processing.prep_workers`.
 
-### 3. S2 / S3 / S4 run on a fixed-size pool
+### 3. S2 / S3 / S4 corren en un pool de tamaño fijo
 
-Extract each stage's per-item body into a helper
-(`_s2_one` / `_s3_one` / `_s4_one`) that returns
-`tuple[_StageItem | None, bool]` — `(survivor or None, was_a_counted_failure)`.
-The `bool` preserves the current resume edge case: an item that
-fails *but was already marked done in a prior run* is dropped from
-survivors without incrementing `failed`.
+Extraer el cuerpo per-item de cada stage en un helper
+(`_s2_one` / `_s3_one` / `_s4_one`) que devuelve
+`tuple[_StageItem | None, bool]` —
+`(survivor o None, fue_una_falla_contada)`. El `bool`
+preserva el edge case actual de resume: un item que falla
+*pero ya fue marcado done en un run anterior* se descarta de
+survivors sin incrementar `failed`.
 
-A shared dispatch helper runs the bodies:
+Un helper de dispatch compartido corre los cuerpos:
 
-- `prep_workers == 1` → a plain serial list comprehension —
-  **byte-identical to the current loop** (same pattern as
-  `_stage_5_single` being "byte-identical to 025").
-- `prep_workers > 1` → `ThreadPoolExecutor(max_workers=prep_workers)`
-  with `pool.map(...)`. `pool.map` **preserves input order**, so
-  `survivors` stays deterministic regardless of completion order — no
-  ordering regression for the S5 stage that consumes it.
+- `prep_workers == 1` → una list comprehension serial plana —
+  **byte-idéntica al loop actual** (mismo patrón que
+  `_stage_5_single` siendo "byte-idéntico al de 025").
+- `prep_workers > 1` →
+  `ThreadPoolExecutor(max_workers=prep_workers)` con
+  `pool.map(...)`. `pool.map` **preserva el orden de input**,
+  así que `survivors` queda determinístico sin importar el
+  orden de completion — sin regresión de ordenamiento para el
+  stage S5 que lo consume.
 
-The per-item helpers already catch their own domain exceptions
-(`IDRViNotMappedError`, `SourceFailedError`, `PDFAssemblyFailedError`,
-…) inside the body — they return `(None, …)` rather than raising, so
-`pool.map` never sees a domain failure. Unexpected exceptions
-propagate exactly as they do in the serial loop today.
+Los helpers per-item ya atrapan sus propias excepciones de
+dominio (`IDRViNotMappedError`, `SourceFailedError`,
+`PDFAssemblyFailedError`, …) adentro del body — devuelven
+`(None, …)` en vez de levantar, así `pool.map` nunca ve una
+falla de dominio. Las excepciones inesperadas propagan
+exactamente como lo hacen en el loop serial hoy.
 
-## Out of scope
+## Fuera de alcance
 
-- **S0 / S1** — ordered/stateful; explicitly excluded above.
-- The S5 machinery — AIMD auto-tune, heavy/light lanes, bandwidth
-  limiter, the `WorkerPoolStats` live panel. The operator asked for a
-  plain thread count and nothing more.
-- A TUI surface for prep workers — the PREP tab's existing per-stage
-  progress is enough; this change just makes those numbers move
-  faster. No new panel.
-- `ProcessPoolExecutor` — S2/S3/S4 are I/O-bound (file copies, reading
-  page images, metadata source I/O), so the GIL is released during the
-  work and threads scale. No multiprocessing needed.
+- **S0 / S1** — ordenados/stateful; explícitamente excluidos
+  arriba.
+- La maquinaria de S5 — AIMD auto-tune, lanes heavy/light,
+  limitador de bandwidth, el panel en vivo
+  `WorkerPoolStats`. El operador pidió un conteo de threads
+  plano y nada más.
+- Un surface en la TUI para los prep workers — el progreso
+  per-stage existente del tab PREP es suficiente; este cambio
+  solo hace que esos números se muevan más rápido. Sin panel
+  nuevo.
+- `ProcessPoolExecutor` — S2/S3/S4 son I/O-bound (copias de
+  archivos, lectura de imágenes de páginas, I/O de fuente de
+  metadata), así que el GIL se libera durante el trabajo y los
+  threads escalan. Sin necesidad de multiprocessing.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `processing.prep_workers` parses, defaults to `1`, rejects `< 1`.
-- With `prep_workers = 1`, S2/S3/S4 run the serial path — a test
-  asserts the dispatch takes the non-pool branch (or, equivalently,
-  that output is identical to the pre-056 loop on a fixed input).
-- With `prep_workers = 4`, S2/S3/S4 process a multi-item batch
-  correctly: every survivor present, `survivors` in **input order**,
-  `failed` count correct including the already-done resume case — a
-  test asserts each.
-- A failing item (domain exception) is dropped from survivors and
-  counted in `failed` exactly as in the serial path, under both
-  `prep_workers = 1` and `> 1`.
-- `StagedPipeline.__init__` accepts `prep_workers`; the wiring layer
-  passes `config.processing.prep_workers`.
-- Full unit + integration suite green; mypy + ruff clean.
+- `processing.prep_workers` parsea, default a `1`, rechaza
+  `< 1`.
+- Con `prep_workers = 1`, S2/S3/S4 corren el camino serial —
+  un test assertea que el dispatch toma la rama non-pool (o,
+  equivalentemente, que el output es idéntico al loop pre-056
+  en un input fijo).
+- Con `prep_workers = 4`, S2/S3/S4 procesan correctamente un
+  batch multi-item: cada survivor presente, `survivors` en
+  **orden de input**, conteo de `failed` correcto incluyendo
+  el caso de resume already-done — un test assertea cada
+  uno.
+- Un item que falla (excepción de dominio) se descarta de
+  survivors y se cuenta en `failed` exactamente como en el
+  camino serial, bajo `prep_workers = 1` y `> 1`.
+- `StagedPipeline.__init__` acepta `prep_workers`; la capa de
+  wiring pasa `config.processing.prep_workers`.
+- Suite completa unit + integration verde; mypy + ruff
+  limpios.
 - `CHANGELOG.md [0.59.0]`; `pyproject.toml` 0.58.0 → 0.59.0;
-  `config-reference.yaml` documents `processing.prep_workers`.
+  `config-reference.yaml` documenta
+  `processing.prep_workers`.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-S2/S3/S4 are exercised today by the `staged.py` pipeline tests with
-fakes/stubs for the services. The 056 tests add a multi-item batch run
-at `prep_workers = 4` and assert (a) correctness + input ordering,
-(b) the failure/resume counting matches the serial path, and (c)
-`prep_workers = 1` is unchanged. The thread-safety of the collaborators
-(`tracking_store`, `DocumentCacheService`, `MetricsRecorder`) is
-established — they are the same objects S5 already drives concurrently
-— so the tests focus on the new dispatch logic, not on re-proving the
+S2/S3/S4 son ejercitados hoy por los tests del pipeline en
+`staged.py` con fakes/stubs para los services. Los tests de
+056 agregan un run de batch multi-item a `prep_workers = 4` y
+assertean (a) corrección + ordenamiento de input, (b) que el
+conteo de failure/resume matchea el camino serial, y (c) que
+`prep_workers = 1` queda sin cambios. La thread-safety de los
+colaboradores (`tracking_store`, `DocumentCacheService`,
+`MetricsRecorder`) está establecida — son los mismos objetos
+que S5 ya impulsa concurrentemente — así que los tests se
+enfocan en la lógica nueva de dispatch, no en re-probar los
 stores.

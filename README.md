@@ -1,112 +1,112 @@
 # CMCourier
 
-> Document migration tool for moving banking documentation from the legacy IBM RVI system on AS400 into IBM Content Manager via CMIS.
+> Herramienta de migración de documentos para mover documentación bancaria desde el sistema legacy IBM RVI en AS400 hacia IBM Content Manager vía CMIS.
 
-**Status**: Bootstrap — constitution and architecture are ratified, MVP implementation has not started.
+**Estado**: Bootstrap — la constitución y la arquitectura están ratificadas, la implementación del MVP aún no comenzó.
 
-CMCourier is a complete rewrite of the older `RVIMigration` tool. The rewrite is **green-field code-wise** and **brown-field domain-wise**: the business rules, integration quirks, file formats, and data sources are well understood and documented. The architecture and engineering discipline are starting fresh under hexagonal design and Spec-Driven Development.
+CMCourier es una reescritura completa de la antigua herramienta `RVIMigration`. La reescritura es **green-field en código** y **brown-field en dominio**: las reglas de negocio, las particularidades de integración, los formatos de archivo y las fuentes de datos están bien entendidos y documentados. La arquitectura y la disciplina de ingeniería arrancan de cero bajo diseño hexagonal y Spec-Driven Development.
 
 ---
 
-## What this repository contains right now
+## Qué contiene este repositorio en este momento
 
 ```
 CMCourier/
 ├── .specify/
 │   └── memory/
-│       └── constitution.md          # Ratified engineering law (v1.0.0)
+│       └── constitution.md          # Ley de ingeniería ratificada (v1.0.0)
 │
 ├── docs/
-│   ├── domain/                     # Domain ground truth (1300+ lines)
+│   ├── domain/                     # Verdad de dominio (1300+ líneas)
 │   ├── roadmap/
-│   │   └── POST-MVP.md              # Everything deferred beyond the MVP
+│   │   └── POST-MVP.md              # Todo lo diferido más allá del MVP
 │   └── samples/
-│       ├── csv/                     # Reference CSVs from the old project
-│       ├── excel/                   # RVABREP table dump (xlsx)
-│       └── responses/               # Real CMIS response fixture
+│       ├── csv/                     # CSVs de referencia del proyecto viejo
+│       ├── excel/                   # Volcado de la tabla RVABREP (xlsx)
+│       └── responses/               # Fixture real de respuesta CMIS
 │
-├── README.md                        # This file
-├── CHANGELOG.md                     # Project history (Keep a Changelog format)
-└── CONTRIBUTING.md                  # SDD workflow, commit standards, PR rules
+├── README.md                        # Este archivo
+├── CHANGELOG.md                     # Historia del proyecto (formato Keep a Changelog)
+└── CONTRIBUTING.md                  # Flujo SDD, estándares de commit, reglas de PR
 ```
 
-No source code yet. The skeleton (`src/cmcourier/`, `tests/`, `pyproject.toml`, etc.) lands with the first implementation change.
+Todavía no hay código fuente. El esqueleto (`src/cmcourier/`, `tests/`, `pyproject.toml`, etc.) aterriza con el primer cambio de implementación.
 
 ---
 
-## Documentation map
+## Mapa de documentación
 
-The canonical entry point is **[`docs/INDEX.md`](docs/INDEX.md)** — a single page that maps every documentation artifact in the repo. Below is a quick-access cheat sheet for the most common reads.
+El punto de entrada canónico es **[`docs/INDEX.md`](docs/INDEX.md)** — una sola página que mapea todos los artefactos de documentación del repo. Abajo hay un cheat sheet de acceso rápido para las lecturas más comunes.
 
-| Document | Read when | Purpose |
+| Documento | Cuándo leer | Propósito |
 |----------|-----------|---------|
-| [`docs/INDEX.md`](docs/INDEX.md) | **Anytime** | Canonical map of all documentation, organized by purpose (Diátaxis-inspired) |
-| [`README.md`](README.md) | First | What the project is, current status, where to look for what |
-| [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Before writing anything | The 9 immutable engineering principles. Spec, design, code that violates these is rejected |
-| The project's domain spec under `docs/domain/` | Before writing anything domain-related | The full domain context: source system (RVI/AS400), target system (CMIS/Content Manager), file formats, metadata resolution, CMIS integration quirks, stage architecture |
-| [`docs/roadmap/POST-MVP.md`](docs/roadmap/POST-MVP.md) | When asking "did we forget X?" | Every feature deferred beyond MVP, with intent + design + acceptance criteria |
-| [`docs/how-to/README.md`](docs/how-to/README.md) | When you need to *do* something | Index of recipes (problem-oriented). Empty at MVP start; grows as commands ship |
-| [`docs/explanation/README.md`](docs/explanation/README.md) | When you need to *understand* something | Index of explanations (understanding-oriented). Pairs with the canonical domain explanation |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Before opening a PR | SDD workflow, commit rules, PR standards |
-| [`CHANGELOG.md`](CHANGELOG.md) | Anytime | Versioned history of every meaningful change to the project |
+| [`docs/INDEX.md`](docs/INDEX.md) | **En cualquier momento** | Mapa canónico de toda la documentación, organizado por propósito (inspirado en Diátaxis) |
+| [`README.md`](README.md) | Primero | Qué es el proyecto, estado actual, dónde buscar qué |
+| [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Antes de escribir cualquier cosa | Los 9 principios inmutables de ingeniería. Specs, diseño y código que los viole son rechazados |
+| La spec de dominio del proyecto en `docs/domain/` | Antes de escribir algo relacionado al dominio | El contexto de dominio completo: sistema origen (RVI/AS400), sistema destino (CMIS/Content Manager), formatos de archivo, resolución de metadatos, particularidades de la integración CMIS, arquitectura de stages |
+| [`docs/roadmap/POST-MVP.md`](docs/roadmap/POST-MVP.md) | Cuando preguntás "¿nos olvidamos de X?" | Toda funcionalidad diferida más allá del MVP, con intención + diseño + criterios de aceptación |
+| [`docs/how-to/README.md`](docs/how-to/README.md) | Cuando necesitás *hacer* algo | Índice de recetas (orientado a problemas). Vacío al inicio del MVP; crece a medida que se shippean comandos |
+| [`docs/explanation/README.md`](docs/explanation/README.md) | Cuando necesitás *entender* algo | Índice de explicaciones (orientado a entendimiento). Acompaña a la explicación canónica de dominio |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Antes de abrir un PR | Flujo SDD, reglas de commit, estándares de PR |
+| [`CHANGELOG.md`](CHANGELOG.md) | En cualquier momento | Historial versionado de cada cambio significativo en el proyecto |
 
 ---
 
-## What CMCourier will do
+## Qué va a hacer CMCourier
 
-End to end:
+De punta a punta:
 
-1. **Discover** documents to migrate via one of several trigger sources (CSV, AS400 query, RVABREP filter, local folder scan).
-2. **Index** each trigger against the RVABREP master table on AS400.
-3. **Map** each document's RVI type code to a Content Manager document class (folder + object type + required metadata fields).
-4. **Resolve** metadata for each document via a configurable fallback chain over multiple sources.
-5. **Assemble** the final PDF (merge multi-page TIFFs to a single PDF, or pass through native PDFs).
-6. **Upload** to Content Manager via the CMIS Browser Binding REST API with proper metadata.
-7. **Track** every document so re-runs are idempotent.
+1. **Descubrir** documentos a migrar a través de una de varias fuentes trigger (CSV, query AS400, filtro RVABREP, scan de carpeta local).
+2. **Indexar** cada trigger contra la tabla maestra RVABREP en AS400.
+3. **Mapear** el código de tipo RVI de cada documento a una clase documental de Content Manager (carpeta + tipo de objeto + campos de metadatos requeridos).
+4. **Resolver** metadatos para cada documento vía una cadena de fallback configurable sobre múltiples fuentes.
+5. **Ensamblar** el PDF final (fusionar TIFFs multi-página en un PDF único, o passthrough de PDFs nativos).
+6. **Subir** a Content Manager vía la API REST CMIS Browser Binding con los metadatos correspondientes.
+7. **Trackear** cada documento para que las re-corridas sean idempotentes.
 
-The full design is described in the project's domain spec under `docs/domain/`.
+El diseño completo está descrito en la spec de dominio del proyecto en `docs/domain/`.
 
 ---
 
-## Architecture in one paragraph
+## Arquitectura en un párrafo
 
-**Hexagonal Architecture (Ports & Adapters)** with four layers: `domain` (pure Python, no external deps), `services` (business logic depending only on ports), `orchestrators` (thin coordinators), `adapters` (concrete implementations of ports — pyodbc for AS400, requests for CMIS, pandas for CSV, SQLite for tracking, img2pdf/Pillow for PDF assembly). Pipelines are **named compositions of atomic stages** (`S0`–`S7`), each pipeline a CLI command, never a config flag.
+**Arquitectura Hexagonal (Ports & Adapters)** con cuatro capas: `domain` (Python puro, sin dependencias externas), `services` (lógica de negocio que depende solo de ports), `orchestrators` (coordinadores delgados), `adapters` (implementaciones concretas de ports — pyodbc para AS400, requests para CMIS, pandas para CSV, SQLite para tracking, img2pdf/Pillow para ensamblado de PDFs). Las pipelines son **composiciones nombradas de stages atómicos** (`S0`–`S7`), cada pipeline es un comando CLI, nunca un flag de config.
 
-See Constitution Principle I and the project's domain spec for details.
+Ver el Principio Constitucional I y la spec de dominio del proyecto para más detalle.
 
 ---
 
 ## Tech stack
 
-Settled by Constitution. Substitution requires constitutional amendment.
+Definido por la Constitución. Cualquier sustitución requiere enmienda constitucional.
 
-- **Language**: Python 3.11+
-- **Config**: Pydantic v2 (validated at startup)
+- **Lenguaje**: Python 3.11+
+- **Config**: Pydantic v2 (validado en startup)
 - **CLI**: Click
-- **AS400**: pyodbc + iSeries Access ODBC Driver (thread-local connections)
-- **HTTP**: requests + requests-toolbelt (`MultipartEncoder` for streaming uploads)
+- **AS400**: pyodbc + iSeries Access ODBC Driver (conexiones thread-local)
+- **HTTP**: requests + requests-toolbelt (`MultipartEncoder` para uploads streaming)
 - **CSV**: pandas
-- **PDF assembly**: img2pdf (fast path) + Pillow + PyPDF2 (fallback)
-- **Tracking**: SQLite (WAL mode), AS400 alternative (post-MVP)
+- **Ensamblado de PDF**: img2pdf (fast path) + Pillow + PyPDF2 (fallback)
+- **Tracking**: SQLite (modo WAL), alternativa AS400 (post-MVP)
 - **Testing**: pytest + pytest-cov
 - **Lint / format**: ruff
-- **Type check**: mypy (strict on `domain/`, `services/`, `orchestrators/`)
+- **Type check**: mypy (strict sobre `domain/`, `services/`, `orchestrators/`)
 - **Packaging**: pyproject.toml (PEP 621)
 
 ---
 
-## Getting started
+## Cómo empezar
 
-### Prerequisites
+### Prerrequisitos
 
-- **Python 3.11 or newer** (CMCourier is verified on 3.11 and 3.12).
-- **A C compiler and ODBC headers** — required by `pyodbc`:
+- **Python 3.11 o más nuevo** (CMCourier está verificado en 3.11 y 3.12).
+- **Un compilador de C y los headers ODBC** — requeridos por `pyodbc`:
   - **Linux** (Debian/Ubuntu): `sudo apt install build-essential unixodbc-dev`
   - **macOS**: `brew install unixodbc`
-  - **Windows**: install the [IBM iSeries Access ODBC Driver](https://www.ibm.com/support/pages/ibm-i-access-client-solutions) (the driver itself ships its own SDK).
+  - **Windows**: instalá el [IBM iSeries Access ODBC Driver](https://www.ibm.com/support/pages/ibm-i-access-client-solutions) (el driver ya trae su propio SDK).
 - **Git**.
 
-### Install (editable, with development tooling)
+### Instalar (editable, con herramientas de desarrollo)
 
 ```bash
 git clone <repo> CMCourier
@@ -119,13 +119,13 @@ pre-commit install
 pre-commit install --hook-type commit-msg
 ```
 
-### Run the smoke test
+### Correr el smoke test
 
 ```bash
-pytest                             # all tests
-pytest -m unit                     # only unit tests
-pytest -m integration              # only integration tests
-pytest -m "not slow"               # skip slow tests
+pytest                             # todos los tests
+pytest -m unit                     # solo tests unitarios
+pytest -m integration              # solo tests de integración
+pytest -m "not slow"               # saltear tests lentos
 ```
 
 ### Lint, format, type-check
@@ -133,17 +133,17 @@ pytest -m "not slow"               # skip slow tests
 ```bash
 ruff check src/ tests/             # lint
 ruff format src/ tests/            # auto-format
-ruff format --check src/ tests/    # CI-style check (no writes)
-mypy src/cmcourier/                # type-check (strict on inner layers)
+ruff format --check src/ tests/    # chequeo estilo CI (no escribe)
+mypy src/cmcourier/                # type-check (strict en capas internas)
 ```
 
-### Pre-commit hook bypass
+### Bypass de pre-commit hook
 
-You don't bypass pre-commit hooks. If a hook fails, fix the cause and create a new commit. Never `--no-verify` (Constitution / Git Safety Protocol).
+No se hace bypass de los pre-commit hooks. Si un hook falla, arreglá la causa y creá un nuevo commit. Nunca `--no-verify` (Constitución / Git Safety Protocol).
 
-### Required environment variables (when running real migrations)
+### Variables de entorno requeridas (cuando se corren migraciones reales)
 
-Credentials live in the environment, never in committed YAML (Constitution Principle V & VIII):
+Las credenciales viven en el entorno, nunca en YAML commiteado (Principios Constitucionales V y VIII):
 
 ```bash
 export AS400_USERNAME="..."
@@ -152,124 +152,124 @@ export CMIS_USERNAME="..."
 export CMIS_PASSWORD="..."
 ```
 
-A real `config/config.yaml` and a working CLI command lands in subsequent changes. For now, the CLI prints its help message:
+Un `config/config.yaml` real y un comando CLI funcional aterrizan en cambios subsiguientes. Por ahora, la CLI imprime su mensaje de ayuda:
 
 ```bash
 cmcourier --help
 ```
 
-For the architecture, the domain context, and the roadmap: read the [docs/INDEX.md](docs/INDEX.md). Understanding comes first; code comes second (Constitution Principle IX).
+Para la arquitectura, el contexto de dominio y el roadmap: leé [docs/INDEX.md](docs/INDEX.md). Primero viene el entendimiento; el código después (Principio Constitucional IX).
 
 ---
 
-## Project workflow
+## Flujo del proyecto
 
-CMCourier follows **Spec-Driven Development** under the GitHub Spec Kit conventions. Briefly:
+CMCourier sigue **Spec-Driven Development** bajo las convenciones de GitHub Spec Kit. En resumen:
 
 ```
-Constitution (immutable filter)
+Constitución (filtro inmutable)
         ↓
-Specification (the what — requirements, scenarios, acceptance criteria)
+Especificación (el qué — requisitos, escenarios, criterios de aceptación)
         ↓
-Plan / Design (the how — architecture, libraries, decomposition)
+Plan / Diseño (el cómo — arquitectura, librerías, descomposición)
         ↓
-Tasks (the implementation checklist)
+Tareas (el checklist de implementación)
         ↓
-Code (implement against the spec)
+Código (implementar contra la spec)
         ↓
-Verify (validate against constitution + spec)
+Verificar (validar contra constitución + spec)
 ```
 
-No code lands without a spec. No spec contradicts the constitution. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.
+No aterriza código sin spec. Ninguna spec contradice a la constitución. Ver [`CONTRIBUTING.md`](CONTRIBUTING.md) para el flujo completo.
 
 ---
 
-## Status checklist
+## Checklist de estado
 
-- [x] Constitution ratified (v1.0.0)
-- [x] Project structure laid out
-- [x] Domain ground truth documented (under `docs/domain/`)
-- [x] Stage-based pipeline architecture defined
-- [x] Pre-flight validation defined
-- [x] Observability tiers defined
-- [x] Post-MVP roadmap captured
-- [x] SDD context registered (`/sdd-init`)
-- [x] First change: Python skeleton bootstrap
-- [x] Second change: domain models, ports, exceptions
-- [x] Third change: first concrete adapter (Tabular CSV+XLSX data source)
-- [x] Fourth change: first service (MappingService over Modelo Documental)
-- [x] Fifth change: MetadataService (fallback chain + CIF self-healing)
-- [x] Sixth change: S0 trigger strategies (CSV + direct_rvabrep + stubs)
-- [x] Seventh change: SQLite tracking store (idempotency + per-stage state)
-- [x] Eighth change: IndexingService (S1 — RVABREP lookup)
-- [x] Ninth change: PdfAssembler (S4 — img2pdf + Pillow/PyPDF2 fallback)
-- [x] Tenth change: CmisUploader (S5 — CMIS Browser Binding + retry policy + bandwidth limiter)
-- [x] Eleventh change: CsvTriggerPipeline orchestrator (S0..S6 end-to-end, library) — **MVP pipeline complete**
-- [x] Twelfth change: CLI + Pydantic config + YAML loader — **MVP CLI usable end-to-end**
-- [x] Thirteenth change: `cmcourier doctor` pre-flight
-- [x] Fourteenth change: AS400 adapter + rvabrep-pipeline + as400-trigger-pipeline — **multi-pipeline + AS400 production-ready**
-- [x] Fifteenth change: AS400 metadata sources (closes the 014 gap)
-- [x] Sixteenth change: local-scan-pipeline (4th production pipeline; trigger mode set complete)
-- [x] Seventeenth change: single-doc-pipeline (diagnostic — CLI-driven one-shot)
-- [x] Eighteenth change: per-source AS400 query override (closes the 015 scale gap)
-- [x] Nineteenth change: adapter port-hygiene cleanup (every adapter now declares its port)
-- [x] Twentieth change: observability tiers 1-4 — JSON app log + pipeline + network + slow-ops
-- [x] Twenty-first change: operator CLI essentials — batch list/show/retry-failed + inspect rvabrep/mapping + as400-query
-- [x] Twenty-second change: pipeline safety flags — auto-doctor + --resume + doctor --check
-- [x] Twenty-third change: complete operator-CLI menus — inspect trigger / mapping-stats + batch export-report
-- [x] Twenty-fourth change: background runner — cron-friendly entry point with per-config fcntl lock
-- [x] Twenty-fifth change: live two-tab TUI + S5 worker pool + AIMD auto-tune
-- [x] Twenty-sixth change: tier-5 system metrics (POST-MVP §2 — psutil sampling, ~0.1% CPU cost)
-- [x] Twenty-seventh change: offline log analyzer `cmcourier analyze batch/compare/trends` (POST-MVP §3)
-- [x] Twenty-eighth change: multi-batch orchestrator with N=2 producer-consumer overlap (POST-MVP §7, N=2)
-- [x] Twenty-ninth change: shared `BandwidthLimiter` token bucket — `cmis.max_bandwidth_mbps` is now the real global cap
-- [x] Thirtieth change: TUI multi-batch view — new `CHUNKS` tab + live recorder binding
-- [x] Thirty-second change: shell auto-completion (`cmcourier completion bash|zsh|fish`)
-- [x] Thirty-third change: Tier 1 polish — `--total <N>` flag + CI integration docs for `analyze`
-- [x] Thirty-fourth change: AS400 NIARVILOG distributed idempotency (POST-MVP §4 — toggleable, retry/backoff, `cmcourier sync resolve` CLI)
-- [x] Thirty-fifth change: mapping CSV split (`MapeoRVI_CM.csv` + `MetadatosCM.csv` + `CMISType` column — production format; consolidated mode stays for tests)
-- [x] Thirty-sixth change: adaptive heavy/light upload lanes (POST-MVP §1 — default off, `LaneSplitter` + `LaneController` + drain-driven rebalance + dual TUI sub-panels)
-- [x] Thirty-seventh change: cross-batch `document_cache` table (POST-MVP §9 — default off, SQLite-backed, TTL-aware, `cmcourier cache stats|clear` CLI)
-- [x] Thirty-eighth change: CMIS connection pool sizing + eager warm-up (POST-MVP §10.2 — `HTTPAdapter pool_maxsize`, `warm_connection_pool(n)` pre-S5)
-- [x] Thirty-ninth change: CMIS `object_type_id` override (via `mapping.cmis_type`) + staging dry-run scaffolding (Alfresco-in-Docker + runbooks)
-- [x] Fortieth change (038): CMIS target pre-flight + upload payload trace — `CMISFolder` + `CMISPropertyId` columns; `doctor --check cm-targets` (folders + properties); `IUploader.verify_folder_exists` (read-only); `s5_upload_attempt` / `s5_upload_failed` events with PII masking + `observability.unmask_pii` toggle
-- [x] Forty-first change (039): synthetic RVABREP CSV generator — `cmcourier mock rvabrep` streams a seed-deterministic CSV at any scale (chains into `mock generate` for file materialization)
-- [x] Forty-second change (040): Alfresco CMIS compatibility — `repo_id=""` semantics + mime-property heuristic + JSON formatter allowlist + doctor `cmis_type` override; live smoke against Alfresco 23.x ships 0 failures end-to-end
-- [x] Forty-third change (041): TUI quality-of-life pass — clean dashboard (stderr handler is detached when Textual owns the terminal), UPLOAD tab adds MB-uploaded/MB-planned + per-chunk wall-clock + avg MB/s + ETA, CHUNKS tab becomes a per-stage breakdown table with TOTAL aggregate row
-- [x] Forty-fourth change (042): TUI multi-batch metric isolation — per-batch `_BandwidthHandler` filter (no more byte bleed across overlapping chunks), live `s5_done`/`s5_failed` propagated into CHUNKS row during UPLOAD (no more stuck `0/0/0`), separate `upload_recorder()` slot in `MultiBatchOrchestrator` so UPLOAD-tab S5 percentiles aren't disturbed by PREP-side recorder flips
-- [x] Forty-fifth change (043): AIMD auto-tune sees real p95 in multi-batch mode — `AutoTuneController.set_p95_provider` swap hook + orchestrator wires the upload-active recorder so the elastic-protection property is restored (pre-043 the controller observed `p95=0` always and only grew workers, never decreased)
-- [x] Forty-sixth change (044): robust resume after kill -9 mid-S5 — `_apply_resume` detects `S{N}_DONE → S{N+1}` stage gaps (workers paused mid-batch no longer abandon as "clean"), `--batch-id` always threads through (operator-named batches honored without `--resume`), explicit `--from-stage` wins over auto-detection
-- [x] Forty-seventh change (045): idempotent S5 upload on 409 conflict — `CmisUploader.upload` recovers from kill-race orphans (doc in Alfresco, missing from migration_log) by looking up the existing `cmis:objectId` via the folder-children endpoint; closes the last `S5_FAILED` window after a real `kill -9`
-- [x] Forty-eighth change (046): polymorphic `Trigger` model — each pipeline emits its natural trigger shape (`ClientTrigger` for csv / single-doc / as400, `RvabrepRowTrigger` for rvabrep-direct, `LocalScanTrigger` for local-scan); S1 dispatches per subtype, so local-scan now uploads exactly the files in the scan pool (no more "1 file → all client docs" over-expansion)
-- [x] Forty-ninth change (047): persist `cm_object_id` on `S5_DONE` — `mark_stage_done` now writes the CMIS objectId into `migration_log` so the tracking DB can answer "what's the objectId of doc X?" without a children-walk against CMIS
-- [x] Fiftieth change (048): pluggable RVABREP source — `indexing.source` becomes a discriminated union (`kind: csv` ↔ `kind: as400`); `rvabrep-pipeline` serves both (CSV file vs. live AS400 query returning an RVABREP-shaped table), the standalone `as400-trigger-pipeline` command and `trigger.kind: as400` are removed (AS400 is a *source* choice, not a trigger kind)
-- [x] Fifty-first change (049): configurable NIARVILOG column names — `tracking.as400_sync.columns` maps the 15 logical NIARVILOG fields to per-environment physical names (symmetric to `indexing.columns`); all configurable identifiers (`columns.*`, `library`, `table`) are now validated as DB2 identifiers, closing the SQL-interpolation surface
-- [x] Fifty-second change (050): streaming trigger pipeline — triggers stream in `batch_size` chunks instead of being materialized whole; peak memory is `O(batch_size × batches_in_flight)` not `O(total)`, so the ~20M-row production RVABREP migration no longer OOMs (defeated four materialization points: `_run_overlapped`'s `list()`, the monolithic N=1 path, `TabularDataSource.get_all`, and `--total`)
-- [x] Fifty-third change (051): "filtered at S1" is a first-class outcome — delete-coded RVABREP rows were silently dropped at S1 with zero traceability; now `_enrich_known_row` raises `RVABREPDeletedError`, `_stage_s0_s1` counts it as `filtered` (not failed, not a silent drop) with a per-doc log, and `s1_filtered` surfaces in the headless summary + TUI PREP/CHUNKS tabs
-- [x] Fifty-fourth change (052): CHUNKS tab — live rates, frozen timer, drill-down — per-chunk `MB/s·docs/s` throughput column; the run timer now freezes at completion instead of counting up forever; a new DETAIL tab (`[` / `]` chunk cursor, `d` to view) lists every doc of a chunk (name/size/status/reason), read on demand from the tracking store so memory stays bounded
-- [x] Fifty-fifth change (053): stage-aware bottleneck classifier — `cmcourier analyze batch` now leads with the per-stage breakdown (the batch-exact signal it previously ignored): a stage holding ≥45% of total stage time *is* the bottleneck, and the verdict names whether it is INSIDE the program (`assembly/metadata/mapping/indexing/trigger-bound`) or OUTSIDE it (`upload-bound` — the CMIS server + network); `LogReader` associates the un-tagged `network-*`/`system-*` tiers by the batch's time window instead of an absent `batch_id`, so `network_summary`/`system_summary` are no longer always empty
-- [x] Fifty-sixth change (054): UPLOAD-tab recorder wiring — finishes the 042 PREP/UPLOAD recorder split: `bandwidth_current/peak/series` + `slow_ops_all` now read the UPLOAD-side recorder (pre-054 they read the PREP recorder, which on N=2 runs sees none of the uploading chunk's `cmis_upload` events → 0 bandwidth, blank sparkline, no slow ops); the per-chunk UPLOAD timer measures from `upload_started_monotonic` (S5 start) instead of `prep_started_monotonic`, so "chunk elapsed" and `avg_mbps` reflect the actual upload window
-- [x] Fifty-seventh change (055): network events carry the `batch_id` — the root cause behind the dead UPLOAD tab: `CmisUploader._emit_network` never set `batch_id`, so the per-batch `_BandwidthHandler` / `_SlowOpHandler` (which filter on it) silently dropped *every* `cmis_upload` event in *every* recorder since spec 042; `IUploader.upload` now takes a required `batch_id` keyword and threads it through `_post_with_retries` → `_emit_network` (+ the `s5_upload_attempt`/`s5_upload_failed` diagnostic events), so bandwidth/peak/sparkline/slow-ops finally receive data
-- [x] Fifty-eighth change (056): configurable prep workers — `processing.prep_workers` sizes a fixed `ThreadPoolExecutor` for the prep stages S2 (mapping), S3 (metadata) and S4 (assembly), which ran one document at a time on a single thread; default `1` is byte-identical to before, `pool.map` keeps the survivor list in input order, and S0/S1 stay serial by design (they carry the cross-batch idempotency + resume logic). No AIMD/lanes/bandwidth machinery — just a thread count
-- [x] Fifty-ninth change (057): size the S5 thread pool to the AIMD ceiling — the upload `ThreadPoolExecutor` was created with `max_workers=cmis.workers` (fixed), so the AIMD-resized `ResizableSemaphore` could never exceed the initial count: `pool_in_use` stayed pinned at `cmis.workers` while the TUI's capacity climbed, and the auto-tune knob was disconnected from the engine; the pool (both `_stage_5_single` and the dual heavy/light pair) is now sized to `_pool_ceiling()` = `auto_tune.max_threads`, so the semaphore/lane controller becomes the effective limiter — unchanged when AIMD is off
-- [x] Sixtieth change (058): DETAIL tab fixes — (a) the per-doc `size` column always read `—` because `file_size_bytes` was never persisted: the row was first INSERT-OR-IGNORE'd in S1 (when `item.staged_file` was still `None`) and the S4 INSERT was silently ignored, so the column stayed NULL forever; a new `ITrackingStore.record_staged_file_metadata` UPDATEs the row after S4 assembles, idempotent so resume runs also backfill; (b) the DETAIL pane was wrapped in a plain `Container` that crops overflow instead of scrolling — now a `VerticalScroll` with `#detail_body { height: auto }` and `_MAX_ROWS` raised to 2000, so chunks larger than the visible height read past the fold
-- [x] Sixty-first change (060): HTTP client migrated from `requests` to `httpx[http2]` — `CmisUploader` now negotiates HTTP/2 via ALPN, so the N concurrent S5 workers share a single TCP connection (Apache-fronted Alfresco in prod), dropping small-upload overhead; transparent fallback to HTTP/1.1 when the server doesn't advertise h2 (Tomcat-direct staging), so behaviour is unchanged there; 56 adapter integration tests migrated from `responses` to `respx`
-- [x] Sixty-second change (061): AIMD `min_samples` guard — the controller halved the worker pool a few seconds into the first chunk because the nearest-rank p95 with ~5 samples was dominated by a single cold-connection outlier; new `cmis.auto_tune.min_samples` config (default 20) short-circuits the decision to a new `insufficient_data` action when too few samples have accumulated, leaving workers/timeout untouched until the observation is trustworthy
-- [x] Sixty-third change (062): persist S1 filtered + cross-batch-skipped docs to `migration_log` — two new `StageStatus` values (`S1_FILTERED`, `S1_SKIPPED`) + a `mark_stage_terminal` port method, so the DETAIL tab / `analyze batch` / `cmcourier batch show` can identify which specific docs were filtered (delete-coded at source, spec 051) or skipped cross-batch (idempotency); the prior "silent skip" contract intentionally reversed for traceability
-- [x] Sixty-fourth change (063): streaming orchestrator (core, single-lane) — new `processing.mode: "batched" | "streaming"` selects the orchestrator; `"streaming"` runs a continuous producer-consumer pipeline driven by a bounded **bucket** (`processing.streaming.bucket_size`, default 100) between PREP (S1–S4 producers, sized by `prep_workers`) and S5 consumers (sized to `_pool_ceiling()`). Memory peak collapses to `bucket_size` (independent of total trigger count) and S5 never idles waiting for a chunk's PREP. Resume is rejected in streaming mode — re-run + 062's `S1_SKIPPED` rows provide traceability. Heavy/light lanes (036) and a real TUI BUCKET tab are deferred to 065 / 064
-- [x] Sixty-fifth change (064): TUI BUCKET tab for streaming mode — new `b` keybind opens a dedicated tab showing bucket level vs cap (ASCII bar), peak level since run start, 5s sliding-window throughput on PREP + S5, producer in-flight count, configured worker totals, and cumulative `S5_DONE` / `S5_FAILED` / `S1_FILTERED` / `S1_SKIPPED`. The orchestrator exposes a `streaming_snapshot()` reader and a `_ThroughputWindow` (deque+lock) feeds the rates. Batched mode is unchanged — the BUCKET tab prints a one-line stub pointing at CHUNKS
-- [x] Sixty-sixth change (065): heavy/light lanes in streaming mode — combining `processing.mode: "streaming"` with `heavy_light_lanes.enabled: true` now inserts a dispatcher thread between the main bucket and S5: it routes each item into a heavy or light per-lane queue by `staged_file.size_bytes >= heavy_threshold_bytes`, and each lane gets its own consumer pool gated by the existing `LaneController` (semaphore split + drain-driven rebalance from 036). The BUCKET tab gains a LANES sub-block showing heavy/light budget, busy, queue depth, and total budget. Eliminates head-of-line blocking caused by a single heavy doc starving lighter ones queued behind it
-- [x] Sixty-seventh change (066): S4 PDF assembly in `ProcessPoolExecutor` — diagnosed `prep_workers: 16` running at < 5 docs/s aggregate because the GIL serializes `img2pdf`/`PIL`/`PyPDF2` work. New default-on `processing.s4_use_processes: true` dispatches `assemble()` to a process pool sized by `s4_max_processes` (default `os.cpu_count()`), bypassing the GIL completely. `spawn` context (not `fork`) avoids the deadlock risk of a multi-threaded parent. `SourceFileMissingError` / `PDFAssemblyFailedError` got `__reduce__` so they round-trip cleanly across the worker boundary. Expect ~Nx speedup for S4-dominated runs
-- [x] Sixty-eighth change (067): streaming-mode TUI bug fixes — four bugs reported on the first end-to-end streaming run: UPLOAD-tab bar stuck at `count/count` (no `pool_stats.queue_depth` published), chunk timer + avg speed at 0 (synthetic chunk hard-coded `status="PREP"` for the whole run), CHUNKS tab frozen at 0 (live counters only set at end-of-run), LANES queue counter monotonic-up exceeding `bucket_size` (private counter instead of `qsize()`). All four fixes inside `streaming.py`: live `pool_stats.set_queue_depth(...)` per put/get, synthetic chunk seeded `status="UPLOAD"` + monotonic stamps at run start, new `_publish_chunk_state` called after every S5 outcome, and `lane_queue.qsize()` reported to `LaneController` instead of a monotonic counter (also re-enables the drain-driven rebalance heuristic, which never fired pre-067)
-- [x] Sixty-ninth change (068): AIMD aggressive growth + soft halve — diagnosed peak `<20 MB/s` against a 300 Mbps link because `pool capacity` stayed at 4-8: AIMD grew `+1` per 15s tick (44 ticks to reach 50) while a single 40s p95 outlier on a 30 MB upload halved the pool to /2. Three new tunable knobs on `cmis.auto_tune`: `growth_factor` (default 1.25 → multiplicative grow, +1 floor), `halve_factor` (default 0.75 → soft halve), `halve_threshold_ratio` (default 1.5 → halve at 1.5× target instead of 1.2×). Capacity now reaches the ceiling in ~2.5 min and survives natural p95 variance from heavy files
-- [x] Seventieth change (069): bandwidth sampler distributes bytes over the real transmission window — diagnosed the TUI flipping between `current 11 MB/s` and `0 MB/s` because `_BandwidthSampler.record_upload` credited the entire file size to the second of completion. For a 30 MB / 3 s upload all bytes landed in one bucket and zero in the other two. New signature `(size, *, started_at, completed_at)` distributes uniformly across the buckets the transmission spanned; the `_BandwidthHandler` derives `started_at` from `duration_ms` already carried in the `cmis_upload` log record. `current_mbps`, `peak_mbps`, and the sparkline now reflect sustained throughput instead of completion aliasing
-- [x] Seventy-first change (070): unify the LaneController across streaming + batched — diagnosed the UPLOAD-tab LANES `queue 0` (and BUCKET-tab LANES showing the correct value): there were two `LaneController` instances when both modes' configs had `heavy_light_lanes.enabled: true`. The `StreamingOrchestrator` (065) built its own, the `StagedPipeline` (036) built another, the TUI read the pipeline's idle one. Also silently broke AIMD's per-lane budget steering. Now the streaming orchestrator reuses `pipeline.lane_controller` via a read-through property — one instance per run, all data flows hit it
-- [x] MVP: `rvabrep-pipeline` end-to-end
-- [ ] Real-data dry run against staging
-- [ ] First production migration
+- [x] Constitución ratificada (v1.0.0)
+- [x] Estructura del proyecto definida
+- [x] Verdad de dominio documentada (en `docs/domain/`)
+- [x] Arquitectura de pipeline basada en stages definida
+- [x] Validación pre-flight definida
+- [x] Niveles de observabilidad definidos
+- [x] Roadmap post-MVP capturado
+- [x] Contexto SDD registrado (`/sdd-init`)
+- [x] Primer cambio: bootstrap del esqueleto Python
+- [x] Segundo cambio: modelos de dominio, ports, excepciones
+- [x] Tercer cambio: primer adapter concreto (Data Source tabular CSV+XLSX)
+- [x] Cuarto cambio: primer service (MappingService sobre Modelo Documental)
+- [x] Quinto cambio: MetadataService (cadena de fallback + auto-curación de CIF)
+- [x] Sexto cambio: estrategias trigger S0 (CSV + direct_rvabrep + stubs)
+- [x] Séptimo cambio: tracking store SQLite (idempotencia + estado por stage)
+- [x] Octavo cambio: IndexingService (S1 — lookup RVABREP)
+- [x] Noveno cambio: PdfAssembler (S4 — img2pdf + fallback Pillow/PyPDF2)
+- [x] Décimo cambio: CmisUploader (S5 — CMIS Browser Binding + política de retry + limitador de bandwidth)
+- [x] Undécimo cambio: orquestador CsvTriggerPipeline (S0..S6 de punta a punta, librería) — **pipeline MVP completa**
+- [x] Decimosegundo cambio: CLI + config Pydantic + loader YAML — **CLI MVP usable de punta a punta**
+- [x] Decimotercer cambio: pre-flight `cmcourier doctor`
+- [x] Decimocuarto cambio: adapter AS400 + rvabrep-pipeline + as400-trigger-pipeline — **multi-pipeline + AS400 listo para producción**
+- [x] Decimoquinto cambio: fuentes de metadatos AS400 (cierra el gap de 014)
+- [x] Decimosexto cambio: local-scan-pipeline (4ª pipeline productiva; set de modos trigger completo)
+- [x] Decimoséptimo cambio: single-doc-pipeline (diagnóstica — one-shot dirigida por CLI)
+- [x] Decimoctavo cambio: override de query AS400 por fuente (cierra el gap de escala de 015)
+- [x] Decimonoveno cambio: limpieza de higiene de port en adapters (cada adapter ahora declara su port)
+- [x] Vigésimo cambio: niveles de observabilidad 1-4 — JSON app log + pipeline + network + slow-ops
+- [x] Vigésimo primer cambio: esenciales de CLI para operador — batch list/show/retry-failed + inspect rvabrep/mapping + as400-query
+- [x] Vigésimo segundo cambio: flags de seguridad de pipeline — auto-doctor + --resume + doctor --check
+- [x] Vigésimo tercer cambio: menús CLI de operador completos — inspect trigger / mapping-stats + batch export-report
+- [x] Vigésimo cuarto cambio: background runner — punto de entrada cron-friendly con lock fcntl por config
+- [x] Vigésimo quinto cambio: TUI live de dos tabs + worker pool S5 + auto-tune AIMD
+- [x] Vigésimo sexto cambio: métricas de sistema nivel 5 (POST-MVP §2 — sampleo psutil, costo ~0.1% CPU)
+- [x] Vigésimo séptimo cambio: analizador de logs offline `cmcourier analyze batch/compare/trends` (POST-MVP §3)
+- [x] Vigésimo octavo cambio: orquestador multi-batch con overlap producer-consumer N=2 (POST-MVP §7, N=2)
+- [x] Vigésimo noveno cambio: `BandwidthLimiter` compartido con token bucket — `cmis.max_bandwidth_mbps` ahora es el verdadero tope global
+- [x] Trigésimo cambio: vista multi-batch en TUI — nueva tab `CHUNKS` + binding del recorder live
+- [x] Trigésimo segundo cambio: auto-completion de shell (`cmcourier completion bash|zsh|fish`)
+- [x] Trigésimo tercer cambio: polish de Tier 1 — flag `--total <N>` + docs de integración CI para `analyze`
+- [x] Trigésimo cuarto cambio: idempotencia distribuida AS400 NIARVILOG (POST-MVP §4 — toggleable, retry/backoff, CLI `cmcourier sync resolve`)
+- [x] Trigésimo quinto cambio: split de CSV de mapping (`MapeoRVI_CM.csv` + `MetadatosCM.csv` + columna `CMISType` — formato de producción; el modo consolidado queda para tests)
+- [x] Trigésimo sexto cambio: lanes adaptativos heavy/light para upload (POST-MVP §1 — default off, `LaneSplitter` + `LaneController` + rebalance dirigido por drain + sub-paneles TUI duales)
+- [x] Trigésimo séptimo cambio: tabla cross-batch `document_cache` (POST-MVP §9 — default off, respaldada en SQLite, consciente del TTL, CLI `cmcourier cache stats|clear`)
+- [x] Trigésimo octavo cambio: sizing del CMIS connection pool + warm-up eager (POST-MVP §10.2 — `HTTPAdapter pool_maxsize`, `warm_connection_pool(n)` pre-S5)
+- [x] Trigésimo noveno cambio: override de `object_type_id` CMIS (vía `mapping.cmis_type`) + scaffolding de dry-run de staging (Alfresco-en-Docker + runbooks)
+- [x] Cuadragésimo cambio (038): pre-flight de destino CMIS + trace de payload de upload — columnas `CMISFolder` + `CMISPropertyId`; `doctor --check cm-targets` (folders + properties); `IUploader.verify_folder_exists` (read-only); eventos `s5_upload_attempt` / `s5_upload_failed` con enmascaramiento de PII + toggle `observability.unmask_pii`
+- [x] Cuadragésimo primer cambio (039): generador sintético de CSV RVABREP — `cmcourier mock rvabrep` streamea un CSV determinista por semilla a cualquier escala (encadena en `mock generate` para materialización de archivos)
+- [x] Cuadragésimo segundo cambio (040): compatibilidad CMIS Alfresco — semántica `repo_id=""` + heurística de propiedad mime + allowlist del formatter JSON + override `cmis_type` en doctor; smoke en vivo contra Alfresco 23.x shippea con 0 failures de punta a punta
+- [x] Cuadragésimo tercer cambio (041): pase de quality-of-life en TUI — dashboard limpio (el handler de stderr se desconecta cuando Textual posee la terminal), la tab UPLOAD agrega MB-subidos/MB-planificados + wall-clock por chunk + MB/s promedio + ETA, la tab CHUNKS se convierte en una tabla de breakdown por stage con fila agregada TOTAL
+- [x] Cuadragésimo cuarto cambio (042): aislamiento de métricas multi-batch en TUI — filtro `_BandwidthHandler` por batch (no más bleed de bytes entre chunks superpuestos), `s5_done`/`s5_failed` en vivo propagados a la fila CHUNKS durante UPLOAD (no más `0/0/0` colgado), slot `upload_recorder()` separado en `MultiBatchOrchestrator` para que los percentiles S5 de la tab UPLOAD no se vean perturbados por flips de recorder del lado PREP
+- [x] Cuadragésimo quinto cambio (043): el auto-tune AIMD ve el p95 real en modo multi-batch — swap hook `AutoTuneController.set_p95_provider` + el orquestador cablea el recorder de upload activo para restaurar la propiedad de protección elástica (pre-043 el controller observaba `p95=0` siempre y solo crecía workers, nunca decrecía)
+- [x] Cuadragésimo sexto cambio (044): resume robusto tras kill -9 en medio de S5 — `_apply_resume` detecta gaps de stage `S{N}_DONE → S{N+1}` (workers pausados a mitad de batch ya no se abandonan como "limpios"), `--batch-id` siempre se propaga (batches con nombre de operador respetados sin `--resume`), `--from-stage` explícito gana sobre la auto-detección
+- [x] Cuadragésimo séptimo cambio (045): upload S5 idempotente ante conflicto 409 — `CmisUploader.upload` recupera de huérfanos por kill-race (doc en Alfresco, ausente de migration_log) consultando el `cmis:objectId` existente vía el endpoint folder-children; cierra la última ventana `S5_FAILED` tras un `kill -9` real
+- [x] Cuadragésimo octavo cambio (046): modelo `Trigger` polimórfico — cada pipeline emite su forma natural de trigger (`ClientTrigger` para csv / single-doc / as400, `RvabrepRowTrigger` para rvabrep-direct, `LocalScanTrigger` para local-scan); S1 dispatchea por subtipo, así que local-scan ahora sube exactamente los archivos del pool de scan (no más sobre-expansión "1 archivo → todos los docs del cliente")
+- [x] Cuadragésimo noveno cambio (047): persiste `cm_object_id` en `S5_DONE` — `mark_stage_done` ahora escribe el objectId de CMIS en `migration_log` para que la DB de tracking pueda responder "¿cuál es el objectId del doc X?" sin un children-walk contra CMIS
+- [x] Quincuagésimo cambio (048): fuente RVABREP pluggable — `indexing.source` se vuelve un union discriminado (`kind: csv` ↔ `kind: as400`); `rvabrep-pipeline` sirve ambos (archivo CSV vs. query AS400 en vivo devolviendo una tabla con forma RVABREP), el comando independiente `as400-trigger-pipeline` y `trigger.kind: as400` se eliminan (AS400 es una elección de *fuente*, no un tipo de trigger)
+- [x] Quincuagésimo primer cambio (049): nombres de columna NIARVILOG configurables — `tracking.as400_sync.columns` mapea los 15 campos lógicos de NIARVILOG a nombres físicos por entorno (simétrico con `indexing.columns`); todos los identificadores configurables (`columns.*`, `library`, `table`) ahora se validan como identificadores DB2, cerrando la superficie de interpolación SQL
+- [x] Quincuagésimo segundo cambio (050): pipeline trigger en streaming — los triggers streamean en chunks de `batch_size` en lugar de materializarse enteros; el pico de memoria es `O(batch_size × batches_in_flight)` no `O(total)`, así que la migración productiva del RVABREP de ~20M filas ya no hace OOM (derrotó cuatro puntos de materialización: el `list()` de `_run_overlapped`, el path monolítico N=1, `TabularDataSource.get_all`, y `--total`)
+- [x] Quincuagésimo tercer cambio (051): "filtrado en S1" es un resultado de primera clase — las filas RVABREP con código de borrado se dropeaban silenciosamente en S1 sin trazabilidad; ahora `_enrich_known_row` levanta `RVABREPDeletedError`, `_stage_s0_s1` lo cuenta como `filtered` (no failed, no silent drop) con un log por doc, y `s1_filtered` aparece en el resumen headless + tabs PREP/CHUNKS del TUI
+- [x] Quincuagésimo cuarto cambio (052): tab CHUNKS — rates en vivo, timer congelado, drill-down — columna `MB/s·docs/s` de throughput por chunk; el timer del run ahora se congela al completar en lugar de contar para siempre; una nueva tab DETAIL (cursor de chunk `[` / `]`, `d` para ver) lista cada doc de un chunk (nombre/size/estado/razón), leída on demand desde el tracking store así la memoria queda acotada
+- [x] Quincuagésimo quinto cambio (053): clasificador de bottleneck consciente de stages — `cmcourier analyze batch` ahora lidera con el breakdown por stage (la señal exacta por batch que antes ignoraba): una stage que retiene ≥45% del tiempo total de stage *es* el bottleneck, y el veredicto nombra si está DENTRO del programa (`assembly/metadata/mapping/indexing/trigger-bound`) o FUERA de él (`upload-bound` — el servidor CMIS + la red); `LogReader` asocia los niveles sin tag `network-*`/`system-*` por la ventana temporal del batch en lugar de un `batch_id` ausente, así que `network_summary`/`system_summary` ya no están siempre vacíos
+- [x] Quincuagésimo sexto cambio (054): cableado del recorder de la tab UPLOAD — termina el split PREP/UPLOAD del recorder de 042: `bandwidth_current/peak/series` + `slow_ops_all` ahora leen el recorder lado UPLOAD (pre-054 leían el recorder PREP, que en runs N=2 no ve ninguno de los eventos `cmis_upload` del chunk subiendo → 0 bandwidth, sparkline en blanco, sin slow ops); el timer de UPLOAD por chunk mide desde `upload_started_monotonic` (inicio de S5) en vez de `prep_started_monotonic`, así "chunk elapsed" y `avg_mbps` reflejan la ventana real de upload
+- [x] Quincuagésimo séptimo cambio (055): los eventos de network llevan el `batch_id` — causa raíz detrás de la tab UPLOAD muerta: `CmisUploader._emit_network` nunca seteaba `batch_id`, así que el `_BandwidthHandler` / `_SlowOpHandler` por-batch (que filtran por él) silenciosamente dropeaban *todos* los eventos `cmis_upload` en *todos* los recorders desde la spec 042; `IUploader.upload` ahora toma un keyword `batch_id` requerido y lo enhebra a través de `_post_with_retries` → `_emit_network` (+ los eventos diagnósticos `s5_upload_attempt`/`s5_upload_failed`), así bandwidth/peak/sparkline/slow-ops finalmente reciben datos
+- [x] Quincuagésimo octavo cambio (056): workers de prep configurables — `processing.prep_workers` dimensiona un `ThreadPoolExecutor` fijo para los stages de prep S2 (mapping), S3 (metadata) y S4 (assembly), que corrían un documento por vez en un único thread; default `1` es byte-idéntico a antes, `pool.map` mantiene la lista de sobrevivientes en orden de entrada, y S0/S1 quedan seriales por diseño (cargan la lógica de idempotencia cross-batch + resume). Sin AIMD/lanes/maquinaria de bandwidth — solo un thread count
+- [x] Quincuagésimo noveno cambio (057): dimensionar el thread pool de S5 al techo AIMD — el `ThreadPoolExecutor` de upload se creaba con `max_workers=cmis.workers` (fijo), así que el `ResizableSemaphore` redimensionado por AIMD nunca podía exceder el conteo inicial: `pool_in_use` quedaba clavado en `cmis.workers` mientras la capacidad del TUI subía, y la perilla auto-tune estaba desconectada del motor; el pool (tanto `_stage_5_single` como el par dual heavy/light) ahora se dimensiona a `_pool_ceiling()` = `auto_tune.max_threads`, así el semáforo/lane controller se vuelve el limitador efectivo — sin cambio cuando AIMD está apagado
+- [x] Sexagésimo cambio (058): fixes de tab DETAIL — (a) la columna `size` por doc siempre leía `—` porque `file_size_bytes` nunca se persistía: la fila se INSERT-OR-IGNORE'aba primero en S1 (cuando `item.staged_file` aún era `None`) y el INSERT de S4 se ignoraba silenciosamente, así que la columna quedaba NULL para siempre; un nuevo `ITrackingStore.record_staged_file_metadata` UPDATEa la fila después de que S4 ensambla, idempotente para que los runs de resume también la rellenen; (b) el panel DETAIL estaba envuelto en un `Container` plano que recorta overflow en vez de scrollear — ahora un `VerticalScroll` con `#detail_body { height: auto }` y `_MAX_ROWS` elevado a 2000, así chunks más grandes que la altura visible se leen más allá del fold
+- [x] Sexagésimo primer cambio (060): cliente HTTP migrado de `requests` a `httpx[http2]` — `CmisUploader` ahora negocia HTTP/2 vía ALPN, así los N workers S5 concurrentes comparten una sola conexión TCP (Alfresco con frontend Apache en prod), bajando overhead de uploads chicos; fallback transparente a HTTP/1.1 cuando el servidor no anuncia h2 (Tomcat-directo en staging), así el comportamiento allí no cambia; 56 tests de integración del adapter migrados de `responses` a `respx`
+- [x] Sexagésimo segundo cambio (061): guardia AIMD `min_samples` — el controller halvea el worker pool unos segundos en el primer chunk porque el p95 por rango más cercano con ~5 muestras estaba dominado por un único outlier de conexión fría; nueva config `cmis.auto_tune.min_samples` (default 20) short-circuita la decisión a una nueva acción `insufficient_data` cuando se acumularon pocas muestras, dejando workers/timeout intactos hasta que la observación sea confiable
+- [x] Sexagésimo tercer cambio (062): persiste docs filtrados/skipeados cross-batch en S1 a `migration_log` — dos nuevos valores de `StageStatus` (`S1_FILTERED`, `S1_SKIPPED`) + un método de port `mark_stage_terminal`, así la tab DETAIL / `analyze batch` / `cmcourier batch show` pueden identificar qué docs específicos fueron filtrados (con código de borrado en origen, spec 051) o skipeados cross-batch (idempotencia); el contrato anterior de "skip silencioso" revertido intencionalmente por trazabilidad
+- [x] Sexagésimo cuarto cambio (063): orquestador streaming (core, single-lane) — nuevo `processing.mode: "batched" | "streaming"` selecciona el orquestador; `"streaming"` corre un pipeline producer-consumer continuo manejado por un **bucket** acotado (`processing.streaming.bucket_size`, default 100) entre PREP (productores S1–S4, dimensionados por `prep_workers`) y consumidores S5 (dimensionados a `_pool_ceiling()`). El pico de memoria colapsa a `bucket_size` (independiente del conteo total de triggers) y S5 nunca queda idle esperando el PREP de un chunk. Resume queda rechazado en modo streaming — re-ejecutar + las filas `S1_SKIPPED` de 062 dan trazabilidad. Lanes heavy/light (036) y una tab BUCKET TUI real quedan diferidas a 065 / 064
+- [x] Sexagésimo quinto cambio (064): tab BUCKET en TUI para modo streaming — nuevo keybind `b` abre una tab dedicada que muestra el nivel del bucket vs cap (barra ASCII), nivel peak desde el inicio del run, throughput de ventana deslizante de 5s en PREP + S5, conteo de productores in-flight, totales de workers configurados, y acumulados `S5_DONE` / `S5_FAILED` / `S1_FILTERED` / `S1_SKIPPED`. El orquestador expone un reader `streaming_snapshot()` y un `_ThroughputWindow` (deque+lock) alimenta las tasas. El modo batched no cambia — la tab BUCKET imprime un stub de una línea apuntando a CHUNKS
+- [x] Sexagésimo sexto cambio (065): lanes heavy/light en modo streaming — combinar `processing.mode: "streaming"` con `heavy_light_lanes.enabled: true` ahora inserta un thread dispatcher entre el bucket principal y S5: rutea cada item a una cola heavy o light por-lane según `staged_file.size_bytes >= heavy_threshold_bytes`, y cada lane recibe su propio consumer pool gateado por el `LaneController` existente (split de semáforos + rebalance dirigido por drain de 036). La tab BUCKET gana un sub-bloque LANES mostrando budget heavy/light, busy, profundidad de cola, y budget total. Elimina el head-of-line blocking causado por un único doc heavy hambriendo a los más livianos encolados detrás
+- [x] Sexagésimo séptimo cambio (066): ensamblado PDF S4 en `ProcessPoolExecutor` — diagnosticado `prep_workers: 16` corriendo a < 5 docs/s agregado porque el GIL serializa el trabajo de `img2pdf`/`PIL`/`PyPDF2`. Nuevo default-on `processing.s4_use_processes: true` dispatchea `assemble()` a un process pool dimensionado por `s4_max_processes` (default `os.cpu_count()`), saltando el GIL completamente. Contexto `spawn` (no `fork`) evita el riesgo de deadlock de un padre multi-thread. `SourceFileMissingError` / `PDFAssemblyFailedError` recibieron `__reduce__` para que crucen limpiamente el borde de worker. Esperar speedup ~Nx para runs dominados por S4
+- [x] Sexagésimo octavo cambio (067): fixes de bugs en TUI de modo streaming — cuatro bugs reportados en la primera corrida de streaming de punta a punta: barra de tab UPLOAD clavada en `count/count` (sin `pool_stats.queue_depth` publicado), timer de chunk + velocidad promedio en 0 (chunk sintético hard-coded `status="PREP"` para todo el run), tab CHUNKS congelada en 0 (contadores live seteados solo al fin del run), contador de cola LANES monotónico-creciente excediendo `bucket_size` (contador privado en vez de `qsize()`). Los cuatro fixes adentro de `streaming.py`: `pool_stats.set_queue_depth(...)` live por put/get, chunk sintético sembrado `status="UPLOAD"` + stamps monotónicos al inicio del run, nuevo `_publish_chunk_state` llamado después de cada outcome S5, y `lane_queue.qsize()` reportado al `LaneController` en lugar de un contador monotónico (también re-habilita la heurística de rebalance dirigido por drain, que nunca disparaba pre-067)
+- [x] Sexagésimo noveno cambio (068): crecimiento agresivo de AIMD + halve suave — diagnosticado peak `<20 MB/s` contra un link de 300 Mbps porque la `capacidad del pool` quedaba en 4-8: AIMD crecía `+1` por tick de 15s (44 ticks para llegar a 50) mientras que un único outlier de p95 de 40s en un upload de 30 MB halveaba el pool a /2. Tres nuevas perillas tuneables en `cmis.auto_tune`: `growth_factor` (default 1.25 → crecimiento multiplicativo, piso +1), `halve_factor` (default 0.75 → halve suave), `halve_threshold_ratio` (default 1.5 → halvear a 1.5× target en vez de 1.2×). La capacidad ahora alcanza el techo en ~2.5 min y sobrevive a la varianza natural de p95 con archivos pesados
+- [x] Septuagésimo cambio (069): el sampler de bandwidth distribuye bytes sobre la ventana real de transmisión — diagnosticado el TUI flipeando entre `current 11 MB/s` y `0 MB/s` porque `_BandwidthSampler.record_upload` acreditaba todo el tamaño del archivo al segundo de completion. Para un upload de 30 MB / 3 s todos los bytes caían en un bucket y cero en los otros dos. Nueva firma `(size, *, started_at, completed_at)` distribuye uniformemente entre los buckets que la transmisión abarcó; el `_BandwidthHandler` deriva `started_at` del `duration_ms` ya transportado en el log record `cmis_upload`. `current_mbps`, `peak_mbps`, y la sparkline ahora reflejan throughput sostenido en vez de aliasing de completion
+- [x] Septuagésimo primer cambio (070): unificar el LaneController entre streaming + batched — diagnosticado el LANES `queue 0` de la tab UPLOAD (y la tab BUCKET LANES mostrando el valor correcto): había dos instancias `LaneController` cuando las configs de ambos modos tenían `heavy_light_lanes.enabled: true`. El `StreamingOrchestrator` (065) construía la propia, el `StagedPipeline` (036) construía otra, y el TUI leía la del pipeline (idle). También rompía silenciosamente el direccionamiento de budget por-lane de AIMD. Ahora el orquestador streaming reusa `pipeline.lane_controller` vía una property read-through — una instancia por run, todos los flujos de datos le pegan
+- [x] MVP: `rvabrep-pipeline` de punta a punta
+- [ ] Dry run con datos reales contra staging
+- [ ] Primera migración productiva
 
 ---
 
-## License
+## Licencia
 
-To be defined by the project owner. Until then, treat this repository as proprietary; do not distribute without permission.
+Por definir por el dueño del proyecto. Hasta entonces, tratá este repositorio como propietario; no distribuir sin permiso.

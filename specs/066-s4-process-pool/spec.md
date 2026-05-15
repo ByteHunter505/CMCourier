@@ -1,48 +1,56 @@
-# 066 — S4 PDF assembly in a ProcessPoolExecutor (real parallelism)
+# 066 — Armado de PDF de S4 en un ProcessPoolExecutor (paralelismo real)
 
-## Why
+## Por qué
 
-Diagnosed during a 5000-doc streaming staging run (`config-staging-rvabrep-streaming.yaml`):
+Diagnosticado durante un run de staging de streaming de 5000
+docs (`config-staging-rvabrep-streaming.yaml`):
 
-* `processing.prep_workers: 16` configured
-* BUCKET tab showed `PREP 16 in-flight` (counter correct)
-* BUCKET level stayed near 0 — S5 always faster than PREP
-* PREP throughput: **< 5 docs/s** despite 16 producer threads
+* `processing.prep_workers: 16` configurado
+* El tab BUCKET mostraba `PREP 16 in-flight` (contador
+  correcto)
+* El nivel del BUCKET quedaba cerca de 0 — S5 siempre más
+  rápido que PREP
+* Throughput del PREP: **< 5 docs/s** a pesar de los 16
+  threads producer
 
-Diagnosis: S4 (PDF assembly via `img2pdf` + `PIL` + `PyPDF2`) is
-CPU-bound. The **GIL serializes Python bytecode execution**, so
-multiple threads running `PdfAssembler.assemble()` execute one at a
-time at the C-extension boundary. The 16-thread parallelism is real
-in terms of *threads existing inside `streaming_prep_one`*, but
-aggregate throughput is ~equivalent to a single worker.
+Diagnóstico: S4 (armado de PDF vía `img2pdf` + `PIL` +
+`PyPDF2`) es CPU-bound. El **GIL serializa la ejecución de
+bytecode de Python**, así que múltiples threads corriendo
+`PdfAssembler.assemble()` se ejecutan de a uno a la vez en
+el límite de C-extension. El paralelismo de 16 threads es
+real en términos de *threads existiendo adentro de
+`streaming_prep_one`*, pero el throughput agregado es
+~equivalente a un único worker.
 
-The earlier prep stages (S1 indexing, S2 mapping, S3 metadata) are
-all dict-lookup-in-memory — they parallelize fine with threading
-because they spend most of their time in C-level pandas / dict
-operations that release the GIL. Only S4 is the bottleneck.
+Los stages anteriores del prep (indexing S1, mapping S2,
+metadata S3) son todos dict-lookup-in-memory — paralelizan
+bien con threading porque pasan la mayoría del tiempo en
+operaciones de pandas / dict a nivel C que liberan el GIL.
+Solo S4 es el cuello de botella.
 
-## What
+## Qué
 
-### 1. `ProcessPoolExecutor` for S4 only
+### 1. `ProcessPoolExecutor` solo para S4
 
-A pool of `N` worker processes runs `PdfAssembler.assemble()` for
-every S4 invocation. The producer thread in `StreamingOrchestrator`
-calls:
+Un pool de `N` procesos worker corre
+`PdfAssembler.assemble()` para cada invocación de S4. El
+thread producer en `StreamingOrchestrator` llama:
 
 ```python
 staged = self._s4_pool.submit(_pool_assemble, document).result()
 ```
 
-The thread blocks waiting for the result, but **releases the GIL
-during the wait** — so other producer threads can execute S1/S2/S3
-work in parallel. Meanwhile, the N worker processes each have their
-own Python interpreter and execute `assemble()` at real OS-level
-parallelism.
+El thread bloquea esperando el resultado, pero **libera el
+GIL durante la espera** — así otros threads producer pueden
+ejecutar trabajo de S1/S2/S3 en paralelo. Mientras tanto,
+los N procesos worker cada uno tienen su propio intérprete
+Python y ejecutan `assemble()` con paralelismo real a nivel
+OS.
 
-### 2. Module-level pool helpers (picklability)
+### 2. Helpers de pool a nivel módulo (picklability)
 
 ```python
-# in cmcourier.adapters.assembly.pool
+# en cmcourier.adapters.assembly.pool
 
 _worker_assembler: PdfAssembler | None = None
 
@@ -55,86 +63,102 @@ def _pool_assemble(document: RVABREPDocument) -> StagedFile:
     return _worker_assembler.assemble(document)
 ```
 
-The pool is constructed once in the wiring layer with
-`initializer=_pool_init, initargs=(assembler_config,)`. Each worker
-reconstructs the assembler in its own process.
+El pool se construye una vez en la capa de wiring con
+`initializer=_pool_init, initargs=(assembler_config,)`.
+Cada worker reconstruye el assembler en su propio proceso.
 
 ### 3. Config
 
 ```yaml
 processing:
-  # 066: when true, S4 assembly runs in a ProcessPoolExecutor with
-  # `s4_max_processes` workers (default = os.cpu_count()). When false,
-  # S4 runs synchronously inside the producer thread (063/064/065
-  # behaviour).
-  s4_use_processes: true  # NEW DEFAULT — opt-out for byte-identical-to-pre-066
-  s4_max_processes: null  # null → os.cpu_count(); otherwise explicit int
+  # 066: cuando true, el armado de S4 corre en un ProcessPoolExecutor
+  # con `s4_max_processes` workers (default = os.cpu_count()).
+  # Cuando false, S4 corre sincrónico adentro del thread producer
+  # (comportamiento 063/064/065).
+  s4_use_processes: true  # NUEVO DEFAULT — opt-out para byte-idéntico-a-pre-066
+  s4_max_processes: null  # null → os.cpu_count(); sino int explícito
 ```
 
 ### 4. Lifecycle
 
-* **Construction**: wiring layer creates the pool when
-  `s4_use_processes=true`. Passes it to `StagedPipeline.__init__`.
-* **Use**: `_s4_one` checks for pool presence and dispatches to
-  `pool.submit(...).result()` instead of calling `_assembler.assemble`
-  directly.
-* **Shutdown**: wiring layer (or pipeline `close()`) calls
-  `pool.shutdown(wait=True)` after the run completes.
+* **Construcción**: la capa de wiring crea el pool cuando
+  `s4_use_processes=true`. Lo pasa a
+  `StagedPipeline.__init__`.
+* **Uso**: `_s4_one` chequea presencia del pool y despacha
+  a `pool.submit(...).result()` en vez de llamar a
+  `_assembler.assemble` directo.
+* **Shutdown**: la capa de wiring (o el `close()` del
+  pipeline) llama `pool.shutdown(wait=True)` después de
+  que el run completa.
 
-### 5. Picklability requirements
+### 5. Requerimientos de picklability
 
-* `RVABREPDocument` — already a `@dataclass(frozen=True)` — picklable.
-* `AssemblerConfig` — already a dataclass — picklable.
-* `StagedFile` — already a dataclass — picklable.
+* `RVABREPDocument` — ya un `@dataclass(frozen=True)` —
+  picklable.
+* `AssemblerConfig` — ya un dataclass — picklable.
+* `StagedFile` — ya un dataclass — picklable.
 
-No new picklability work needed.
+Sin trabajo nuevo de picklability necesario.
 
-## Out of scope
+## Fuera de alcance
 
-* S2 and S3 in process pool — they are dict-lookup-in-memory work,
-  picklecost > computecost. Leave them in threads.
-* S1 (indexing) — same reasoning.
-* S5 (upload) — already parallelized via httpx + ThreadPool, network-bound
-  so no GIL pressure.
-* Cross-platform fork vs spawn nuance — `ProcessPoolExecutor` defaults to
-  the platform's preferred method; we don't override.
-* Logging from the worker processes — workers run silently for 066;
-  any log message from inside `assemble()` is lost. A follow-up spec
-  can wire a `QueueHandler` if operators need diagnostic logs.
+* S2 y S3 en process pool — son trabajo
+  dict-lookup-in-memory, picklecost > computecost.
+  Dejarlos en threads.
+* S1 (indexing) — mismo razonamiento.
+* S5 (upload) — ya paralelizado vía httpx + ThreadPool,
+  network-bound así que sin presión del GIL.
+* Matiz cross-platform fork vs spawn —
+  `ProcessPoolExecutor` default al método preferido de la
+  plataforma; no lo overrideamos.
+* Logging desde los procesos worker — los workers corren
+  silenciosos para 066; cualquier mensaje de log desde
+  adentro de `assemble()` se pierde. Una spec de follow-up
+  puede wirear un `QueueHandler` si los operadores
+  necesitan logs de diagnóstico.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-* `processing.s4_use_processes` defaults to `true`. Setting it to
-  `false` restores the 063/064/065 behaviour byte-identically (no
-  pool created, S4 runs in producer thread).
-* `processing.s4_max_processes` defaults to `None` (=
-  `os.cpu_count()`). Explicit `int` overrides.
-* `StagedPipeline` accepts an optional `s4_process_pool:
-  ProcessPoolExecutor | None`. When set, `_s4_one` dispatches to the
-  pool.
-* `cmcourier.adapters.assembly.pool` exposes `_pool_init` and
-  `_pool_assemble` at module level (importable / picklable).
-* The wiring layer constructs the pool when configured and shuts it
-  down on pipeline close.
-* All existing tests pass. New tests:
-  * Unit: pool helper functions are picklable.
-  * Unit: `_s4_one` dispatches to the pool when present.
-  * Unit: `_s4_one` falls back to direct assembly when pool is None.
-  * Integration: 6-doc streaming run with `s4_use_processes=true`
-    produces same `S5_DONE` count as without.
-* mypy + ruff clean.
+* `processing.s4_use_processes` default a `true`.
+  Setearlo a `false` restaura el comportamiento
+  063/064/065 byte-idénticamente (sin pool creado, S4
+  corre en thread producer).
+* `processing.s4_max_processes` default a `None` (=
+  `os.cpu_count()`). `int` explícito overridea.
+* `StagedPipeline` acepta un
+  `s4_process_pool: ProcessPoolExecutor | None` opcional.
+  Cuando seteado, `_s4_one` despacha al pool.
+* `cmcourier.adapters.assembly.pool` expone `_pool_init` y
+  `_pool_assemble` a nivel módulo (importable /
+  picklable).
+* La capa de wiring construye el pool cuando está
+  configurado y lo shutdownea en close del pipeline.
+* Todos los tests existentes pasan. Tests nuevos:
+  * Unit: las funciones helper del pool son picklables.
+  * Unit: `_s4_one` despacha al pool cuando está
+    presente.
+  * Unit: `_s4_one` hace fallback a assembly directo
+    cuando el pool es None.
+  * Integration: un run streaming de 6 docs con
+    `s4_use_processes=true` produce el mismo conteo
+    `S5_DONE` que sin él.
+* mypy + ruff limpios.
 * CHANGELOG `[0.68.0]`; pyproject 0.67.0 → 0.68.0.
 
-## Notes on expected impact
+## Notas sobre impacto esperado
 
-* Per-doc S4 latency: roughly the same (slightly higher due to pickle
-  + IPC overhead of ~1-5ms per doc).
-* Aggregate PREP throughput: should scale with `s4_max_processes` for
-  CPU-bound workloads. With `os.cpu_count() = 8`, expect ~8x speedup
-  over single-thread S4 for large PDFs.
-* Memory: each worker process has its own Python interpreter (~30-50 MB
-  RSS each). `s4_max_processes=8` adds ~250-400 MB to total RSS — well
-  within budget for the banking servers.
-* First-doc latency: pool initialization takes 200-500 ms (importing
-  PIL/img2pdf/PyPDF2 in each worker). Amortized to nothing across the
-  rest of the run.
+* Latencia de S4 per-doc: aproximadamente la misma
+  (ligeramente más alta por overhead de pickle + IPC de
+  ~1-5ms por doc).
+* Throughput agregado del PREP: debería escalar con
+  `s4_max_processes` para cargas CPU-bound. Con
+  `os.cpu_count() = 8`, esperar ~8x speedup sobre S4
+  single-thread para PDFs grandes.
+* Memoria: cada proceso worker tiene su propio intérprete
+  Python (~30-50 MB RSS cada uno). `s4_max_processes=8`
+  agrega ~250-400 MB al RSS total — bien dentro del
+  budget para los servidores del banco.
+* Latencia del primer doc: la inicialización del pool toma
+  200-500 ms (importando PIL/img2pdf/PyPDF2 en cada
+  worker). Amortizado a nada a lo largo del resto del
+  run.

@@ -1,28 +1,28 @@
-# Explanations — How CMCourier Works
+# Explicaciones — Cómo Funciona CMCourier
 
-> Understanding-oriented documentation. **"How does this work and why?"**
+> Documentación orientada al entendimiento. **"¿Cómo funciona esto y por qué?"**
 
-An explanation document is for the reader who already knows *what* CMCourier does and now wants to understand *how* and *why*. It can include design rationale, architectural diagrams, comparisons with alternatives, and historical context. It is the place to discuss tradeoffs and the reasoning behind decisions.
+Un documento de explicación es para el lector que ya sabe *qué* hace CMCourier y ahora quiere entender *cómo* y *por qué*. Puede incluir racional de diseño, diagramas arquitectónicos, comparaciones con alternativas, y contexto histórico. Es el lugar para discutir tradeoffs y el razonamiento detrás de las decisiones.
 
-If you want practical step-by-step instructions, see [`../how-to/README.md`](../how-to/README.md). If you are looking up a specific fact (a column name, a config field), the future `docs/reference/` directory is the place.
-
----
-
-## Canonical domain explanation
-
-The single most important explanation document is **outside** this directory:
-
-- **the project's domain spec** — comprehensive specification of the source and target systems, the RVABREP schema, the stage-based pipeline architecture, metadata resolution cascade, CMIS quirks, idempotency model, and observability tiers.
-
-It stays where it is because moving it would invalidate cross-references in already-shipped artifacts (the constitution, CONTRIBUTING, plans). Treat it as canonical when no smaller explanation exists for the topic you care about.
+Si querés instrucciones prácticas paso a paso, ver [`../how-to/README.md`](../how-to/README.md). Si estás buscando un dato específico (un nombre de columna, un campo de config), el futuro directorio `docs/reference/` es el lugar.
 
 ---
 
-## Naming convention
+## Explicación canónica de dominio
 
-Files in this directory are named `<concept-slug>.md`. Slugs are kebab-case, descriptive, and stable. Renaming is a breaking change for external links — bump `CHANGELOG.md`.
+El documento de explicación más importante está **fuera** de este directorio:
 
-Examples (illustrative, not currently shipped):
+- **la spec de dominio del proyecto** — especificación comprensiva de los sistemas fuente y destino, el esquema RVABREP, la arquitectura de pipeline basada en stages, la cascada de resolución de metadatos, las particularidades de CMIS, el modelo de idempotencia, y los niveles de observabilidad.
+
+Se queda donde está porque moverlo invalidaría cross-references en artefactos ya shippeados (la constitución, CONTRIBUTING, plans). Tratalo como canónico cuando no exista una explicación más chica para el tema que te interesa.
+
+---
+
+## Convención de nombres
+
+Los archivos de este directorio se llaman `<concept-slug>.md`. Los slugs son kebab-case, descriptivos y estables. Renombrar es un cambio breaking para links externos — bumpear `CHANGELOG.md`.
+
+Ejemplos (ilustrativos, no shippeados actualmente):
 
 - `stage-architecture.md`
 - `metadata-resolution-cascade.md`
@@ -33,34 +33,33 @@ Examples (illustrative, not currently shipped):
 
 ---
 
-## Available explanations
+## Explicaciones disponibles
 
-*(none yet — this section grows as architectural concepts deserve standalone walkthroughs beyond the domain spec)*
+*(ninguna todavía — esta sección crece a medida que conceptos arquitectónicos merezcan walkthroughs standalone más allá de la spec de dominio)*
 
-| Explanation | Concept | Depth |
+| Explicación | Concepto | Profundidad |
 |-------------|---------|-------|
 | — | — | — |
-
 ---
 
-## Writing a new explanation
+## Escribir una nueva explicación
 
-When adding an explanation:
+Al agregar una explicación:
 
-1. Pick a concept-noun slug. The reader is asking "how does X work?".
-2. Open with the *problem* the concept solves. Why does it exist?
-3. Walk through the concept, building from first principles. Diagrams, tables, code excerpts welcome.
-4. Compare with alternatives where useful. Why this design and not another?
-5. Cross-link to the relevant section of the constitution, the domain spec, or specs that codify the concept.
-6. Add the explanation to the table above and to `docs/INDEX.md`.
+1. Elegí un slug de concepto-sustantivo. El lector pregunta "¿cómo funciona X?".
+2. Abrí con el *problema* que el concepto resuelve. ¿Por qué existe?
+3. Recorré el concepto, construyendo desde los primeros principios. Diagramas, tablas, fragmentos de código bienvenidos.
+4. Compará con alternativas donde sea útil. ¿Por qué este diseño y no otro?
+5. Cross-linkeá con la sección relevante de la constitución, la spec de dominio, o las specs que codifican el concepto.
+6. Agregá la explicación a la tabla de arriba y a `docs/INDEX.md`.
 
-An explanation is **not** a tutorial (no curated walkthrough), **not** a how-to (no practical steps), **not** a reference (not a dry list of facts). It is reasoning, expressed as prose the reader thinks alongside.
+Una explicación **no** es un tutorial (sin walkthrough curado), **no** es una how-to (sin pasos prácticos), **no** es una referencia (no una lista seca de hechos). Es razonamiento, expresado como prosa que el lector piensa al lado.
 
 ---
 
 ## Cross-references
 
-- [`docs/INDEX.md`](../INDEX.md) — canonical map of all documentation
-- [`docs/how-to/README.md`](../how-to/README.md) — for practical recipes
-- the project's domain spec — canonical domain explanation
-- [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) — engineering law (the *why* behind every architectural rule)
+- [`docs/INDEX.md`](../INDEX.md) — mapa canónico de toda la documentación
+- [`docs/how-to/README.md`](../how-to/README.md) — para recetas prácticas
+- la spec de dominio del proyecto — explicación canónica de dominio
+- [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) — ley de ingeniería (el *por qué* detrás de cada regla arquitectónica)

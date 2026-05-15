@@ -1,124 +1,141 @@
-# 053 — Bottleneck classifier: stage-aware + time-window log association
+# 053 — Clasificador de cuellos de botella: stage-aware + asociación de logs por ventana de tiempo
 
-## Why
+## Por qué
 
-`cmcourier analyze batch <id>` is supposed to tell the operator
-*where the time went* and *whether the bottleneck is inside the
-program or outside it*. On a real 95-doc staging run — where S5
-(upload) was **26× the next stage** (S5 p50 635 ms vs S4 p50 24 ms)
-— it reported:
+`cmcourier analyze batch <id>` se supone que le dice al operador
+*dónde se fue el tiempo* y *si el cuello de botella está adentro
+del programa o afuera de él*. En un run de staging real de 95
+docs — donde S5 (upload) fue **26× el siguiente stage** (S5 p50
+635 ms vs S4 p50 24 ms) — reportó:
 
-> **Bottleneck: under-utilized (confidence 1.00)** — "no bottleneck
-> class crossed its threshold"
+> **Bottleneck: under-utilized (confidence 1.00)** — "no
+> bottleneck class crossed its threshold"
 
-Exactly wrong. Three concrete bugs, all in `services/analyze.py`:
+Exactamente al revés. Tres bugs concretos, todos en
+`services/analyze.py`:
 
-1. **The classifier ignores `stage_summary`.** `classify_bottleneck`
-   *receives* the per-stage breakdown but it is marked
-   `# noqa: ARG001 — reserved for future heuristics` — unused. The
-   single clearest bottleneck signal — "which stage dominates the
-   per-doc time" — is sitting right there, batch-tagged and exact.
-2. **Network & system records aren't associated with the batch.**
-   `LogReader._read_filtered` filters them by `rec["batch_id"] ==
-   batch_id`, but those records carry **no `batch_id`** (only a
-   timestamp). So `network_summary` is empty and `system_summary` is
-   `None` — the classifier is blind to its two non-stage tiers.
-3. **Absolute thresholds, no relative reasoning.** Even with system
-   data: `network-bound` detection is dead whenever
-   `cmis_max_bandwidth_mbps == 0` (the default — no configured cap);
-   `worker-saturated` (rank 0) *masks* `network-bound` (rank 4) even
-   though saturation is a *symptom* of slow uploads, not a cause; and
-   the fallback's `cmis_upload p95 > 5000 ms` absolute gate never
-   fires for a run whose S5 dominates by 26× but whose p95 is "only"
+1. **El clasificador ignora `stage_summary`.** `classify_bottleneck`
+   *recibe* el desglose por-stage pero está marcado
+   `# noqa: ARG001 — reserved for future heuristics` — sin uso.
+   La señal de cuello de botella más clara — "qué stage domina
+   el tiempo per-doc" — está justo ahí, batch-tagged y exacta.
+2. **Los records de red & sistema no se asocian con el batch.**
+   `LogReader._read_filtered` los filtra por
+   `rec["batch_id"] == batch_id`, pero esos records no llevan
+   **ningún `batch_id`** (solo un timestamp). Así que
+   `network_summary` queda vacío y `system_summary` queda
+   `None` — el clasificador queda ciego a sus dos tiers
+   non-stage.
+3. **Thresholds absolutos, sin razonamiento relativo.** Incluso
+   con data de sistema: la detección `network-bound` está
+   muerta cada vez que `cmis_max_bandwidth_mbps == 0` (el
+   default — sin tope configurado); `worker-saturated` (rank 0)
+   *enmascara* `network-bound` (rank 4) aunque la saturación es
+   un *síntoma* de uploads lentos, no una causa; y el gate
+   absoluto fallback `cmis_upload p95 > 5000 ms` nunca dispara
+   para un run cuyo S5 domina por 26× pero cuyo p95 es "solo"
    1139 ms.
 
-## What
+## Qué
 
-### 1. Make the stage breakdown the PRIMARY signal
+### 1. Hacer el desglose de stages la señal PRIMARIA
 
-Rewrite `classify_bottleneck` to lead with `stage_summary` — it is
-always present (the `batch_summary` record is batch-tagged) and it is
-the most direct bottleneck signal.
+Reescribir `classify_bottleneck` para liderar con
+`stage_summary` — siempre está presente (el record
+`batch_summary` es batch-tagged) y es la señal más directa de
+cuello de botella.
 
-- Sum each stage's `sum_ms` (total time across all docs in that
-  stage). The **dominant stage** is the one with the largest share.
-- When the dominant stage's share of total stage time crosses a
-  threshold (`_STAGE_DOMINANCE = 0.45`), classify by stage:
-  - **S5** → `upload-bound` — the CMIS server + network. *Outside
-    the program* — the client can only push more concurrency.
-  - **S4** → `assembly-bound` — PDF assembly CPU. *Inside* — ours.
-  - **S3** → `metadata-bound` — metadata resolution. *Inside.*
+- Sumar el `sum_ms` de cada stage (tiempo total a través de
+  todos los docs en ese stage). El **stage dominante** es el
+  que tiene la share más grande.
+- Cuando la share del stage dominante sobre el tiempo total de
+  stages cruza un umbral (`_STAGE_DOMINANCE = 0.45`), clasificar
+  por stage:
+  - **S5** → `upload-bound` — el server CMIS + red. *Afuera del
+    programa* — el cliente solo puede empujar más
+    concurrencia.
+  - **S4** → `assembly-bound` — CPU de armado de PDF.
+    *Adentro* — nuestro.
+  - **S3** → `metadata-bound` — resolución de metadata.
+    *Adentro.*
   - **S2** → `mapping-bound`; **S1** → `indexing-bound`;
-    **S0** → `trigger-bound`. *Inside.*
-- `confidence` = the dominant share. `reasons` names the stage, its
-  share, its p50/p95, and whether it is inside or outside the
-  program — so the operator gets the *answer to their question*, not
-  just a label.
+    **S0** → `trigger-bound`. *Adentro.*
+- `confidence` = la share dominante. `reasons` nombra el stage,
+  su share, su p50/p95, y si está adentro o afuera del programa
+  — así el operador recibe la *respuesta a su pregunta*, no
+  solo un label.
 
-### 2. System metrics REFINE, they don't gate
+### 2. Las métricas de sistema REFINAN, no son gates
 
-When `system_summary` is present (after fix #3 below), the
-cpu/mem/disk signals become **corroborating reasons** appended to the
-stage verdict — e.g. `assembly-bound` + "confirmed: process_cpu >
-80% in 70% of samples". `worker-saturated` is reported as a
-**symptom reason** alongside the verdict (typically alongside
-`upload-bound`), never *instead* of it. The `network-bound`
-sample-fraction signal still contributes when a bandwidth cap is
-configured, but its absence no longer hides an `upload-bound`
-verdict — the stage breakdown carries that.
+Cuando `system_summary` está presente (después del fix #3
+abajo), las señales cpu/mem/disk pasan a ser **razones
+corroborantes** apendizadas al veredicto del stage — p. ej.
+`assembly-bound` + "confirmado: process_cpu > 80% en 70% de
+las muestras". `worker-saturated` se reporta como **razón de
+síntoma** junto al veredicto (típicamente junto a
+`upload-bound`), nunca *en lugar de* él. La señal de fracción
+de muestras `network-bound` todavía contribuye cuando hay un
+tope de banda configurado, pero su ausencia ya no esconde un
+veredicto `upload-bound` — el desglose de stages lleva eso.
 
-`under-utilized` is returned only when **no** stage dominates **and**
-no system signal fires — a genuinely idle run.
+`under-utilized` solo se devuelve cuando **ningún** stage
+domina **y** ninguna señal de sistema dispara — un run
+genuinamente idle.
 
-### 3. Associate network/system records by time window
+### 3. Asociar records de red/sistema por ventana de tiempo
 
-`LogReader.read_batch` already reads the batch-tagged
-`metrics-*.jsonl` first. From the `batch_summary` it derives the
-batch window — `[ts − elapsed_s, ts]` — and filters
-`network-*.jsonl` (timestamp field `ts`) and `system-*.jsonl`
-(timestamp field `ts_iso`) to that window instead of by the absent
-`batch_id`. No emitter changes — the records already carry
-timestamps.
+`LogReader.read_batch` ya lee primero el `metrics-*.jsonl`
+batch-tagged. Desde el `batch_summary` deriva la ventana del
+batch — `[ts − elapsed_s, ts]` — y filtra `network-*.jsonl`
+(campo timestamp `ts`) y `system-*.jsonl` (campo timestamp
+`ts_iso`) a esa ventana en vez de por el `batch_id` ausente.
+Sin cambios de emitter — los records ya llevan timestamps.
 
-## Out of scope
+## Fuera de alcance
 
-- Tagging network/system records with a real `batch_id` (contextvar
-  plumbing through the S5 worker pool). Time-window association is
-  exact for single-batch runs; for **overlapped (N=2)** runs the
-  windows overlap and a network/system record in the overlap may be
-  attributed to either batch — documented as a known limitation. The
-  per-stage breakdown (batch-tagged, exact) is the primary signal and
-  is unaffected.
-- `analyze compare` / `analyze trends` heuristics — unchanged; they
-  already use the stage data directly.
-- New TUI surfacing — `analyze` is the CLI tool; the TUI already has
-  its own per-stage view.
+- Taguear records de red/sistema con un `batch_id` real
+  (plomería de contextvar a través del worker pool de S5). La
+  asociación por ventana de tiempo es exacta para runs
+  single-batch; para runs **overlapped (N=2)** las ventanas se
+  solapan y un record de red/sistema en el solape puede
+  atribuirse a cualquiera de los dos batches — documentado
+  como limitación conocida. El desglose por-stage (batch-tagged,
+  exacto) es la señal primaria y no se ve afectado.
+- Heurísticas de `analyze compare` / `analyze trends` — sin
+  cambios; ya usan la data de stage directamente.
+- Nuevo surface en la TUI — `analyze` es la herramienta CLI;
+  la TUI ya tiene su propia view por-stage.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `classify_bottleneck` on a stage breakdown where S5's `sum_ms`
-  dominates returns `upload-bound` with a reason naming S5, its
-  share, and "outside the program" — a test reproduces the 95-doc
-  run shape and asserts it (the regression case).
-- An S4-dominant breakdown returns `assembly-bound` ("inside the
-  program"); a balanced breakdown with no dominant stage returns
-  `under-utilized`.
-- `worker-saturated` system data no longer overrides a stage verdict
-  — it appears as a reason line, not the classification.
-- `network-bound` is reported for an S5-dominant run **even when
-  `cmis_max_bandwidth_mbps == 0`** (via the stage signal) — a test
-  asserts the old "under-utilized" regression is gone.
-- `LogReader.read_batch` populates `network_summary` /
-  `system_summary` from records that have no `batch_id`, filtered to
-  the batch's time window — a test with windowed fixtures asserts it.
-- Full unit + integration suite green; mypy + ruff clean.
+- `classify_bottleneck` sobre un desglose de stages donde el
+  `sum_ms` de S5 domina devuelve `upload-bound` con una razón
+  nombrando S5, su share, y "afuera del programa" — un test
+  reproduce la forma del run de 95 docs y lo assertea (el caso
+  de regresión).
+- Un desglose S4-dominante devuelve `assembly-bound` ("adentro
+  del programa"); un desglose balanceado sin stage dominante
+  devuelve `under-utilized`.
+- La data de sistema `worker-saturated` ya no sobrescribe un
+  veredicto de stage — aparece como una línea de razón, no como
+  la clasificación.
+- `network-bound` se reporta para un run S5-dominante **incluso
+  cuando `cmis_max_bandwidth_mbps == 0`** (vía la señal de
+  stage) — un test assertea que la regresión vieja
+  "under-utilized" se fue.
+- `LogReader.read_batch` puebla `network_summary` /
+  `system_summary` desde records que no tienen `batch_id`,
+  filtrados a la ventana de tiempo del batch — un test con
+  fixtures windoweados lo assertea.
+- Suite completa unit + integration verde; mypy + ruff limpios.
 - `CHANGELOG.md [0.56.0]`; `pyproject.toml` 0.55.0 → 0.56.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-`classify_bottleneck` is a pure function — the tests feed it stage /
-network / system summaries and assert the classification + reasons,
-including the **exact 95-doc run shape** as the named regression
-test. `LogReader` time-window association is tested with JSONL
-fixtures whose timestamps straddle the batch window. The existing
-`test_analyze*.py` suite is the regression gate.
+`classify_bottleneck` es una función pura — los tests le
+alimentan resúmenes de stage / network / sistema y assertean la
+clasificación + razones, incluyendo la **forma exacta del run
+de 95 docs** como el test de regresión nombrado. La asociación
+por ventana de tiempo del `LogReader` se testea con fixtures
+JSONL cuyos timestamps cruzan la ventana del batch. La suite
+existente `test_analyze*.py` es el gate de regresión.

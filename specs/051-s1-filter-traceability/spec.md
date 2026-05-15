@@ -1,116 +1,127 @@
-# 051 — S1 filter traceability (delete-coded RVABREP rows)
+# 051 — Trazabilidad de filtros de S1 (filas RVABREP con código de borrado)
 
-## Why
+## Por qué
 
-A `--total 2000` staging run showed S1 processing 1000 triggers per
-chunk but only ~943 / ~954 docs reaching S2–S5. ~57 / ~46 docs per
-chunk **vanished with zero traceability** — no count, no log, no TUI
-surface. The operator's words: *"necesito mirar qué pasa, no
-simplemente que desaparezca."*
+Un run de staging `--total 2000` mostró que S1 procesaba 1000
+triggers por chunk pero solo ~943 / ~954 docs llegaban a S2–S5.
+~57 / ~46 docs por chunk **se evaporaron sin trazabilidad** — sin
+conteo, sin log, sin surface en la TUI. Las palabras del operador:
+*"necesito mirar qué pasa, no simplemente que desaparezca."*
 
-Root cause, traced in the code:
+Causa raíz, trazada en el código:
 
-`IndexingService._enrich_known_row` (`indexing.py:133`) — for a
-`RvabrepRowTrigger` / `LocalScanTrigger`, if the RVABREP row carries a
-delete code it does **`return []` silently**. No exception, no log, no
-counter. In `_stage_s0_s1` the `for doc in docs:` loop simply doesn't
-run for that trigger, so the doc is neither `done`, nor `skipped`
-(cross-batch), nor `failed` — it is a **fourth outcome that the
-pipeline has no name for**.
+`IndexingService._enrich_known_row` (`indexing.py:133`) — para un
+`RvabrepRowTrigger` / `LocalScanTrigger`, si la fila RVABREP lleva
+un código de borrado hace **`return []` silenciosamente**. Sin
+excepción, sin log, sin contador. En `_stage_s0_s1` el loop
+`for doc in docs:` simplemente no corre para ese trigger, así que
+el doc no es ni `done`, ni `skipped` (cross-batch), ni `failed` —
+es un **cuarto outcome al que el pipeline no le tiene nombre**.
 
-(The `ClientTrigger` path is inconsistent: `find_documents` *raises*
-`RVABREPDeletedError`, which `_stage_s0_s1` currently treats as an S1
-**failure** — also wrong: a doc deleted at source is not a pipeline
-failure, it is correctly excluded.)
+(El camino `ClientTrigger` es inconsistente: `find_documents`
+*levanta* `RVABREPDeletedError`, lo cual `_stage_s0_s1`
+actualmente trata como una **falla** de S1 — también incorrecto:
+un doc borrado en la fuente no es una falla del pipeline, está
+correctamente excluido.)
 
-## What
+## Qué
 
-Make "filtered at S1 — deleted at source" a **first-class outcome**:
-counted, logged per-doc, and surfaced in the headless output and the
-TUI.
+Hacer de "filtrado en S1 — borrado en la fuente" un **outcome de
+primera clase**: contado, logueado per-doc, y surface en el
+output headless y la TUI.
 
-### 1. `IndexingService` — stop swallowing the filter
+### 1. `IndexingService` — dejar de tragarse el filtro
 
-`_enrich_known_row` raises `RVABREPDeletedError` for a delete-coded
-row instead of `return []` — consistent with `find_documents` (the
-`ClientTrigger` path already raises it). The "no docs at all" case
-stays `return []` only for genuinely empty input, which can't happen
-for a single known row.
+`_enrich_known_row` levanta `RVABREPDeletedError` para una fila
+con código de borrado en vez de `return []` — consistente con
+`find_documents` (el camino `ClientTrigger` ya lo levanta). El
+caso "no hay docs en absoluto" queda como `return []` solo para
+input genuinamente vacío, lo cual no puede ocurrir para una sola
+fila conocida.
 
-### 2. `_stage_s0_s1` — a `filtered` tally, not a failure
+### 2. `_stage_s0_s1` — un tally `filtered`, no una falla
 
-`_stage_s0_s1` gains an `except RVABREPDeletedError` branch that:
-- increments a `filtered` counter (NOT `timer.mark_failed()`),
-- emits a structured INFO log per filtered doc: `txn_num` /
+`_stage_s0_s1` gana una rama `except RVABREPDeletedError` que:
+- incrementa un contador `filtered` (NO `timer.mark_failed()`),
+- emite un log estructurado INFO por doc filtrado: `txn_num` /
   `shortname` + `reason="deleted_at_source"`,
-- `continue`s (the doc produces no item).
+- hace `continue` (el doc no produce item).
 
-`RVABREPDeletedError` thus becomes a **filter**, not a failure, for
-**both** trigger paths — a consistency fix. `RVABREPNotFoundError`
-(a `ClientTrigger` pointing at a non-existent RVABREP row) stays an S1
-**failure** — that genuinely is a data-integrity error, out of scope.
+`RVABREPDeletedError` pasa a ser entonces un **filtro**, no una
+falla, para **ambos** caminos de trigger — un fix de consistencia.
+`RVABREPNotFoundError` (un `ClientTrigger` apuntando a una fila
+RVABREP inexistente) queda como una **falla** de S1 — eso sí es
+genuinamente un error de integridad de data, fuera de alcance.
 
-`_stage_s0_s1` returns `(items, skipped_cross_batch, filtered)`.
+`_stage_s0_s1` devuelve `(items, skipped_cross_batch, filtered)`.
 
-### 3. Thread the count through the report types
+### 3. Pasar el conteo a través de los tipos de reporte
 
-- `RunReport` gains `s1_filtered: int`.
-- `StagedPipeline.run` + `prep_chunk` thread `s1_filtered` through
-  (`prep_chunk` returns `(items, skipped, s1_done, s1_filtered,
+- `RunReport` gana `s1_filtered: int`.
+- `StagedPipeline.run` + `prep_chunk` pasan `s1_filtered`
+  (`prep_chunk` devuelve `(items, skipped, s1_done, s1_filtered,
   s2_failed, s3_failed, s4_failed)`).
-- `MultiBatchRunReport` gains an `s1_filtered` aggregate property.
-- `ChunkState` gains `prep_filtered: int = 0`; `_prep_one_chunk`
-  populates it.
+- `MultiBatchRunReport` gana una propiedad agregada
+  `s1_filtered`.
+- `ChunkState` gana `prep_filtered: int = 0`; `_prep_one_chunk`
+  lo puebla.
 
-### 4. Surface it
+### 4. Surfacearlo
 
-- **Headless output** (`_emit_outcome` in `cli/app.py`): the final
-  summary line gains `s1_filtered=N`.
-- **TUI PREP tab** (`render_prep`): a line
-  `FILTERED (S1, deleted at source)   N` under the stage table.
-- **TUI CHUNKS tab** (`render_chunks`): the per-chunk `PREP d/s/f`
-  column becomes `PREP d/s/f/x` (x = filtered); the TOTAL row too.
-- **`data_provider`** (`_chunks_state_snapshot`): include
+- **Output headless** (`_emit_outcome` en `cli/app.py`): la línea
+  final de resumen gana `s1_filtered=N`.
+- **Tab PREP de la TUI** (`render_prep`): una línea
+  `FILTERED (S1, deleted at source)   N` debajo de la tabla del
+  stage.
+- **Tab CHUNKS de la TUI** (`render_chunks`): la columna
+  `PREP d/s/f` por-chunk pasa a `PREP d/s/f/x` (x = filtered); la
+  fila TOTAL también.
+- **`data_provider`** (`_chunks_state_snapshot`): incluir
   `prep_filtered`.
 
-## Out of scope
+## Fuera de alcance
 
-- **`DirectRvabrepTriggerStrategy.acquire`'s blank-row filter.** Blank
-  shortname/system_id rows are dropped in S0 *before* becoming
-  triggers (they're not in the S1 count of 1000), so they are not the
-  operator's observed gap. `acquire` already emits a summary INFO log.
-  Threading that count through is a separate, smaller follow-up.
-- **Per-doc drill-down in the TUI** (the operator's issue #4 — select
-  a chunk, list every file with name/size/status/reason). That is a
-  larger feature on its own; 051 delivers the *counts + per-doc log*,
-  not an interactive file list.
-- **`RVABREPNotFoundError` reclassification.** Stays an S1 failure.
-- The chunk MB/s + docs/s display (#2), the upload timer freeze (#3),
-  and the bottleneck classifier — all separate items.
+- **El filtro de filas en blanco de `DirectRvabrepTriggerStrategy.acquire`.**
+  Las filas con shortname/system_id en blanco se descartan en S0
+  *antes* de pasar a ser triggers (no están en el conteo de 1000
+  de S1), así que no son el gap observado del operador.
+  `acquire` ya emite un log INFO de resumen. Pasar ese conteo
+  es un follow-up separado, más chico.
+- **Drill-down per-doc en la TUI** (el issue #4 del operador —
+  seleccionar un chunk, listar cada archivo con
+  name/size/status/reason). Eso es un feature más grande por sí
+  solo; 051 entrega los *conteos + log per-doc*, no una lista
+  interactiva de archivos.
+- **Reclasificación de `RVABREPNotFoundError`.** Queda como una
+  falla de S1.
+- El display de MB/s + docs/s del chunk (#2), el freeze del timer
+  de upload (#3), y el clasificador de cuellos de botella —
+  todos items separados.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `_enrich_known_row` raises `RVABREPDeletedError` for a delete-coded
-  row; a unit test asserts it.
-- `_stage_s0_s1` counts a delete-coded `RvabrepRowTrigger` as
-  `filtered`, not `failed`, not `done` — and emits one INFO log with
-  `txn_num` + `reason="deleted_at_source"`.
-- For a chunk of N triggers where K rows are delete-coded:
-  `s1_done + s1_filtered == N` (every trigger accounted for) — a test
-  asserts this conservation.
+- `_enrich_known_row` levanta `RVABREPDeletedError` para una fila
+  con código de borrado; un test unitario lo assertea.
+- `_stage_s0_s1` cuenta un `RvabrepRowTrigger` con código de
+  borrado como `filtered`, no `failed`, no `done` — y emite un
+  log INFO con `txn_num` + `reason="deleted_at_source"`.
+- Para un chunk de N triggers donde K filas tienen código de
+  borrado: `s1_done + s1_filtered == N` (cada trigger contado) —
+  un test assertea esta conservación.
 - `RunReport.s1_filtered`, `MultiBatchRunReport.s1_filtered`,
-  `ChunkState.prep_filtered` all carry the count.
-- The headless summary line shows `s1_filtered=N`.
-- `render_prep` shows the FILTERED line; `render_chunks` shows the
-  `d/s/f/x` breakdown — tests on the renderers.
-- Full unit + integration suite green; mypy + ruff clean.
+  `ChunkState.prep_filtered` todos llevan el conteo.
+- La línea de resumen headless muestra `s1_filtered=N`.
+- `render_prep` muestra la línea FILTERED; `render_chunks` muestra
+  el desglose `d/s/f/x` — tests sobre los renderers.
+- Suite completa unit + integration verde; mypy + ruff limpios.
 - `CHANGELOG.md [0.54.0]`; `pyproject.toml` 0.53.0 → 0.54.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-No live Alfresco needed — this is S1-level filtering, fully covered by
-unit tests (`IndexingService`, `_stage_s0_s1`) + integration tests
-(orchestrator threading the count, the renderers). The existing
-`test_indexing.py` / `test_multi_batch.py` / `test_tabs.py` /
-`test_chunks_tab.py` suites are the regression gate; new tests assert
-the `filtered` outcome end to end.
+Sin Alfresco en vivo necesario — esto es filtering a nivel S1,
+completamente cubierto por tests unitarios (`IndexingService`,
+`_stage_s0_s1`) + tests de integración (orchestrator pasando el
+conteo, los renderers). Las suites existentes `test_indexing.py`
+/ `test_multi_batch.py` / `test_tabs.py` / `test_chunks_tab.py`
+son el gate de regresión; los tests nuevos assertean el outcome
+`filtered` end to end.

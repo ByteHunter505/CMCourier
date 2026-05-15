@@ -1,48 +1,54 @@
 # 065 — Plan
 
-Two phases.
+Dos fases.
 
-## Phase 1 — wiring + tests
+## Fase 1 — wiring + tests
 
-### Files
+### Archivos
 
 - `src/cmcourier/orchestrators/streaming.py`
-  - Add `LaneController` field (optional, only when
-    `heavy_light_lanes.enabled` is true).
-  - Add per-lane `queue.Queue`s in `run()`.
-  - Replace single consumer pool with: 1 dispatcher + N heavy
-    consumers + M light consumers.
-  - Dispatcher loop: pull from main bucket; if `_POISON`, push
-    `_POISON` into both lane queues × consumer count and exit;
-    else read `staged_file.size_bytes`, push to heavy or light
-    queue based on threshold.
-  - Per-lane consumer loop: `bucket.get()` from its lane queue;
-    on `_POISON`, exit; else `streaming_upload_one(item, ...,
-    lane=...)` (extend the signature) and tally.
-  - `streaming_snapshot()` already exists — gain a
-    `lane_snapshot: LaneSnapshot | None` field on
+  - Agregar campo `LaneController` (opcional, solo cuando
+    `heavy_light_lanes.enabled` es true).
+  - Agregar `queue.Queue`s per-lane en `run()`.
+  - Reemplazar el pool consumer único con: 1 dispatcher +
+    N consumers heavy + M consumers light.
+  - Loop del dispatcher: tirar del bucket principal; si
+    es `_POISON`, empujar `_POISON` a las dos colas de
+    lane × cuenta de consumer y salir; sino leer
+    `staged_file.size_bytes`, empujar a la cola heavy o
+    light basado en el threshold.
+  - Loop del consumer per-lane: `bucket.get()` de su cola
+    de lane; en `_POISON`, salir; sino
+    `streaming_upload_one(item, ..., lane=...)` (extender
+    la firma) y contar.
+  - `streaming_snapshot()` ya existe — gana un campo
+    `lane_snapshot: LaneSnapshot | None` en
     `StreamingSnapshot`.
 
 - `src/cmcourier/orchestrators/staged.py`
   - `streaming_upload_one(item, batch_id, recorder, lane=None)`
-    — already calls `_upload_one(item, batch_id, recorder, lane)`,
-    just thread the param through (lane defaults to None).
+    — ya llama a
+    `_upload_one(item, batch_id, recorder, lane)`, solo
+    pasar el param a través (lane default a None).
 
 - `src/cmcourier/cli/app.py`
-  - Drop the `streaming + heavy_light_lanes` WARN (065 lands it).
+  - Descartar el WARN de `streaming + heavy_light_lanes`
+    (065 lo entrega).
 
 - `src/cmcourier/tui/bucket_tab.py`
-  - Print a LANES block when `snap.lane_snapshot is not None`.
+  - Imprimir un bloque LANES cuando
+    `snap.lane_snapshot is not None`.
 
 ### Tests
 
 - `tests/unit/orchestrators/test_streaming.py`
-  - `test_dispatcher_routes_by_size` — feed items with mixed
-    `size_bytes`; assert heavy items go to heavy lane, light to
-    light. The `_FakePipeline` already supports
+  - `test_dispatcher_routes_by_size` — alimentar items
+    con `size_bytes` mixto; assertear que los items heavy
+    van al lane heavy, los light al light. El
+    `_FakePipeline` ya soporta
     `streaming_upload_one(item, batch_id, recorder, lane=None)`.
-  - `test_clean_shutdown_with_lanes` — empty source + dual mode
-    drains all threads.
+  - `test_clean_shutdown_with_lanes` — fuente vacía +
+    modo dual drena todos los threads.
   - `test_streaming_snapshot_carries_lane_snapshot_when_enabled`.
 
 - `tests/unit/tui/test_bucket_tab.py`
@@ -50,7 +56,8 @@ Two phases.
 
 ### Verify
 
-`pytest tests/unit tests/integration -q`. ruff + mypy clean.
+`pytest tests/unit tests/integration -q`. ruff + mypy
+limpios.
 
 ### Commit
 
@@ -58,12 +65,14 @@ Two phases.
 feat(orchestrator): heavy/light lanes in streaming mode (065 Phase 1)
 ```
 
-## Phase 2 — release
+## Fase 2 — release
 
 - CHANGELOG `[0.67.0]`.
 - pyproject 0.66.0 → 0.67.0.
-- `.venv/bin/pip install -e . --no-deps`; `cmcourier --version`.
-- README feature row tick.
-- FF to main.
+- `.venv/bin/pip install -e . --no-deps`;
+  `cmcourier --version`.
+- Tick en fila de features de README.
+- FF a main.
 
-Commit: `docs(065): CHANGELOG 0.67.0 + version bump (065 Phase 2)`.
+Commit:
+`docs(065): CHANGELOG 0.67.0 + version bump (065 Phase 2)`.

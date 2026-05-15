@@ -1,14 +1,16 @@
-# 069 — Bandwidth sampler: distribute bytes over the real transmission window
+# 069 — Sampler de bandwidth: distribuir bytes sobre la ventana de transmisión real
 
-## Why
+## Por qué
 
-Operator-reported during the same 068 staging run: bandwidth peak
-`<20 MB/s` even after 068 scales workers aggressively. Part of
-that is genuine throughput (the next-bottleneck is per-upload
-speed against Alfresco), but the **measurement itself is buggy
-for heavy files**.
+Reportado por el operador durante el mismo run de staging
+de 068: bandwidth pico `<20 MB/s` incluso después de que
+068 escalara workers agresivamente. Parte de eso es
+throughput genuino (el cuello-siguiente es velocidad
+per-upload contra Alfresco), pero la **medición misma es
+buggy para archivos pesados**.
 
-Pre-069 `_BandwidthSampler.record_upload(size_bytes, completed_at)`:
+`_BandwidthSampler.record_upload(size_bytes, completed_at)`
+pre-069:
 
 ```python
 def record_upload(self, size_bytes: int, completed_at: float) -> None:
@@ -16,37 +18,42 @@ def record_upload(self, size_bytes: int, completed_at: float) -> None:
     self._buckets[ts] = self._buckets.get(ts, 0) + int(size_bytes)
 ```
 
-It credits the **entire file size to the second of completion**.
-For a 30 MB upload that took 3 seconds (T → T+3), all 30 MB land
-in bucket `T+3`. Buckets `T+1`, `T+2` show **zero** bytes for that
-upload — even though it was actively transmitting during them.
+Acredita el **tamaño completo del archivo al segundo de
+completion**. Para un upload de 30 MB que tomó 3 segundos
+(T → T+3), los 30 MB aterrizan en el bucket `T+3`. Los
+buckets `T+1`, `T+2` muestran **cero** bytes para ese
+upload — aunque estaba transmitiendo activamente durante
+ellos.
 
-Consequences:
+Consecuencias:
 
-* **Spiky reading**: `current_mbps()` (which reads the previous
-  full bucket) flips between "spike" and "valley" depending on
-  whether a completion happened in that bucket. Operator sees
-  e.g. `current 11 MB/s` one second, `current 0 MB/s` the next.
-* **Wrong sparkline shape**: the 60-bucket rolling chart shows
-  spikes at completion moments instead of the continuous
-  transmission shape.
-* **Misleading peak**: a single 30 MB completion in one second
-  reports `peak 30 MB/s` even when actual sustained throughput
-  is ~10 MB/s.
-* **Diagnosis blocked**: the operator can't distinguish "the
-  pipe is genuinely slow" from "the measurement is wrong" without
-  re-deriving `cumulative_bytes / elapsed_s` manually.
+* **Lectura spikeada**: `current_mbps()` (que lee el bucket
+  completo anterior) se da vuelta entre "spike" y "valle"
+  dependiendo de si una completion ocurrió en ese bucket.
+  El operador ve p. ej. `current 11 MB/s` un segundo,
+  `current 0 MB/s` el siguiente.
+* **Forma de sparkline incorrecta**: el chart rolling de
+  60 buckets muestra spikes en los momentos de completion
+  en vez de la forma de transmisión continua.
+* **Pico engañoso**: una sola completion de 30 MB en un
+  segundo reporta `peak 30 MB/s` aun cuando el throughput
+  sostenido real es ~10 MB/s.
+* **Diagnóstico bloqueado**: el operador no puede
+  distinguir "el pipe es genuinamente lento" de "la
+  medición está mal" sin re-derivar
+  `cumulative_bytes / elapsed_s` manualmente.
 
-## What
+## Qué
 
-`record_upload` takes a transmission window — `started_at` and
-`completed_at` — and **distributes bytes uniformly across the
-seconds the transmission actually spanned**. For a 30 MB upload
-from T=10.5 to T=13.5 (3 seconds), 10 MB lands in each of buckets
-{10, 11, 12, 13} (with fractional seconds handled by partial
-allocations).
+`record_upload` toma una ventana de transmisión —
+`started_at` y `completed_at` — y **distribuye los bytes
+uniformemente a través de los segundos que la transmisión
+realmente abarcó**. Para un upload de 30 MB de T=10.5 a
+T=13.5 (3 segundos), aterrizan 10 MB en cada uno de los
+buckets {10, 11, 12, 13} (con segundos fraccionarios
+manejados por asignaciones parciales).
 
-### New signature
+### Nueva firma
 
 ```python
 def record_upload(
@@ -58,15 +65,16 @@ def record_upload(
 ) -> None:
 ```
 
-Old positional `(size_bytes, completed_at)` signature is dropped.
-Callers must pass both timestamps. There's exactly one caller
-inside CMCourier: `_BandwidthHandler.emit` (the log handler that
-feeds the sampler from `cmis_upload` network events). The handler
-already has both — `record.created` is `completed_at`, and the
-`cmis_upload` event payload carries `duration_ms` (we derive
-`started_at = completed_at - duration_ms/1000`).
+La firma posicional vieja `(size_bytes, completed_at)` se
+descarta. Los callers deben pasar los dos timestamps. Hay
+exactamente un caller adentro de CMCourier:
+`_BandwidthHandler.emit` (el log handler que alimenta el
+sampler desde los eventos de red `cmis_upload`). El handler
+ya tiene los dos — `record.created` es `completed_at`, y
+el payload del evento `cmis_upload` lleva `duration_ms`
+(derivamos `started_at = completed_at - duration_ms/1000`).
 
-### Distribution algorithm
+### Algoritmo de distribución
 
 ```python
 def record_upload(self, size_bytes, *, started_at, completed_at):
@@ -78,7 +86,7 @@ def record_upload(self, size_bytes, *, started_at, completed_at):
     with self._lock:
         self._cumulative_bytes += int(size_bytes)
         for ts in range(start_ts, end_ts + 1):
-            # Overlap of [ts, ts+1) with [started_at, completed_at]
+            # Solapamiento de [ts, ts+1) con [started_at, completed_at]
             overlap_start = max(started_at, float(ts))
             overlap_end = min(completed_at, float(ts) + 1.0)
             overlap = overlap_end - overlap_start
@@ -86,18 +94,19 @@ def record_upload(self, size_bytes, *, started_at, completed_at):
                 continue
             bytes_in_bucket = int(bytes_per_s * overlap)
             self._buckets[ts] = self._buckets.get(ts, 0) + bytes_in_bucket
-        # Evict stale buckets
+        # Desalojar buckets viejos
         stale = [k for k in self._buckets if k < cutoff]
         for k in stale:
             del self._buckets[k]
 ```
 
-The transmission rate is assumed constant within an upload (uniform
-distribution). For long uploads on stable networks this is faithful;
-for uploads with bursty internal transmission it's slightly smoothed
-— acceptable for an aggregate view.
+Se asume que la tasa de transmisión es constante adentro
+de un upload (distribución uniforme). Para uploads largos
+en redes estables esto es fiel; para uploads con
+transmisión interna bursty está ligeramente smootheado —
+aceptable para una view agregada.
 
-### `_BandwidthHandler` change
+### Cambio en `_BandwidthHandler`
 
 ```python
 def emit(self, record: logging.LogRecord) -> None:
@@ -112,35 +121,43 @@ def emit(self, record: logging.LogRecord) -> None:
     )
 ```
 
-The `cmis_upload` event always carries `duration_ms` (set by
-`_emit_network` in the CmisUploader). When unset or zero, the
-handler falls back to crediting all bytes to the completion second
-(pre-069 behaviour, defensive only — should not trigger in
-practice).
+El evento `cmis_upload` siempre lleva `duration_ms`
+(seteado por `_emit_network` en el CmisUploader). Cuando
+está sin setear o en cero, el handler hace fallback a
+acreditar todos los bytes al segundo de completion
+(comportamiento pre-069, solo defensivo — no debería
+disparar en la práctica).
 
-## Out of scope
+## Fuera de alcance
 
-- Per-stream bandwidth measurement (per-host, per-connection).
-- Bandwidth measurement during the transmission itself
-  (vs after completion). Would require streaming progress
-  callbacks from httpx, much larger surface.
+- Medición de bandwidth per-stream (per-host,
+  per-conexión).
+- Medición de bandwidth durante la transmisión misma (vs
+  después de completion). Requeriría callbacks de
+  progreso streaming de httpx, una superficie mucho más
+  grande.
 
-## Acceptance criteria
+## Criterios de aceptación
 
 - `_BandwidthSampler.record_upload(size, *, started_at, completed_at)`
-  distributes bytes uniformly over the second-buckets that overlap
-  `[started_at, completed_at]`.
-- A 30 MB upload from `T+0.5` to `T+3.5` (3.0 s span) lands ~5 MB
-  in bucket `T`, 10 MB in `T+1`, 10 MB in `T+2`, 5 MB in `T+3`
-  (within floor-rounding tolerance).
-- `cumulative_bytes` is still the sum of all uploads (no double-counting).
-- `peak_mbps` is the highest single-bucket rate (now reflects
-  real sustained throughput, not completion spike).
-- `series(seconds)` returns the windowed chart with the new
-  smooth shape.
-- `_BandwidthHandler.emit` reads `duration_ms` from the log
-  record and derives `started_at`. Defaults to crediting at
-  completion when `duration_ms` is missing/zero.
-- All existing tests updated to use the new signature.
-- mypy + ruff clean.
+  distribuye los bytes uniformemente sobre los buckets de
+  segundos que solapan `[started_at, completed_at]`.
+- Un upload de 30 MB de `T+0.5` a `T+3.5` (span de 3.0
+  s) aterriza ~5 MB en bucket `T`, 10 MB en `T+1`, 10 MB
+  en `T+2`, 5 MB en `T+3` (dentro de la tolerancia de
+  floor-rounding).
+- `cumulative_bytes` sigue siendo la suma de todos los
+  uploads (sin double-counting).
+- `peak_mbps` es la tasa más alta de un solo bucket
+  (ahora refleja throughput sostenido real, no el spike
+  de completion).
+- `series(seconds)` devuelve el chart windoweado con la
+  nueva forma suave.
+- `_BandwidthHandler.emit` lee `duration_ms` del log
+  record y deriva `started_at`. Default a acreditar en
+  completion cuando `duration_ms` está
+  ausente/cero.
+- Todos los tests existentes actualizados para usar la
+  firma nueva.
+- mypy + ruff limpios.
 - CHANGELOG `[0.71.0]`; pyproject 0.70.0 → 0.71.0.

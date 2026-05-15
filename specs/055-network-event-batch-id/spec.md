@@ -1,117 +1,134 @@
-# 055 — Network events carry the batch_id: unbreak the bandwidth + slow-op handlers
+# 055 — Los eventos de red llevan el batch_id: desromper los handlers de bandwidth + slow-op
 
-## Why
+## Por qué
 
-On an N=2 staging run the operator reported the UPLOAD tab dead:
-bandwidth `0.00 MB/s`, peak `0.00`, blank sparkline, SLOW OPS
-"(none yet)". Spec 054 fixed *which recorder* the snapshot reads — a
-real bug — but the operator re-ran and **it was still empty**. 054
-treated a symptom; this is the root cause.
+En un run de staging N=2 el operador reportó el tab UPLOAD
+muerto: bandwidth `0.00 MB/s`, peak `0.00`, sparkline en
+blanco, SLOW OPS "(none yet)". La spec 054 arregló *qué
+recorder* lee el snapshot — un bug real — pero el operador
+re-corrió y **todavía quedaba vacío**. 054 trató un síntoma;
+esto es la causa raíz.
 
-### The root cause — proven
+### La causa raíz — probada
 
-`CmisUploader._emit_network` (`cmis_uploader.py`) builds the log
-record's `extra` with `kind`, `duration_ms`, `url_prefix`, `worker`,
-`status`, `size_bytes` — **but never `batch_id`**. The `CmisUploader`
-is a shared, concurrently-used object and its `upload()` never even
-receives a `batch_id`.
+`CmisUploader._emit_network` (`cmis_uploader.py`) construye el
+`extra` del log record con `kind`, `duration_ms`, `url_prefix`,
+`worker`, `status`, `size_bytes` — **pero nunca `batch_id`**.
+El `CmisUploader` es un objeto compartido y usado
+concurrentemente y su `upload()` nunca siquiera recibe un
+`batch_id`.
 
-Both metrics handlers filter on that field:
+Ambos handlers de métricas filtran por ese campo:
 
 - `_BandwidthHandler.emit` →
   `if getattr(record, "batch_id", None) != self._batch_id: return`
-- `_SlowOpHandler.emit` → the same `record_batch_id != self._batch_id`
-  short-circuit.
+- `_SlowOpHandler.emit` → el mismo cortocircuito
+  `record_batch_id != self._batch_id`.
 
-`getattr(record, "batch_id", None)` is `None`; `self._batch_id` is a
-real string; `None != "B1"` → **every `cmis_upload` event is dropped**,
-in *every* recorder. Spec 042 added the `batch_id` filter to
-`_BandwidthHandler` (and 028 to `_SlowOpHandler`) assuming the events
-carried it — they never did. Since then, 100% of upload bandwidth and
-upload slow-ops have been silently discarded.
+`getattr(record, "batch_id", None)` es `None`; `self._batch_id`
+es un string real; `None != "B1"` → **cada evento
+`cmis_upload` se descarta**, en *cada* recorder. La spec 042
+agregó el filtro de `batch_id` a `_BandwidthHandler` (y 028 a
+`_SlowOpHandler`) asumiendo que los eventos lo llevaban —
+nunca lo llevaron. Desde entonces, el 100% del bandwidth de
+upload y los slow-ops de upload se descartaron silenciosamente.
 
-Proven with a repro that replays `_emit_network`'s exact `extra`:
+Probado con un repro que reproduce el `extra` exacto de
+`_emit_network`:
 
 ```
 (A) extra WITHOUT batch_id -> peak_mbps=0.0  cumulative=0        slow_ops=0
 (B) extra WITH    batch_id -> peak_mbps=8.0  cumulative=8000000  slow_ops=2
 ```
 
-Same event, same bytes — the only difference is the `batch_id` field.
+Mismo evento, mismos bytes — la única diferencia es el campo
+`batch_id`.
 
-This is also why spec 053 found the `network-*.jsonl` files have no
-`batch_id` and had to associate them by time window: the same
-`_emit_network` omission.
+Esto también es por qué la spec 053 encontró que los archivos
+`network-*.jsonl` no tienen `batch_id` y tuvo que asociarlos
+por ventana de tiempo: la misma omisión de `_emit_network`.
 
-## What
+## Qué
 
-Thread the chunk's `batch_id` down the upload path so every network
-event emitted during `upload()` carries it.
+Pasar el `batch_id` del chunk a través del camino de upload
+para que cada evento de red emitido durante `upload()` lo
+lleve.
 
-### 1. `IUploader.upload` — new required keyword `batch_id`
+### 1. `IUploader.upload` — nuevo keyword requerido `batch_id`
 
 `upload(self, file, folder_path, object_type_id, document_name,
-mime_type, properties, *, batch_id: str) -> str`. Keyword-only and
-**required** — no default. A default `""` would silently re-introduce
-the bug the first time a caller forgot it; `batch_id` is a legitimate
-domain input, not a compatibility shim.
+mime_type, properties, *, batch_id: str) -> str`. Keyword-only
+y **requerido** — sin default. Un default `""` re-introduciría
+silenciosamente el bug la primera vez que un caller se olvide;
+`batch_id` es un input de dominio legítimo, no un shim de
+compatibilidad.
 
-### 2. `CmisUploader` — propagate it to every network emitter
+### 2. `CmisUploader` — propagarlo a cada emisor de red
 
-- `CmisUploader.upload` accepts `batch_id` and passes it to
-  `_post_with_retries`, `_emit_upload_attempt`, `_emit_upload_failed`.
-- `_post_with_retries(..., *, batch_id: str)` passes it to
+- `CmisUploader.upload` acepta `batch_id` y lo pasa a
+  `_post_with_retries`, `_emit_upload_attempt`,
+  `_emit_upload_failed`.
+- `_post_with_retries(..., *, batch_id: str)` lo pasa a
   `_emit_network`.
-- `_emit_network(kind, t0, status, size_bytes, url, batch_id)` adds
-  `extra["batch_id"] = batch_id`.
-- `_emit_upload_attempt` / `_emit_upload_failed` add
-  `extra["batch_id"] = batch_id` too — same `batch_id` already in
-  scope, and it makes the `s5_upload_attempt` / `s5_upload_failed`
-  diagnostic events in `network-*.jsonl` batch-attributable as well.
+- `_emit_network(kind, t0, status, size_bytes, url, batch_id)`
+  agrega `extra["batch_id"] = batch_id`.
+- `_emit_upload_attempt` / `_emit_upload_failed` agregan
+  `extra["batch_id"] = batch_id` también — el mismo
+  `batch_id` ya está en scope, y hace los eventos de
+  diagnóstico `s5_upload_attempt` / `s5_upload_failed` en
+  `network-*.jsonl` también batch-atribuibles.
 
-### 3. The call site — `staged.py`
+### 3. El call site — `staged.py`
 
-`StagedPipeline`'s S5 stage already has `batch_id` in scope (it builds
-the `StageTimer` with it). The `self._uploader.upload(...)` call passes
-`batch_id=batch_id`.
+El stage S5 del `StagedPipeline` ya tiene `batch_id` en scope
+(construye el `StageTimer` con él). La llamada
+`self._uploader.upload(...)` pasa `batch_id=batch_id`.
 
-## Out of scope
+## Fuera de alcance
 
-- Reverting spec 053's time-window association in `analyze.py`. Once
-  `network-*.jsonl` records carry `batch_id` again, the analyzer
-  *could* go back to an exact `batch_id` filter — but that's a
-  separate, additive change. 053's time-window path keeps working
-  unchanged; a follow-up spec can simplify it.
-- `verify_folder_exists` / `test_connection` / `get_type_definition` —
-  these are pre-flight, single-shot, outside any batch lifetime; they
-  do not emit `cmis_upload` events and are not slow-op candidates.
-- Spec 054's `_metrics` vs `_upload_metrics` split — already shipped
-  and correct; it is what makes the now-delivered events land on the
-  right recorder for an N=2 run. 055 + 054 together fix the tab.
+- Revertir la asociación por ventana de tiempo de la spec 053
+  en `analyze.py`. Una vez que los records
+  `network-*.jsonl` lleven `batch_id` de nuevo, el analyzer
+  *podría* volver a un filtro exacto por `batch_id` — pero es
+  un cambio separado, aditivo. El camino de ventana de tiempo
+  de 053 sigue funcionando sin cambios; una spec de follow-up
+  puede simplificarlo.
+- `verify_folder_exists` / `test_connection` /
+  `get_type_definition` — estos son pre-flight, single-shot,
+  fuera del lifetime de cualquier batch; no emiten eventos
+  `cmis_upload` y no son candidatos a slow-op.
+- El split `_metrics` vs `_upload_metrics` de la spec 054 — ya
+  entregado y correcto; es lo que hace que los eventos ahora
+  entregados aterricen en el recorder correcto para un run
+  N=2. 055 + 054 juntas arreglan el tab.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- A `CmisUploader.upload()` call (HTTP mocked) made while a
-  `MetricsRecorder` has an open batch results in a non-zero
-  `recorder.bandwidth.peak_mbps()` / `cumulative_bytes()` and a
-  populated `aggregator_snapshot()` — a regression test asserts it.
-  This is the test that would have caught the bug: it exercises the
-  real `_emit_network`, not a hand-built `extra`.
-- The `cmis_upload` log record emitted by `_emit_network` has a
-  `batch_id` attribute equal to the value passed into `upload()`.
-- `IUploader.upload` and every implementation + call site take the new
-  keyword; `mypy` is clean (the required keyword forces every call
-  site to be updated — no silent omissions).
-- Full unit + integration suite green; mypy + ruff clean.
+- Una llamada a `CmisUploader.upload()` (HTTP mockeado) hecha
+  mientras un `MetricsRecorder` tiene un batch abierto resulta
+  en un `recorder.bandwidth.peak_mbps()` / `cumulative_bytes()`
+  no-cero y un `aggregator_snapshot()` poblado — un test de
+  regresión lo assertea. Este es el test que habría agarrado
+  el bug: ejercita el `_emit_network` real, no un `extra`
+  hand-built.
+- El log record `cmis_upload` emitido por `_emit_network` tiene
+  un atributo `batch_id` igual al valor pasado a `upload()`.
+- `IUploader.upload` y cada implementación + call site toman
+  el nuevo keyword; `mypy` queda limpio (el keyword requerido
+  fuerza que cada call site sea actualizado — sin omisiones
+  silenciosas).
+- Suite completa unit + integration verde; mypy + ruff
+  limpios.
 - `CHANGELOG.md [0.58.0]`; `pyproject.toml` 0.57.0 → 0.58.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The gap that let this ship: `test_cmis_uploader.py` mocks HTTP but
-never attaches a live `MetricsRecorder`, so it never observed that the
-emitted record lacked `batch_id`; and `test_data_provider.py`'s
-slow-op test hand-built an `extra` dict *with* `batch_id`, so it
-tested a shape the real uploader never produces. 055's regression test
-closes both: a real `CmisUploader.upload()` under a real
-`MetricsRecorder.start_batch()`, asserting the sampler and aggregator
-actually received the bytes.
+El gap que dejó pasar esto: `test_cmis_uploader.py` mockea
+HTTP pero nunca attachea un `MetricsRecorder` vivo, así que
+nunca observó que el record emitido no tenía `batch_id`; y el
+test de slow-op de `test_data_provider.py` construía a mano un
+dict `extra` *con* `batch_id`, así que testeaba una forma que
+el uploader real nunca produce. El test de regresión de 055
+cierra ambos: una llamada real a `CmisUploader.upload()` bajo
+un `MetricsRecorder.start_batch()` real, asserteando que el
+sampler y aggregator realmente recibieron los bytes.

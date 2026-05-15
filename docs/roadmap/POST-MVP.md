@@ -1,287 +1,283 @@
-# CMCourier — Post-MVP Roadmap
+# CMCourier — Roadmap Post-MVP
 
-> **Status**: Living document. Updated as new features are deferred or completed.
-> **Last updated**: 2026-05-14
+> **Estado**: Documento vivo. Actualizado a medida que se difieren o completan nuevas funcionalidades.
+> **Última actualización**: 2026-05-14
 
-This document captures every feature, optimization, and design intent that is **deferred** beyond the MVP. **Nothing here is dropped** — everything is intentional, prioritized, and will be implemented in subsequent changes after the MVP is operational. Each entry is structured to be ready-to-consume as input for a future `/sdd-new` proposal.
+Este documento captura toda funcionalidad, optimización e intención de diseño que está **diferida** más allá del MVP. **Nada acá está descartado** — todo es intencional, priorizado, y se va a implementar en cambios subsiguientes después de que el MVP esté operativo. Cada entrada está estructurada para estar lista para consumir como input para una futura propuesta `/sdd-new`.
 
 ---
 
-## What "MVP" Means in This Project
+## Qué significa "MVP" en este proyecto
 
-The **MVP** delivers end-to-end document migration to IBM Content Manager across **three production pipelines** (`csv-trigger`, `rvabrep`, `local-scan`) plus the `single-doc` diagnostic, with all eight atomic stages (`S0`–`S7`, see `docs/domain/the project's domain spec §10.1`), a single resizable S5 upload worker pool with **AIMD auto-tune**, batch-based execution with stage-by-stage resumability, default two-tab textual TUI, structured logging at the application + pipeline + network + slow-ops tiers, idempotent SQLite tracking, the `doctor` pre-flight command, and the cron-friendly `background` runner.
+El **MVP** entrega migración de documentos de punta a punta hacia IBM Content Manager a través de **tres pipelines productivas** (`csv-trigger`, `rvabrep`, `local-scan`) más la diagnóstica `single-doc`, con los ocho stages atómicos (`S0`–`S7`, ver `docs/domain/the project's domain spec §10.1`), un único worker pool S5 redimensionable para upload con **auto-tune AIMD**, ejecución basada en batches con resumabilidad stage-by-stage, TUI textual de dos tabs por default, logging estructurado en los niveles aplicación + pipeline + network + slow-ops, tracking SQLite idempotente, el comando pre-flight `doctor`, y el runner `background` cron-friendly.
 
-> **Note (048)**: there is no separate `as400-trigger` pipeline anymore. "AS400" is a *source* choice on the `rvabrep` pipeline (`indexing.source.kind: as400`), not its own pipeline — the `rvabrep` pipeline serves both a CSV file and a live AS400 query. See `CHANGELOG.md [0.51.0]`.
+> **Nota (048)**: ya no existe una pipeline `as400-trigger` separada. "AS400" es una elección de *fuente* en la pipeline `rvabrep` (`indexing.source.kind: as400`), no su propia pipeline — la pipeline `rvabrep` sirve tanto un archivo CSV como una query AS400 en vivo. Ver `CHANGELOG.md [0.51.0]`.
 
-The MVP explicitly **excludes**: any size-aware upload scheduling (heavy/light lanes), system-resource sampling (`psutil` tier 5), offline log analysis tooling, AS400-backed tracking, multi-batch parallelism beyond the basic producer-consumer overlap of two batches, per-batch bandwidth quotas, and a cross-batch metadata cache.
+El MVP **excluye** explícitamente: cualquier scheduling de upload consciente del tamaño (lanes heavy/light), sampleo de recursos de sistema (nivel 5 con `psutil`), herramientas de análisis de log offline, tracking respaldado en AS400, paralelismo multi-batch más allá del overlap producer-consumer básico de dos batches, cuotas de bandwidth por-batch, y un cache cross-batch de metadatos.
 
-Everything excluded lives below, with enough detail to start a new change directly.
+Todo lo excluido vive abajo, con suficiente detalle para arrancar un nuevo cambio directamente.
 
-### Status snapshot
+### Snapshot de estado
 
-- **Done (promoted into MVP)**: §1 — adaptive heavy/light upload lanes (shipped in change 036); §2 — system metrics tier 5 via `psutil` (shipped in change 026); §3 — offline log analysis tooling `cmcourier analyze` (shipped in change 027); §4 — AS400 NIARVILOG distributed idempotency (shipped in change 034); §5 — AIMD adaptive worker auto-tuning (shipped in change 025); §6 — additional pipelines csv / as400-trigger / local-scan (shipped in changes 012 / 014 / 016 — note: 048 later folded `as400-trigger` into the `rvabrep` pipeline as a source); §7 (N=2) — two-batch producer-consumer overlap (shipped in change 028; N=3..5 deferred to a future change); §9 — cross-batch metadata cache `document_cache` (shipped in change 037).
-- **Still deferred**: §7 (N>2), §8, plus the §10 watchlist.
+- **Done (promocionado al MVP)**: §1 — lanes adaptativos heavy/light de upload (shippeado en cambio 036); §2 — métricas de sistema nivel 5 vía `psutil` (shippeado en cambio 026); §3 — herramientas de análisis de log offline `cmcourier analyze` (shippeado en cambio 027); §4 — idempotencia distribuida AS400 NIARVILOG (shippeado en cambio 034); §5 — auto-tuning adaptativo de workers AIMD (shippeado en cambio 025); §6 — pipelines adicionales csv / as400-trigger / local-scan (shippeado en cambios 012 / 014 / 016 — nota: 048 después fusionó `as400-trigger` en la pipeline `rvabrep` como una fuente); §7 (N=2) — overlap producer-consumer de dos batches (shippeado en cambio 028; N=3..5 diferido a un cambio futuro); §9 — cache cross-batch de metadatos `document_cache` (shippeado en cambio 037).
+- **Todavía diferido**: §7 (N>2), §8, más la watchlist del §10.
 
-### Shipped since this snapshot was last numbered (specs 038–049)
+### Shippeado desde que este snapshot se numeró por última vez (specs 038–049)
 
-The §-numbered sections above are the *original* post-MVP backlog. The
-following changes shipped afterward as standalone specs (each on its
-own `feat/NNN-*` branch, FF'd to `main`) — operational hardening, bug
-fixes, and refinements surfaced during staging shakedown. They are
-**not** roadmap sections; this list keeps the snapshot honest.
+Las secciones numeradas con § arriba son el backlog post-MVP *original*. Los siguientes cambios shippearon después como specs standalone (cada uno en su propia branch `feat/NNN-*`, FF'd a `main`) — endurecimiento operacional, fixes de bugs, y refinamientos surgidos durante el shakedown de staging. **No** son secciones del roadmap; esta lista mantiene el snapshot honesto.
 
-| Spec | Version | Summary |
+| Spec | Versión | Resumen |
 |------|---------|---------|
-| 038 — cmis-target-preflight | 0.41.0 | CMIS target pre-flight checks + upload payload trace |
-| 039 — mock-rvabrep-generator | 0.42.0 | `cmcourier mock rvabrep` — synthetic RVABREP CSV at any scale |
-| 040 — alfresco-url-compat | 0.43.0 | Alfresco CMIS compatibility (`repo_id=""` semantics, URL shape) |
-| 041 — tui-fix-and-features | 0.44.0 | TUI: clean dashboard + MB progress + CHUNKS breakdown |
-| 042 — tui-metrics-bleed | 0.45.0 | TUI metrics: per-chunk isolation + live UPLOAD counters |
-| 043 — aimd-multibatch-p95 | 0.46.0 | AIMD auto-tune sees real p95 in multi-batch mode |
-| 044 — robust-resume | 0.47.0 | Robust resume after `kill -9` mid-S5 (stage-gap detection) |
-| 045 — idempotent-409 | 0.48.0 | Idempotent S5 upload on CMIS 409 conflict |
-| 046 — polymorphic-trigger | 0.49.0 | Polymorphic `Trigger` model — each pipeline emits its natural shape |
-| 047 — persist-cm-object-id | 0.50.0 | Persist `cm_object_id` on `S5_DONE` in the tracking DB |
-| 048 — pluggable-rvabrep-source | 0.51.0 | Pluggable RVABREP source (CSV ↔ AS400); `as400-trigger` pipeline removed |
-| 049 — niarvilog-column-mapping | 0.52.0 | Configurable NIARVILOG column / identifier names per environment |
+| 038 — cmis-target-preflight | 0.41.0 | Checks pre-flight de destino CMIS + trace de payload de upload |
+| 039 — mock-rvabrep-generator | 0.42.0 | `cmcourier mock rvabrep` — CSV RVABREP sintético a cualquier escala |
+| 040 — alfresco-url-compat | 0.43.0 | Compatibilidad CMIS Alfresco (semántica `repo_id=""`, forma de URL) |
+| 041 — tui-fix-and-features | 0.44.0 | TUI: dashboard limpio + progreso MB + breakdown CHUNKS |
+| 042 — tui-metrics-bleed | 0.45.0 | Métricas TUI: aislamiento por-chunk + contadores UPLOAD live |
+| 043 — aimd-multibatch-p95 | 0.46.0 | El auto-tune AIMD ve p95 real en modo multi-batch |
+| 044 — robust-resume | 0.47.0 | Resume robusto tras `kill -9` en medio de S5 (detección de gap de stage) |
+| 045 — idempotent-409 | 0.48.0 | Upload S5 idempotente ante conflicto CMIS 409 |
+| 046 — polymorphic-trigger | 0.49.0 | Modelo `Trigger` polimórfico — cada pipeline emite su forma natural |
+| 047 — persist-cm-object-id | 0.50.0 | Persistir `cm_object_id` en `S5_DONE` en la DB de tracking |
+| 048 — pluggable-rvabrep-source | 0.51.0 | Fuente RVABREP pluggable (CSV ↔ AS400); pipeline `as400-trigger` removido |
+| 049 — niarvilog-column-mapping | 0.52.0 | Nombres de columna / identificador NIARVILOG configurables por entorno |
 
-Also note: change 039 (CHANGELOG `[0.39.0]`) shipped **§10 watchlist
-item 2** — CMIS connection-pool eager warm-up at process start.
-
----
-
-## §1. Adaptive Heavy / Light Upload Lanes — **SHIPPED in change 036 (2026-05-11)**
-
-> Promoted out of post-MVP and delivered as part of change 036.
-> Default off; enable via `processing.heavy_light_lanes.enabled`.
-> The original ≥ 30 % throughput target was aspirational; measured
-> wall-clock gain on synthetic bimodal batches is ~5-10 %. The real
-> operator-visible win is per-doc latency. See
-> `specs/036-heavy-light-lanes/`, `docs/how-to/heavy-light-lanes.md`,
-> and `CHANGELOG.md [0.37.0]`.
-
-### Intent
-
-Replace the single-lane upload pool of the MVP with **two adaptive worker pools** to eliminate head-of-line blocking on heterogeneous batches. The pools share a global worker budget and rebalance dynamically based on queue depth.
-
-The mental model is two carriageways:
-- **Heavy lane**: few workers, large files, slow per-document throughput.
-- **Light lane**: many workers, small files, high per-document throughput.
-
-When one lane drains, its workers migrate to the other. When one lane is empty, all workers serve the remaining lane.
-
-### Design
-
-**Splitting policy** (heavy vs light per batch):
-- After `S4` completes for a batch, the size distribution is known.
-- Default split: **top 25% of files by size → heavy**, rest → light. Both the percentile and the absolute threshold (`>= X MB → heavy`) are configurable; whichever rule produces fewer heavy items wins (avoids degenerate batches where everything looks heavy).
-- A batch with too few documents (`< heavy_lane_min_batch`, default 50) skips the split and uses single-lane upload.
-
-**Worker budget**:
-- Total workers = `processing.thread_count` (single global cap, same as MVP).
-- Initial allocation: heavy lane gets `ceil(total * heavy_initial_ratio)` workers (default 0.2 = 20%), light gets the rest.
-- Rebalance every `rebalance_interval_s` (default 10s) based on each queue's depth and observed throughput.
-- Rebalance rule: if one lane is empty for `idle_threshold_s` (default 15s), migrate all its workers to the other lane.
-
-**Bandwidth sharing**:
-- The `BandwidthLimiter` from `the project's domain spec §8.6` becomes a **shared token bucket** between lanes.
-- Heavy lane requests larger token chunks (matches its per-doc transfer size); light lane requests smaller chunks.
-- No per-lane reserved quota — both compete for the same global budget.
-
-**TUI integration**:
-- The UPLOAD tab shows two sub-panels: HEAVY and LIGHT.
-- Each sub-panel: active workers, queue depth, throughput (bytes/sec and docs/sec), p95 latency, current operation per worker.
-- Rebalance events are logged as TUI notifications.
-
-### MVP placeholder
-
-Single S5 worker pool with `processing.thread_count` workers, no size awareness, no rebalancing. Configuration field `processing.heavy_light_lanes.enabled` exists in config schema with a default of `false` so adopting the post-MVP feature is a config flip, not a code change.
-
-### Why deferred
-
-1. **Complexity multiplier**: dual pool + adaptive rebalancer + shared bandwidth bucket + dual TUI panes = roughly 3× the upload code path. Risky for the first working migration.
-2. **Validation requires real data**: tuning the split percentile, rebalance interval, and idle threshold requires real production batches. Picking values blind is guesswork.
-3. **Single-lane is not bad** — it is just not optimal. MVP delivers correct results; this delivers faster results.
-
-### Acceptance criteria for the post-MVP change
-
-- [ ] Configuration schema includes the full `processing.heavy_light_lanes` block validated by Pydantic.
-- [ ] An integration test runs a synthetic batch with bimodal size distribution against a mocked CMIS adapter and verifies that lanes are assigned correctly, workers rebalance when one queue drains, and total throughput exceeds single-lane baseline by ≥30%.
-- [ ] The TUI shows both sub-panels live during heavy/light runs.
-- [ ] Disabling `heavy_light_lanes.enabled` falls back to single-lane behavior verbatim (regression test).
-- [ ] Bandwidth limiter is shared (no per-lane reserved quota); a property test confirms total bytes/sec never exceeds `cmis.max_bandwidth_mbps`.
-- [ ] Rebalance events are logged structurally for offline analysis.
-
-### Dependencies
-
-- Requires MVP S5 to be cleanly isolated (it will be — Hexagonal Constitution Principle I).
-- Requires the staging directory layout from MVP (full file sizes known after S4).
+Notá también: el cambio 039 (CHANGELOG `[0.39.0]`) shippeó el **ítem 2
+de la watchlist §10** — warm-up eager del connection pool CMIS al inicio del proceso.
 
 ---
 
-## §2. System Metrics Observability (psutil Sampling) — **SHIPPED in change 026 (2026-05-11)**
+## §1. Lanes Adaptativos Heavy / Light de Upload — **SHIPPEADO en cambio 036 (2026-05-11)**
 
-> Promoted out of post-MVP and delivered as part of change 026.
-> Measured sampler cost: ~0.10% CPU at 5 s interval. See
-> `specs/026-system-metrics-tier5/` and
+> Promocionado fuera de post-MVP y entregado como parte del cambio 036.
+> Default off; habilitar vía `processing.heavy_light_lanes.enabled`.
+> El target original de ≥ 30 % throughput era aspiracional; la ganancia
+> medida de wall-clock en batches bimodales sintéticos es ~5-10 %. La
+> ganancia real visible para el operador es la latencia por documento.
+> Ver `specs/036-heavy-light-lanes/`, `docs/how-to/heavy-light-lanes.md`,
+> y `CHANGELOG.md [0.37.0]`.
+
+### Intención
+
+Reemplazar el upload pool single-lane del MVP con **dos worker pools adaptativos** para eliminar el head-of-line blocking en batches heterogéneos. Los pools comparten un budget global de workers y rebalancean dinámicamente basados en la profundidad de cola.
+
+El modelo mental es dos carriles:
+- **Lane heavy**: pocos workers, archivos grandes, throughput por documento lento.
+- **Lane light**: muchos workers, archivos chicos, throughput por documento alto.
+
+Cuando un lane drena, sus workers migran al otro. Cuando un lane está vacío, todos los workers sirven al lane restante.
+
+### Diseño
+
+**Política de split** (heavy vs light por batch):
+- Después de que S4 completa para un batch, la distribución de tamaños es conocida.
+- Split default: **top 25% de archivos por tamaño → heavy**, el resto → light. Tanto el percentil como el threshold absoluto (`>= X MB → heavy`) son configurables; gana la regla que produzca menos items heavy (evita batches degenerados donde todo parece heavy).
+- Un batch con muy pocos documentos (`< heavy_lane_min_batch`, default 50) saltea el split y usa upload single-lane.
+
+**Budget de workers**:
+- Workers totales = `processing.thread_count` (un único cap global, igual que el MVP).
+- Asignación inicial: el lane heavy recibe `ceil(total * heavy_initial_ratio)` workers (default 0.2 = 20%), el light el resto.
+- Rebalance cada `rebalance_interval_s` (default 10s) basado en la profundidad y throughput observado de cada cola.
+- Regla de rebalance: si un lane está vacío por `idle_threshold_s` (default 15s), migrar todos sus workers al otro lane.
+
+**Bandwidth compartido**:
+- El `BandwidthLimiter` de `the project's domain spec §8.6` se vuelve un **token bucket compartido** entre lanes.
+- El lane heavy pide chunks más grandes de tokens (matchea su tamaño de transferencia por doc); el lane light pide chunks más chicos.
+- Sin cuota reservada por lane — ambos compiten por el mismo budget global.
+
+**Integración con TUI**:
+- La tab UPLOAD muestra dos sub-paneles: HEAVY y LIGHT.
+- Cada sub-panel: workers activos, profundidad de cola, throughput (bytes/sec y docs/sec), latencia p95, operación actual por worker.
+- Los eventos de rebalance se loguean como notificaciones del TUI.
+
+### Placeholder MVP
+
+Único worker pool S5 con `processing.thread_count` workers, sin consciencia de tamaño, sin rebalance. El campo de config `processing.heavy_light_lanes.enabled` existe en el schema de config con un default de `false` así adoptar la funcionalidad post-MVP es un flip de config, no un cambio de código.
+
+### Por qué se difirió
+
+1. **Multiplicador de complejidad**: pool dual + rebalanceador adaptativo + token bucket compartido + paneles TUI duales = aproximadamente 3× el code path de upload. Riesgoso para la primera migración funcionando.
+2. **La validación requiere datos reales**: afinar el percentil de split, el intervalo de rebalance, y el threshold de idle requiere batches productivos reales. Elegir valores a ciegas es adivinanza.
+3. **Single-lane no está mal** — solo no es óptimo. El MVP entrega resultados correctos; esto entrega resultados más rápidos.
+
+### Criterios de aceptación para el cambio post-MVP
+
+- [ ] El schema de config incluye el bloque `processing.heavy_light_lanes` completo validado por Pydantic.
+- [ ] Un test de integración corre un batch sintético con distribución de tamaños bimodal contra un adapter CMIS mockeado y verifica que los lanes se asignen correctamente, que los workers rebalanceen cuando una cola drena, y que el throughput total exceda el baseline single-lane por ≥30%.
+- [ ] El TUI muestra ambos sub-paneles live durante corridas heavy/light.
+- [ ] Deshabilitar `heavy_light_lanes.enabled` cae al comportamiento single-lane palabra por palabra (test de regresión).
+- [ ] El limitador de bandwidth es compartido (sin cuota reservada por lane); un test de propiedad confirma que el total bytes/sec nunca excede `cmis.max_bandwidth_mbps`.
+- [ ] Los eventos de rebalance se loguean estructuralmente para análisis offline.
+
+### Dependencias
+
+- Requiere que el S5 del MVP esté limpiamente aislado (lo va a estar — Principio Constitucional I, Hexagonal).
+- Requiere el layout de directorio de staging del MVP (tamaños de archivo completos conocidos después de S4).
+
+---
+
+## §2. Observabilidad de Métricas de Sistema (Sampleo psutil) — **SHIPPEADO en cambio 026 (2026-05-11)**
+
+> Promocionado fuera de post-MVP y entregado como parte del cambio 026.
+> Costo medido del sampler: ~0.10% CPU a intervalo de 5 s. Ver
+> `specs/026-system-metrics-tier5/` y
 > `CHANGELOG.md [0.28.0]`.
 
-### Intent
+### Intención
 
-Add a fifth logging tier that samples system-resource utilization (CPU, RAM, disk IO, network IO) at configurable intervals to identify bottlenecks empirically rather than by guess.
+Agregar un quinto nivel de logging que samplee la utilización de recursos del sistema (CPU, RAM, disk IO, network IO) a intervalos configurables para identificar bottlenecks empíricamente en lugar de por adivinanza.
 
-### Design
+### Diseño
 
-- Background thread runs `psutil` sampling at `observability.system_sample_interval_s` intervals (default 5s).
-- Each sample emits a JSON line to `./logs/system-{date}.jsonl`:
+- Un thread de fondo corre sampleo de `psutil` a intervalos de `observability.system_sample_interval_s` (default 5s).
+- Cada sample emite una línea JSON a `./logs/system-{date}.jsonl`:
   ```json
   {"ts": "2026-05-08T10:23:45Z", "cpu_pct": 73.2, "ram_used_mb": 4120, "ram_total_mb": 8192,
    "disk_read_mbps": 12.4, "disk_write_mbps": 33.1, "net_in_mbps": 8.2, "net_out_mbps": 95.3,
    "process_pid": 12345, "process_threads": 42, "active_workers": 20}
   ```
-- Process-level and host-level metrics are separated (host = whole machine; process = our PID and children).
-- Sampling thread terminates cleanly on pipeline shutdown.
+- Las métricas a nivel proceso y a nivel host están separadas (host = la máquina entera; proceso = nuestro PID y children).
+- El thread de sampleo termina limpiamente al shutdown del pipeline.
 
-### MVP placeholder
+### Placeholder MVP
 
-`observability.system_metrics: false` in config. The schema field exists; the sampling thread is not implemented. Network metrics and pipeline metrics (cheap) are still on.
+`observability.system_metrics: false` en la config. El campo del schema existe; el thread de sampleo no está implementado. Las métricas de network y pipeline (baratas) siguen activas.
 
-### Why deferred
+### Por qué se difirió
 
-1. `psutil` sampling is not free — at 1Hz it costs measurable CPU. The MVP cannot afford to debate "did we slow ourselves down with our own observability?" while also debugging the migration logic.
-2. Bottleneck identification requires the Offline Log Analysis tooling (§3) to be useful — without it, the JSONL file is just data nobody reads.
-3. The MVP will demonstrate whether bottlenecks exist at all — if the migration is upload-bound (which is likely), system metrics tell us nothing new.
+1. El sampleo de `psutil` no es gratis — a 1Hz cuesta CPU medible. El MVP no puede permitirse debatir "¿nos ralentizamos solos con nuestra propia observabilidad?" mientras también debugea la lógica de migración.
+2. La identificación de bottleneck requiere que las herramientas de análisis de log offline (§3) sean útiles — sin ellas, el archivo JSONL es solo datos que nadie lee.
+3. El MVP va a demostrar si los bottlenecks existen en general — si la migración es upload-bound (lo cual es probable), las métricas de sistema no nos dicen nada nuevo.
 
-### Acceptance criteria for the post-MVP change
+### Criterios de aceptación para el cambio post-MVP
 
-- [ ] Sampling thread starts/stops with the pipeline, never leaks.
-- [ ] Configuration toggle works (off → no thread spawned, no file created).
-- [ ] Format is JSON Lines, one sample per line, parseable by §3 tooling.
-- [ ] Sampling overhead measured: less than 1% CPU at default interval; documented.
-- [ ] Documented in `docs/how-to/observability.md` (created in this change) including how to read the file.
+- [ ] El thread de sampleo arranca/para con el pipeline, nunca leakea.
+- [ ] El toggle de config funciona (off → ningún thread spawnea, no se crea archivo).
+- [ ] El formato es JSON Lines, un sample por línea, parseable por la herramienta §3.
+- [ ] Overhead de sampleo medido: menos del 1% CPU al intervalo default; documentado.
+- [ ] Documentado en `docs/how-to/observability.md` (creado en este cambio) incluyendo cómo leer el archivo.
 
-### Dependencies
+### Dependencias
 
-- None hard. Soft dependency on §3 (the offline analyzer) for the data to be valuable.
+- Ninguna dura. Dependencia blanda con §3 (el analizador offline) para que los datos sean valiosos.
 
 ---
 
-## §3. Offline Log Analysis Tooling — **SHIPPED in change 027 (2026-05-11)**
+## §3. Herramientas de Análisis de Log Offline — **SHIPPEADO en cambio 027 (2026-05-11)**
 
-> Promoted out of post-MVP and delivered as part of change 027.
-> See `specs/027-log-analyzer/`, `docs/how-to/log-analysis.md`,
-> and `CHANGELOG.md [0.29.0]`. HTML rendering deferred to a
-> future follow-up.
+> Promocionado fuera de post-MVP y entregado como parte del cambio 027.
+> Ver `specs/027-log-analyzer/`, `docs/how-to/log-analysis.md`,
+> y `CHANGELOG.md [0.29.0]`. Render HTML diferido a un
+> follow-up futuro.
 
-### Intent
+### Intención
 
-Tools that consume the log tiers (app, pipeline, network, system) and produce **bottleneck attribution reports**: was a slow batch CPU-bound, memory-bound, disk-IO-bound, or network-bound? Which stage spent the most time? Which documents took the longest?
+Herramientas que consumen los niveles de log (app, pipeline, network, system) y producen **reportes de atribución de bottleneck**: ¿un batch lento fue CPU-bound, memory-bound, disk-IO-bound, o network-bound? ¿Qué stage se llevó más tiempo? ¿Qué documentos tardaron más?
 
-### Design
+### Diseño
 
-A subcommand suite under `cmcourier analyze`:
+Una suite de subcomando bajo `cmcourier analyze`:
 
 ```
 cmcourier analyze batch <batch_id>
-    Aggregates all log files for a batch into one report:
-    - Per-stage time distribution
-    - Per-stage failure rate with error grouping
-    - Slowest documents with full stage-by-stage breakdown
-    - Resource utilization correlated with batch timeline
-    - Bottleneck classification (CPU / mem / disk / net) with confidence
+    Agrega todos los archivos de log de un batch en un reporte:
+    - Distribución de tiempo por-stage
+    - Tasa de fallo por-stage con agrupación de errores
+    - Documentos más lentos con breakdown completo stage-by-stage
+    - Utilización de recursos correlacionada con la timeline del batch
+    - Clasificación de bottleneck (CPU / mem / disk / net) con confidence
 
 cmcourier analyze compare <batch_id_a> <batch_id_b>
-    Diff two batches: throughput delta, latency delta, where time was spent differently.
+    Diff entre dos batches: delta de throughput, delta de latencia, dónde se gastó el tiempo distinto.
 
 cmcourier analyze trends [--last N] [--pipeline <name>]
-    Throughput and p95 trends across the last N batches for a pipeline.
+    Tendencias de throughput y p95 a través de los últimos N batches para una pipeline.
 ```
 
-Output formats: human-readable terminal, JSON, HTML report (optional).
+Formatos de salida: terminal legible para humanos, JSON, reporte HTML (opcional).
 
-### MVP placeholder
+### Placeholder MVP
 
-None. The log files exist but reading them is manual.
+Ninguno. Los archivos de log existen pero leerlos es manual.
 
-### Why deferred
+### Por qué se difirió
 
-1. The tooling has zero value until §2 ships and there are real production batches with system metrics to analyze.
-2. The format of each log tier may evolve during MVP shakedown; freezing the analyzer too early creates churn.
-3. This is operations-side tooling, not migration-correctness tooling. MVP correctness ships first.
+1. Las herramientas tienen valor cero hasta que §2 shippee y haya batches productivos reales con métricas de sistema para analizar.
+2. El formato de cada nivel de log puede evolucionar durante el shakedown del MVP; congelar el analizador muy temprano crea churn.
+3. Esto son herramientas del lado de operaciones, no herramientas de corrección de migración. La corrección del MVP shippea primero.
 
-### Acceptance criteria for the post-MVP change
+### Criterios de aceptación para el cambio post-MVP
 
-- [ ] `cmcourier analyze batch <id>` produces a complete report from a sample batch's log files.
-- [ ] Bottleneck classifier is documented (rules + thresholds in `docs/how-to/log-analysis.md`).
-- [ ] Reports are deterministic given the same input log files (test fixtures).
-- [ ] Compare command produces a useful side-by-side for tuning runs.
+- [ ] `cmcourier analyze batch <id>` produce un reporte completo a partir de los archivos de log de un batch sample.
+- [ ] El clasificador de bottleneck está documentado (reglas + thresholds en `docs/how-to/log-analysis.md`).
+- [ ] Los reportes son deterministas dados los mismos archivos de log de entrada (fixtures de test).
+- [ ] El comando compare produce un lado-a-lado útil para corridas de tuning.
 
-### Dependencies
+### Dependencias
 
-- §2 (system metrics) — soft. Useful without it, much more useful with it.
+- §2 (métricas de sistema) — blanda. Útil sin ella, mucho más útil con ella.
 
 ---
 
-## §4. AS400-Backed Tracking Store — **SHIPPED in change 034 (2026-05-11)**
+## §4. Tracking Store Respaldado en AS400 — **SHIPPEADO en cambio 034 (2026-05-11)**
 
-> Refined and delivered as a **hybrid** model rather than a
-> drop-in replacement. The bank's existing `RVILIB.NIARVILOG`
-> table coordinates cross-batch idempotency + parallel-Java
-> evaluation; SQLite stays as the per-batch state machine.
-> Toggleable via `tracking.as400_sync.enabled`. See
+> Refinado y entregado como un modelo **híbrido** en lugar de un
+> reemplazo drop-in. La tabla existente `RVILIB.NIARVILOG` del banco
+> coordina idempotencia cross-batch + evaluación Java paralela;
+> SQLite queda como la máquina de estados por-batch.
+> Toggleable vía `tracking.as400_sync.enabled`. Ver
 > `specs/034-as400-niarvilog-sync/`,
-> `docs/how-to/as400-sync.md`, and CHANGELOG [0.35.0].
+> `docs/how-to/as400-sync.md`, y CHANGELOG [0.35.0].
 
-### Intent
+### Intención
 
-The `ITrackingStore` port has two implementations: `SQLiteTrackingStore` (MVP) and `AS400TrackingStore` (post-MVP). The latter routes idempotency state into a centralized `RVILIB.MIGRATION_LOG` table on AS400, satisfying environments where the bank requires tracking centralized in the legacy system rather than on a workstation file.
+El port `ITrackingStore` tiene dos implementaciones: `SQLiteTrackingStore` (MVP) y `AS400TrackingStore` (post-MVP). Esta última routea el estado de idempotencia a una tabla centralizada `RVILIB.MIGRATION_LOG` en AS400, satisfaciendo entornos donde el banco requiere tracking centralizado en el sistema legacy en lugar de en un archivo de workstation.
 
-### Design
+### Diseño
 
-- Implements the same `ITrackingStore` contract as SQLite.
-- Connection management via the same thread-local pyodbc pattern as `AS400DataSource`.
-- The schema mirrors the SQLite schema in `the project's domain spec §9.2` adapted for DB2 for i (column types: `CHAR`, `TIMESTAMP`, `INTEGER`, etc.).
-- The async writer queue concept (`§9.4`) is preserved, but commits are batched into AS400 inserts via `executemany`.
-- Configuration: `tracking.backend: "as400:default"`.
+- Implementa el mismo contrato `ITrackingStore` que SQLite.
+- Manejo de conexiones vía el mismo patrón thread-local pyodbc que `AS400DataSource`.
+- El schema espeja el schema de SQLite en `the project's domain spec §9.2` adaptado para DB2 for i (tipos de columna: `CHAR`, `TIMESTAMP`, `INTEGER`, etc.).
+- El concepto de cola de writer async (`§9.4`) se preserva, pero los commits se batcheran en inserts AS400 vía `executemany`.
+- Configuración: `tracking.backend: "as400:default"`.
 
-### MVP placeholder
+### Placeholder MVP
 
-`tracking.backend: "sqlite"` is the only supported backend in MVP. The schema field accepts `as400:<alias>` as a value but raises `NotImplementedError` at startup with a clear message pointing to this roadmap entry.
+`tracking.backend: "sqlite"` es el único backend soportado en el MVP. El campo del schema acepta `as400:<alias>` como valor pero levanta `NotImplementedError` al startup con un mensaje claro apuntando a esta entrada del roadmap.
 
-### Why deferred
+### Por qué se difirió
 
-1. The integration test for AS400 tracking requires real AS400 access (Constitution Principle VI: AS400 is not mocked). MVP testing happens against CSV + SQLite + Alfresco, all locally available.
-2. SQLite covers all dev / staging needs and many production scenarios.
-3. The migration of the old codebase's AS400 tracking implementation is moderate (~300 lines + tests) and best done after the MVP shape is settled.
+1. El test de integración para tracking AS400 requiere acceso AS400 real (Principio Constitucional VI: AS400 no se mockea). Los tests del MVP ocurren contra CSV + SQLite + Alfresco, todos localmente disponibles.
+2. SQLite cubre todas las necesidades de dev / staging y muchos escenarios de producción.
+3. La migración de la implementación de tracking AS400 del codebase viejo es moderada (~300 líneas + tests) y se hace mejor después de que la forma del MVP esté asentada.
 
-### Acceptance criteria for the post-MVP change
+### Criterios de aceptación para el cambio post-MVP
 
-- [ ] `AS400TrackingStore` passes the same contract test suite as `SQLiteTrackingStore`.
-- [ ] Integration test against real AS400 staging environment in nightly CI.
-- [ ] Schema migration script (`scripts/install_as400_tracking_schema.sql`) idempotent.
-- [ ] Documented operational behavior: connection failures during tracking writes never crash the pipeline (§10.1 stage S6 says tracking is non-blocking).
-- [ ] `cmcourier doctor --check tracking` validates the AS400 tracking backend if configured.
+- [ ] `AS400TrackingStore` pasa la misma suite de tests de contrato que `SQLiteTrackingStore`.
+- [ ] Test de integración contra entorno AS400 staging real en CI nightly.
+- [ ] Script de migración de schema (`scripts/install_as400_tracking_schema.sql`) idempotente.
+- [ ] Comportamiento operacional documentado: fallos de conexión durante escrituras de tracking nunca crashean el pipeline (§10.1 stage S6 dice que el tracking es no-blocking).
+- [ ] `cmcourier doctor --check tracking` valida el backend de tracking AS400 si está configurado.
 
-### Dependencies
+### Dependencias
 
-- AS400 staging environment availability (operational, not technical).
+- Disponibilidad de entorno staging AS400 (operacional, no técnica).
 
 ---
 
-## §5. AIMD Adaptive Worker Auto-Tuning — **SHIPPED in change 025 (2026-05-10)**
+## §5. Auto-Tuning Adaptativo de Workers AIMD — **SHIPPEADO en cambio 025 (2026-05-10)**
 
-> Promoted out of post-MVP and delivered as part of change 025. The
-> section is kept for historical context and to document the
-> design intent that the implementation honors. See
-> `specs/025-tui-workers-autotune/` and `CHANGELOG.md [0.27.0]`.
+> Promocionado fuera de post-MVP y entregado como parte del cambio 025. La
+> sección se mantiene por contexto histórico y para documentar la
+> intención de diseño que la implementación honra. Ver
+> `specs/025-tui-workers-autotune/` y `CHANGELOG.md [0.27.0]`.
 
-### Intent
+### Intención
 
-The MVP runs S5 with a fixed worker count from config. Post-MVP, an **AIMD (Additive Increase / Multiplicative Decrease)** controller adjusts the worker count online based on observed p95 latency, mirroring TCP congestion control.
+El MVP corre S5 con un conteo fijo de workers desde la config. Post-MVP, un controller **AIMD (Additive Increase / Multiplicative Decrease)** ajusta el conteo de workers online basado en la latencia p95 observada, espejando el control de congestión de TCP.
 
-### Design
+### Diseño
 
-- Configuration:
+- Configuración:
   ```yaml
   processing:
     auto_tune:
@@ -295,244 +291,244 @@ The MVP runs S5 with a fixed worker count from config. Post-MVP, an **AIMD (Addi
       min_timeout_s: 30
       max_timeout_s: 600
   ```
-- Controller monitors rolling p95 of S5 upload latency over `adjustment_interval_s`.
-- If `p95 < target_p95_ms`: add 1 worker (additive increase) until `max_threads`.
-- If `p95 > target_p95_ms`: cut workers in half (multiplicative decrease), bounded by `min_threads`.
-- During `warmup_seconds`, no adjustments happen (let the system stabilize first).
-- Integration with §1 (heavy/light lanes): the controller adjusts the **total** worker budget; lane allocation remains the responsibility of §1's rebalancer.
+- El controller monitorea el p95 rolling de la latencia de upload S5 sobre `adjustment_interval_s`.
+- Si `p95 < target_p95_ms`: agregar 1 worker (additive increase) hasta `max_threads`.
+- Si `p95 > target_p95_ms`: cortar workers a la mitad (multiplicative decrease), acotado por `min_threads`.
+- Durante `warmup_seconds`, no ocurren ajustes (dejar que el sistema se estabilice primero).
+- Integración con §1 (lanes heavy/light): el controller ajusta el budget **total** de workers; la asignación de lane queda como responsabilidad del rebalanceador de §1.
 
-### MVP placeholder
+### Placeholder MVP
 
-`processing.auto_tune.enabled: false`. Workers are static. The schema field exists.
+`processing.auto_tune.enabled: false`. Los workers son estáticos. El campo del schema existe.
 
-### Why deferred
+### Por qué se difirió
 
-1. AIMD requires reliable p95 measurement, which requires §2 + §3 to validate the chosen targets are sensible.
-2. AIMD interacts non-trivially with §1's lane rebalancer; coupling them at MVP is premature optimization.
-3. Static workers are the right thing for the first migration: predictable, debuggable, easy to reason about.
+1. AIMD requiere medición confiable de p95, que requiere §2 + §3 para validar que los targets elegidos son sensatos.
+2. AIMD interactúa no trivialmente con el rebalanceador de lanes de §1; acoplarlos al MVP es optimización prematura.
+3. Workers estáticos son lo correcto para la primera migración: predecibles, debuggeables, fáciles de razonar.
 
-### Acceptance criteria for the post-MVP change
+### Criterios de aceptación para el cambio post-MVP
 
-- [ ] AIMD controller has unit tests for the additive and multiplicative branches.
-- [ ] An integration test simulates a network slowdown midway through a batch and verifies workers contract appropriately.
-- [ ] Configuration toggle works as expected (off → static workers).
-- [ ] Documented in `docs/how-to/auto-tuning.md`.
-- [ ] Co-design with §1 reviewed: who owns total budget, who owns allocation.
+- [ ] El controller AIMD tiene tests unitarios para las ramas additive y multiplicative.
+- [ ] Un test de integración simula un slowdown de red a mitad de un batch y verifica que los workers se contraigan apropiadamente.
+- [ ] El toggle de config funciona como esperado (off → workers estáticos).
+- [ ] Documentado en `docs/how-to/auto-tuning.md`.
+- [ ] Co-diseño con §1 revisado: quién es dueño del budget total, quién es dueño de la asignación.
 
-### Dependencies
+### Dependencias
 
-- §1 (heavy/light lanes) — should ship first or together. Soft.
-- §2 (system metrics) — for validating the chosen target.
+- §1 (lanes heavy/light) — debería shippear primero o juntos. Blanda.
+- §2 (métricas de sistema) — para validar el target elegido.
 
 ---
 
-## §6. Additional Pipelines (CSV / AS400 trigger / Local Scan) — **SHIPPED in changes 012, 014, 016**
+## §6. Pipelines Adicionales (CSV / AS400 trigger / Local Scan) — **SHIPPEADO en cambios 012, 014, 016**
 
-> Promoted out of post-MVP and delivered ahead of schedule.
-> `csv-trigger-pipeline` shipped in change 012,
-> `as400-trigger-pipeline` in change 014, `local-scan-pipeline` in
-> change 016. All four production pipelines plus `single-doc` are
-> in MVP. See `CHANGELOG.md` for the per-change detail.
+> Promocionado fuera de post-MVP y entregado adelantado.
+> `csv-trigger-pipeline` shippeó en cambio 012,
+> `as400-trigger-pipeline` en cambio 014, `local-scan-pipeline` en
+> cambio 016. Las cuatro pipelines productivas más `single-doc` están
+> en el MVP. Ver `CHANGELOG.md` para el detalle por-cambio.
 
-### Intent
+### Intención
 
-The MVP ships with `rvabrep-pipeline` and `single-doc`. The remaining three pipelines from `the project's domain spec §10.2` are additive — same stages, different `S0` strategy.
+El MVP shippea con `rvabrep-pipeline` y `single-doc`. Las tres pipelines restantes de `the project's domain spec §10.2` son aditivas — mismos stages, distinta estrategia `S0`.
 
-### Pipelines deferred
+### Pipelines diferidas
 
-| Pipeline | S0 strategy | Use case |
+| Pipeline | Estrategia S0 | Caso de uso |
 |----------|-------------|----------|
-| `csv-trigger-pipeline` | Read TriggerRecords from CSV file | Controlled batches, testing, regulatory exports |
-| `as400-trigger-pipeline` | Run a configurable SQL against AS400 | Production with custom discovery queries |
-| `local-scan-pipeline` | Walk a folder, cross-reference RVABREP for metadata | Files already extracted to disk |
+| `csv-trigger-pipeline` | Leer TriggerRecords desde archivo CSV | Batches controlados, testing, exports regulatorios |
+| `as400-trigger-pipeline` | Correr un SQL configurable contra AS400 | Producción con queries de discovery custom |
+| `local-scan-pipeline` | Walkear una carpeta, cross-referenciar RVABREP para metadatos | Archivos ya extraídos al disco |
 
-### Design
+### Diseño
 
-Each is a new CLI command that registers a different `S0` strategy. The remaining stages (`S1`–`S7`) and the producer-consumer batch model are unchanged.
+Cada uno es un nuevo comando CLI que registra una estrategia `S0` distinta. Los stages restantes (`S1`–`S7`) y el modelo producer-consumer de batch quedan sin cambios.
 
-The Strategy interface for `S0` is part of the MVP (Constitution Principle I: the abstraction must exist from day one even if only one implementation is built first).
+La interfaz Strategy para `S0` es parte del MVP (Principio Constitucional I: la abstracción debe existir desde el día uno aunque solo se construya una implementación primero).
 
-### MVP placeholder
+### Placeholder MVP
 
-`rvabrep-pipeline` and `single-doc` ship in MVP. The `S0Strategy` interface is defined; only the `RVABREPDirectStrategy` and `NoOpStrategy` (for `single-doc`) are implemented. Attempting to invoke a deferred pipeline shows a clear error pointing to this roadmap entry.
+`rvabrep-pipeline` y `single-doc` shippean en el MVP. La interfaz `S0Strategy` está definida; solo `RVABREPDirectStrategy` y `NoOpStrategy` (para `single-doc`) están implementadas. Intentar invocar una pipeline diferida muestra un error claro apuntando a esta entrada del roadmap.
 
-### Why deferred
+### Por qué se difirió
 
-1. Building four pipelines simultaneously dilutes the MVP focus. One end-to-end pipeline that demonstrably works is worth more than four half-working ones.
-2. Each additional pipeline adds its own integration test surface and pre-flight validation (S0 source health, etc.).
-3. Two of the three (CSV, AS400) are simple variations on the trigger source; once the first is solid, the rest are short changes.
+1. Construir cuatro pipelines simultáneamente diluye el foco del MVP. Una pipeline de punta a punta que demonstrablemente funcione vale más que cuatro a medio funcionar.
+2. Cada pipeline adicional agrega su propia superficie de test de integración y validación pre-flight (salud de la fuente S0, etc.).
+3. Dos de las tres (CSV, AS400) son variaciones simples de la fuente de trigger; una vez que la primera está sólida, el resto son cambios cortos.
 
-### Acceptance criteria for each pipeline change
+### Criterios de aceptación para cada cambio de pipeline
 
-- [ ] CLI command exists with full flag support (`--batch-size`, `--batch <id>`, `--stage`, `--from`, `--resume`, `--skip-doctor`).
-- [ ] `S0` strategy implementation passes contract tests (returns `Iterable<TriggerRecord>` correctly under various inputs).
-- [ ] Integration test against fixtures in `tests/fixtures/<pipeline-name>/`.
-- [ ] `doctor` command validates the new pipeline's source health.
-- [ ] Updated `docs/how-to/<pipeline-name>.md`.
+- [ ] El comando CLI existe con soporte completo de flags (`--batch-size`, `--batch <id>`, `--stage`, `--from`, `--resume`, `--skip-doctor`).
+- [ ] La implementación de estrategia `S0` pasa tests de contrato (devuelve `Iterable<TriggerRecord>` correctamente bajo varios inputs).
+- [ ] Test de integración contra fixtures en `tests/fixtures/<pipeline-name>/`.
+- [ ] El comando `doctor` valida la salud de la fuente de la nueva pipeline.
+- [ ] `docs/how-to/<pipeline-name>.md` actualizado.
 
-### Dependencies
+### Dependencias
 
-- MVP `rvabrep-pipeline` shipped and stable.
+- `rvabrep-pipeline` del MVP shippeada y estable.
 
 ---
 
-## §7. Multi-Batch Pipeline Parallelism (>2 Batches in Flight) — **N=2 SHIPPED in change 028 (2026-05-11)**
+## §7. Paralelismo Multi-Batch de Pipeline (>2 Batches en Vuelo) — **N=2 SHIPPEADO en cambio 028 (2026-05-11)**
 
-> The two-batch producer-consumer overlap (the canonical
-> "siempre dos lotes en vuelo" model) shipped in change 028.
-> Raising the cap above 2 (the original `1..5` range) requires
-> a per-chunk shared-pool refactor that's deferred to a future
-> change. See `specs/028-multi-batch-orchestrator/`,
-> `docs/how-to/multi-batch.md`, and
+> El overlap producer-consumer de dos batches (el modelo canónico
+> "siempre dos lotes en vuelo") shippeó en cambio 028.
+> Elevar el cap por encima de 2 (el rango original `1..5`) requiere
+> un refactor de pool compartido por-chunk que está diferido a un
+> cambio futuro. Ver `specs/028-multi-batch-orchestrator/`,
+> `docs/how-to/multi-batch.md`, y
 > `CHANGELOG.md [0.30.0]`.
 
-### Intent
+### Intención
 
-The MVP overlap is **two batches in flight**: one preparing (S0–S4), one uploading (S5). A natural extension is **N batches in flight** where N > 2 — multiple batches in different stages simultaneously, bounded by available memory and configured concurrency.
+El overlap del MVP es **dos batches en vuelo**: uno preparándose (S0–S4), uno subiendo (S5). Una extensión natural es **N batches en vuelo** donde N > 2 — múltiples batches en stages distintos simultáneamente, acotado por memoria disponible y concurrencia configurada.
 
-### Design
+### Diseño
 
-- Configuration: `processing.batches_in_flight` (default 2).
-- A scheduler dispatches batches to a pool of "batch workers", each running a batch's S0–S5 sequence independently.
-- Resource contention managed by:
-  - Shared S5 worker pool (so total upload concurrency is unchanged)
-  - Separate temp directories per batch
-  - Tracking store transactions per batch isolate state
-- TUI gains a "BATCHES" tab listing all in-flight batches and their current stage.
+- Configuración: `processing.batches_in_flight` (default 2).
+- Un scheduler despacha batches a un pool de "batch workers", cada uno corriendo la secuencia S0–S5 de un batch independientemente.
+- Contención de recursos manejada por:
+  - Worker pool S5 compartido (así la concurrencia total de upload no cambia)
+  - Directorios temp separados por batch
+  - Transacciones del tracking store por-batch aíslan el estado
+- El TUI gana una tab "BATCHES" listando todos los batches en vuelo y su stage actual.
 
-### MVP placeholder
+### Placeholder MVP
 
-`batches_in_flight = 2` (the producer-consumer overlap). Configuration field exists but values > 2 raise validation error pointing to this roadmap entry.
+`batches_in_flight = 2` (el overlap producer-consumer). El campo de config existe pero valores > 2 levantan error de validación apuntando a esta entrada del roadmap.
 
-### Why deferred
+### Por qué se difirió
 
-1. Multi-batch parallelism shines only at scale (many small batches), but the MVP target is correctness on a single large batch.
-2. Memory usage scales with batches in flight × largest staged file in each batch. Without §2 metrics, sizing this is dangerous.
-3. Failure semantics get messier (one batch failing while others succeed — what does "exit code" mean?).
+1. El paralelismo multi-batch brilla solo a escala (muchos batches chicos), pero el target del MVP es corrección en un único batch grande.
+2. El uso de memoria escala con batches en vuelo × archivo staged más grande en cada batch. Sin las métricas de §2, dimensionar esto es peligroso.
+3. La semántica de fallo se vuelve más sucia (un batch fallando mientras otros tienen éxito — ¿qué significa "exit code"?).
 
-### Acceptance criteria
+### Criterios de aceptación
 
-- [ ] Configurable `batches_in_flight`.
-- [ ] Stress test with 5 batches in flight on synthetic data.
-- [ ] TUI BATCHES tab shows all in-flight batches with current stage.
-- [ ] Failure of one batch does not block others.
-- [ ] Documented memory budgeting formula in `docs/how-to/scaling.md`.
+- [ ] `batches_in_flight` configurable.
+- [ ] Stress test con 5 batches en vuelo sobre datos sintéticos.
+- [ ] La tab BATCHES del TUI muestra todos los batches en vuelo con stage actual.
+- [ ] El fallo de un batch no bloquea a los otros.
+- [ ] Fórmula de presupuestado de memoria documentada en `docs/how-to/scaling.md`.
 
-### Dependencies
+### Dependencias
 
-- §2 (system metrics) for memory-budget tuning.
-
----
-
-## §8. Per-Batch Bandwidth Quota
-
-### Intent
-
-The current `cmis.max_bandwidth_mbps` is a global cap shared by all in-flight uploads. Post-MVP, allow per-batch quotas so high-priority batches get more bandwidth and low-priority batches get less.
-
-### Design
-
-- New config: `processing.bandwidth_policy: global | per_batch | priority_weighted`.
-- `per_batch`: each batch reserves `cmis.max_bandwidth_mbps / batches_in_flight`.
-- `priority_weighted`: batches carry a priority value; bandwidth allocated proportionally.
-- TUI shows current per-batch bandwidth allocation.
-
-### MVP placeholder
-
-Global bandwidth policy only. The other policies error with a roadmap pointer.
-
-### Why deferred
-
-1. Requires §7 (multi-batch parallelism) to be meaningful.
-2. Bandwidth policy interacts with §1's shared token bucket; design is co-dependent.
-3. Solo-batch operation has no use for it.
-
-### Acceptance criteria
-
-- [ ] All three policies configurable and tested against real bandwidth limits in integration.
-- [ ] Bandwidth limiter remains correct under all policies (total never exceeds global cap).
-- [ ] Documented in `docs/how-to/bandwidth.md`.
-
-### Dependencies
-
-- §1 (lanes), §7 (multi-batch). Soft.
+- §2 (métricas de sistema) para el tuning del presupuesto de memoria.
 
 ---
 
-## §9. Cross-Batch Metadata Cache (`document_cache` Table) — **SHIPPED in change 037 (2026-05-11)**
+## §8. Cuota de Bandwidth Por-Batch
 
-> Promoted out of post-MVP and delivered as part of change 037.
-> Default off; enable via `metadata.cache.enabled`. SQLite-backed,
-> TTL via `metadata.cache.ttl_minutes` (default 60). CLI:
-> `cmcourier cache stats|clear`. Structured
-> `document_cache_hit` / `_miss` events fed to `cmcourier analyze`.
-> See `specs/037-document-cache/`, `docs/how-to/document-cache.md`,
-> and `CHANGELOG.md [0.38.0]`.
+### Intención
 
-### Intent
+El actual `cmis.max_bandwidth_mbps` es un cap global compartido por todos los uploads en vuelo. Post-MVP, permitir cuotas por-batch para que batches de alta prioridad reciban más bandwidth y batches de baja prioridad reciban menos.
 
-The old codebase has a `document_cache` table (see `the project's domain spec §9.2`) that stores resolved metadata per `txn_num` so a re-run in a different mode reuses prior resolution work. Post-MVP, formalize this as a cross-mode cache so the same document does not pay AS400 query costs twice.
+### Diseño
 
-### Design
+- Nueva config: `processing.bandwidth_policy: global | per_batch | priority_weighted`.
+- `per_batch`: cada batch reserva `cmis.max_bandwidth_mbps / batches_in_flight`.
+- `priority_weighted`: los batches llevan un valor de prioridad; bandwidth asignado proporcionalmente.
+- El TUI muestra la asignación de bandwidth actual por-batch.
 
-- After S3 (Metadata Resolution) succeeds for a document, the resolved metadata is upserted into `document_cache`.
-- Before S3 begins, the cache is consulted; on hit (and TTL valid), S3 is skipped and the cached metadata is used.
-- Cache invalidation: TTL (`metadata_cache_ttl_minutes` from `the project's domain spec §6.6`, default 60) plus manual `cmcourier cache clear --txn <num>`.
-- Persists across pipeline invocations via SQLite (or AS400 in §4 environments).
+### Placeholder MVP
 
-### MVP placeholder
+Solo política de bandwidth global. Las otras políticas erroran con un puntero al roadmap.
 
-S3 always queries fresh. The `document_cache` table is created in the schema with a comment stating it is reserved for §9. The in-memory metadata pre-fetch from `the project's domain spec §6.6` is MVP — that is per-process, not cross-batch.
+### Por qué se difirió
 
-### Why deferred
+1. Requiere §7 (paralelismo multi-batch) para ser significativo.
+2. La política de bandwidth interactúa con el token bucket compartido de §1; el diseño es co-dependiente.
+3. La operación solo-batch no tiene uso para esto.
 
-1. Adds a cache layer with its own correctness story (TTL, invalidation, what counts as "stale"). Too much risk for MVP.
-2. The pre-fetch in `§6.6` already gives most of the benefit during a single run. Cross-batch re-use is a smaller delta.
-3. Without observability (§2/§3) we cannot quantify the win.
+### Criterios de aceptación
 
-### Acceptance criteria
+- [ ] Las tres políticas configurables y testeadas contra límites de bandwidth reales en integración.
+- [ ] El limitador de bandwidth queda correcto bajo todas las políticas (el total nunca excede el cap global).
+- [ ] Documentado en `docs/how-to/bandwidth.md`.
 
-- [ ] `document_cache` table populated after every successful S3.
-- [ ] S3 short-circuits on cache hit (within TTL).
-- [ ] Cache hit/miss metrics logged.
-- [ ] `cmcourier cache clear` and `cmcourier cache stats` commands exist.
-- [ ] TTL expiry tested with synthetic clock.
+### Dependencias
 
-### Dependencies
-
-- None hard.
+- §1 (lanes), §7 (multi-batch). Blandas.
 
 ---
 
-## §10. Things That Might Become Features (Watchlist)
+## §9. Cache Cross-Batch de Metadatos (Tabla `document_cache`) — **SHIPPEADO en cambio 037 (2026-05-11)**
 
-These are not promises — they are observations from the original codebase or the design that may grow into features if real operations demand them:
+> Promocionado fuera de post-MVP y entregado como parte del cambio 037.
+> Default off; habilitar vía `metadata.cache.enabled`. Respaldado en SQLite,
+> TTL vía `metadata.cache.ttl_minutes` (default 60). CLI:
+> `cmcourier cache stats|clear`. Eventos estructurados
+> `document_cache_hit` / `_miss` alimentados a `cmcourier analyze`.
+> Ver `specs/037-document-cache/`, `docs/how-to/document-cache.md`,
+> y `CHANGELOG.md [0.38.0]`.
 
-1. **Concurrent CMIS uploads against the same folder** — IBM CM has been observed to throttle when too many uploads target one folder. May need per-folder concurrency limits if it bites in production. **— still open.**
-2. ~~**Connection pool warm-up at process start**~~ — **SHIPPED in change 039** (`CHANGELOG.md [0.39.0]`, tagged `POST-MVP §10.2`). The pool now eager-warms every connection at process start instead of lazy per-thread JSESSIONID warm-up.
-3. ~~**Resume after total host crash mid-S5**~~ — **SHIPPED in changes 044 + 045.** 044 added stage-gap detection to the resume logic; 045 closed the exact "file uploaded to CMIS but tracking write didn't land" kill-race — on the retry's HTTP 409 the uploader looks the object up by `cmis:name` and treats it as `S5_DONE`. Characterized empirically via the §H.1 live kill-mid-S5 verification. See `CHANGELOG.md [0.47.0]` + `[0.48.0]`.
-4. **Configurable retry budgets per pipeline** — MVP uses one global retry policy. Different pipelines may want different budgets. **— still open.**
-5. **Periodic state snapshot for very long batches** — for a batch that takes hours, midway snapshots accelerate post-mortem analysis. **— still open.**
-6. ~~**CLI auto-completion**~~ — **SHIPPED.** `cmcourier completion {bash|zsh|fish}` emits the shell-completion script. (PowerShell unsupported — a known gap, not on this watchlist.)
+### Intención
 
-Remaining open: **items 1, 4, 5** — none with a hard date; each waits on a real operational pain (most likely surfacing during the first production migration) before it earns its own `/sdd-new` change.
+El codebase viejo tiene una tabla `document_cache` (ver `the project's domain spec §9.2`) que almacena metadatos resueltos por `txn_num` así una re-corrida en un modo distinto reusa trabajo previo de resolución. Post-MVP, formalizar esto como un cache cross-mode así el mismo documento no paga costos de query AS400 dos veces.
+
+### Diseño
+
+- Después de que S3 (Resolución de Metadatos) tiene éxito para un documento, los metadatos resueltos se upsertean en `document_cache`.
+- Antes de que S3 empiece, el cache se consulta; en hit (y TTL válido), S3 se saltea y se usan los metadatos cacheados.
+- Invalidación del cache: TTL (`metadata_cache_ttl_minutes` de `the project's domain spec §6.6`, default 60) más `cmcourier cache clear --txn <num>` manual.
+- Persiste a través de invocaciones de pipeline vía SQLite (o AS400 en entornos §4).
+
+### Placeholder MVP
+
+S3 siempre consulta fresh. La tabla `document_cache` se crea en el schema con un comentario diciendo que está reservada para §9. El pre-fetch en memoria de metadatos de `the project's domain spec §6.6` es MVP — eso es por-proceso, no cross-batch.
+
+### Por qué se difirió
+
+1. Agrega una capa de cache con su propia historia de corrección (TTL, invalidación, qué cuenta como "stale"). Demasiado riesgo para el MVP.
+2. El pre-fetch en `§6.6` ya da la mayor parte del beneficio durante una sola corrida. El re-uso cross-batch es un delta más chico.
+3. Sin observabilidad (§2/§3) no podemos cuantificar la ganancia.
+
+### Criterios de aceptación
+
+- [ ] Tabla `document_cache` poblada después de cada S3 exitoso.
+- [ ] S3 short-circuita en hit del cache (dentro del TTL).
+- [ ] Métricas de hit/miss del cache logueadas.
+- [ ] Existen los comandos `cmcourier cache clear` y `cmcourier cache stats`.
+- [ ] Expiración del TTL testeada con reloj sintético.
+
+### Dependencias
+
+- Ninguna dura.
 
 ---
 
-## How This Document Evolves
+## §10. Cosas Que Pueden Volverse Funcionalidades (Watchlist)
 
-- **Promotion to MVP**: if a deferred item turns out to be required for the first migration, move it out of this file into a `/sdd-new` change. Note the move in `CHANGELOG.md`.
-- **Demotion / removal**: if an item turns out to be a bad idea after MVP shakedown, remove it and explain why in a brief note here. Do not silently drop.
-- **New deferrals**: when MVP work surfaces a feature that should be deferred, add it as a new numbered section here. Numbering is append-only — never reuse a number.
-- **Version**: this document is unversioned (it is a roadmap, not a contract). Major reorganizations are noted in `CHANGELOG.md`.
+Estas no son promesas — son observaciones del codebase original o el diseño que pueden crecer hacia funcionalidades si operaciones reales las demandan:
+
+1. **Uploads CMIS concurrentes contra la misma carpeta** — se ha observado que IBM CM throttlea cuando demasiados uploads apuntan a una carpeta. Puede necesitar límites de concurrencia por-carpeta si pega en producción. **— todavía abierto.**
+2. ~~**Warm-up del connection pool al inicio del proceso**~~ — **SHIPPEADO en cambio 039** (`CHANGELOG.md [0.39.0]`, tagueado `POST-MVP §10.2`). El pool ahora warm-eaa cada conexión al inicio del proceso en lugar de warm-up JSESSIONID lazy por-thread.
+3. ~~**Resume tras crash total del host en medio de S5**~~ — **SHIPPEADO en cambios 044 + 045.** 044 agregó detección de gap de stage a la lógica de resume; 045 cerró la kill-race exacta "archivo subido a CMIS pero la escritura de tracking no aterrizó" — en el HTTP 409 del retry el uploader busca el objeto por `cmis:name` y lo trata como `S5_DONE`. Caracterizado empíricamente vía la verificación live §H.1 de kill-en-medio-de-S5. Ver `CHANGELOG.md [0.47.0]` + `[0.48.0]`.
+4. **Budgets de retry configurables por pipeline** — el MVP usa una política de retry global. Distintas pipelines pueden querer distintos budgets. **— todavía abierto.**
+5. **Snapshot periódico de estado para batches muy largos** — para un batch que toma horas, snapshots intermedios aceleran el análisis post-mortem. **— todavía abierto.**
+6. ~~**Auto-completion CLI**~~ — **SHIPPEADO.** `cmcourier completion {bash|zsh|fish}` emite el script de shell-completion. (PowerShell no soportado — un gap conocido, no está en esta watchlist.)
+
+Restantes abiertos: **ítems 1, 4, 5** — ninguno con fecha dura; cada uno espera un dolor operacional real (lo más probable que aparezca durante la primera migración productiva) antes de ganarse su propio cambio `/sdd-new`.
+
+---
+
+## Cómo Evoluciona Este Documento
+
+- **Promoción al MVP**: si un ítem diferido resulta requerido para la primera migración, moverlo de este archivo a un cambio `/sdd-new`. Notar el movimiento en `CHANGELOG.md`.
+- **Democión / remoción**: si un ítem resulta una mala idea después del shakedown del MVP, removerlo y explicar por qué en una nota breve acá. No dropear silenciosamente.
+- **Nuevos diferimientos**: cuando el trabajo del MVP haga aparecer una funcionalidad que debería diferirse, agregarla como una nueva sección numerada acá. La numeración es append-only — nunca reusar un número.
+- **Versión**: este documento es no-versionado (es un roadmap, no un contrato). Reorganizaciones mayores se notan en `CHANGELOG.md`.
 
 ---
 
 ## Cross-References
 
-- Constitution: `.specify/memory/constitution.md`
-- Domain ground truth: the project's domain spec
-- Stage architecture: `docs/domain/the project's domain spec §10`
-- Observability tiers: `docs/domain/the project's domain spec §17.4`
-- Tracking schema: `docs/domain/the project's domain spec §9`
+- Constitución: `.specify/memory/constitution.md`
+- Verdad de dominio: la spec de dominio del proyecto
+- Arquitectura de stages: `docs/domain/the project's domain spec §10`
+- Niveles de observabilidad: `docs/domain/the project's domain spec §17.4`
+- Schema de tracking: `docs/domain/the project's domain spec §9`
 - Changelog: `CHANGELOG.md`

@@ -1,26 +1,27 @@
 # 043 — Plan
 
-Three phases (~1.5 h total).
+Tres fases (~1.5 h total).
 
-## Phase 1 — ``AutoTuneController.set_p95_provider`` (~30 min)
+## Fase 1 — ``AutoTuneController.set_p95_provider`` (~30 min)
 
-### Files
+### Archivos
 
 - `src/cmcourier/services/auto_tune.py`
-  - New public method ``set_p95_provider(provider)`` that atomically
-    swaps ``self._p95_provider``. The existing ``_tick`` reads via
-    the attribute, so a swap takes effect on the next 15 s interval
-    without restarting the controller thread.
+  - Nuevo método público ``set_p95_provider(provider)`` que cambia
+    atómicamente ``self._p95_provider``. El ``_tick`` existente lee
+    vía el atributo, así que un swap toma efecto en el siguiente
+    intervalo de 15 s sin reiniciar el thread del controlador.
 
 ### Tests
 
-- `tests/unit/services/test_auto_tune.py` (or wherever the
-  controller tests live):
-  - ``test_set_p95_provider_takes_effect_next_tick`` — start with a
-    provider returning 100, swap to one returning 5000, run a tick,
-    assert the recorded ``observed_p95`` matches the new provider.
-  - ``test_set_p95_provider_swap_is_atomic`` — basic race-free
-    assignment check (no half-state).
+- `tests/unit/services/test_auto_tune.py` (o donde vivan los tests del
+  controlador):
+  - ``test_set_p95_provider_takes_effect_next_tick`` — arrancar con un
+    provider que devuelve 100, swapear a uno que devuelve 5000, correr
+    un tick, assertear que el ``observed_p95`` registrado matchea el
+    nuevo provider.
+  - ``test_set_p95_provider_swap_is_atomic`` — chequeo básico de
+    asignación race-free (sin half-state).
 
 ### Commit
 
@@ -28,26 +29,27 @@ Three phases (~1.5 h total).
 feat(services): AutoTuneController.set_p95_provider swap hook (043 Phase 1)
 ```
 
-## Phase 2 — Multi-batch orchestrator wires the upload-recorder p95 source (~30 min)
+## Fase 2 — El orchestrator multi-batch wirea la fuente de p95 del upload-recorder (~30 min)
 
-### Files
+### Archivos
 
 - `src/cmcourier/orchestrators/multi_batch.py`
-  - Add ``_upload_p95_observer()`` method on the orchestrator that
-    reads from ``self.upload_recorder()`` (the slot 042 introduced)
-    and returns its ``current_stage_p95("S5")``. Falls back to
-    ``0.0`` when no chunk is in UPLOAD yet.
-  - In ``_run_overlapped._upload_loop``, before
-    ``controller.start()``, call
+  - Agregar método ``_upload_p95_observer()`` en el orchestrator que
+    lee desde ``self.upload_recorder()`` (el slot que introdujo 042)
+    y devuelve su ``current_stage_p95("S5")``. Hace fallback a
+    ``0.0`` cuando ningún chunk está todavía en UPLOAD.
+  - En ``_run_overlapped._upload_loop``, antes de
+    ``controller.start()``, llamar
     ``controller.set_p95_provider(self._upload_p95_observer)``.
 
 ### Tests
 
 - `tests/unit/orchestrators/test_multi_batch.py`:
-  - ``test_overlapped_run_wires_upload_p95_observer`` — run a small
-    multi-batch with a real MetricsRecorder + a fake controller
-    that captures the assigned provider; assert the provider is the
-    upload-side one (not the original pipeline-recorder one).
+  - ``test_overlapped_run_wires_upload_p95_observer`` — correr un
+    multi-batch chico con un MetricsRecorder real + un controlador
+    falso que captura el provider asignado; assertear que el
+    provider es el del lado upload (no el del recorder original del
+    pipeline).
 
 ### Commit
 
@@ -55,26 +57,26 @@ feat(services): AutoTuneController.set_p95_provider swap hook (043 Phase 1)
 fix(orchestrators): multi-batch AIMD reads p95 from upload-active recorder (043 Phase 2)
 ```
 
-## Phase 3 — Docs + CHANGELOG 0.46.0 + version bump + re-verify F.4 + FF (~30 min)
+## Fase 3 — Docs + CHANGELOG 0.46.0 + bump de versión + re-verify F.4 + FF (~30 min)
 
-### Files
+### Archivos
 
-- `CHANGELOG.md` — ``[0.46.0]`` Fixed (AIMD multi-batch p95 read
-  path), Changed (AutoTuneController gains ``set_p95_provider``),
-  no Added/Removed.
+- `CHANGELOG.md` — ``[0.46.0]`` Fixed (read path de p95 de AIMD
+  multi-batch), Changed (AutoTuneController gana
+  ``set_p95_provider``), sin Added/Removed.
 - `pyproject.toml` 0.45.0 → 0.46.0.
-- `README.md` feature row tick.
+- Tick en fila de features de `README.md`.
 
 ### Release dance
 
 ```bash
 .venv/bin/pip install -e . --no-deps
-.venv/bin/cmcourier --version    # expect 0.46.0
+.venv/bin/cmcourier --version    # esperar 0.46.0
 ```
 
-### Live re-verification
+### Re-verificación en vivo
 
-Re-run §F.4:
+Re-correr §F.4:
 
 ```bash
 .venv/bin/cmcourier rvabrep-pipeline run \
@@ -82,7 +84,7 @@ Re-run §F.4:
   --total 200 --batches-in-flight 2 --no-tui
 ```
 
-Then:
+Después:
 
 ```bash
 rg auto_tune_decision sample/logs/app-*.log | python3 -c "
@@ -96,8 +98,8 @@ print(f'with action -1: {len(decreases)}')
 "
 ```
 
-Acceptance: ``with p95>0`` must be ≥ 1, demonstrating AIMD now
-sees real S5 latency in multi-batch mode.
+Aceptación: ``with p95>0`` debe ser ≥ 1, demostrando que AIMD ahora
+ve latencia real de S5 en modo multi-batch.
 
 ### Commit
 
@@ -105,4 +107,4 @@ sees real S5 latency in multi-batch mode.
 docs(043): CHANGELOG 0.46.0 + version bump + AIMD live re-verify (043 Phase 3)
 ```
 
-### FF to main.
+### FF a main.

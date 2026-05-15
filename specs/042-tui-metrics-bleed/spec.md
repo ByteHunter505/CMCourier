@@ -1,135 +1,142 @@
-# 042 — TUI metrics: per-chunk isolation + live UPLOAD counters
+# 042 — Métricas de TUI: aislamiento por-chunk + contadores UPLOAD en vivo
 
-## Why
+## Por qué
 
-A live verification of 041 against the testserver Alfresco
-(`--total 100 --batches-in-flight 2`) surfaced three bugs that the
-041 unit tests could not catch because they all require a real
-multi-batch overlap to reproduce:
+Una verificación en vivo de 041 contra el testserver de Alfresco
+(`--total 100 --batches-in-flight 2`) destapó tres bugs que los tests
+unitarios de 041 no pudieron atrapar porque todos requieren un
+solapamiento multi-batch real para reproducirse:
 
-1. **CHUNKS row UPLOAD column stays `0/0/0` during the entire S5
-   stage.** Operators watching the dashboard see no progress on the
-   per-chunk counters until the chunk transitions to DONE. The
-   actual upload IS happening (the orchestrator's local `s5_done`
-   counter advances), but ``MultiBatchOrchestrator._update_chunk_state``
-   only writes the counters into ``ChunkState`` on the DONE
-   transition (`multi_batch.py:451`). The intermediate UPLOAD
-   ``_update_chunk_state(status="UPLOAD")`` call (`:426`) leaves
-   ``s5_done`` and ``s5_failed`` at their defaults of 0.
+1. **La columna UPLOAD de la fila CHUNKS queda en `0/0/0` durante todo
+   el stage S5.** Los operadores que miran el dashboard no ven
+   progreso en los contadores por-chunk hasta que el chunk transiciona
+   a DONE. La subida real SÍ está ocurriendo (el contador local
+   `s5_done` del orchestrator avanza), pero
+   ``MultiBatchOrchestrator._update_chunk_state`` solo escribe los
+   contadores en ``ChunkState`` en la transición a DONE
+   (`multi_batch.py:451`). La llamada intermedia de UPLOAD a
+   ``_update_chunk_state(status="UPLOAD")`` (`:426`) deja
+   ``s5_done`` y ``s5_failed`` en sus defaults de 0.
 
-2. **`bandwidth.cumulative_bytes` leaks across overlapping chunks.**
-   With ``batches_in_flight=2``, the final frame of the verification
-   run showed ``S5 UPLOAD ... 77.3 MB / 40.4 MB`` — uploaded MB
-   greater than chunk total, which is impossible if isolation works.
-   Root cause: ``_BandwidthHandler.emit`` filters only by
-   ``kind=="cmis_upload"`` and does **not** filter by ``batch_id``.
-   When chunk #0 is uploading while chunk #1's recorder has already
-   started (PREP), BOTH bandwidth handlers are attached to the
-   ``cmcourier.metrics.network`` logger; every ``cmis_upload`` event
-   increments both counters. Chunk #1 ends up with chunk #0's bytes
-   counted into its cumulative total. Note: ``_SlowOpHandler`` got
-   this right — it carries ``batch_id`` and short-circuits on
-   ``record.batch_id != self._batch_id``. The bandwidth handler is
-   the lone exception.
+2. **`bandwidth.cumulative_bytes` se filtra entre chunks solapados.**
+   Con ``batches_in_flight=2``, el frame final del run de
+   verificación mostraba ``S5 UPLOAD ... 77.3 MB / 40.4 MB`` — MB
+   subidos mayor que el total del chunk, lo cual es imposible si el
+   aislamiento funciona. Causa raíz: ``_BandwidthHandler.emit``
+   filtra solo por ``kind=="cmis_upload"`` y **no** filtra por
+   ``batch_id``. Cuando el chunk #0 está subiendo mientras el
+   recorder del chunk #1 ya arrancó (PREP), AMBOS handlers de
+   bandwidth están attacheados al logger
+   ``cmcourier.metrics.network``; cada evento ``cmis_upload``
+   incrementa ambos contadores. El chunk #1 termina con los bytes del
+   chunk #0 contados en su total acumulado. Nota:
+   ``_SlowOpHandler`` lo hizo bien — lleva ``batch_id`` y
+   cortocircuita en ``record.batch_id != self._batch_id``. El
+   handler de bandwidth es la excepción.
 
-3. **S5 percentiles in the UPLOAD tab can bind to the wrong chunk's
-   recorder during overlap.** Frame 65 of the verification run
-   showed ``S5 UPLOAD ... 5.6 MB / 34.7 MB ... p50 0.0 ms`` —
-   bytes had accumulated but percentile latencies were zero. Root
-   cause: ``MultiBatchOrchestrator._active_recorder`` is a single
-   slot. Both ``_prep_loop`` and ``_upload_loop`` call
-   ``_set_active_recorder`` when their stage begins. When chunk #1
-   enters PREP while chunk #0 is in UPLOAD, the active recorder
-   flips to chunk #1's (which has zero S5 activity yet). The UPLOAD
-   tab reads percentile data from chunk #1's empty S5 bucket.
+3. **Los percentiles de S5 en el tab UPLOAD pueden bindearse al
+   recorder del chunk equivocado durante el solapamiento.** El frame
+   65 del run de verificación mostraba
+   ``S5 UPLOAD ... 5.6 MB / 34.7 MB ... p50 0.0 ms`` — los bytes se
+   habían acumulado pero las latencias de los percentiles eran cero.
+   Causa raíz: ``MultiBatchOrchestrator._active_recorder`` es un
+   único slot. Tanto ``_prep_loop`` como ``_upload_loop`` llaman a
+   ``_set_active_recorder`` cuando su stage arranca. Cuando el chunk
+   #1 entra a PREP mientras el chunk #0 está en UPLOAD, el active
+   recorder se da vuelta al del chunk #1 (que todavía no tiene
+   actividad S5). El tab UPLOAD lee los datos de percentiles del
+   bucket S5 vacío del chunk #1.
 
-## What
+## Qué
 
-### 1. Per-chunk bandwidth handler isolation (bug #2)
+### 1. Aislamiento del handler de bandwidth por-chunk (bug #2)
 
-``_BandwidthHandler`` gains a required ``batch_id`` parameter on
-``__init__`` and short-circuits in ``emit`` when
+``_BandwidthHandler`` gana un parámetro requerido ``batch_id`` en
+``__init__`` y cortocircuita en ``emit`` cuando
 ``record.batch_id != self._batch_id``. ``MetricsRecorder.start_batch``
-constructs the handler with its own ``batch_id``, mirroring the
-``_SlowOpHandler`` pattern that has worked since 025.
+construye el handler con su propio ``batch_id``, replicando el patrón
+de ``_SlowOpHandler`` que funciona desde 025.
 
-After this fix, with N overlapping chunks every cmis_upload event
-still fires on N handlers, but only the matching handler increments
-its sampler — bytes stay isolated per chunk.
+Después de este fix, con N chunks solapados cada evento cmis_upload
+sigue disparando en N handlers, pero solo el handler que matchea
+incrementa su sampler — los bytes quedan aislados por chunk.
 
-### 2. Live S5 counters propagated to CHUNKS row (bug #1)
+### 2. Contadores S5 en vivo propagados a la fila CHUNKS (bug #1)
 
-Two changes:
+Dos cambios:
 
-- ``MetricsRecorder`` gains ``record_upload_done()`` and
-  ``record_upload_failed()`` (mirror of ``record_upload_skipped``
-  added in 041 Phase 3) with thread-safe counters and getter
-  methods ``upload_done_count()`` / ``upload_failed_count()``.
-- ``_stage_5_single`` and ``_stage_5_dual`` call these on the
-  ``"done"`` / ``"failed"`` outcome branches.
-- ``data_provider._chunks_state_snapshot`` reads the active
-  upload recorder when ``status == "UPLOAD"`` and surfaces
-  ``s5_done`` / ``s5_failed`` live (the recorder is per-chunk in
-  multi-batch, so per-recorder counters ARE the per-chunk numbers).
-  When ``status == "DONE"``, the values come from ``ChunkState``
-  as today (frozen at transition).
+- ``MetricsRecorder`` gana ``record_upload_done()`` y
+  ``record_upload_failed()`` (espejo de ``record_upload_skipped``
+  agregado en 041 Fase 3) con contadores thread-safe y métodos getter
+  ``upload_done_count()`` / ``upload_failed_count()``.
+- ``_stage_5_single`` y ``_stage_5_dual`` los llaman en las ramas de
+  outcome ``"done"`` / ``"failed"``.
+- ``data_provider._chunks_state_snapshot`` lee el upload recorder
+  activo cuando ``status == "UPLOAD"`` y surface
+  ``s5_done`` / ``s5_failed`` en vivo (el recorder es por-chunk en
+  multi-batch, así que los contadores por-recorder SON los números
+  por-chunk). Cuando ``status == "DONE"``, los valores vienen de
+  ``ChunkState`` como hoy (congelados en la transición).
 
-### 3. Separate UPLOAD-side active recorder (bug #3)
+### 3. Active recorder separado para el lado UPLOAD (bug #3)
 
-``MultiBatchOrchestrator`` keeps the existing ``_active_recorder``
-slot for PREP-tab binding but adds a second slot
-``_upload_active_recorder`` set in ``_upload_loop`` only. Exposed
-via ``upload_recorder()`` callback alongside the existing
-``active_recorder()`` callback. The data provider uses
-``upload_recorder()`` for everything S5-shaped:
+``MultiBatchOrchestrator`` mantiene el slot ``_active_recorder``
+existente para el binding del tab PREP pero agrega un segundo slot
+``_upload_active_recorder`` seteado solo en ``_upload_loop``.
+Expuesto vía callback ``upload_recorder()`` junto al callback
+``active_recorder()`` existente. El data provider usa
+``upload_recorder()`` para todo lo de forma S5:
 
-- ``current_chunk_*`` bytes / elapsed / avg / ETA fields
-- The UPLOAD tab's S5 percentile block
+- Campos ``current_chunk_*`` de bytes / elapsed / avg / ETA
+- El bloque de percentiles S5 del tab UPLOAD
 
-The PREP tab keeps using ``active_recorder()`` (the most-recent
-PREP-or-UPLOAD chunk). This decouples the two tab bindings so the
-PREP-side recorder flip no longer disturbs the UPLOAD-side display.
+El tab PREP sigue usando ``active_recorder()`` (el chunk más reciente
+en PREP-o-UPLOAD). Esto desacopla los dos bindings de tab para que el
+giro del recorder del lado PREP ya no perturbe el display del lado
+UPLOAD.
 
-When no chunk has entered UPLOAD yet, ``upload_recorder()``
-returns ``None`` and the data provider falls back to the pipeline's
-own recorder (the single-batch path stays byte-identical to today).
+Cuando ningún chunk entró a UPLOAD todavía, ``upload_recorder()``
+devuelve ``None`` y el data provider hace fallback al recorder propio
+del pipeline (el camino single-batch queda byte-idéntico al de hoy).
 
-## Out of scope
+## Fuera de alcance
 
-- Re-architecting the recorder lifecycle. The per-chunk recorder
-  model from 028 stays as-is.
-- Adding a dedicated PREP-side per-chunk recorder slot. PREP tab
-  already aggregates fine; this spec only touches the UPLOAD-side
-  binding.
-- Bandwidth chart series (``bandwidth.series()``). The 60s window
-  decays per-handler too, but the cumulative_bytes bug is the one
-  with visible operator impact. Chart series accuracy can be
-  revisited if it shows up in field reports.
-- ``aggregator_snapshot`` (slow-ops) — already isolated correctly
-  via ``_SlowOpHandler`` batch_id filter (pre-042 behavior is
-  fine).
+- Re-arquitecturar el lifecycle del recorder. El modelo de recorder
+  por-chunk de 028 queda tal cual.
+- Agregar un slot dedicado de recorder por-chunk del lado PREP. El
+  tab PREP ya agrega bien; este spec solo toca el binding del lado
+  UPLOAD.
+- Series del chart de bandwidth (``bandwidth.series()``). La ventana
+  de 60s decae per-handler también, pero el bug de cumulative_bytes
+  es el de impacto visible para el operador. La exactitud de las
+  series del chart se puede revisitar si aparece en reportes de
+  campo.
+- ``aggregator_snapshot`` (slow-ops) — ya aislado correctamente vía
+  el filtro de batch_id del ``_SlowOpHandler`` (el comportamiento
+  pre-042 está bien).
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- A new unit test asserts ``_BandwidthHandler.emit`` ignores a
-  ``cmis_upload`` record whose ``batch_id`` does not match.
-- A new unit test asserts ``MetricsRecorder.upload_done_count()``
-  advances when ``record_upload_done()`` is called and is
-  thread-safe under contention.
-- A new TUI snapshot test asserts ``render_chunks`` shows a non-zero
-  ``s5_done`` for an UPLOAD-status row whose recorder reports
-  uploads.
-- A new integration-style test (uses ``MultiBatchOrchestrator`` with
-  a fake pipeline) asserts that with two overlapping chunks the
-  per-chunk ``cumulative_bytes`` does not bleed between recorders.
-- mypy + ruff clean.
-- ``CHANGELOG.md [0.45.0]`` entry.
+- Un nuevo test unitario assertea que ``_BandwidthHandler.emit``
+  ignora un record ``cmis_upload`` cuyo ``batch_id`` no matchea.
+- Un nuevo test unitario assertea que
+  ``MetricsRecorder.upload_done_count()`` avanza cuando se llama a
+  ``record_upload_done()`` y es thread-safe bajo contención.
+- Un nuevo test de snapshot de TUI assertea que ``render_chunks``
+  muestra un ``s5_done`` no-cero para una fila en estado UPLOAD
+  cuyo recorder reporta uploads.
+- Un nuevo test estilo integración (usa ``MultiBatchOrchestrator``
+  con un pipeline falso) assertea que con dos chunks solapados los
+  ``cumulative_bytes`` por-chunk no se filtran entre recorders.
+- mypy + ruff limpios.
+- Entrada ``CHANGELOG.md [0.45.0]``.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-We add one new integration test that runs ``MultiBatchOrchestrator``
-end-to-end with a stub pipeline that fires synthetic ``cmis_upload``
-events for each chunk. That is the smallest reproduction surface for
-the cross-chunk bleed and the active-recorder flip — neither could
-be unit-tested in pure isolation because both depend on the
-orchestrator's handler/recorder lifecycle wiring.
+Agregamos un nuevo test de integración que corre
+``MultiBatchOrchestrator`` end-to-end con un pipeline stub que
+dispara eventos ``cmis_upload`` sintéticos para cada chunk. Esa es
+la superficie de reproducción mínima para el bleed entre chunks y
+el flip del active recorder — ninguno se podía testear en aislamiento
+puro porque ambos dependen del wiring del lifecycle de
+handler/recorder del orchestrator.

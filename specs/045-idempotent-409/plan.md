@@ -1,36 +1,36 @@
 # 045 — Plan
 
-Two phases (~1h total).
+Dos fases (~1h total).
 
-## Phase 1 — 409 recovery in CmisUploader (~30 min)
+## Fase 1 — Recuperación de 409 en CmisUploader (~30 min)
 
-### Files
+### Archivos
 
 - `src/cmcourier/adapters/upload/cmis_uploader.py`
-  - New private method
+  - Nuevo método privado
     ``_lookup_existing_object_id(folder_url, name) -> str | None``
-    that GETs ``{folder_url}?cmisselector=children&maxItems=…``,
-    finds the entry with matching ``cmis:name``, returns its
-    ``cmis:objectId`` (or ``None``).
-  - ``upload(...)`` ``except CMISClientError`` block extended: when
-    ``exc.status_code == 409``, emit the
-    ``s5_upload_409_recovery_attempt`` event, run the lookup,
-    emit ``s5_upload_409_recovered`` (or ``..._failed``), then
-    either return the recovered id or re-raise.
+    que hace GET a ``{folder_url}?cmisselector=children&maxItems=…``,
+    encuentra la entrada con ``cmis:name`` matcheando, devuelve su
+    ``cmis:objectId`` (o ``None``).
+  - El bloque ``except CMISClientError`` de ``upload(...)``
+    extendido: cuando ``exc.status_code == 409``, emitir el evento
+    ``s5_upload_409_recovery_attempt``, correr el lookup, emitir
+    ``s5_upload_409_recovered`` (o ``..._failed``), después o
+    devolver el id recuperado o re-raisear.
 
 ### Tests
 
-- `tests/unit/adapters/upload/test_cmis_uploader.py` (or wherever
-  the uploader tests live):
+- `tests/unit/adapters/upload/test_cmis_uploader.py` (o donde vivan
+  los tests del uploader):
   - ``test_upload_409_recovered_returns_existing_object_id`` —
-    mock POST 409 + GET children returning the doc; assert
-    upload() returns the recovered id without raising.
-  - ``test_upload_409_not_recovered_reraises`` — mock POST 409 +
-    GET children returning empty; assert upload() raises
-    ``CMISClientError`` with status_code=409.
-  - ``test_upload_200_does_not_call_lookup`` — mock POST 200; the
-    lookup endpoint is unregistered so any call would raise; this
-    confirms the lookup is only invoked on 409.
+    mockear POST 409 + GET children devolviendo el doc; assertear
+    que upload() devuelve el id recuperado sin levantar.
+  - ``test_upload_409_not_recovered_reraises`` — mockear POST 409 +
+    GET children devolviendo vacío; assertear que upload() levanta
+    ``CMISClientError`` con status_code=409.
+  - ``test_upload_200_does_not_call_lookup`` — mockear POST 200; el
+    endpoint de lookup no está registrado así que cualquier llamada
+    levantaría; esto confirma que el lookup solo se invoca en 409.
 
 ### Commit
 
@@ -38,56 +38,56 @@ Two phases (~1h total).
 fix(uploader): idempotent 409 recovery — lookup existing object on conflict (045 Phase 1)
 ```
 
-## Phase 2 — docs + CHANGELOG 0.48.0 + version bump + live re-verify + FF (~30 min)
+## Fase 2 — docs + CHANGELOG 0.48.0 + bump de versión + re-verify en vivo + FF (~30 min)
 
-### Files
+### Archivos
 
-- `CHANGELOG.md` ``[0.48.0]`` — Fixed (kill-race idempotency),
-  Added (lookup helper + new structured events).
+- `CHANGELOG.md` ``[0.48.0]`` — Fixed (idempotencia de `race condition`
+  del kill), Added (helper de lookup + nuevos eventos estructurados).
 - `pyproject.toml` 0.47.0 → 0.48.0.
-- `README.md` feature row tick.
+- Tick en fila de features de `README.md`.
 
 ### Release dance
 
 ```bash
 .venv/bin/pip install -e . --no-deps
-.venv/bin/cmcourier --version    # expect 0.48.0
+.venv/bin/cmcourier --version    # esperar 0.48.0
 ```
 
-### Live re-verification
+### Re-verificación en vivo
 
 ```bash
-# Same scenario that 044 closed for resume detection.
+# Mismo escenario que 044 cerró para la detección de resume.
 bash scripts/staging/wipe-alfresco-docs.sh
 rm -f sample/staging-tracking.db sample/staging-tracking.db-wal sample/staging-tracking.db-shm
 
-# Run 1 — start + kill mid-S5
+# Run 1 — arrancar + kill a mitad de S5
 CMIS_USERNAME=admin CMIS_PASSWORD=admin \
 .venv/bin/cmcourier rvabrep-pipeline run \
   --config sample/config-staging-rvabrep.yaml \
   --total 50 --batches-in-flight 1 --no-tui &
-# wait for ~25 S5_DONE, kill -9 the python
+# esperar por ~25 S5_DONE, kill -9 al python
 
-# Capture batch_id
+# Capturar batch_id
 batch_id=$(.venv/bin/python -c "
 import sqlite3; print(sqlite3.connect('sample/staging-tracking.db').execute(
     'SELECT DISTINCT batch_id FROM migration_log'
 ).fetchone()[0]
 ")
 
-# Run 2 — resume; pre-045 expected ~4 s5_failed; post-045 expected 0
+# Run 2 — resume; pre-045 se esperan ~4 s5_failed; post-045 se esperan 0
 CMIS_USERNAME=admin CMIS_PASSWORD=admin \
 .venv/bin/cmcourier rvabrep-pipeline run \
   --config sample/config-staging-rvabrep.yaml \
   --batch-id "$batch_id" --resume --no-tui
 ```
 
-Acceptance:
+Aceptación:
 
-- Run 2 reports ``s5_failed=0``.
+- El Run 2 reporta ``s5_failed=0``.
 - ``rg s5_upload_409_recovered sample/logs/network-2026-05-13.jsonl |
-  wc -l`` ≥ 1 (at least one recovery happened).
-- Alfresco doc count == distinct txns in batch.
+  wc -l`` ≥ 1 (al menos una recuperación ocurrió).
+- Conteo de docs de Alfresco == txns distintos en el batch.
 
 ### Commit
 
@@ -95,4 +95,4 @@ Acceptance:
 docs(045): CHANGELOG 0.48.0 + version bump + 409 idempotency live re-verify (045 Phase 2)
 ```
 
-### FF to main.
+### FF a main.

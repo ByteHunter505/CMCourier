@@ -1,41 +1,41 @@
 # 047 — Plan
 
-Two phases (~1 h total).
+Dos fases (~1 h total).
 
-## Phase 1 — Thread cm_object_id through mark_stage_done (~40 min)
+## Fase 1 — Pasar cm_object_id a través de mark_stage_done (~40 min)
 
-### Files
+### Archivos
 
 - `src/cmcourier/domain/ports.py`
-  - ``ITrackingStore.mark_stage_done`` gains keyword-only
+  - ``ITrackingStore.mark_stage_done`` gana keyword-only
     ``cm_object_id: str | None = None``.
 - `src/cmcourier/adapters/tracking/sqlite.py`
-  - ``SQLiteTrackingStore.mark_stage_done`` builds the UPDATE with
-    the ``cm_object_id`` column only when the arg is not None.
-    None path stays byte-identical to pre-047.
+  - ``SQLiteTrackingStore.mark_stage_done`` construye el UPDATE con
+    la columna ``cm_object_id`` solo cuando el arg no es None.
+    El camino None queda byte-idéntico a pre-047.
 - `src/cmcourier/services/idempotency.py`
-  - ``IdempotencyCoordinator.mark_uploaded`` forwards
-    ``cm_object_id=cm_object_id`` into the SQLite
-    ``mark_stage_done`` call.
+  - ``IdempotencyCoordinator.mark_uploaded`` reenvía
+    ``cm_object_id=cm_object_id`` a la llamada
+    ``mark_stage_done`` de SQLite.
 - `src/cmcourier/orchestrators/staged.py`
-  - The non-coordinator S5_DONE call passes
+  - La llamada non-coordinator a S5_DONE pasa
     ``cm_object_id=cm_object_id``.
 
 ### Tests
 
 - `tests/integration/adapters/test_sqlite_tracking_store.py`:
-  - ``test_mark_stage_done_persists_cm_object_id`` — pass the OID,
-    read the row, assert the column.
-  - ``test_mark_stage_done_without_oid_leaves_column`` — set the
-    column via ``mark_stage_pending`` with a record carrying an
-    OID (or a prior done), then call ``mark_stage_done`` without
-    the arg, assert the column survives.
+  - ``test_mark_stage_done_persists_cm_object_id`` — pasar el OID,
+    leer la fila, assertear la columna.
+  - ``test_mark_stage_done_without_oid_leaves_column`` — setear la
+    columna vía ``mark_stage_pending`` con un record llevando un
+    OID (o un done previo), después llamar a ``mark_stage_done``
+    sin el arg, assertear que la columna sobrevive.
 - `tests/unit/services/test_idempotency.py`:
-  - update the existing ``mark_uploaded`` assertion to expect the
-    ``cm_object_id`` kwarg on the forwarded ``mark_stage_done``
-    call.
+  - actualizar la aserción existente de ``mark_uploaded`` para
+    esperar el kwarg ``cm_object_id`` en la llamada reenviada de
+    ``mark_stage_done``.
 - `tests/unit/domain/test_ports.py`:
-  - if it asserts the ``mark_stage_done`` signature, update it.
+  - si assertea la firma de ``mark_stage_done``, actualizarla.
 
 ### Commit
 
@@ -43,36 +43,36 @@ Two phases (~1 h total).
 fix(tracking): persist cm_object_id on S5_DONE transition (047 Phase 1)
 ```
 
-## Phase 2 — Docs + CHANGELOG 0.50.0 + version bump + live re-verify + FF (~20 min)
+## Fase 2 — Docs + CHANGELOG 0.50.0 + bump de versión + re-verify en vivo + FF (~20 min)
 
-### Files
+### Archivos
 
-- `CHANGELOG.md` ``[0.50.0]`` — Fixed (cm_object_id never
-  persisted to migration_log).
+- `CHANGELOG.md` ``[0.50.0]`` — Fixed (cm_object_id nunca persistido
+  al migration_log).
 - `pyproject.toml` 0.49.0 → 0.50.0.
-- `README.md` feature row tick.
-- `docs/how-to/validation-checklist.md` §L.3 — drop the "known
-  issue: cm_object_id not persisted" note, restore the
-  tracking-DB query as the primary path.
+- Tick en fila de features de `README.md`.
+- `docs/how-to/validation-checklist.md` §L.3 — sacar la nota
+  "issue conocido: cm_object_id no persistido", restaurar la query
+  de la tracking DB como camino primario.
 
 ### Release dance
 
 ```bash
 .venv/bin/pip install -e . --no-deps
-.venv/bin/cmcourier --version    # expect 0.50.0
+.venv/bin/cmcourier --version    # esperar 0.50.0
 ```
 
-### Live re-verify
+### Re-verify en vivo
 
 ```bash
-# Small fresh run against staging.
+# Run chico fresco contra staging.
 bash scripts/staging/wipe-alfresco-docs.sh
 rm -f sample/staging-tracking.db sample/staging-tracking.db-wal sample/staging-tracking.db-shm
 
 CMIS_USERNAME=admin CMIS_PASSWORD=admin .venv/bin/cmcourier rvabrep-pipeline run \
   --config sample/config-staging-rvabrep.yaml --total 5 --no-tui
 
-# §L.3 check — the OID must now be readable from the tracking DB.
+# Chequeo §L.3 — el OID ahora debe ser legible desde la tracking DB.
 .venv/bin/python -c "
 import sqlite3
 c = sqlite3.connect('sample/staging-tracking.db')
@@ -84,7 +84,7 @@ print('PASS')
 "
 ```
 
-Acceptance: every ``S5_DONE`` row has a non-NULL ``cm_object_id``.
+Aceptación: cada fila ``S5_DONE`` tiene un ``cm_object_id`` no-NULL.
 
 ### Commit
 
@@ -92,4 +92,4 @@ Acceptance: every ``S5_DONE`` row has a non-NULL ``cm_object_id``.
 docs(047): CHANGELOG 0.50.0 + version bump + cm_object_id re-verify (047 Phase 2)
 ```
 
-### FF to main.
+### FF a main.

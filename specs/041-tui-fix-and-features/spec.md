@@ -1,57 +1,56 @@
-# 041 — TUI: log redirection fix + UPLOAD bytes/timer + CHUNKS expanded stats
+# 041 — TUI: corrección de redirección de logs + bytes/timer en UPLOAD + estadísticas expandidas de CHUNKS
 
-## Why
+## Por qué
 
-Three operator-visible gaps in the live TUI surfaced during the
-staging dry-run of 042/043:
+Surgieron tres carencias visibles para el operador en la TUI en vivo durante
+el dry-run de staging de 042/043:
 
-1. **Logs trash the TUI frame.** Textual paints the terminal each
-   ~250 ms, but every ``log.info()`` from the pipeline /
-   adapters / uploader writes to stderr, breaking the frame
-   mid-render. Operator can barely read the dashboard. Worst in
-   batches >50 docs where each `stage_complete` line floods every
-   refresh.
+1. **Los logs ensucian el frame de la TUI.** Textual repinta la terminal
+   cada ~250 ms, pero cada ``log.info()`` del pipeline / adapters /
+   uploader escribe a stderr, rompiendo el frame a mitad de render.
+   El operador apenas puede leer el dashboard. Peor en `batches` >50
+   docs donde cada línea `stage_complete` inunda cada refresh.
 
-2. **UPLOAD tab is doc-counting, not byte-tracking.** The progress
-   bar shows ``count / target`` in documents (e.g. ``5 / 10``).
-   Operators correctly want **bytes** ("MB uploaded / MB
-   remaining") because (a) docs vary 20× in size (1 KB PDF vs
-   500 KB TIFF stack) and (b) bandwidth ceilings are byte-based.
-   They also want a **chunk-scoped timer** — current display is
-   global run elapsed; with multi-batch overlap (028) the
-   per-chunk wall-clock is the metric that maps to "how long does
-   one batch take?".
+2. **El tab UPLOAD cuenta documentos, no rastrea bytes.** La barra
+   de progreso muestra ``count / target`` en documentos (p. ej.
+   ``5 / 10``). Los operadores quieren correctamente **bytes** ("MB
+   subidos / MB restantes") porque (a) los documentos varían 20× en
+   tamaño (PDF de 1 KB vs stack TIFF de 500 KB) y (b) los techos
+   de ancho de banda son por bytes. También quieren un **timer
+   acotado al `chunk`** — el display actual es elapsed global del
+   run; con el solapamiento multi-batch (028) el wall-clock
+   por-chunk es la métrica que mapea a "¿cuánto tarda un `batch`?".
 
-3. **CHUNKS tab is a status list, not a breakdown.** Today shows
-   ``idx / batch_id / status / s5_done / s5_failed`` per chunk.
-   Operators want the **full stage breakdown** per chunk
-   (PREP done/failed/skipped/elapsed +
-   UPLOAD done/failed/skipped/elapsed) plus aggregate totals
-   (doc count, total bytes) so a glance at the tab answers
-   "what did this run actually do?".
+3. **El tab CHUNKS es una lista de estado, no un desglose.** Hoy
+   muestra ``idx / batch_id / status / s5_done / s5_failed`` por
+   `chunk`. Los operadores quieren el **desglose completo de stages**
+   por chunk (PREP done/failed/skipped/elapsed +
+   UPLOAD done/failed/skipped/elapsed) más los totales agregados
+   (cantidad de docs, bytes totales) para que un vistazo al tab
+   responda "¿qué hizo realmente este run?".
 
-## What
+## Qué
 
-### 1. Log redirection when TUI active
+### 1. Redirección de logs cuando la TUI está activa
 
-`observability/setup.py` gains a ``tui_active: bool`` flag
-threaded from the CLI. When ``True``:
+`observability/setup.py` gana una flag ``tui_active: bool`` que se
+propaga desde la CLI. Cuando es ``True``:
 
-- The ``StreamHandler`` writing to ``stderr`` is **not added** to
-  the root logger. Only the rotating ``FileHandler`` to
-  ``observability.log_dir/app-YYYY-MM-DD.log`` remains.
-- The TUI's own status updates write to its widgets, never to
-  the terminal stream, so the frame stays clean.
-- When ``--no-tui`` is set, behavior is identical to today.
+- El ``StreamHandler`` que escribe a ``stderr`` **no se agrega** al
+  root logger. Solo queda el ``FileHandler`` rotativo a
+  ``observability.log_dir/app-YYYY-MM-DD.log``.
+- Las actualizaciones de estado propias de la TUI escriben a sus
+  widgets, nunca al stream de la terminal, así el frame queda limpio.
+- Cuando se setea ``--no-tui``, el comportamiento es idéntico al de hoy.
 
-This is a small, surgical fix — no changes to log formatting, no
-new file structure, no rotation policy changes.
+Es un fix chico y quirúrgico — sin cambios al formato de log, sin
+nueva estructura de archivos, sin cambios a la política de rotación.
 
-### 2. UPLOAD tab — bytes progress + chunk timer
+### 2. Tab UPLOAD — progreso de bytes + timer del `chunk`
 
-The progress bar **stays in docs** (operator-intuitive), but the
-line gains an MB ratio on the right and a new line shows per-chunk
-average speed + elapsed + ETA:
+La barra de progreso **se mantiene en docs** (intuitivo para el
+operador), pero la línea gana un ratio de MB a la derecha y una
+nueva línea muestra velocidad promedio por-chunk + elapsed + ETA:
 
 ```
   S5 UPLOAD     ████████░░░░░░░░░░░░░░░░░░░░     9 / 22 docs   127.3 MB / 312.8 MB
@@ -59,26 +58,26 @@ average speed + elapsed + ETA:
                 p50 234.1 ms   p95 1,205.3 ms   p99 3,401.2 ms
 ```
 
-To make this work the data provider gains five new snapshot fields:
+Para que esto funcione, el data provider gana cinco nuevos campos de snapshot:
 
-- ``current_chunk_bytes_uploaded: int`` — cumulative bytes ACKed
-  for the active chunk (from S5 ``stage_complete`` events).
-- ``current_chunk_bytes_total: int`` — planned bytes for the
-  chunk (sum of ``StagedFile.size_bytes`` post-S4).
-- ``current_chunk_elapsed_s: float`` — wall-clock since the chunk
-  entered S5 PREP (not since global run start).
+- ``current_chunk_bytes_uploaded: int`` — bytes acumulados ACKed
+  para el chunk activo (de los eventos ``stage_complete`` de S5).
+- ``current_chunk_bytes_total: int`` — bytes planificados para el
+  chunk (suma de ``StagedFile.size_bytes`` post-S4).
+- ``current_chunk_elapsed_s: float`` — wall-clock desde que el chunk
+  entró a S5 PREP (no desde el inicio global del run).
 - ``current_chunk_avg_mbps: float`` — ``bytes_uploaded /
-  elapsed_s`` (MB/s). Distinct from the existing
-  ``bandwidth_current_mbps`` which is a 1s rolling sample — this
-  is the chunk-scoped average since start.
-- ``current_chunk_eta_s: float | None`` — naive linear projection
-  (``elapsed * (1 - progress) / progress``). Shown only when
-  ``progress > 0.05`` to avoid wild guesses.
+  elapsed_s`` (MB/s). Distinto del ``bandwidth_current_mbps``
+  existente, que es una muestra rolling de 1s — este es el promedio
+  por-chunk desde el inicio.
+- ``current_chunk_eta_s: float | None`` — proyección lineal naive
+  (``elapsed * (1 - progress) / progress``). Solo se muestra cuando
+  ``progress > 0.05`` para evitar conjeturas alocadas.
 
-### 3. CHUNKS tab — full stage breakdown per chunk
+### 3. Tab CHUNKS — desglose completo de stages por chunk
 
-Re-rendered as a wider table with per-chunk per-stage breakdown
-plus an aggregate row at the bottom:
+Re-renderizado como una tabla más ancha con desglose por-chunk
+por-stage más una fila de agregado al fondo:
 
 ```
 CHUNKS — pipeline csv-trigger-pipeline
@@ -93,53 +92,53 @@ CHUNKS — pipeline csv-trigger-pipeline
 TOTAL  (4 chunks)      367  163.0   274/0/0  (36.3s)         270/0/4  (26.5s)
 ```
 
-New per-chunk fields the data provider tracks:
+Nuevos campos por-chunk que rastrea el data provider:
 
-- ``doc_count: int`` — total docs queued for this chunk.
-- ``total_bytes: int`` — sum of staged file sizes (post-S4).
-- ``prep_done / prep_skipped / prep_failed: int`` — S1..S4 outcomes.
-- ``prep_elapsed_s: float`` — wall-clock for the PREP phase only.
-- ``upload_skipped: int`` — S5 docs that the uploader skipped
-  (idempotency hit, etc). The ``s5_done`` and ``s5_failed`` fields
-  already exist.
-- ``upload_elapsed_s: float`` — wall-clock for the S5 phase only.
+- ``doc_count: int`` — total de docs encolados para este chunk.
+- ``total_bytes: int`` — suma de tamaños de archivos staged (post-S4).
+- ``prep_done / prep_skipped / prep_failed: int`` — outcomes S1..S4.
+- ``prep_elapsed_s: float`` — wall-clock solo para la fase PREP.
+- ``upload_skipped: int`` — docs de S5 que el uploader salteó
+  (hit de idempotencia, etc). Los campos ``s5_done`` y ``s5_failed``
+  ya existen.
+- ``upload_elapsed_s: float`` — wall-clock solo para la fase S5.
 
-The TOTAL row aggregates across all chunks for the operator-glance
-"what did the whole run actually do?".
+La fila TOTAL agrega a través de todos los chunks para el vistazo
+del operador "¿qué hizo realmente todo el run?".
 
-## Out of scope
+## Fuera de alcance
 
-- New metric collection in the pipeline itself. The data we need
-  already lands in ``metrics.jsonl`` (each S1..S5 ``stage_complete``
-  event has ``outcome``, ``duration_ms``, and ``size_bytes`` where
-  applicable). The data provider just needs to aggregate it.
-- Real-time bandwidth charts re-design (the sparkline stays).
-- A keystroke to pause/resume / drill into a chunk — future spec.
-- Persisting CHUNKS state across runs (it's live-only).
-- Color theme changes. Same monochrome ASCII text.
+- Nueva recolección de métricas en el pipeline mismo. La data que
+  necesitamos ya aterriza en ``metrics.jsonl`` (cada evento
+  ``stage_complete`` de S1..S5 tiene ``outcome``, ``duration_ms`` y
+  ``size_bytes`` donde aplica). El data provider solo necesita agregarla.
+- Re-diseño de los gráficos de ancho de banda en tiempo real (el sparkline se queda).
+- Una tecla para pausar/reanudar / drill into a chunk — spec futura.
+- Persistir el estado de CHUNKS entre runs (es solo en vivo).
+- Cambios en el tema de color. Mismo texto ASCII monocromo.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- With TUI active, ``pipeline run`` shows a clean dashboard. No
-  log lines leak into the terminal. The file
-  ``sample/logs/app-YYYY-MM-DD.log`` still receives all events.
-- With ``--no-tui``, behavior is identical to pre-041 (logs to
-  stderr as before).
-- UPLOAD tab shows MB progress + chunk timer + ETA when the chunk
-  is past 5% complete.
-- CHUNKS tab shows per-chunk doc_count + total_bytes + PREP
-  breakdown + UPLOAD breakdown + TOTAL aggregate row.
-- Existing TUI snapshot tests pass unchanged where they don't
-  intersect the new fields.
-- New snapshot tests cover both rendered tabs against synthetic
-  ``TUISnapshot`` instances (no live pipeline required).
-- mypy + ruff clean.
-- CHANGELOG ``[0.44.0]`` entry.
+- Con la TUI activa, ``pipeline run`` muestra un dashboard limpio. No
+  hay líneas de log que se filtren a la terminal. El archivo
+  ``sample/logs/app-YYYY-MM-DD.log`` sigue recibiendo todos los eventos.
+- Con ``--no-tui``, el comportamiento es idéntico a pre-041 (logs a
+  stderr como antes).
+- El tab UPLOAD muestra progreso de MB + timer del chunk + ETA cuando
+  el chunk pasó el 5% de progreso.
+- El tab CHUNKS muestra por-chunk doc_count + total_bytes + desglose
+  de PREP + desglose de UPLOAD + fila TOTAL agregada.
+- Los tests de snapshot existentes de la TUI pasan sin cambios donde
+  no se intersectan con los nuevos campos.
+- Nuevos tests de snapshot cubren ambos tabs renderizados contra
+  instancias sintéticas de ``TUISnapshot`` (sin pipeline en vivo requerido).
+- mypy + ruff limpios.
+- Entrada ``[0.44.0]`` en el CHANGELOG.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-Textual TUIs are notoriously hard to unit-test against. We won't
-try to drive Textual itself in tests; we'll test the **pure render
-functions** (``render_upload`` / ``render_chunks``) against
-synthetic ``TUISnapshot`` instances. That mirrors how
-``tests/unit/tui/test_*.py`` already works in this codebase.
+Las TUIs de Textual son notoriamente difíciles de testear unitariamente.
+No vamos a tratar de manejar Textual mismo en tests; vamos a testear
+las **funciones puras de render** (``render_upload`` / ``render_chunks``)
+contra instancias sintéticas de ``TUISnapshot``. Eso refleja cómo
+``tests/unit/tui/test_*.py`` ya funciona en este codebase.

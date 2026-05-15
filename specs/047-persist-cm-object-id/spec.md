@@ -1,24 +1,24 @@
-# 047 — Persist cm_object_id on S5_DONE
+# 047 — Persistir cm_object_id en S5_DONE
 
-## Why
+## Por qué
 
-The §L.3 step of the validation checklist ("GET a doc by objectId,
-pulling the OID from the tracking DB") was found non-functional
-during the housekeeping pass: ``migration_log.cm_object_id`` is
-``NULL`` for every row, even after a successful upload.
+El step §L.3 del checklist de validación ("GET a un doc por objectId,
+sacando el OID de la tracking DB") se encontró no-funcional durante
+la pasada de housekeeping: ``migration_log.cm_object_id`` es
+``NULL`` para cada fila, incluso después de una subida exitosa.
 
-Root cause — ``orchestrators/staged.py``:
+Causa raíz — ``orchestrators/staged.py``:
 
 ```python
-cm_object_id = self._uploader.upload(...)        # line 895: CMIS returns the OID
+cm_object_id = self._uploader.upload(...)        # línea 895: CMIS devuelve el OID
 ...
 self._tracking_store.mark_stage_done(txn, batch_id, StageStatus.S5_DONE)  # 929
-item.cm_object_id = cm_object_id                 # 930: in-memory ONLY
+item.cm_object_id = cm_object_id                 # 930: SOLO en memoria
 ```
 
-Line 930 assigns the OID onto the in-memory ``_StageItem`` (where it
-dies when the run ends). ``mark_stage_done`` — the call that
-actually writes to SQLite — only updates ``status`` and
+La línea 930 asigna el OID en el ``_StageItem`` en memoria (donde
+muere cuando el run termina). ``mark_stage_done`` — la llamada que
+realmente escribe a SQLite — solo actualiza ``status`` y
 ``completed_at``:
 
 ```python
@@ -30,20 +30,20 @@ def mark_stage_done(self, txn_num, batch_id, stage):
     )
 ```
 
-The ``cm_object_id`` column already EXISTS in the schema
-(``sqlite.py:64``). ``mark_stage_pending`` writes it — but at
-S1_PENDING time it's ``None``, and nothing ever back-fills it.
+La columna ``cm_object_id`` YA EXISTE en el schema
+(``sqlite.py:64``). ``mark_stage_pending`` la escribe — pero en
+tiempo de S1_PENDING es ``None``, y nada nunca la back-fillea.
 
-The AS400 path is unaffected — ``IdempotencyCoordinator.mark_uploaded``
-DOES pass ``cm_object_id`` through to ``As400NiarvilogStore`` which
-writes it to ``OBJIDN``. It's only the SQLite ``migration_log`` that
-loses the value. Operators on the SQLite-only path (the common
-staging + small-bank case) can't answer "what's the CMIS objectId
-of doc X?" from their tracking DB.
+El camino de AS400 no se ve afectado — ``IdempotencyCoordinator.mark_uploaded``
+SÍ pasa ``cm_object_id`` a ``As400NiarvilogStore`` que lo escribe a
+``OBJIDN``. Es solo el ``migration_log`` SQLite el que pierde el
+valor. Los operadores en el camino SQLite-only (el caso común de
+staging + banco chico) no pueden responder "¿cuál es el objectId de
+CMIS del doc X?" desde su tracking DB.
 
-## What
+## Qué
 
-### 1. ``ITrackingStore.mark_stage_done`` gains an optional ``cm_object_id``
+### 1. ``ITrackingStore.mark_stage_done`` gana un ``cm_object_id`` opcional
 
 ```python
 def mark_stage_done(
@@ -56,14 +56,14 @@ def mark_stage_done(
 ) -> None:
 ```
 
-Keyword-only, defaults to ``None``. S1..S4 callers don't change —
-they pass nothing, the column stays untouched. The S5 caller
-passes the real OID.
+Keyword-only, default ``None``. Los callers de S1..S4 no cambian —
+pasan nada, la columna queda intacta. El caller de S5 pasa el OID
+real.
 
-### 2. ``SQLiteTrackingStore.mark_stage_done`` writes the column when given
+### 2. ``SQLiteTrackingStore.mark_stage_done`` escribe la columna cuando se la pasan
 
-When ``cm_object_id`` is not ``None``, the UPDATE also sets the
-``cm_object_id`` column:
+Cuando ``cm_object_id`` no es ``None``, el UPDATE también setea la
+columna ``cm_object_id``:
 
 ```sql
 UPDATE migration_log
@@ -71,19 +71,20 @@ SET status = ?, completed_at = ?, cm_object_id = ?
 WHERE rvabrep_txn_num = ? AND batch_id = ?
 ```
 
-When ``cm_object_id`` is ``None`` the SQL is byte-identical to
-today (status + completed_at only) — so S1..S4 transitions and any
-``None``-passing caller behave exactly as pre-047.
+Cuando ``cm_object_id`` es ``None`` el SQL es byte-idéntico al de
+hoy (solo status + completed_at) — así que las transiciones S1..S4
+y cualquier caller que pasa ``None`` se comportan exactamente como
+pre-047.
 
-### 3. ``IdempotencyCoordinator.mark_uploaded`` threads the OID to SQLite
+### 3. ``IdempotencyCoordinator.mark_uploaded`` pasa el OID a SQLite
 
-The coordinator already receives ``cm_object_id`` and forwards it
-to the AS400 store. It now also forwards it to the SQLite store's
-``mark_stage_done`` so both backends carry the value.
+El coordinator ya recibe ``cm_object_id`` y lo reenvía al store de
+AS400. Ahora también lo reenvía al ``mark_stage_done`` del store
+SQLite así ambos backends llevan el valor.
 
-### 4. ``staged.py`` S5 path passes the OID
+### 4. El camino de S5 en ``staged.py`` pasa el OID
 
-The non-coordinator branch at ``staged.py:929`` becomes:
+La rama non-coordinator en ``staged.py:929`` pasa a:
 
 ```python
 self._tracking_store.mark_stage_done(
@@ -91,47 +92,47 @@ self._tracking_store.mark_stage_done(
 )
 ```
 
-The ``item.cm_object_id = cm_object_id`` in-memory assignment stays
-(some TUI / report code may read it within the run) — it's just no
-longer the ONLY place the value lands.
+La asignación en memoria ``item.cm_object_id = cm_object_id`` se
+queda (algún código de TUI / report puede leerla dentro del run) —
+solo que ya no es el ÚNICO lugar donde aterriza el valor.
 
-## Out of scope
+## Fuera de alcance
 
-- Back-filling ``cm_object_id`` for historical batches uploaded
-  before 047. Those rows stay ``NULL``; the value is recoverable
-  from Alfresco via a children-walk if ever needed.
-- Adding ``cm_object_id`` to the ``batch show`` / ``analyze`` CLI
-  output. The column is now populated; surfacing it in operator
-  reports is a separate, cosmetic change.
-- The 045 kill-race window (CMIS 200 → SQLite commit interrupted).
-  047 doesn't widen or narrow that window — it only ensures the
-  value is in the UPDATE that already happens.
-- Schema migration. The column already exists; no ALTER TABLE.
+- Back-fillear ``cm_object_id`` para batches históricos subidos
+  antes de 047. Esas filas quedan ``NULL``; el valor es recuperable
+  desde Alfresco vía un children-walk si alguna vez se necesita.
+- Agregar ``cm_object_id`` al output de CLI ``batch show`` /
+  ``analyze``. La columna ahora se puebla; surfacearla en reportes
+  del operador es un cambio separado, cosmético.
+- La ventana de `race condition` del kill de 045 (CMIS 200 → commit
+  de SQLite interrumpido). 047 no amplía ni angosta esa ventana —
+  solo asegura que el valor esté en el UPDATE que ya ocurre.
+- Migración de schema. La columna ya existe; nada de ALTER TABLE.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- Unit test: ``SQLiteTrackingStore.mark_stage_done`` with
-  ``cm_object_id="cm-abc"`` results in a row whose ``cm_object_id``
-  column reads ``"cm-abc"``.
-- Unit test: ``mark_stage_done`` WITHOUT ``cm_object_id`` (the
-  S1..S4 path) leaves the column untouched — verified by setting
-  it first, then calling ``mark_stage_done`` without the arg, and
-  asserting the prior value survives.
-- Unit test: ``IdempotencyCoordinator.mark_uploaded`` forwards
-  ``cm_object_id`` into the SQLite store's ``mark_stage_done``
-  call (mock assertion).
-- Live re-verify: a small staging run (``--total 5``) followed by
-  a query of ``migration_log`` shows ``cm_object_id`` populated
-  (non-NULL) for every ``S5_DONE`` row.
-- ``CHANGELOG.md [0.50.0]`` entry.
-- mypy + ruff clean. Full unit + integration suite green.
+- Test unitario: ``SQLiteTrackingStore.mark_stage_done`` con
+  ``cm_object_id="cm-abc"`` resulta en una fila cuya columna
+  ``cm_object_id`` lee ``"cm-abc"``.
+- Test unitario: ``mark_stage_done`` SIN ``cm_object_id`` (el
+  camino S1..S4) deja la columna intacta — verificado seteándola
+  primero, después llamando a ``mark_stage_done`` sin el arg, y
+  asserteando que el valor previo sobrevive.
+- Test unitario: ``IdempotencyCoordinator.mark_uploaded`` reenvía
+  ``cm_object_id`` a la llamada de ``mark_stage_done`` del store
+  SQLite (assertion sobre mock).
+- Re-verify en vivo: un run chico de staging (``--total 5``)
+  seguido de una query a ``migration_log`` muestra
+  ``cm_object_id`` poblado (no-NULL) para cada fila ``S5_DONE``.
+- Entrada ``CHANGELOG.md [0.50.0]``.
+- mypy + ruff limpios. Suite completa de unit + integration verde.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The SQLite store tests already exercise ``mark_stage_done`` against
-a real on-disk SQLite file (Constitution Principle VI — no mocking
-the DB). We extend those with the two ``cm_object_id`` cases. The
-coordinator test uses the existing ``MagicMock`` SQLite double and
-asserts the forwarded kwarg. The live re-verify is a one-line
-``sqlite3`` query after a 5-doc run — fast, deterministic, and
-closes the §L.3 gap end-to-end.
+Los tests del store SQLite ya ejercitan ``mark_stage_done`` contra
+un archivo SQLite real en disco (Principio VI de la Constitución —
+sin mockear la DB). Los extendemos con los dos casos de
+``cm_object_id``. El test del coordinator usa el doble MagicMock de
+SQLite existente y assertea el kwarg reenviado. El re-verify en
+vivo es una query ``sqlite3`` de una línea después de un run de 5
+docs — rápido, determinístico, y cierra el gap §L.3 end-to-end.

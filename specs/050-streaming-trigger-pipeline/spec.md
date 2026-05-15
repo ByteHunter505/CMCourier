@@ -1,143 +1,163 @@
-# 050 — Streaming trigger pipeline (bounded memory for 20M+ RVABREP)
+# 050 — Trigger pipeline en streaming (memoria acotada para RVABREP 20M+)
 
-## Why
+## Por qué
 
-The bank's real RVABREP table is ~20 million rows. The current
-pipeline materializes the **entire** trigger set in RAM before doing
-any work — it would OOM long before the first upload.
+La tabla RVABREP real del banco tiene ~20 millones de filas. El
+pipeline actual materializa el set **entero** de triggers en RAM
+antes de hacer cualquier trabajo — OOMearía mucho antes del primer
+upload.
 
-The trigger strategies (`csv`, `direct_rvabrep`, `local_scan`,
-`single_doc`) are all **generators** — they `yield` row by row. That
-laziness is correct. It is **defeated downstream** at four points:
+Las estrategias de trigger (`csv`, `direct_rvabrep`, `local_scan`,
+`single_doc`) son todas **generadores** — `yield`ean fila por fila.
+Esa pereza es correcta. Está **derrotada downstream** en cuatro
+puntos:
 
 1. **`MultiBatchOrchestrator._run_overlapped`** (`multi_batch.py:363`)
    — `triggers = list(self._pipeline._trigger_strategy.acquire(...))`
-   materializes every trigger, then `chunk_list = list(chunked(...))`
-   materializes every chunk, then `for idx in range(len(chunk_list))`
-   seeds the chunk-state machine for all of them upfront.
+   materializa cada trigger, después `chunk_list = list(chunked(...))`
+   materializa cada chunk, después `for idx in range(len(chunk_list))`
+   siembra la máquina de estado de chunks para todos ellos upfront.
 2. **`MultiBatchOrchestrator._run_single`** → `StagedPipeline.run`
-   (`staged.py:306`) — `triggers = list(acquire(...))`, then S0–S4 are
-   run over the whole batch monolithically; `_stage_s0_s1` builds a
-   `list[_StageItem]` of every doc and threads it through S2/S3/S4.
+   (`staged.py:306`) — `triggers = list(acquire(...))`, después S0–S4
+   se corren sobre todo el batch monolíticamente; `_stage_s0_s1`
+   construye una `list[_StageItem]` de cada doc y la pasa a través
+   de S2/S3/S4.
 3. **`TabularDataSource.get_all`** (`tabular.py:138`) —
-   `self._df.to_dict(orient="records")` builds a full Python list of
-   every row's dict before the generator yields anything.
-4. **`--total`** — `triggers[:total]` slices *after* the full list is
-   already materialized.
+   `self._df.to_dict(orient="records")` construye una lista Python
+   completa de cada fila como dict antes de que el generator rinda
+   nada.
+4. **`--total`** — `triggers[:total]` slicea *después* de que la
+   lista completa ya se materializó.
 
-Net effect: a 20M-row run needs ~20M trigger objects + ~20M
-`_StageItem` objects + (for the CSV source) a 20M-row pandas
-DataFrame + a 20M-element dict list — tens of GB. The `batch_size`
-and `--total` knobs do **not** help; they slice after the fact.
+Efecto neto: un run de 20M filas necesita ~20M objetos trigger +
+~20M objetos `_StageItem` + (para la fuente CSV) un DataFrame
+pandas de 20M filas + una lista de dicts de 20M elementos —
+decenas de GB. Las palancas `batch_size` y `--total` **no** ayudan;
+slicean después del hecho.
 
-The fix is to let the generator laziness flow through: triggers
-stream in `batch_size` chunks, each chunk runs S0→S5, its memory is
-released before the next chunk is pulled. Peak memory becomes
-`O(batch_size × batches_in_flight)`, not `O(total triggers)`.
+El fix es dejar fluir la pereza del generator: los triggers
+streamean en chunks de `batch_size`, cada chunk corre S0→S5, su
+memoria se libera antes de que se tire del siguiente chunk. La
+memoria pico pasa a ser `O(batch_size × batches_in_flight)`, no
+`O(total triggers)`.
 
-## What
+## Qué
 
-### 1. `_run_overlapped` — stream the iterator (N=2 path)
+### 1. `_run_overlapped` — streamear el iterador (camino N=2)
 
-- `triggers = list(acquire(...))` → keep the **iterator**:
+- `triggers = list(acquire(...))` → mantener el **iterador**:
   `triggers = self._pipeline._trigger_strategy.acquire(...)`.
 - `--total`: `triggers[:total]` → `itertools.islice(triggers, total)`.
-- `chunk_list = list(chunked(...))` → consume the **lazy**
-  `chunked(triggers, batch_size)` iterator directly. `chunked()`
-  (`orchestrators/chunked.py`) already accepts generators and yields
-  lazily — no change to the helper.
-- The upfront chunk-state seeding loop
-  (`for idx in range(len(chunk_list))`) is removed. Each chunk's
-  state is seeded **lazily** by `_prep_loop` the moment it pulls that
-  chunk (QUEUED→PREP in one step). The TUI's CHUNKS tab no longer
-  shows the full plan upfront — that is the necessary trade-off:
-  knowing the total count *is* materializing the total.
-- The empty-input case falls out naturally: an empty iterator yields
-  zero chunks, `_prep_loop` runs zero iterations, the result is an
-  empty `MultiBatchRunReport`.
+- `chunk_list = list(chunked(...))` → consumir el iterador **lazy**
+  `chunked(triggers, batch_size)` directamente. `chunked()`
+  (`orchestrators/chunked.py`) ya acepta generators y rinde
+  lazy — sin cambios al helper.
+- El loop de siembra de chunk-state upfront
+  (`for idx in range(len(chunk_list))`) se remueve. El estado de
+  cada chunk se siembra **lazy** por `_prep_loop` el momento en
+  que tira de ese chunk (QUEUED→PREP en un paso). El tab CHUNKS
+  de la TUI ya no muestra el plan completo upfront — ese es el
+  trade-off necesario: saber el conteo total *es* materializar
+  el total.
+- El caso de input vacío cae naturalmente: un iterador vacío
+  rinde cero chunks, `_prep_loop` corre cero iteraciones, el
+  resultado es un `MultiBatchRunReport` vacío.
 
-### 2. `_run_single` — split resume from fresh N=1
+### 2. `_run_single` — separar resume de N=1 fresco
 
-`_run_single` currently always calls the monolithic
-`StagedPipeline.run()`. Split by intent:
+`_run_single` actualmente siempre llama al monolítico
+`StagedPipeline.run()`. Separar por intención:
 
-- **Resume / `from_stage > 1`** (operator named a specific batch_id):
-  unchanged — `StagedPipeline.run()` monolithic. The batch is a
-  *previously-created* batch, already bounded by `batch_size`; there
-  is no 20M set here.
-- **Fresh N=1** (`batches_in_flight=1`, no resume, `from_stage=1` —
-  e.g. the heavy-lanes config): a new `_run_sequential` path that
-  streams the trigger iterator through `chunked()` and runs
-  `prep_chunk` + `upload_chunk` per chunk — the N=1 shape of
-  `_run_overlapped` without the producer-consumer thread overlap.
-  Per-chunk `RunReport`s are accumulated into the
+- **Resume / `from_stage > 1`** (el operador nombró un batch_id
+  específico): sin cambios — `StagedPipeline.run()` monolítico.
+  El batch es uno *previamente creado*, ya acotado por
+  `batch_size`; no hay set de 20M acá.
+- **N=1 fresco** (`batches_in_flight=1`, sin resume,
+  `from_stage=1` — p. ej. el config heavy-lanes): un camino nuevo
+  `_run_sequential` que streamea el iterador de triggers a través
+  de `chunked()` y corre `prep_chunk` + `upload_chunk` por chunk —
+  la forma N=1 de `_run_overlapped` sin el overlap de thread
+  producer-consumer. Los `RunReport` por-chunk se acumulan en el
   `MultiBatchRunReport`.
 
-### 3. `TabularDataSource.get_all` — iterate, don't materialize
+### 3. `TabularDataSource.get_all` — iterar, no materializar
 
 `for row in self._df.to_dict(orient="records")` →
-iterate the DataFrame row by row (`itertuples` / per-row dict build)
-so the generator yields without first building the full dict list.
-This halves the CSV source's transient peak.
+iterar el DataFrame fila por fila (`itertuples` / build de dict
+per-row) así el generator rinde sin construir primero la lista
+completa de dicts. Esto reduce a la mitad el pico transient de la
+fuente CSV.
 
-### 4. Memory contract
+### 4. Contrato de memoria
 
-After 050, a run of N triggers holds at most
-`batch_size × batches_in_flight` `_StageItem` objects + the same
-order of trigger objects in flight at once — **constant in N**.
-Asserted by a test that runs a large synthetic trigger iterator and
-checks the orchestrator never materializes the full set (e.g. an
-instrumented/counting iterator, or a peak-RSS assertion).
+Después de 050, un run de N triggers tiene a lo sumo
+`batch_size × batches_in_flight` objetos `_StageItem` + el mismo
+orden de objetos trigger en vuelo a la vez — **constante en N**.
+Asserteado por un test que corre un iterador sintético grande de
+triggers y chequea que el orchestrator nunca materialice el set
+completo (p. ej. un iterador instrumentado/contador, o una
+aserción de RSS pico).
 
-## Out of scope
+## Fuera de alcance
 
-- **`TabularDataSource._load_csv` eager DataFrame load.** The CSV
-  source is in-memory **by design** (spec 003, "first adapter") — its
-  `get_by_fields` random-access lookups (needed by the
-  csv-trigger pipeline's S1) *require* the whole table indexed in
-  RAM. There is no coherent streaming story for random access. The
-  20M production migration runs against `indexing.source.kind: as400`
-  (the live AS400 RVABREP table, queried per-lookup) — the AS400
-  source already streams (`query_stream` / `fetchmany`). 050 makes
-  the **orchestrator** stop defeating that streaming. The CSV source
-  stays bounded-memory-by-design and that limit is documented, not
-  fixed.
-- **Resume re-iterating the full source.** In resume / `from_stage>1`,
-  `StagedPipeline.run()` still runs S0 `acquire()` over the whole
-  source to reconstruct triggers before `resume_scope` filters them.
-  Resume operates on a *recovery* batch (≤ `batch_size`), not the 20M
-  happy path — optimizing it (driving resume triggers straight from
-  the tracking DB) is a follow-up, noted as a known limitation.
-- The TUI event-loop starvation freeze — that is spec **051**.
-- Metadata-source prefetch memory (`metadata.prefetch_enabled`).
-- `batches_in_flight > 2` (still POST-MVP §7).
+- **Carga eager del DataFrame en `TabularDataSource._load_csv`.** La
+  fuente CSV es in-memory **por diseño** (spec 003, "primer
+  adapter") — sus lookups random-access de `get_by_fields`
+  (necesitados por el S1 del pipeline csv-trigger) *requieren* la
+  tabla completa indexada en RAM. No hay historia coherente de
+  streaming para random access. Los runs de migración de
+  producción de 20M corren contra
+  `indexing.source.kind: as400` (la tabla RVABREP AS400 en vivo,
+  quereyada por-lookup) — la fuente AS400 ya streamea
+  (`query_stream` / `fetchmany`). 050 hace que el **orchestrator**
+  deje de derrotar ese streaming. La fuente CSV se queda
+  bounded-memory-por-diseño y ese límite se documenta, no se
+  arregla.
+- **Resume re-iterando la fuente completa.** En resume /
+  `from_stage>1`, `StagedPipeline.run()` todavía corre `acquire()`
+  de S0 sobre toda la fuente para reconstruir los triggers antes
+  de que `resume_scope` los filtre. Resume opera sobre un batch
+  de *recovery* (≤ `batch_size`), no sobre el happy path de 20M —
+  optimizarlo (impulsar los triggers de resume directamente
+  desde la tracking DB) es un follow-up, notado como limitación
+  conocida.
+- El freeze por starvation del event-loop de la TUI — eso es la
+  spec **051**.
+- Memoria de prefetch de fuente de metadata
+  (`metadata.prefetch_enabled`).
+- `batches_in_flight > 2` (sigue POST-MVP §7).
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `_run_overlapped` never materializes the full trigger list nor the
-  full chunk list — verified with a counting/lazy iterator test.
-- `--total N` over a large source pulls at most ~N triggers from the
-  iterator (islice), not the whole source.
-- Fresh N=1 runs (`batches_in_flight=1`) stream chunk-by-chunk via
-  the new `_run_sequential` path; resume / `from_stage>1` runs are
-  byte-identical to pre-050 (`StagedPipeline.run` monolithic).
-- `TabularDataSource.get_all` yields without building the full dict
-  list — verified by a test (or `itertuples`-based implementation
-  inspection).
-- A large-N streaming test confirms peak in-flight `_StageItem` count
-  is `O(batch_size × batches_in_flight)`, not `O(N)`.
-- Full unit + integration suite green; mypy + ruff clean.
-- The staging configs (`config-staging-rvabrep.yaml` etc.) still run
-  end-to-end with byte-identical results — live re-verify with
-  `--total 5`.
-- `CHANGELOG.md [0.53.0]` entry; `pyproject.toml` 0.52.0 → 0.53.0.
+- `_run_overlapped` nunca materializa la lista completa de triggers
+  ni la lista completa de chunks — verificado con un test de
+  iterador lazy/contador.
+- `--total N` sobre una fuente grande tira a lo sumo ~N triggers
+  del iterador (islice), no de la fuente completa.
+- Los runs N=1 frescos (`batches_in_flight=1`) streamean
+  chunk-por-chunk vía el nuevo camino `_run_sequential`; los runs
+  resume / `from_stage>1` son byte-idénticos a pre-050
+  (`StagedPipeline.run` monolítico).
+- `TabularDataSource.get_all` rinde sin construir la lista
+  completa de dicts — verificado por un test (o inspección de la
+  implementación basada en `itertuples`).
+- Un test de streaming de N grande confirma que el conteo pico de
+  `_StageItem` en vuelo es `O(batch_size × batches_in_flight)`,
+  no `O(N)`.
+- Suite completa unit + integration verde; mypy + ruff limpios.
+- Los configs de staging (`config-staging-rvabrep.yaml` etc.)
+  siguen corriendo end-to-end con resultados byte-idénticos —
+  re-verify en vivo con `--total 5`.
+- Entrada ``CHANGELOG.md [0.53.0]``; `pyproject.toml` 0.52.0 →
+  0.53.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The streaming property is the thing under test, so the tests use a
-**lazy/counting trigger iterator** — a generator that records how
-many items have been pulled — and assert the orchestrator pulls in
-`batch_size`-shaped waves, not all-at-once. No live AS400 needed: the
-trigger strategy is mocked at the iterator boundary. The existing
-`test_multi_batch.py` / `test_pipeline_*.py` integration tests are
-the regression gate for behavioral parity.
+La propiedad de streaming es la cosa bajo test, así que los tests
+usan un **iterador de triggers lazy/contador** — un generator
+que graba cuántos items se tiraron — y assertean que el
+orchestrator tira en olas de forma `batch_size`, no todo de una
+vez. No hace falta AS400 en vivo: la estrategia de trigger se
+mockea en el límite del iterador. Los tests de integración
+existentes `test_multi_batch.py` / `test_pipeline_*.py` son el
+gate de regresión para paridad de comportamiento.

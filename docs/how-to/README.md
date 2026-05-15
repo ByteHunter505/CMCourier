@@ -1,16 +1,16 @@
-# How-to Guides — Recipes for Specific Tasks
+# Guías How-to — Recetas para Tareas Específicas
 
-> Problem-oriented documentation. **"How do I…"**
+> Documentación orientada a problemas. **"¿Cómo hago para…"**
 
-A how-to guide assumes you already know what CMCourier is and want to accomplish a specific goal. It is a sequence of practical steps — no narrative, no deep explanation, no theory. If you want to *understand* how something works, see [`../explanation/README.md`](../explanation/README.md). If you are completely new to the project, start with the [main README](../../README.md) and the [INDEX](../INDEX.md).
+Una guía how-to asume que ya sabés qué es CMCourier y querés lograr un objetivo específico. Es una secuencia de pasos prácticos — sin narrativa, sin explicaciones profundas, sin teoría. Si querés *entender* cómo funciona algo, ver [`../explanation/README.md`](../explanation/README.md). Si sos completamente nuevo en el proyecto, empezá por el [README principal](../../README.md) y el [INDEX](../INDEX.md).
 
 ---
 
-## Naming convention
+## Convención de nombres
 
-Files in this directory are named `how-to-<task-slug>.md` or simply `<task-slug>.md` if the verb is implicit. Slugs are kebab-case, descriptive, and stable. Renaming an existing guide is a breaking change for external links — bump `CHANGELOG.md`.
+Los archivos de este directorio se llaman `how-to-<task-slug>.md` o simplemente `<task-slug>.md` si el verbo es implícito. Los slugs son kebab-case, descriptivos y estables. Renombrar una guía existente es un cambio breaking para links externos — bumpear `CHANGELOG.md`.
 
-Examples (illustrative, not currently shipped):
+Ejemplos (ilustrativos, no shippeados actualmente):
 
 - `run-rvabrep-pipeline.md`
 - `configure-cmis-credentials.md`
@@ -20,34 +20,33 @@ Examples (illustrative, not currently shipped):
 
 ---
 
-## Available guides
+## Guías disponibles
 
-*(none yet — this section grows as the first commands and pipelines ship)*
+*(ninguna todavía — esta sección crece a medida que los primeros comandos y pipelines se shippean)*
 
-| Guide | Goal | Audience |
+| Guía | Objetivo | Audiencia |
 |-------|------|----------|
 | — | — | — |
-
 ---
 
-## Writing a new how-to
+## Escribir una nueva how-to
 
-When adding a guide:
+Al agregar una guía:
 
-1. Pick a precise verb-based slug. The user is reading this because they want to *do* something.
-2. Open with one sentence stating what the reader will accomplish.
-3. List prerequisites (tools installed, env vars set, role / permissions).
-4. Provide the steps as numbered list with copy-pasteable commands.
-5. Close with a verification step — how does the reader know it worked?
-6. Add the guide to the table above and to `docs/INDEX.md`.
+1. Elegí un slug preciso basado en verbo. El lector está leyendo esto porque quiere *hacer* algo.
+2. Abrí con una oración que dice qué va a lograr el lector.
+3. Listá prerrequisitos (herramientas instaladas, env vars seteadas, rol / permisos).
+4. Proveé los pasos como lista numerada con comandos copy-pasteables.
+5. Cerrá con un paso de verificación — ¿cómo sabe el lector que funcionó?
+6. Agregá la guía a la tabla de arriba y a `docs/INDEX.md`.
 
-A how-to is **not** a tutorial. Tutorials teach a concept by walking the reader through a curated example. How-tos solve a real-world problem the reader already has.
+Una how-to **no** es un tutorial. Los tutoriales enseñan un concepto guiando al lector por un ejemplo curado. Las how-tos resuelven un problema del mundo real que el lector ya tiene.
 
 ---
 
 ## Cross-references
 
-- [`docs/INDEX.md`](../INDEX.md) — canonical map of all documentation
-- [`docs/explanation/README.md`](../explanation/README.md) — for "how it works"
-- the project's domain spec — domain ground truth
-- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — workflow conventions
+- [`docs/INDEX.md`](../INDEX.md) — mapa canónico de toda la documentación
+- [`docs/explanation/README.md`](../explanation/README.md) — para "cómo funciona"
+- la spec de dominio del proyecto — verdad de dominio
+- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — convenciones de workflow

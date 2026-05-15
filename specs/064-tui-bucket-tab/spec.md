@@ -1,98 +1,115 @@
-# 064 — TUI BUCKET tab for streaming mode
+# 064 — Tab BUCKET de la TUI para modo streaming
 
-## Why
+## Por qué
 
-063 ships the streaming orchestrator, but the existing TUI was
-built around the batched model. In streaming mode the CHUNKS tab
-shows a single synthetic row "STREAMING (1 chunk for the whole
-run)" — useless for live observability of a 5000-doc run.
+063 entrega el orchestrator de streaming, pero la TUI
+existente fue construida alrededor del modelo batched. En
+modo streaming el tab CHUNKS muestra una única fila
+sintética "STREAMING (1 chunk para todo el run)" — inútil
+para observabilidad en vivo de un run de 5000 docs.
 
-The operator needs to see, at a glance, what the *bucket* is
-doing:
+El operador necesita ver, de un vistazo, qué está haciendo
+el *bucket*:
 
-* current bucket level vs cap (back-pressure indicator)
-* peak bucket level since run start
-* PREP throughput (docs/s entering the bucket)
-* S5 throughput (docs/s leaving the bucket)
-* live worker counts (PREP busy/idle, S5 busy/idle)
-* per-status totals (S5_DONE, S5_FAILED, S1_FILTERED, S1_SKIPPED)
+* nivel actual del bucket vs cap (indicador de
+  `back-pressure`)
+* nivel pico del bucket desde el arranque del run
+* throughput de PREP (docs/s entrando al bucket)
+* throughput de S5 (docs/s saliendo del bucket)
+* conteos de workers en vivo (PREP busy/idle, S5
+  busy/idle)
+* totales por status (S5_DONE, S5_FAILED, S1_FILTERED,
+  S1_SKIPPED)
 
-## What
+## Qué
 
-### 1. New BUCKET tab
+### 1. Nuevo tab BUCKET
 
-A new tab inside the existing `TabbedContent` widget that becomes
-**visible only when** the orchestrator is the streaming one
-(detected via a new `mode: "batched" | "streaming"` field on the
-`TUIDataProvider`). In batched mode the BUCKET tab is hidden and
-CHUNKS tab is the operator's per-chunk view; in streaming mode
-the CHUNKS tab is hidden and BUCKET tab takes over.
+Un nuevo tab adentro del widget `TabbedContent` existente
+que pasa a ser **visible solo cuando** el orchestrator es
+el de streaming (detectado vía un nuevo campo
+`mode: "batched" | "streaming"` en el `TUIDataProvider`).
+En modo batched el tab BUCKET está oculto y el tab CHUNKS
+es la view per-chunk del operador; en modo streaming el
+tab CHUNKS está oculto y el tab BUCKET toma el control.
 
-### 2. Data plumbed through `TUIDataProvider`
+### 2. Data plomeada a través de `TUIDataProvider`
 
-* `bucket_level: int` — current `qsize()` of the bucket, or 0
-* `bucket_cap: int` — configured `bucket_size`
-* `bucket_peak: int` — peak qsize since run start
-* `prep_throughput: float` — docs/s averaged over the last 5s
-* `upload_throughput: float` — same metric for S5
-* `prep_busy: int` / `prep_idle: int` — producer thread state
-  counts (best-effort, snapshot at refresh)
-* `upload_busy: int` / `upload_idle: int` — from the existing
-  `WorkerPoolStats`
+* `bucket_level: int` — `qsize()` actual del bucket, o 0
+* `bucket_cap: int` — `bucket_size` configurado
+* `bucket_peak: int` — qsize pico desde el arranque del run
+* `prep_throughput: float` — docs/s promediado sobre los
+  últimos 5s
+* `upload_throughput: float` — misma métrica para S5
+* `prep_busy: int` / `prep_idle: int` — conteos de estado
+  de threads producer (best-effort, snapshot en refresh)
+* `upload_busy: int` / `upload_idle: int` — del
+  `WorkerPoolStats` existente
 * `s5_done`, `s5_failed`, `s1_filtered`, `s1_skipped` —
-  cumulative tally read from the orchestrator's `chunks_snapshot()`
-  (single synthetic row in streaming mode)
+  tally acumulado leído del `chunks_snapshot()` del
+  orchestrator (una sola fila sintética en modo streaming)
 
-### 3. `StreamingOrchestrator` exposes the data
+### 3. El `StreamingOrchestrator` expone la data
 
-* `bucket_level()` — reads `_bucket.qsize()` (queue.Queue's qsize
-  is approximate but good enough for a 1-second refresh)
-* `peak_qsize` — already exists (063)
-* `prep_pool_stats()` — `WorkerPoolStats`-shaped snapshot of
-  the producer threads; for 064 we use an *atomic counter pair*
-  (`prep_in_flight`) on the orchestrator (incremented before
-  `streaming_prep_one`, decremented after).
-* `chunks_snapshot()` — already exists; we read its single row
-  for the cumulative counts.
+* `bucket_level()` — lee `_bucket.qsize()` (el qsize de
+  queue.Queue es aproximado pero suficientemente bueno
+  para un refresh de 1 segundo)
+* `peak_qsize` — ya existe (063)
+* `prep_pool_stats()` — snapshot con forma de
+  `WorkerPoolStats` de los threads producer; para 064
+  usamos un *par de contadores atómicos* (`prep_in_flight`)
+  en el orchestrator (incrementado antes de
+  `streaming_prep_one`, decrementado después).
+* `chunks_snapshot()` — ya existe; leemos su única fila
+  para los conteos acumulados.
 
-### 4. Streaming-mode detection
+### 4. Detección de modo streaming
 
-The TUI binding layer in `cli/app.py` passes `mode=config.processing.mode`
-to `TUIDataProvider`. The data provider exposes a `mode` property
-the TUI tabs query at first render to decide visibility.
+La capa de binding de TUI en `cli/app.py` pasa
+`mode=config.processing.mode` al `TUIDataProvider`. El
+data provider expone una propiedad `mode` que los tabs de
+la TUI quereyan en el primer render para decidir
+visibilidad.
 
-The existing UPLOAD, PREP, DETAIL tabs continue to work — they
-already read the single global recorder.
+Los tabs UPLOAD, PREP, DETAIL existentes siguen
+funcionando — ya leen el único recorder global.
 
-## Out of scope
+## Fuera de alcance
 
-- A unified "live" tab that subsumes BUCKET + CHUNKS — both shapes
-  coexist in this spec. A future change can unify them.
-- Streaming-aware DETAIL filtering by `S5_DONE` etc. — DETAIL
-  already shows every row from `migration_log`, which is correct.
-- Heavy/light split in the BUCKET tab — deferred to 065 (the
-  splitter doesn't exist in streaming yet).
+- Un tab "live" unificado que subsuma BUCKET + CHUNKS —
+  las dos formas coexisten en esta spec. Un cambio
+  futuro las puede unificar.
+- Filtering del DETAIL streaming-aware por `S5_DONE` etc.
+  — DETAIL ya muestra cada fila de `migration_log`, que es
+  correcto.
+- Split heavy/light en el tab BUCKET — diferido a 065 (el
+  splitter no existe en streaming todavía).
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- In batched mode (default), the TUI is byte-identical to 063 —
-  CHUNKS tab present, BUCKET tab absent.
-- In streaming mode, BUCKET tab is present with live readings:
-  level vs cap, peak, PREP+UPLOAD throughput, worker counts,
-  cumulative s5_done/s5_failed/s1_filtered/s1_skipped.
-- A 100-trigger streaming run with `bucket_size=10` shows the
-  level varying between 0 and 10 across the run.
-- `StreamingOrchestrator.prep_pool_stats()` snapshot exposes
-  `in_flight`, `total_workers`.
-- All existing tests still pass; new TUI unit tests for the BUCKET
-  tab's `_BucketTabBindings` model + DataProvider mode plumbing.
-- mypy + ruff clean. CHANGELOG `[0.66.0]`; pyproject 0.65.0 → 0.66.0.
+- En modo batched (default), la TUI es byte-idéntica a la
+  de 063 — tab CHUNKS presente, tab BUCKET ausente.
+- En modo streaming, el tab BUCKET está presente con
+  lecturas en vivo: nivel vs cap, pico, throughput
+  PREP+UPLOAD, conteos de workers,
+  s5_done/s5_failed/s1_filtered/s1_skipped acumulados.
+- Un run streaming de 100 triggers con `bucket_size=10`
+  muestra el nivel variando entre 0 y 10 a lo largo del
+  run.
+- El snapshot `StreamingOrchestrator.prep_pool_stats()`
+  expone `in_flight`, `total_workers`.
+- Todos los tests existentes siguen pasando; tests
+  unitarios nuevos de TUI para el modelo
+  `_BucketTabBindings` del tab BUCKET + plomería de modo
+  del DataProvider.
+- mypy + ruff limpios. CHANGELOG `[0.66.0]`; pyproject
+  0.65.0 → 0.66.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-- `tests/unit/orchestrators/test_streaming.py` gains a
-  `test_prep_pool_stats_tracks_in_flight` test.
-- `tests/unit/tui/test_data_provider.py` (or equivalent) gets
-  `test_mode_property_is_streaming_when_configured`.
-- The Textual tab itself doesn't need a full render test; binding
-  the fields is sufficient.
+- `tests/unit/orchestrators/test_streaming.py` gana un
+  test `test_prep_pool_stats_tracks_in_flight`.
+- `tests/unit/tui/test_data_provider.py` (o equivalente)
+  recibe `test_mode_property_is_streaming_when_configured`.
+- El tab Textual mismo no necesita un test de render
+  completo; bindear los campos es suficiente.

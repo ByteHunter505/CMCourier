@@ -1,96 +1,117 @@
 # 063 — Plan
 
-Two phases.
+Dos fases.
 
-## Phase 1 — Streaming orchestrator + config + wiring + tests
+## Fase 1 — Orchestrator de streaming + config + wiring + tests
 
-### Files
+### Archivos
 
 - `src/cmcourier/config/schema.py`
-  - New `StreamingConfig(BaseModel)` with `bucket_size: int = 100, ge=1`.
+  - Nuevo `StreamingConfig(BaseModel)` con
+    `bucket_size: int = 100, ge=1`.
   - `ProcessingConfig.mode: Literal["batched", "streaming"] = "batched"`.
   - `ProcessingConfig.streaming: StreamingConfig`.
-  - Docstring note that `batches_in_flight` is ignored in streaming.
+  - Nota en docstring de que `batches_in_flight` se ignora
+    en streaming.
 
-- `src/cmcourier/orchestrators/streaming.py` (new file)
-  - `class StreamingOrchestrator`. Constructor mirrors
-    `MultiBatchOrchestrator` (pipeline, config, log_dir) plus an
-    explicit `bucket_size` derived from config.
-  - `.run(*, source_descriptor, batch_size, batches_in_flight, ...)`
-    — same signature for CLI compatibility; rejects `from_stage > 1`
-    and non-None `resume_batch_id` with ValueError; ignores
-    `batches_in_flight` and `batch_size`.
-  - Internals:
-    - `start_batch(0)` → single batch_id for the run.
-    - `MetricsRecorder.start_batch(...)` once.
+- `src/cmcourier/orchestrators/streaming.py` (archivo nuevo)
+  - `class StreamingOrchestrator`. El constructor espeja
+    `MultiBatchOrchestrator` (pipeline, config, log_dir)
+    más un `bucket_size` explícito derivado de config.
+  - `.run(*, source_descriptor, batch_size,
+    batches_in_flight, ...)` — misma firma para
+    compatibilidad CLI; rechaza `from_stage > 1` y
+    `resume_batch_id` non-None con ValueError; ignora
+    `batches_in_flight` y `batch_size`.
+  - Internos:
+    - `start_batch(0)` → un solo batch_id para el run.
+    - `MetricsRecorder.start_batch(...)` una vez.
     - `bucket = queue.Queue[_StageItem | None](maxsize=bucket_size)`.
-    - `trigger_iter` = iter(strategy.acquire(...)) capped by `total`
-      if set; protected by a Lock.
-    - Spawn `prep_workers` producer threads + `cmis.workers` consumer
-      threads (consumer count == initial worker count; AIMD adjusts
-      semaphore inside _upload_one, same as batched).
-    - Producer loop: pull trigger; call
-      `pipeline.streaming_prep_one(trigger, batch_id, recorder)`; on
-      success push to bucket. On StopIteration: push N poison pills,
-      exit.
-    - Consumer loop: `bucket.get()`; if `None`, `task_done()` then
-      break; else call `pipeline._upload_one(item, batch_id, recorder)`;
-      tally outcome; `task_done()`.
-    - Join all threads.
-    - Close batch, return a `MultiBatchRunReport` with a single
-      synthetic `RunReport`.
-  - `chunks_snapshot()`: returns a single-row list describing the
-    run (synthetic, for the TUI's existing CHUNKS tab fallback).
-  - `active_recorder()`, `upload_recorder()`: both return the single
-    global recorder.
+    - `trigger_iter` = iter(strategy.acquire(...)) topado
+      por `total` si está seteado; protegido por un Lock.
+    - Spawn de `prep_workers` threads producer + `cmis.workers`
+      threads consumer (la cuenta de consumers == cuenta
+      inicial de workers; AIMD ajusta el semáforo adentro
+      de _upload_one, igual que batched).
+    - Loop del producer: tirar trigger; llamar
+      `pipeline.streaming_prep_one(trigger, batch_id,
+      recorder)`; en éxito empujar al bucket. En
+      StopIteration: empujar N `poison pill`s, salir.
+    - Loop del consumer: `bucket.get()`; si `None`,
+      `task_done()` después break; sino llamar
+      `pipeline._upload_one(item, batch_id, recorder)`;
+      contar outcome; `task_done()`.
+    - Joinear todos los threads.
+    - Cerrar batch, devolver un `MultiBatchRunReport` con
+      un único `RunReport` sintético.
+  - `chunks_snapshot()`: devuelve una lista de una sola
+    fila describiendo el run (sintético, para el fallback
+    del tab CHUNKS existente de la TUI).
+  - `active_recorder()`, `upload_recorder()`: las dos
+    devuelven el único recorder global.
 
 - `src/cmcourier/orchestrators/staged.py`
-  - New public method
+  - Nuevo método público
     `streaming_prep_one(trigger, batch_id, recorder) -> _StageItem | None`.
-    Runs S0/S1 on `[trigger]` (single-element list), then for each
-    survivor runs `_s2_one`, `_s3_one`, `_s4_one` sequentially. Returns
-    the surviving item or `None` (filtered / failed / cross-batch
-    skipped — all already persisted by the inner helpers).
+    Corre S0/S1 sobre `[trigger]` (lista de un solo
+    elemento), después para cada survivor corre `_s2_one`,
+    `_s3_one`, `_s4_one` secuencialmente. Devuelve el
+    item sobreviviente o `None` (filtered / failed /
+    skipped cross-batch — todos ya persistidos por los
+    helpers internos).
 
 - `src/cmcourier/cli/app.py`
-  - `run_orchestrator_with_tui` factory: choose
-    `StreamingOrchestrator` when `config.processing.mode == "streaming"`.
-  - WARN log when `mode == "streaming"` and
-    `heavy_light_lanes.enabled is True` (deferred to spec 065).
-  - WARN log when `mode == "streaming"` and `--from-stage > 1` or
-    operator-named `--batch-id` is passed — *and* the orchestrator
-    raises ValueError downstream.
+  - Factory `run_orchestrator_with_tui`: elegir
+    `StreamingOrchestrator` cuando
+    `config.processing.mode == "streaming"`.
+  - Log WARN cuando `mode == "streaming"` y
+    `heavy_light_lanes.enabled is True` (diferido a la
+    spec 065).
+  - Log WARN cuando `mode == "streaming"` y
+    `--from-stage > 1` o se pasa un `--batch-id` nombrado
+    por el operador — *y* el orchestrator levanta
+    ValueError downstream.
 
 ### Tests
 
 - `tests/unit/config/test_schema.py`
-  - `processing.mode` defaults `"batched"`, rejects `"invalid"`.
-  - `processing.streaming.bucket_size` defaults 100, rejects 0.
+  - `processing.mode` default `"batched"`, rechaza
+    `"invalid"`.
+  - `processing.streaming.bucket_size` default 100,
+    rechaza 0.
 
-- `tests/integration/pipeline/test_streaming_pipeline.py` (new)
-  - Re-use `pipeline_harness`. Add a helper `build_streaming_pipeline`
-    that constructs the `StreamingOrchestrator` against the harness's
-    shared pipeline.
-  - `test_streaming_uploads_all_docs` — 2-doc happy path, every doc
-    `S5_DONE`.
-  - `test_streaming_bucket_caps_memory` — `bucket_size=2` against 6
-    docs (the rvabrep fixture's full set); patch `queue.Queue.put` or
-    sample `qsize()` to assert peak ≤ 2.
-  - `test_streaming_rejects_resume_args` — `from_stage=3` or
-    `resume_batch_id="x"` with streaming raises ValueError.
-  - `test_streaming_cross_batch_idempotency` — first run uploads, second
-    run produces `S1_SKIPPED` rows (062 path).
+- `tests/integration/pipeline/test_streaming_pipeline.py`
+  (nuevo)
+  - Reusar `pipeline_harness`. Agregar un helper
+    `build_streaming_pipeline` que construye el
+    `StreamingOrchestrator` contra el pipeline compartido
+    del harness.
+  - `test_streaming_uploads_all_docs` — happy path de 2
+    docs, cada doc `S5_DONE`.
+  - `test_streaming_bucket_caps_memory` — `bucket_size=2`
+    contra 6 docs (el set completo del fixture rvabrep);
+    parchear `queue.Queue.put` o samplear `qsize()` para
+    assertear pico ≤ 2.
+  - `test_streaming_rejects_resume_args` — `from_stage=3`
+    o `resume_batch_id="x"` con streaming levanta
+    ValueError.
+  - `test_streaming_cross_batch_idempotency` — el primer
+    run sube, el segundo run produce filas `S1_SKIPPED`
+    (camino 062).
 
-- `tests/unit/orchestrators/test_streaming.py` (new)
-  - `test_iterator_is_thread_safe` — two fake producers consume from
-    the shared iterator; no trigger is processed twice (counter).
-  - `test_poison_pill_drains_consumers` — single producer with 0
-    triggers; N consumers; all join cleanly.
-  - `test_streaming_orchestrator_returns_runreport` — shape check.
+- `tests/unit/orchestrators/test_streaming.py` (nuevo)
+  - `test_iterator_is_thread_safe` — dos producers falsos
+    consumen del iterador compartido; ningún trigger se
+    procesa dos veces (contador).
+  - `test_poison_pill_drains_consumers` — un producer con
+    0 triggers; N consumers; todos joinean limpio.
+  - `test_streaming_orchestrator_returns_runreport` —
+    chequeo de forma.
 
 ### Verify
 
-`pytest tests/unit tests/integration -q` green. ruff + mypy clean.
+`pytest tests/unit tests/integration -q` verde. ruff + mypy
+limpios.
 
 ### Commit
 
@@ -98,8 +119,10 @@ Two phases.
 feat(orchestrator): streaming mode with bucket-based producer-consumer (063 Phase 1)
 ```
 
-## Phase 2 — CHANGELOG 0.65.0 + version + README + FF
+## Fase 2 — CHANGELOG 0.65.0 + version + README + FF
 
-Standard release dance + `cmcourier --version` proof + FF to main.
+Release dance estándar + prueba de `cmcourier --version` +
+FF a main.
 
-Commit: `docs(063): CHANGELOG 0.65.0 + version bump + streaming docs (063 Phase 2)`.
+Commit:
+`docs(063): CHANGELOG 0.65.0 + version bump + streaming docs (063 Phase 2)`.

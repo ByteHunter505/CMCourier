@@ -1,39 +1,39 @@
 # Plan — 002-domain-models-and-ports
 
-**Status**: Draft (under review)
-**Created**: 2026-05-09
-**Spec reference**: `specs/002-domain-models-and-ports/spec.md`
-**Constitution version at draft time**: v1.0.0
+**Status**: Borrador (en revisión)
+**Creado**: 2026-05-09
+**Referencia al spec**: `specs/002-domain-models-and-ports/spec.md`
+**Versión de la constitución al momento del borrador**: v1.0.0
 
-> The **how** of this change. Describes architectural decisions for the domain types, the exception hierarchy structure, and the test approach. Implementation breakdown lives in `tasks.md`.
-
----
-
-## 1. Approach Summary
-
-Three Python files (`models.py`, `ports.py`, `exceptions.py`) populated under Strict TDD. Every public type lands as a failing test first, then the minimum code to make it pass, then refactor while green. The whole change is small enough (under ~600 lines of code total, including tests) that aggressive paralysis-by-design is the bigger risk than under-design.
-
-The change is **boring on purpose**: dataclasses, abstract methods, exception subclasses. No clever metaclasses, no descriptors, no runtime type-introspection. Every line should be obvious to a reader who has not seen the code before.
+> El **cómo** de este cambio. Describe decisiones arquitectónicas para los tipos del dominio, la estructura de la jerarquía de excepciones, y el enfoque de tests. El desglose de implementación vive en `tasks.md`.
 
 ---
 
-## 2. Why dataclasses, not Pydantic
+## 1. Resumen del Enfoque
 
-Constitution Principle I forbids `pydantic` in `domain/`. Period. So the choice is: stdlib `dataclasses`, `typing.NamedTuple`, or `attrs`.
+Tres archivos Python (`models.py`, `ports.py`, `exceptions.py`) poblados bajo `Strict TDD`. Cada tipo público aterriza como un test que falla primero, después el mínimo código para hacerlo pasar, después refactor mientras está en verde. El cambio completo es lo suficientemente chico (menos de ~600 líneas de código en total, incluyendo tests) como para que la parálisis por sobre-diseño sea el riesgo más grande que el sub-diseño.
 
-| Option | Pros | Cons | Verdict |
-|--------|------|------|---------|
-| `dataclasses` (stdlib, frozen+slots) | Standard library; well-known; supports frozen, slots, defaults, factories; mypy understands them perfectly | None worth listing | ✅ chosen |
-| `typing.NamedTuple` | Tuple semantics (truthy comparison, unpack); slot-like by default | No `frozen=True` semantics for adding logic later; `__init__` validation requires `__new__`; awkward subclassing | rejected |
-| `attrs` (third-party) | More features (slot detection, validators, converters) | Third-party — violates Principle I | rejected |
-
-`@dataclass(frozen=True, slots=True)` for every model. Validation happens in a custom `__post_init__`.
+El cambio es **aburrido a propósito**: `dataclasses`, métodos abstractos, subclases de excepciones. Sin metaclases inteligentes, sin `descriptors`, sin introspección de tipos en `runtime`. Cada línea debería ser obvia para alguien que nunca vio el código antes.
 
 ---
 
-## 3. Model File — `src/cmcourier/domain/models.py`
+## 2. Por qué dataclasses, no Pydantic
 
-### 3.1 Top-level shape
+El Principio I de la Constitución prohíbe `pydantic` en `domain/`. Punto. Así que la elección es: `dataclasses` de la `stdlib`, `typing.NamedTuple`, o `attrs`.
+
+| Opción | Pros | Contras | Veredicto |
+|--------|------|---------|-----------|
+| `dataclasses` (stdlib, frozen+slots) | Librería estándar; bien conocida; soporta `frozen`, `slots`, `defaults`, `factories`; mypy las entiende perfectamente | Ninguno digno de listar | ✅ elegida |
+| `typing.NamedTuple` | Semántica de tupla (comparación `truthy`, `unpack`); tipo `slot-like` por default | Sin semántica `frozen=True` para agregar lógica después; la validación en `__init__` requiere `__new__`; `subclassing` incómodo | rechazada |
+| `attrs` (third-party) | Más features (detección de `slots`, validadores, conversores) | Third-party — viola el Principio I | rechazada |
+
+`@dataclass(frozen=True, slots=True)` para cada modelo. La validación sucede en un `__post_init__` custom.
+
+---
+
+## 3. Archivo de Modelos — `src/cmcourier/domain/models.py`
+
+### 3.1 Forma de top-level
 
 ```python
 """Domain models — pure stdlib, frozen dataclasses, the spec-§10 source of truth."""
@@ -78,7 +78,7 @@ class MigrationRecord: ...
 
 ### 3.2 `parse_cymmdd`
 
-The reference implementation in the domain spec:
+La implementación de referencia en la `domain spec`:
 
 ```python
 def parse_cymmdd(date_str: str) -> datetime:
@@ -91,9 +91,9 @@ def parse_cymmdd(date_str: str) -> datetime:
     return datetime(year, month, day)  # raises ValueError on bad m/d
 ```
 
-Tests cover the canonical example (`"1251117"` → 2025-11-17) plus edge cases: too-short, non-digit, invalid month, invalid day.
+Los tests cubren el ejemplo canónico (`"1251117"` → 2025-11-17) más casos `edge`: demasiado corto, no-dígito, mes inválido, día inválido.
 
-### 3.3 Computed CM fields
+### 3.3 Campos CM computados
 
 ```python
 def compute_cm_folder(clase_id: str) -> str:
@@ -103,11 +103,11 @@ def compute_cm_object_type(clase_id: str) -> str:
     return f"$t!-2_BAC_{clase_id.replace('.', '_')}v-1"
 ```
 
-`CMMapping.cm_folder` and `CMMapping.cm_object_type` are `@property` accessors that delegate to these helpers, so the conversion is documented in one place.
+`CMMapping.cm_folder` y `CMMapping.cm_object_type` son `@property` `accessors` que delegan a estos helpers, así la conversión queda documentada en un solo lugar.
 
 ### 3.4 `ResolvedMetadata`
 
-The contract is "read-only mapping of `BAC_*` properties to string values". Internally:
+El contrato es "mapping `read-only` de propiedades `BAC_*` a valores `string`". Internamente:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -124,7 +124,7 @@ class ResolvedMetadata:
     def __len__(self) -> int: return len(self.properties)
 ```
 
-`from_dict` is the only constructor encouraged. Callers never pass a raw `dict` directly (the type hint is `Mapping[str, str]`, but the runtime behavior of `MappingProxyType` ensures immutability).
+`from_dict` es el único constructor recomendado. Quienes lo usen nunca pasan un `dict` crudo directamente (el `type hint` es `Mapping[str, str]`, pero el comportamiento en `runtime` de `MappingProxyType` asegura inmutabilidad).
 
 ### 3.5 `StageStatus`
 
@@ -143,9 +143,9 @@ class StageStatus(str, Enum):
         return (cls[f"S{stage}_DONE"], cls[f"S{stage}_FAILED"])
 ```
 
-Inheriting from `str, Enum` makes `StageStatus.S1_DONE.value == "S1_DONE"` and `str(StageStatus.S1_DONE) == "StageStatus.S1_DONE"`. Persistence layers store `.value` as the SQL column.
+Heredar de `str, Enum` hace que `StageStatus.S1_DONE.value == "S1_DONE"` y `str(StageStatus.S1_DONE) == "StageStatus.S1_DONE"`. Las capas de persistencia almacenan `.value` como la columna SQL.
 
-### 3.6 `MigrationRecord` defaults
+### 3.6 Defaults de `MigrationRecord`
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -170,23 +170,23 @@ class MigrationRecord:
     retry_count: int = 0
 ```
 
-**Open question resolved (spec §7.2)**: `created_at` is a **required** parameter, not a default factory. Reasons:
-1. Tests need to pass deterministic datetimes; `default_factory=datetime.now` re-evaluates per call and breaks fixture reuse.
-2. The persistence layer is the source of `created_at` (it knows when the row was inserted), not the model class.
-3. Explicit > implicit (Python zen).
+**Pregunta abierta resuelta (spec §7.2)**: `created_at` es un parámetro **requerido**, no un `default factory`. Razones:
+1. Los tests necesitan pasar `datetimes` determinísticos; `default_factory=datetime.now` re-evalúa por llamada y rompe la reusabilidad de `fixtures`.
+2. La capa de persistencia es la fuente de `created_at` (sabe cuándo se insertó la fila), no la clase del modelo.
+3. Explícito > implícito (Python zen).
 
-### 3.7 Frozen-ness validation
+### 3.7 Validación de frozen-ness
 
-`@dataclass(frozen=True)` already raises `dataclasses.FrozenInstanceError` on attribute assignment. No extra code needed for REQ-016.
+`@dataclass(frozen=True)` ya levanta `dataclasses.FrozenInstanceError` al asignar atributos. No se necesita código extra para REQ-016.
 
-`@dataclass(slots=True)` adds `__slots__` to the generated class, which:
-- Reduces per-instance memory by ~30-50%.
-- Prevents accidental `record.unknown_attr = ...` (raises `AttributeError`).
-- Is mandatory for instances stored at scale (200k+ documents per migration).
+`@dataclass(slots=True)` agrega `__slots__` a la clase generada, lo que:
+- Reduce la memoria por instancia en ~30-50%.
+- Previene `record.unknown_attr = ...` accidental (levanta `AttributeError`).
+- Es obligatorio para instancias almacenadas a escala (200k+ documentos por migración).
 
-### 3.8 Module-level re-exports
+### 3.8 Re-exports a nivel de módulo
 
-`domain/__init__.py` currently has only a docstring. After this change:
+`domain/__init__.py` actualmente tiene solamente un `docstring`. Después de este cambio:
 
 ```python
 """Domain layer — pure Python, zero external dependencies (Constitution Principle I)."""
@@ -211,13 +211,13 @@ from cmcourier.domain.ports import (
 __all__ = [...]
 ```
 
-`__all__` lists every name above, in alphabetical order. Pre-commit's ruff catches drift between imports and `__all__` (rule `F405` family).
+`__all__` lista cada nombre de arriba, en orden alfabético. El `ruff` del `pre-commit` captura el `drift` entre imports y `__all__` (familia de reglas `F405`).
 
 ---
 
-## 4. Ports File — `src/cmcourier/domain/ports.py`
+## 4. Archivo de Ports — `src/cmcourier/domain/ports.py`
 
-### 4.1 Top-level shape
+### 4.1 Forma de top-level
 
 ```python
 """Abstract interfaces (ports) implemented by adapters in 003+."""
@@ -317,25 +317,25 @@ class S0Strategy(ABC):
     def acquire(self, source_descriptor: str) -> Iterator[TriggerRecord]: ...
 ```
 
-### 4.2 Decision: `Any` for `IDataSource` row values
+### 4.2 Decisión: `Any` para los valores de fila de `IDataSource`
 
-Database row values are heterogeneous (`str | int | datetime | None | Decimal | bytes`). Forcing a tighter type would force adapters to coerce in places that are properly the responsibility of the service layer. The service layer reads the dict by known column name and constructs the typed model from it.
+Los valores de filas de base de datos son heterogéneos (`str | int | datetime | None | Decimal | bytes`). Forzar un tipo más estricto forzaría a los adaptadores a hacer `coerce` en lugares que son propiamente responsabilidad de la capa de servicios. La capa de servicios lee el `dict` por nombre de columna conocido y construye el modelo tipado a partir de él.
 
-`Any` here is intentional and documented. mypy --strict accepts it because we declare it explicitly.
+`Any` acá es intencional y documentado. `mypy --strict` lo acepta porque lo declaramos explícitamente.
 
-### 4.3 Decision: `Mapping[str, Any]` over `dict[str, Any]` for `filters` parameters
+### 4.3 Decisión: `Mapping[str, Any]` sobre `dict[str, Any]` para parámetros `filters`
 
-`Mapping` is the read-only protocol; adapters must not mutate the caller's dict. Static, intentional contract.
+`Mapping` es el protocolo `read-only`; los adaptadores no deben mutar el `dict` del `caller`. Contrato estático e intencional.
 
-### 4.4 Decision: `S0Strategy.acquire` returns `Iterator`, not `list`
+### 4.4 Decisión: `S0Strategy.acquire` retorna `Iterator`, no `list`
 
-Trigger lists can be huge (hundreds of thousands of rows). the spec ("trigger lists are iterated, never fully loaded into memory") demands streaming.
+Las listas de `triggers` pueden ser enormes (cientos de miles de filas). El `spec` ("las listas de trigger se iteran, nunca se cargan completamente en memoria") demanda `streaming`.
 
 ---
 
-## 5. Exception File — `src/cmcourier/domain/exceptions.py`
+## 5. Archivo de Excepciones — `src/cmcourier/domain/exceptions.py`
 
-### 5.1 Hierarchy
+### 5.1 Jerarquía
 
 ```
 CMCourierError
@@ -360,7 +360,7 @@ CMCourierError
 └── TrackingError                 (S6 — never blocks pipeline)
 ```
 
-### 5.2 Base class — structured context
+### 5.2 Clase base — contexto estructurado
 
 ```python
 class CMCourierError(Exception):
@@ -376,11 +376,11 @@ class CMCourierError(Exception):
         super().__init__(full)
 ```
 
-Subclasses inherit this. They define **explicit** named parameters when there are well-known context keys (e.g., `IDRViNotMappedError(id_rvi=...)`).
+Las subclases heredan esto. Definen parámetros nombrados **explícitos** cuando hay claves de contexto bien conocidas (por ejemplo, `IDRViNotMappedError(id_rvi=...)`).
 
-**Open question resolved (spec §7.2)**: explicit named parameters per subclass, not loose `**kwargs`. Reason: type-checkers catch typos in production code (`raise IDRViNotMappedError(id_rvi="X")` vs `raise IDRViNotMappedError(idrvi="X")`).
+**Pregunta abierta resuelta (spec §7.2)**: parámetros nombrados explícitos por subclase, no `**kwargs` laxos. Razón: los `type-checkers` capturan `typos` en código de producción (`raise IDRViNotMappedError(id_rvi="X")` vs `raise IDRViNotMappedError(idrvi="X")`).
 
-### 5.3 Subclass example
+### 5.3 Ejemplo de subclase
 
 ```python
 class IDRViNotMappedError(MappingError):
@@ -396,17 +396,17 @@ class IDRViNotMappedError(MappingError):
         self.txn_num = txn_num
 ```
 
-The instance carries strongly-typed attributes (`exc.id_rvi`) for handlers, plus the `context` dict for structured logging.
+La instancia lleva atributos fuertemente tipados (`exc.id_rvi`) para los `handlers`, más el `dict` `context` para `logging` estructurado.
 
-### 5.4 Why we don't use `cmcourier.errors` or similar
+### 5.4 Por qué no usamos `cmcourier.errors` o similar
 
-The domain layer is the home of the project's vocabulary. Errors are part of the vocabulary. Putting them in `domain/exceptions.py` (next to the models that raise them and the ports that document them) keeps the dependency graph clean. No circular imports — exceptions are leaves.
+La capa de dominio es el hogar del vocabulario del proyecto. Los errores son parte del vocabulario. Ponerlos en `domain/exceptions.py` (al lado de los modelos que los levantan y los `ports` que los documentan) mantiene el grafo de dependencias limpio. Sin imports circulares — las excepciones son hojas.
 
 ---
 
-## 6. Test Strategy
+## 6. Estrategia de Tests
 
-### 6.1 Files
+### 6.1 Archivos
 
 ```
 tests/unit/domain/
@@ -416,9 +416,9 @@ tests/unit/domain/
 └── test_exceptions.py     NEW
 ```
 
-### 6.2 `test_models.py` shape
+### 6.2 Forma de `test_models.py`
 
-One test class per model. Within each class, methods follow the Red → Green → Refactor flow:
+Una clase de test por modelo. Dentro de cada clase, los métodos siguen el flujo `Red → Green → Refactor`:
 
 ```python
 class TestTriggerRecord:
@@ -459,7 +459,7 @@ class TestStageStatus:
 class TestMigrationRecord: ...
 ```
 
-### 6.3 `test_ports.py` shape
+### 6.3 Forma de `test_ports.py`
 
 ```python
 import abc
@@ -474,7 +474,7 @@ def test_port_is_abstract(port_cls: type) -> None:
 # also a test per port that lists abstract methods to detect accidental drift
 ```
 
-### 6.4 `test_exceptions.py` shape
+### 6.4 Forma de `test_exceptions.py`
 
 ```python
 class TestHierarchy:
@@ -495,15 +495,15 @@ class TestStructuredContext:
         assert exc.id_rvi == "ZZ99"
 ```
 
-### 6.5 Coverage target
+### 6.5 Objetivo de coverage
 
-≥ 95% branch coverage on `src/cmcourier/domain/`. Achievable because the layer is small and every branch in `parse_cymmdd` and `__post_init__` is testable.
+≥ 95% de `branch coverage` en `src/cmcourier/domain/`. Alcanzable porque la capa es chica y cada `branch` en `parse_cymmdd` y `__post_init__` es testeable.
 
 ---
 
-## 7. CHANGELOG entry shape
+## 7. Forma de la entrada del CHANGELOG
 
-After this change merges:
+Después de que este cambio se mergee:
 
 ```markdown
 ## [0.4.0] — 2026-05-XX
@@ -524,37 +524,37 @@ After this change merges:
 
 ---
 
-## 8. Risks & Mitigations
+## 8. Riesgos y Mitigaciones
 
-| Risk | Mitigation |
-|------|------------|
-| `parse_cymmdd` edge cases miss exotic AS400 dates | Exhaustive table-driven tests including `"0000000"`, `"1991301"` (invalid month), etc. |
-| `MappingProxyType` confuses mypy in some contexts | Tested with `mypy --strict`; the `Mapping[str, str]` annotation is what mypy sees, the runtime type is internal |
-| Adding a new stage later breaks `StageStatus.terminal_for_stage` | Documented in plan; the function is one screen long; trivial to extend with bound check change |
-| Exception subclass count grows unwieldy | Hierarchy is intentionally shallow (max depth 3); each subclass has a clear stage owner |
-| `domain/__init__.py` re-export drift | Pre-commit ruff catches unused-import / unused-name issues; `__all__` is explicit |
-| Tests get duplicated across the project | This change ships the **only** unit tests for the domain; later changes test their own layer against these models, never re-test the models |
-
----
-
-## 9. Phases (mirrored in `tasks.md`)
-
-1. **Exceptions** — leaves of the dependency graph; tests + code.
-2. **`StageStatus` enum** — pure stdlib; needed by `MigrationRecord` and ports.
-3. **Helpers + simple models** — `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder/_object_type`, `TriggerRecord`, `StagedFile`, `ResolvedMetadata`.
-4. **Complex models** — `RVABREPDocument` (with `is_pdf`/`is_deleted` properties), `CMMapping` (with computed properties), `MigrationRecord` (with status field referring to `StageStatus`).
-5. **Ports** — abstract interfaces using all the models above.
-6. **`domain/__init__.py` re-exports** — final step before verification.
-7. **Verification + commit**.
-
-Phases 1-5 are **strict TDD per type**: red test → green code → refactor.
+| Riesgo | Mitigación |
+|--------|------------|
+| Los casos `edge` de `parse_cymmdd` no capturan fechas AS400 exóticas | Tests exhaustivos dirigidos por tabla incluyendo `"0000000"`, `"1991301"` (mes inválido), etc. |
+| `MappingProxyType` confunde a mypy en algunos contextos | Testeado con `mypy --strict`; la anotación `Mapping[str, str]` es lo que mypy ve, el tipo en `runtime` es interno |
+| Agregar un `stage` nuevo después rompe `StageStatus.terminal_for_stage` | Documentado en el `plan`; la función ocupa una pantalla; trivial extender con cambio en el chequeo de límites |
+| El conteo de subclases de excepciones se vuelve inmanejable | La jerarquía es intencionalmente plana (profundidad máxima 3); cada subclase tiene un `stage` owner claro |
+| `Drift` de re-exports en `domain/__init__.py` | El `ruff` del `pre-commit` captura `unused-import` / `unused-name`; `__all__` es explícito |
+| Los tests se duplican a lo largo del proyecto | Este cambio entrega los **únicos** `unit tests` para el dominio; los cambios posteriores testean su propia capa contra estos modelos, nunca re-testean los modelos |
 
 ---
 
-## 10. Cross-References
+## 9. Fases (espejadas en `tasks.md`)
+
+1. **Excepciones** — hojas del grafo de dependencias; tests + código.
+2. **Enum `StageStatus`** — `stdlib` puro; necesario para `MigrationRecord` y los `ports`.
+3. **Helpers + modelos simples** — `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder/_object_type`, `TriggerRecord`, `StagedFile`, `ResolvedMetadata`.
+4. **Modelos complejos** — `RVABREPDocument` (con propiedades `is_pdf`/`is_deleted`), `CMMapping` (con propiedades computadas), `MigrationRecord` (con campo `status` que referencia `StageStatus`).
+5. **Ports** — interfaces abstractas usando todos los modelos de arriba.
+6. **Re-exports en `domain/__init__.py`** — paso final antes de la verificación.
+7. **Verificación + commit**.
+
+Las fases 1-5 son **`Strict TDD` por tipo**: test red → código verde → refactor.
+
+---
+
+## 10. Referencias Cruzadas
 
 - Spec: `specs/002-domain-models-and-ports/spec.md`
 - Tasks: `specs/002-domain-models-and-ports/tasks.md`
-- Constitution: `.specify/memory/constitution.md` (Principles I, III, VI, VII, VIII, IX)
-- Domain ground truth: the project's domain spec §3, §4, §6, §9, §10, §14.3
-- Predecessor change: `specs/001-bootstrap-python-skeleton/`
+- Constitución: `.specify/memory/constitution.md` (Principios I, III, VI, VII, VIII, IX)
+- Fuente de verdad del dominio: la `domain spec` del proyecto §3, §4, §6, §9, §10, §14.3
+- Cambio predecesor: `specs/001-bootstrap-python-skeleton/`

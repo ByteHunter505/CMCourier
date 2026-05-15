@@ -1,58 +1,58 @@
 # Tasks — 001-bootstrap-python-skeleton
 
-**Status**: Draft (under review)
-**Created**: 2026-05-08
-**Spec reference**: `specs/001-bootstrap-python-skeleton/spec.md`
-**Plan reference**: `specs/001-bootstrap-python-skeleton/plan.md`
+**Status**: Borrador (en revisión)
+**Creado**: 2026-05-08
+**Referencia al spec**: `specs/001-bootstrap-python-skeleton/spec.md`
+**Referencia al plan**: `specs/001-bootstrap-python-skeleton/plan.md`
 
-> Atomic implementation checklist. Each task is small enough to complete in one session. Phases are sequenced so each phase ends in a meaningful intermediate state.
-
----
-
-## How to read this file
-
-- Tasks are numbered hierarchically: `<phase>.<task>`.
-- Tick `[ ]` → `[x]` as each task completes.
-- Strict TDD Mode is **enabled**. For tasks that produce code, the implementor follows Red → Green → Refactor:
-  1. Write the failing test first (or reuse the spec scenario).
-  2. Confirm the test fails for the expected reason.
-  3. Write the minimum code to make it pass.
-  4. Confirm the test passes.
-  5. Refactor while green.
-- For non-code tasks (configs, docs), TDD does not apply directly — the verification scenarios in `spec.md §4` are the proof.
+> Checklist atómico de implementación. Cada tarea es lo suficientemente pequeña como para completarse en una sesión. Las fases están secuenciadas para que cada fase termine en un estado intermedio significativo.
 
 ---
 
-## Phase 1 — Repo hygiene
+## Cómo leer este archivo
 
-Quick wins. No Python code yet.
-
-- [ ] **1.1** Create `.gitignore` at repo root with the entries from `spec.md REQ-018`.
-- [ ] **1.2** Create `.editorconfig` at repo root with: `root = true`, `[*]` block setting `indent_style = space`, `indent_size = 4`, `end_of_line = lf`, `charset = utf-8`, `trim_trailing_whitespace = true`, `insert_final_newline = true`. Add `[*.md]` override with `trim_trailing_whitespace = false` (Markdown trailing-space-as-linebreak preservation).
-
-**Phase 1 done when**: `.gitignore` and `.editorconfig` exist and are tracked by git.
+- Las tareas están numeradas jerárquicamente: `<fase>.<tarea>`.
+- Marcar `[ ]` → `[x]` a medida que cada tarea se completa.
+- El modo `Strict TDD` está **habilitado**. Para tareas que producen código, quien implementa sigue `Red → Green → Refactor`:
+  1. Escribir primero el test que falla (o reusar el escenario del `spec`).
+  2. Confirmar que el test falla por la razón esperada.
+  3. Escribir el mínimo código para que pase.
+  4. Confirmar que el test pasa.
+  5. Refactorizar mientras está en verde.
+- Para tareas que no son de código (configs, docs), TDD no aplica directamente — los escenarios de verificación en `spec.md §4` son la prueba.
 
 ---
 
-## Phase 2 — Source layout
+## Fase 1 — Higiene del repo
 
-Create every package directory with `__init__.py`. No logic.
+Victorias rápidas. Todavía no hay código Python.
 
-- [ ] **2.1** Create `src/cmcourier/__init__.py` with:
+- [ ] **1.1** Crear `.gitignore` en la raíz del repo con las entradas de `spec.md REQ-018`.
+- [ ] **1.2** Crear `.editorconfig` en la raíz del repo con: `root = true`, bloque `[*]` configurando `indent_style = space`, `indent_size = 4`, `end_of_line = lf`, `charset = utf-8`, `trim_trailing_whitespace = true`, `insert_final_newline = true`. Agregar el override `[*.md]` con `trim_trailing_whitespace = false` (preservación de `trailing-space-as-linebreak` en Markdown).
+
+**Fase 1 lista cuando**: `.gitignore` y `.editorconfig` existen y están trackeados por git.
+
+---
+
+## Fase 2 — Layout de código fuente
+
+Crear cada directorio de paquete con `__init__.py`. Sin lógica.
+
+- [ ] **2.1** Crear `src/cmcourier/__init__.py` con:
   ```python
   """CMCourier — banking document migration tool (RVI → IBM Content Manager)."""
   __version__ = "0.0.0"
   ```
-- [ ] **2.2** Create `src/cmcourier/main.py` with a one-line module docstring and a placeholder `main()` that imports from `cli.app`. Module-level only — no logic.
-- [ ] **2.3** Create `src/cmcourier/domain/__init__.py` with a docstring describing the layer's purpose ("Pure Python; no external dependencies. Models, ports, exceptions.").
-- [ ] **2.4** Create `src/cmcourier/domain/models.py` with a docstring placeholder ("Domain models — TriggerRecord, RVABREPDocument, CMMapping, etc. Populated in 002-domain-models-and-ports.").
-- [ ] **2.5** Create `src/cmcourier/domain/ports.py` with a docstring placeholder ("Abstract interfaces — IDataSource, ITrackingStore, IAssembler, IUploader. Populated in 002-domain-models-and-ports.").
-- [ ] **2.6** Create `src/cmcourier/domain/exceptions.py` with a docstring placeholder ("Typed exception hierarchy. Populated in 002-domain-models-and-ports.").
-- [ ] **2.7** Create `src/cmcourier/adapters/__init__.py` and the four sub-package init files: `sources/__init__.py`, `tracking/__init__.py`, `assembly/__init__.py`, `upload/__init__.py`. Each has a docstring naming its purpose.
-- [ ] **2.8** Create `src/cmcourier/services/__init__.py` with a layer docstring.
-- [ ] **2.9** Create `src/cmcourier/orchestrators/__init__.py` with a layer docstring.
-- [ ] **2.10** Create `src/cmcourier/cli/__init__.py` with a layer docstring.
-- [ ] **2.11** Create `src/cmcourier/cli/app.py` with the Click group placeholder:
+- [ ] **2.2** Crear `src/cmcourier/main.py` con un `docstring` de módulo de una línea y un `main()` `placeholder` que importa de `cli.app`. Solamente a nivel de módulo — sin lógica.
+- [ ] **2.3** Crear `src/cmcourier/domain/__init__.py` con un `docstring` describiendo el propósito de la capa ("Pure Python; no external dependencies. Models, ports, exceptions.").
+- [ ] **2.4** Crear `src/cmcourier/domain/models.py` con un `docstring` `placeholder` ("Domain models — TriggerRecord, RVABREPDocument, CMMapping, etc. Populated in 002-domain-models-and-ports.").
+- [ ] **2.5** Crear `src/cmcourier/domain/ports.py` con un `docstring` `placeholder` ("Abstract interfaces — IDataSource, ITrackingStore, IAssembler, IUploader. Populated in 002-domain-models-and-ports.").
+- [ ] **2.6** Crear `src/cmcourier/domain/exceptions.py` con un `docstring` `placeholder` ("Typed exception hierarchy. Populated in 002-domain-models-and-ports.").
+- [ ] **2.7** Crear `src/cmcourier/adapters/__init__.py` y los cuatro archivos `init` de los sub-paquetes: `sources/__init__.py`, `tracking/__init__.py`, `assembly/__init__.py`, `upload/__init__.py`. Cada uno tiene un `docstring` nombrando su propósito.
+- [ ] **2.8** Crear `src/cmcourier/services/__init__.py` con un `docstring` de capa.
+- [ ] **2.9** Crear `src/cmcourier/orchestrators/__init__.py` con un `docstring` de capa.
+- [ ] **2.10** Crear `src/cmcourier/cli/__init__.py` con un `docstring` de capa.
+- [ ] **2.11** Crear `src/cmcourier/cli/app.py` con el `placeholder` del grupo Click:
   ```python
   """CMCourier CLI entry point — Click group root."""
   import click
@@ -65,78 +65,78 @@ Create every package directory with `__init__.py`. No logic.
   if __name__ == "__main__":
       main()
   ```
-- [ ] **2.12** Create `src/cmcourier/cli/commands/__init__.py` and `src/cmcourier/cli/ui/__init__.py` with layer docstrings.
-- [ ] **2.13** Create `src/cmcourier/config/__init__.py` with a layer docstring.
+- [ ] **2.12** Crear `src/cmcourier/cli/commands/__init__.py` y `src/cmcourier/cli/ui/__init__.py` con `docstrings` de capa.
+- [ ] **2.13** Crear `src/cmcourier/config/__init__.py` con un `docstring` de capa.
 
-**Phase 2 done when**: every directory shown in `plan.md §6` exists with its `__init__.py`. Run `find src/cmcourier -name __init__.py | wc -l` and confirm the count matches the layout.
-
----
-
-## Phase 3 — Build & tooling config
-
-Create `pyproject.toml`. After this phase, `pip install -e .[dev]` must work.
-
-- [ ] **3.1** Create `pyproject.toml` with the `[build-system]` block (`requires = ["setuptools>=68", "wheel"]`, `build-backend = "setuptools.build_meta"`).
-- [ ] **3.2** Add the `[project]` block: `name = "cmcourier"`, `version = "0.0.0"`, `description`, `requires-python = ">=3.11"`, `readme = "README.md"`, `license = {text = "Proprietary"}`, `authors = [{name = "bitBreaker"}]`, `keywords`, `classifiers`. Use the description: "CMCourier — banking document migration tool from IBM RVI on AS400 to IBM Content Manager via CMIS."
-- [ ] **3.3** Add the `[project].dependencies` array per `plan.md §3.1` (runtime deps with `>=`/`<` bounds).
-- [ ] **3.4** Add the `[project.optional-dependencies].dev` array per `plan.md §3.2`.
-- [ ] **3.5** Add `[project.scripts]` block: `cmcourier = "cmcourier.cli.app:main"`.
-- [ ] **3.6** Add `[tool.setuptools]` block: `package-dir = {"" = "src"}` and `[tool.setuptools.packages.find]` with `where = ["src"]`.
-- [ ] **3.7** Add the `[tool.ruff]` and `[tool.ruff.lint]`, `[tool.ruff.lint.per-file-ignores]`, `[tool.ruff.format]` blocks per `plan.md §4.1`.
-- [ ] **3.8** Add the `[tool.mypy]` block plus the two `[[tool.mypy.overrides]]` blocks per `plan.md §4.2`.
-- [ ] **3.9** Add the `[tool.pytest.ini_options]` block per `plan.md §4.3`.
-- [ ] **3.10** Add the `[tool.coverage.run]` and `[tool.coverage.report]` blocks per `plan.md §4.4`.
-
-**Phase 3 done when**:
-- `python -m venv .venv && source .venv/bin/activate && pip install -e .[dev]` succeeds in a clean environment.
-- `python -c "import cmcourier; print(cmcourier.__version__)"` prints `0.0.0`.
+**Fase 2 lista cuando**: cada directorio mostrado en `plan.md §6` existe con su `__init__.py`. Correr `find src/cmcourier -name __init__.py | wc -l` y confirmar que el conteo coincide con el layout.
 
 ---
 
-## Phase 4 — Tests skeleton + smoke test
+## Fase 3 — Configuración de build y tooling
 
-Strict TDD applies starting here. The smoke test is the first failing test that drives the rest of phase 3 to be valid.
+Crear `pyproject.toml`. Después de esta fase, `pip install -e .[dev]` debe funcionar.
 
-- [ ] **4.1** Create `tests/__init__.py` (empty).
-- [ ] **4.2** Create `tests/conftest.py` with a module docstring only ("Shared pytest fixtures. Populated as adapters land."). No fixtures yet.
-- [ ] **4.3** **Red**: write `tests/test_smoke.py` per `plan.md §7`. Run `pytest`. Confirm both tests fail with `ModuleNotFoundError: cmcourier` IF run before phase 3 was complete. (If phase 3 was completed correctly, the tests will pass on first run — that is also acceptable.)
-- [ ] **4.4** **Green**: ensure `pytest` passes. If failing, fix the actual cause (likely a `pyproject.toml` typo or a missing `__init__.py`).
-- [ ] **4.5** Create `tests/unit/__init__.py`, `tests/unit/domain/__init__.py`, `tests/unit/services/__init__.py`, `tests/unit/orchestrators/__init__.py` — empty unit test stubs ready for phase 002+.
-- [ ] **4.6** Create `tests/integration/__init__.py`, `tests/integration/adapters/__init__.py`, `tests/integration/pipeline/__init__.py` — empty integration test stubs.
-- [ ] **4.7** Run `pytest -v` and confirm: 2 tests collected, 2 pass, 0 fail. Capture the output for the verification report.
+- [ ] **3.1** Crear `pyproject.toml` con el bloque `[build-system]` (`requires = ["setuptools>=68", "wheel"]`, `build-backend = "setuptools.build_meta"`).
+- [ ] **3.2** Agregar el bloque `[project]`: `name = "cmcourier"`, `version = "0.0.0"`, `description`, `requires-python = ">=3.11"`, `readme = "README.md"`, `license = {text = "Proprietary"}`, `authors = [{name = "bitBreaker"}]`, `keywords`, `classifiers`. Usar la descripción: "CMCourier — banking document migration tool from IBM RVI on AS400 to IBM Content Manager via CMIS."
+- [ ] **3.3** Agregar el array `[project].dependencies` según `plan.md §3.1` (deps de `runtime` con `>=`/`<` bounds).
+- [ ] **3.4** Agregar el array `[project.optional-dependencies].dev` según `plan.md §3.2`.
+- [ ] **3.5** Agregar el bloque `[project.scripts]`: `cmcourier = "cmcourier.cli.app:main"`.
+- [ ] **3.6** Agregar el bloque `[tool.setuptools]`: `package-dir = {"" = "src"}` y `[tool.setuptools.packages.find]` con `where = ["src"]`.
+- [ ] **3.7** Agregar los bloques `[tool.ruff]` y `[tool.ruff.lint]`, `[tool.ruff.lint.per-file-ignores]`, `[tool.ruff.format]` según `plan.md §4.1`.
+- [ ] **3.8** Agregar el bloque `[tool.mypy]` más los dos bloques `[[tool.mypy.overrides]]` según `plan.md §4.2`.
+- [ ] **3.9** Agregar el bloque `[tool.pytest.ini_options]` según `plan.md §4.3`.
+- [ ] **3.10** Agregar los bloques `[tool.coverage.run]` y `[tool.coverage.report]` según `plan.md §4.4`.
 
-**Phase 4 done when**: `pytest` exits 0 with the smoke test green.
-
----
-
-## Phase 5 — Pre-commit pipeline
-
-Enforce the constitutional rules from the first commit onward.
-
-- [ ] **5.1** Create `scripts/hooks/no-co-authored-by.sh` per `plan.md §5.2`. Make it executable: `chmod +x scripts/hooks/no-co-authored-by.sh`.
-- [ ] **5.2** Create `.pre-commit-config.yaml` per `plan.md §5.1`.
-- [ ] **5.3** Run `pre-commit install` and `pre-commit install --hook-type commit-msg`. Confirm it installs both `pre-commit` and `commit-msg` hooks.
-- [ ] **5.4** **Smoke test the lint hooks**: run `pre-commit run --all-files`. Expect ruff/mypy to pass on the empty skeleton (or to output autofixes that we then commit). If errors surface, fix and rerun.
-- [ ] **5.5** **Smoke test the no-co-authored-by hook**: in a throwaway branch, attempt a commit with `Co-Authored-By: Test <test@example.com>` in the message. Confirm the commit is **rejected** with the expected error message. Capture the output.
-- [ ] **5.6** **Smoke test the conventional commit hook**: in the same throwaway branch, attempt a commit with subject `update stuff`. Confirm rejection.
-- [ ] **5.7** Discard the throwaway branch (`git branch -D <branch>`).
-
-**Phase 5 done when**: pre-commit hooks installed and validated against the rejection scenarios from `spec.md §4.5` and §4.6.
+**Fase 3 lista cuando**:
+- `python -m venv .venv && source .venv/bin/activate && pip install -e .[dev]` tiene éxito en un entorno limpio.
+- `python -c "import cmcourier; print(cmcourier.__version__)"` imprime `0.0.0`.
 
 ---
 
-## Phase 6 — Documentation update + verification
+## Fase 4 — Esqueleto de tests + smoke test
 
-Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`), update docs, run the full verification suite.
+`Strict TDD` aplica desde acá. El `smoke test` es el primer test que falla y que termina de dirigir la fase 3 a ser válida.
 
-- [ ] **6.1** Update `README.md` "Getting started" section per `plan.md §8`.
-- [ ] **6.2** Update `README.md` Status checklist: tick the line about "Python skeleton bootstrap".
-- [ ] **6.3** Update `CHANGELOG.md` per `plan.md §9` — add the `[0.3.0]` block dated to the commit date, and adjust the `[Unreleased]` "Planned for next release" bullets.
-- [ ] **6.4** Create `docs/INDEX.md` following the template in `plan.md §13.5` — list every existing artifact (README, CHANGELOG, CONTRIBUTING, constitution, domain spec, POST-MVP, samples) with one-line descriptions; leave `how-to` and `explanation` sections empty with pointers to their READMEs.
-- [ ] **6.5** Create `docs/how-to/README.md` per `plan.md §13.4`: purpose statement (problem-oriented "How to use"), naming convention (`how-to/<task-slug>.md`, kebab-case), empty bullet list of available guides, link back to `docs/INDEX.md`.
-- [ ] **6.6** Create `docs/explanation/README.md` per `plan.md §13.4`: purpose statement (understanding-oriented "How it works"), naming convention (`explanation/<concept-slug>.md`), empty bullet list of available explanations, link to the project's domain spec as canonical domain explanation, link back to `docs/INDEX.md`.
-- [ ] **6.7** Update `README.md` "Documentation map" section: add a top-row link to `docs/INDEX.md` as the canonical entry point. Keep the existing per-artifact rows for quick access.
-- [ ] **6.8** Run the full verification suite from `spec.md §8`:
+- [ ] **4.1** Crear `tests/__init__.py` (vacío).
+- [ ] **4.2** Crear `tests/conftest.py` con solamente un `docstring` de módulo ("Shared pytest fixtures. Populated as adapters land."). Sin `fixtures` todavía.
+- [ ] **4.3** **Red**: escribir `tests/test_smoke.py` según `plan.md §7`. Correr `pytest`. Confirmar que ambos tests fallan con `ModuleNotFoundError: cmcourier` SI se corren antes de que la fase 3 esté completa. (Si la fase 3 se completó correctamente, los tests van a pasar en la primera corrida — eso también es aceptable.)
+- [ ] **4.4** **Green**: asegurar que `pytest` pasa. Si falla, arreglar la causa real (probablemente un typo en `pyproject.toml` o un `__init__.py` faltante).
+- [ ] **4.5** Crear `tests/unit/__init__.py`, `tests/unit/domain/__init__.py`, `tests/unit/services/__init__.py`, `tests/unit/orchestrators/__init__.py` — `stubs` vacíos de `unit tests` listos para la fase 002+.
+- [ ] **4.6** Crear `tests/integration/__init__.py`, `tests/integration/adapters/__init__.py`, `tests/integration/pipeline/__init__.py` — `stubs` vacíos de `integration tests`.
+- [ ] **4.7** Correr `pytest -v` y confirmar: 2 tests colectados, 2 pasan, 0 fallan. Capturar el output para el reporte de verificación.
+
+**Fase 4 lista cuando**: `pytest` sale con 0 y el `smoke test` en verde.
+
+---
+
+## Fase 5 — Pipeline de pre-commit
+
+Aplicar las reglas constitucionales desde el primer `commit` en adelante.
+
+- [ ] **5.1** Crear `scripts/hooks/no-co-authored-by.sh` según `plan.md §5.2`. Hacerlo ejecutable: `chmod +x scripts/hooks/no-co-authored-by.sh`.
+- [ ] **5.2** Crear `.pre-commit-config.yaml` según `plan.md §5.1`.
+- [ ] **5.3** Correr `pre-commit install` y `pre-commit install --hook-type commit-msg`. Confirmar que instala tanto el hook de `pre-commit` como el de `commit-msg`.
+- [ ] **5.4** **Smoke test de los hooks de lint**: correr `pre-commit run --all-files`. Esperar que `ruff`/`mypy` pasen sobre el esqueleto vacío (o que produzcan autofixes que después commiteamos). Si aparecen errores, arreglarlos y volver a correr.
+- [ ] **5.5** **Smoke test del hook `no-co-authored-by`**: en un branch descartable, intentar un `commit` con `Co-Authored-By: Test <test@example.com>` en el mensaje. Confirmar que el `commit` es **rechazado** con el mensaje de error esperado. Capturar el output.
+- [ ] **5.6** **Smoke test del hook de conventional commit**: en el mismo branch descartable, intentar un `commit` con `subject` `update stuff`. Confirmar el rechazo.
+- [ ] **5.7** Descartar el branch descartable (`git branch -D <branch>`).
+
+**Fase 5 lista cuando**: los `pre-commit hooks` están instalados y validados contra los escenarios de rechazo de `spec.md §4.5` y §4.6.
+
+---
+
+## Fase 6 — Actualización de documentación + verificación
+
+Atar los cabos sueltos, andamiar la arquitectura de documentación (según `plan.md §13`), actualizar docs, correr la suite completa de verificación.
+
+- [ ] **6.1** Actualizar la sección "Getting started" del `README.md` según `plan.md §8`.
+- [ ] **6.2** Actualizar el checklist de Status del `README.md`: tildar la línea sobre "Python skeleton bootstrap".
+- [ ] **6.3** Actualizar `CHANGELOG.md` según `plan.md §9` — agregar el bloque `[0.3.0]` con la fecha del `commit`, y ajustar los bullets de "Planned for next release" en `[Unreleased]`.
+- [ ] **6.4** Crear `docs/INDEX.md` siguiendo la plantilla de `plan.md §13.5` — listar cada artefacto existente (README, CHANGELOG, CONTRIBUTING, constitución, `domain spec`, POST-MVP, samples) con descripciones de una línea; dejar vacías las secciones `how-to` y `explanation` con punteros a sus READMEs.
+- [ ] **6.5** Crear `docs/how-to/README.md` según `plan.md §13.4`: declaración de propósito (orientada a problemas "How to use"), convención de nombres (`how-to/<task-slug>.md`, `kebab-case`), lista vacía de `bullets` de guías disponibles, link de vuelta a `docs/INDEX.md`.
+- [ ] **6.6** Crear `docs/explanation/README.md` según `plan.md §13.4`: declaración de propósito (orientada a entender "How it works"), convención de nombres (`explanation/<concept-slug>.md`), lista vacía de `bullets` de explicaciones disponibles, link a la `domain spec` del proyecto como la explicación canónica del dominio, link de vuelta a `docs/INDEX.md`.
+- [ ] **6.7** Actualizar la sección "Documentation map" del `README.md`: agregar un link en la fila superior a `docs/INDEX.md` como punto de entrada canónico. Mantener las filas existentes por artefacto para acceso rápido.
+- [ ] **6.8** Correr la suite completa de verificación de `spec.md §8`:
   ```bash
   pip install -e .[dev]
   pytest -v
@@ -145,14 +145,14 @@ Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`)
   mypy src/cmcourier/
   pre-commit run --all-files
   ```
-  Capture each output. All MUST pass before commit.
-- [ ] **6.9** Grep for PII in the new files (per `spec.md §4.8`):
+  Capturar cada output. Todo DEBE pasar antes del `commit`.
+- [ ] **6.9** Buscar PII con `grep` en los archivos nuevos (según `spec.md §4.8`):
   ```bash
   rg -n '\b\d{6}\b' src/ tests/                      # 6-digit numbers (CIF pattern)
   rg -n -i '(juan|maria|carlos)\s?(perez|gomez|rodriguez)' src/ tests/   # common Argentine names
   ```
-  Confirm no real-looking matches.
-- [ ] **6.10** Stage all the new and modified files. Confirm `git status` matches the expected file list:
+  Confirmar que no hay coincidencias con aspecto real.
+- [ ] **6.10** Hacer `stage` de todos los archivos nuevos y modificados. Confirmar que `git status` coincide con la lista esperada de archivos:
   ```
   modified: README.md
   modified: CHANGELOG.md
@@ -167,7 +167,7 @@ Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`)
   added: docs/how-to/README.md
   added: docs/explanation/README.md
   ```
-- [ ] **6.11** Create the implementation commit on the feature branch:
+- [ ] **6.11** Crear el `commit` de implementación en el branch de feature:
   ```
   feat: bootstrap Python skeleton with hexagonal layout and tooling
 
@@ -189,41 +189,41 @@ Tie the loose ends, scaffold the documentation architecture (per `plan.md §13`)
   Closes specs/001-bootstrap-python-skeleton/.
   ```
 
-**Phase 6 done when**: branch is committed, all verification commands green, ready for PR or direct merge.
+**Fase 6 lista cuando**: el branch está commiteado, todos los comandos de verificación en verde, listo para PR o `merge` directo.
 
 ---
 
-## Phase 7 — Optional: PR + merge
+## Fase 7 — Opcional: PR + merge
 
-If using GitHub PR workflow:
+Si se usa el workflow de PR de GitHub:
 
-- [ ] **7.1** Push the branch.
-- [ ] **7.2** Open a PR titled `feat: bootstrap Python skeleton` (≤70 chars).
-- [ ] **7.3** PR body links to `specs/001-bootstrap-python-skeleton/spec.md`, lists test evidence (smoke test passes, lint/format/mypy clean, hook rejection demonstrated).
-- [ ] **7.4** Review (if applicable). Address comments by adding new commits, never amending.
-- [ ] **7.5** Merge.
+- [ ] **7.1** Pushear el branch.
+- [ ] **7.2** Abrir un PR con título `feat: bootstrap Python skeleton` (≤70 chars).
+- [ ] **7.3** El body del PR linkea a `specs/001-bootstrap-python-skeleton/spec.md`, lista la evidencia de tests (el `smoke test` pasa, `lint`/`format`/`mypy` limpios, rechazo del hook demostrado).
+- [ ] **7.4** Revisión (si aplica). Direccionar comentarios agregando nuevos `commits`, nunca con `amend`.
+- [ ] **7.5** `Merge`.
 
-If working solo on `main` (current setup):
+Si se trabaja solo sobre `main` (setup actual):
 
-- [ ] **7.1-alt** Confirm the verification suite passed.
-- [ ] **7.2-alt** Tag if appropriate (we do NOT tag pre-MVP).
+- [ ] **7.1-alt** Confirmar que la suite de verificación pasó.
+- [ ] **7.2-alt** Tagear si corresponde (NO tageamos pre-MVP).
 
 ---
 
-## Verification mapping (spec → tasks)
+## Mapeo de verificación (spec → tasks)
 
-For traceability:
+Para trazabilidad:
 
-| Spec REQ | Tasks that fulfill it |
+| Spec REQ | Tasks que lo cumplen |
 |----------|----------------------|
 | REQ-001 | 3.1 |
-| REQ-002 | 3.1–3.10, verified in 3-done and 4.4 |
-| REQ-003 | 2.1, verified in 4.4 |
+| REQ-002 | 3.1–3.10, verificado en 3-done y 4.4 |
+| REQ-003 | 2.1, verificado en 4.4 |
 | REQ-004 | 2.11, 3.5 |
 | REQ-005 | 3.3 |
 | REQ-006 | 3.4 |
 | REQ-007 | 3.2 |
-| REQ-008 | 2.x (entire phase 2) |
+| REQ-008 | 2.x (toda la fase 2) |
 | REQ-009 | 3.6 |
 | REQ-010 | 2.x |
 | REQ-011 | 3.7 |
@@ -235,7 +235,7 @@ For traceability:
 | REQ-017 | 5.1, 5.2 |
 | REQ-018 | 1.1 |
 | REQ-019 | 1.2 |
-| REQ-020 | enforced by 6.5 grep + Constitution discipline |
+| REQ-020 | aplicado por 6.5 grep + disciplina de la Constitución |
 | REQ-021 | 4.3, 4.4 |
 | REQ-022 | 4.7 |
 | REQ-023 | 6.1 |
@@ -246,8 +246,8 @@ For traceability:
 | REQ-028 | 6.6 |
 | REQ-029 | 6.7 |
 
-| Acceptance scenario | Tasks that produce evidence |
-|---------------------|----------------------------|
+| Escenario de aceptación | Tasks que producen evidencia |
+|-------------------------|------------------------------|
 | 4.1 (fresh install) | 3.1–3.10, 6.4 |
 | 4.2 (smoke test passes) | 4.4, 4.7, 6.4 |
 | 4.3 (linter clean) | 6.4 |
@@ -260,24 +260,24 @@ For traceability:
 
 ---
 
-## Estimated effort
+## Esfuerzo estimado
 
-- Phase 1: 5 minutes
-- Phase 2: 20 minutes (mechanical, lots of small files)
-- Phase 3: 30 minutes (the meat: pyproject.toml + first install)
-- Phase 4: 15 minutes (smoke test + structure)
-- Phase 5: 25 minutes (pre-commit + hook validation)
-- Phase 6: 30 minutes (docs structure + README/CHANGELOG updates + verification + commit)
-- **Total**: ~2 hours and 5 minutes of focused work for one contributor pair-programming with an agent.
+- Fase 1: 5 minutos
+- Fase 2: 20 minutos (mecánica, muchos archivos chicos)
+- Fase 3: 30 minutos (la parte sustanciosa: `pyproject.toml` + primer install)
+- Fase 4: 15 minutos (`smoke test` + estructura)
+- Fase 5: 25 minutos (`pre-commit` + validación de hooks)
+- Fase 6: 30 minutos (estructura de docs + updates de README/CHANGELOG + verificación + `commit`)
+- **Total**: ~2 horas y 5 minutos de trabajo enfocado para un contribuyente haciendo `pair-programming` con un agente.
 
-This is consistent with the spec estimating "Phase 0 — Bootstrap (1 day)" — we are well under that, because much of the prep (constitution, domain spec, docs) is already done.
+Esto es consistente con la estimación del `spec` de "Phase 0 — Bootstrap (1 day)" — estamos bastante por debajo, porque mucho de la preparación (constitución, `domain spec`, docs) ya está hecho.
 
 ---
 
-## Notes for the implementor
+## Notas para quien implementa
 
-- Do not deviate from the layout in `plan.md §6` without amending the plan first.
-- If a task does not match its corresponding REQ exactly, the spec wins — fix the task or amend the spec.
-- If `pyodbc` install fails on your host, install `unixODBC-dev` (Debian/Ubuntu: `sudo apt install unixodbc-dev`; macOS: `brew install unixodbc`) and retry.
-- The 50-line function cap (Constitution Principle III) does not bind in this change because there are no functions of consequence. It binds the moment the first real function lands.
-- Strict TDD applies for any line of `*.py` under `src/cmcourier/` that does anything beyond a docstring. The placeholders in this change have only docstrings, so the only test that exists is the smoke test — and it covers all production code in this change (the smoke test asserts that `__version__` is set, and that is the only behavior).
+- No desviarse del layout en `plan.md §6` sin enmendar antes el `plan`.
+- Si una tarea no coincide exactamente con su REQ correspondiente, gana el `spec` — arreglar la tarea o enmendar el `spec`.
+- Si la instalación de `pyodbc` falla en tu `host`, instalar `unixODBC-dev` (Debian/Ubuntu: `sudo apt install unixodbc-dev`; macOS: `brew install unixodbc`) y reintentar.
+- El límite de 50 líneas por función (Principio III de la Constitución) no aplica en este cambio porque no hay funciones de consecuencia. Aplica en el momento en que aterrice la primera función real.
+- `Strict TDD` aplica para cualquier línea de `*.py` bajo `src/cmcourier/` que haga algo más allá de un `docstring`. Los `placeholders` en este cambio tienen solamente `docstrings`, así que el único test que existe es el `smoke test` — y cubre todo el código de producción de este cambio (el `smoke test` afirma que `__version__` está seteado, y ese es el único comportamiento).

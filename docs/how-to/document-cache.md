@@ -1,57 +1,58 @@
-# How-to: Cross-batch metadata cache (037, POST-MVP §9)
+# How-to: Cache cross-batch de metadatos (037, POST-MVP §9)
 
-Skip S3 (Metadata Resolution) on a re-run of the same document when
-the resolved properties have not gone stale. Default is OFF —
-single-batch behavior is byte-identical to pre-037.
+Saltea S3 (Resolución de Metadatos) en una re-corrida del mismo documento
+cuando las propiedades resueltas no están vencidas. Default OFF —
+el comportamiento single-batch es byte-idéntico a pre-037.
 
-## When to turn this on
+## Cuándo activar esto
 
-Enable when:
+Habilitalo cuando:
 
-- You re-run pipelines often against overlapping batches
-  (e.g., resume after a partial S5 failure, or migrate a long
-  backlog by chunks).
-- S3 latency dominates a run because field sources are expensive
-  (AS400 queries, large CSV scans).
-- Your metadata sources are **stable** within the TTL window.
+- Re-corrés pipelines frecuentemente contra batches superpuestos
+  (ej., resume tras un fallo parcial de S5, o migrar un backlog largo
+  por chunks).
+- La latencia de S3 domina una corrida porque las fuentes de campos son
+  caras (queries AS400, scans CSV grandes).
+- Tus fuentes de metadatos son **estables** dentro de la ventana TTL.
 
-Leave off when:
+Dejá apagado cuando:
 
-- Field sources change unpredictably (CSV imports rolling in every
-  minute). Stale-but-served metadata could land on CMIS.
-- Your only run is the first migration ever — there is nothing to
-  re-use.
+- Las fuentes de campos cambian impredeciblemente (importaciones CSV
+  entrando cada minuto). Metadatos servidos pero vencidos podrían aterrizar
+  en CMIS.
+- Tu única corrida es la primera migración — no hay nada para re-usar.
 
-## What it caches
+## Qué cachea
 
-After every successful S3 the resolved properties + the (possibly
-healed) trigger CIF are upserted into a SQLite table
-`document_cache` keyed by:
+Tras cada S3 exitoso las propiedades resueltas + el CIF del trigger
+(posiblemente curado) se upsertean en una tabla SQLite
+`document_cache` indexada por:
 
-- `txn_num` — the RVABREP transaction.
-- `fields_hash` — SHA-256 of the sorted `required_metadata_fields`
-  list for this document's mapping. If the mapping changes the
-  required fields, the hash changes, and the cache misses — so
-  evolving the mapping never serves an incomplete metadata set.
+- `txn_num` — la transacción RVABREP.
+- `fields_hash` — SHA-256 de la lista ordenada de
+  `required_metadata_fields` para el mapping de este documento. Si el
+  mapping cambia los campos requeridos, el hash cambia, y el cache no
+  pega — así que evolucionar el mapping nunca sirve un set de metadatos
+  incompleto.
 
-Storage lives in the same database file as the tracking log
-(`tracking.db_path`). One file to back up, one connection pool.
+El almacenamiento vive en el mismo archivo de base de datos que el log
+de tracking (`tracking.db_path`). Un archivo para backupear, un pool
+de conexiones.
 
-## Configuration
+## Configuración
 
 ```yaml
 metadata:
   cache:
     enabled: true              # default: false
-    ttl_minutes: 60            # default: 60 ; range: 1..43200 (30 days)
+    ttl_minutes: 60            # default: 60 ; rango: 1..43200 (30 días)
   # ... field_sources, sources, prefetch_enabled ...
 ```
 
-The TTL is measured from `cached_at` (UTC ISO-8601). A hit whose age
-exceeds `ttl_minutes` is treated as a miss and the resolver runs
-again.
+El TTL se mide desde `cached_at` (UTC ISO-8601). Un hit cuya edad
+excede `ttl_minutes` se trata como miss y el resolver corre de nuevo.
 
-## Inspecting the cache
+## Inspeccionar el cache
 
 ```text
 $ cmcourier cache stats -c config.yaml
@@ -60,7 +61,7 @@ oldest cached_at    : 2026-05-10T09:12:43+00:00
 newest cached_at    : 2026-05-11T17:54:01+00:00
 ```
 
-JSON form for piping to `jq`:
+Forma JSON para pipear a `jq`:
 
 ```text
 $ cmcourier cache stats -c config.yaml --format json
@@ -71,8 +72,8 @@ $ cmcourier cache stats -c config.yaml --format json
 }
 ```
 
-In-process hit / miss counters are surfaced in the pipeline JSONL
-log via the `document_cache_hit` and `document_cache_miss` events:
+Los contadores de hit / miss en-proceso se exponen en el log JSONL del
+pipeline vía los eventos `document_cache_hit` y `document_cache_miss`:
 
 ```json
 {"event": "document_cache_hit",  "txn_num": "1234567", "age_s": 312.4, "fields_hash": "abc..."}
@@ -80,52 +81,53 @@ log via the `document_cache_hit` and `document_cache_miss` events:
 {"event": "document_cache_miss", "txn_num": "1234567", "reason": "expired", "age_s": 3700.1, ...}
 ```
 
-`cmcourier analyze batch <id>` aggregates these for offline review.
+`cmcourier analyze batch <id>` los agrega para revisión offline.
 
-## Clearing the cache
+## Limpiar el cache
 
 ```bash
-# Invalidate one document (e.g., after manually correcting metadata).
+# Invalidar un documento (ej., después de corregir metadatos manualmente).
 cmcourier cache clear -c config.yaml --txn 1234567
 
-# Wipe the entire cache (e.g., after a mapping schema change you do
-# not want to wait for TTL on).
+# Wipear el cache entero (ej., tras un cambio de schema de mapping
+# que no querés esperar a TTL).
 cmcourier cache clear -c config.yaml --all
 
-# Periodic housekeeping: drop entries older than 24 hours.
+# Housekeeping periódico: dropear entradas más viejas a 24 horas.
 cmcourier cache clear -c config.yaml --older-than 1440
 ```
 
-`--all`, `--txn`, and `--older-than` are mutually exclusive; the CLI
-errors out (exit code 2) if you pass none or more than one.
+`--all`, `--txn`, y `--older-than` son mutuamente exclusivas; la CLI
+sale con error (exit code 2) si pasás ninguna o más de una.
 
-## Backwards compatibility
+## Compatibilidad hacia atrás
 
-When `metadata.cache.enabled` is `false` (the default), the cache
-reference is `None`, S3 always invokes `MetadataService.resolve`,
-and the `document_cache` table stays empty. The schema migration
-runs unconditionally (cheap + idempotent), so toggling the flag
-later does not require a separate setup step.
+Cuando `metadata.cache.enabled` es `false` (el default), la referencia
+del cache es `None`, S3 siempre invoca `MetadataService.resolve`,
+y la tabla `document_cache` queda vacía. La migración del schema
+corre incondicionalmente (barata + idempotente), así que togglear el
+flag más tarde no requiere un paso de setup separado.
 
-## Limitations (deferred)
+## Limitaciones (diferidas)
 
-- **AS400-backed cache**: 037 ships SQLite only. The AS400 NIARVILOG
-  coordination from 034 covers cross-process **idempotency**; for
-  per-document metadata cache, single-host SQLite is enough until
-  multi-host deployments prove a need.
-- **Partial-overlap reuse**: cache key is the full sorted field
-  set. If today's mapping requires `{A, B, C}` and tomorrow's
-  requires `{A, B}`, the cache misses on the subset even though A
-  and B are already resolved. All-or-nothing keeps the correctness
-  story simple.
-- **Auto-vacuum / compaction**: rely on `cache clear --older-than`
-  for housekeeping. SQLite's `auto_vacuum=INCREMENTAL` mode is
-  available for very large caches but not wired up by default.
+- **Cache respaldado en AS400**: 037 shippea solo SQLite. La
+  coordinación NIARVILOG AS400 de 034 cubre **idempotencia** entre
+  procesos; para cache de metadatos por documento, SQLite single-host
+  alcanza hasta que despliegues multi-host prueben una necesidad.
+- **Reutilización por overlap parcial**: la clave del cache es el set
+  completo de campos ordenado. Si el mapping de hoy requiere
+  `{A, B, C}` y el de mañana requiere `{A, B}`, el cache no pega en
+  el subset aunque A y B ya estén resueltos. Todo-o-nada mantiene la
+  historia de corrección simple.
+- **Auto-vacuum / compactación**: dependé de
+  `cache clear --older-than` para housekeeping. El modo
+  `auto_vacuum=INCREMENTAL` de SQLite está disponible para caches muy
+  grandes pero no está cableado por default.
 
 ## Cross-references
 
 - Spec: `specs/037-document-cache/`.
-- POST-MVP entry: `docs/roadmap/POST-MVP.md §9`.
-- Related: change 034 (AS400 NIARVILOG cross-process idempotency —
-  different layer; the cache layers on top), change 027 (`cmcourier
-  analyze` aggregates the structured cache log events).
+- Entrada POST-MVP: `docs/roadmap/POST-MVP.md §9`.
+- Relacionados: cambio 034 (idempotencia cross-proceso AS400 NIARVILOG —
+  capa diferente; el cache se monta encima), cambio 027 (`cmcourier
+  analyze` agrega los eventos estructurados de log del cache).

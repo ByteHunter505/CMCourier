@@ -1,38 +1,38 @@
-# How to: AS400 NIARVILOG distributed idempotency
+# How to: Idempotencia distribuida AS400 NIARVILOG
 
-> Available since change **034** (2026-05-11). POST-MVP §4 —
-> coordinate cross-batch idempotency with the bank's centralized
-> ``RVILIB.NIARVILOG`` table while keeping SQLite as the
-> per-batch state machine.
-
----
-
-## When to enable this
-
-Turn it ON when **at least one** of these applies:
-
-* The bank requires migration tracking centralized in AS400
-  (compliance / audit).
-* CMCourier and a parallel implementation (e.g. a competing
-  Java migrator) are evaluated in alternating windows on the
-  same scope — distributed claim prevents double upload.
-* Operators run CMCourier from multiple workstations and the
-  per-workstation SQLite is not enough.
-
-Turn it OFF (the default) when:
-
-* You're running locally for dev / staging / dry-run.
-* The bank confirmed SQLite local tracking is sufficient.
+> Disponible desde el cambio **034** (2026-05-11). POST-MVP §4 —
+> coordinar idempotencia cross-batch con la tabla centralizada del banco
+> ``RVILIB.NIARVILOG`` mientras se mantiene SQLite como la máquina
+> de estados por-batch.
 
 ---
 
-## TL;DR config
+## Cuándo habilitar esto
+
+Activá esto cuando **al menos una** de estas se aplique:
+
+* El banco requiere tracking de migración centralizado en AS400
+  (compliance / auditoría).
+* CMCourier y una implementación paralela (ej. un migrador Java
+  competidor) son evaluados en ventanas alternantes sobre el mismo
+  scope — el claim distribuido previene doble upload.
+* Operadores corren CMCourier desde múltiples workstations y el
+  SQLite por-workstation no alcanza.
+
+Apagalo (el default) cuando:
+
+* Estás corriendo localmente para dev / staging / dry-run.
+* El banco confirmó que el tracking local SQLite es suficiente.
+
+---
+
+## Config TL;DR
 
 ```yaml
 tracking:
-  db_path: /var/lib/cmcourier/tracking.db   # SQLite stays as-is
+  db_path: /var/lib/cmcourier/tracking.db   # SQLite queda como está
   as400_sync:
-    enabled: true                            # ← the toggle
+    enabled: true                            # ← el toggle
     connection:
       host: as400.bank.example
       port: 446
@@ -40,21 +40,21 @@ tracking:
       driver: "iSeries Access ODBC Driver"
     library: RVILIB                          # default
     table: NIARVILOG                         # default
-    columns:                                 # 049 — per-environment names
-      # omit entirely → canonical names; override only what differs
+    columns:                                 # 049 — nombres por-entorno
+      # omitir entero → nombres canónicos; override solo lo que difiere
       status_column: ESTADO
       txn_num_column: NUMTRX
-    stale_in_progress_minutes: 30            # cleanup STSCOD='I' rows
-    retry_attempts: 3                        # transient OperationalError
+    stale_in_progress_minutes: 30            # cleanup de filas STSCOD='I'
+    retry_attempts: 3                        # OperationalError transient
     retry_base_delay_s: 5.0                  # exponential backoff
 ```
 
-Credentials live in env vars (same as the AS400 trigger):
+Las credenciales viven en env vars (igual que el trigger AS400):
 ``AS400_USERNAME``, ``AS400_PASSWORD``.
 
-When ``enabled: true``, ``cmcourier doctor`` validates the
-connection + the existence of ``RVILIB.NIARVILOG``. Run it
-before any pipeline run:
+Cuando ``enabled: true``, ``cmcourier doctor`` valida la
+conexión + la existencia de ``RVILIB.NIARVILOG``. Corrélo
+antes de cualquier corrida de pipeline:
 
 ```bash
 cmcourier doctor --config prod.yaml --check as400_sync
@@ -62,77 +62,77 @@ cmcourier doctor --config prod.yaml --check as400_sync
 
 ---
 
-## Field mapping (locked)
+## Mapping de campos (fijo)
 
-CMCourier writes each NIARVILOG column from the following
-source. Pre-conditions are enforced by the bank's schema
-constraints — make sure your fixtures match:
+CMCourier escribe cada columna NIARVILOG desde la fuente siguiente.
+Las precondiciones las hacen valer las constraints de schema del banco —
+asegurate de que tus fixtures matcheen:
 
-| AS400 column | ← | CMCourier source | Notes |
+| Columna AS400 | ← | Fuente CMCourier | Notas |
 |---|---|---|---|
-| ``SISCOD CHAR(1)`` | ← | ``trigger.system_id`` | 1 char exact |
-| ``TRNNUM CHAR(7)`` | ← | ``document.txn_num`` | = RVABREP ``ABAANB``; 7 chars exact |
+| ``SISCOD CHAR(1)`` | ← | ``trigger.system_id`` | 1 char exacto |
+| ``TRNNUM CHAR(7)`` | ← | ``document.txn_num`` | = RVABREP ``ABAANB``; 7 chars exactos |
 | ``DOCFRM CHAR(30)`` | ← | ``document.index7`` | = RVABREP ``ABAHCD`` (tipo RVI, ej ``CC03``) |
-| ``IMGARC CHAR(12)`` | ← | ``document.file_name`` | First-page source file, ej ``DAAAH9X4.001`` |
+| ``IMGARC CHAR(12)`` | ← | ``document.file_name`` | Archivo fuente de primera página, ej ``DAAAH9X4.001`` |
 | ``IMGTIP CHAR(1)`` | ← | ``document.image_type`` | ej ``B`` (TIFF), ``O`` (PDF) |
-| ``CTECIF VARCHAR(30)`` | ← | ``trigger.shortname`` | The bank's "shortname" field |
-| ``CTENUM DECIMAL(9,0)`` | ← | ``int(trigger.cif or 0)`` | CIF as numeric |
-| ``STSCOD CHAR(1)`` | ← | derived | ``N`` / ``I`` / ``O`` / ``F`` |
+| ``CTECIF VARCHAR(30)`` | ← | ``trigger.shortname`` | El campo "shortname" del banco |
+| ``CTENUM DECIMAL(9,0)`` | ← | ``int(trigger.cif or 0)`` | CIF como numérico |
+| ``STSCOD CHAR(1)`` | ← | derivado | ``N`` / ``I`` / ``O`` / ``F`` |
 | ``IDNBAC VARCHAR(10)`` | ← | ``mapping.id_corto`` | ID de CM, ej ``CN01`` |
-| ``TIPIDN VARCHAR(128)`` | ← | ``mapping.cmis_type`` | From ``MapeoRVI_CM.CMISType`` in split mode (035); ``""`` in consolidated mode if absent |
-| ``OBJIDN VARCHAR(128)`` | ← | ``record.cm_object_id`` (post-S5) | The CMIS object id |
-| ``NUMREI INTEGER`` | ← | ``record.retry_count`` | Retry counter |
-| ``PMRREI TIMESTAMP`` | ← | claim time | ``CURRENT_TIMESTAMP`` on INSERT |
-| ``FINREI TIMESTAMP`` | ← | DB2 auto-update | Implicit via ``ROW CHANGE TIMESTAMP`` |
-| ``EERRMSG VARCHAR(1024)`` | ← | ``record.error_message`` | Truncated to 1024 |
+| ``TIPIDN VARCHAR(128)`` | ← | ``mapping.cmis_type`` | Desde ``MapeoRVI_CM.CMISType`` en modo split (035); ``""`` en modo consolidado si está ausente |
+| ``OBJIDN VARCHAR(128)`` | ← | ``record.cm_object_id`` (post-S5) | El object id CMIS |
+| ``NUMREI INTEGER`` | ← | ``record.retry_count`` | Contador de retry |
+| ``PMRREI TIMESTAMP`` | ← | tiempo de claim | ``CURRENT_TIMESTAMP`` en INSERT |
+| ``FINREI TIMESTAMP`` | ← | DB2 auto-update | Implícito vía ``ROW CHANGE TIMESTAMP`` |
+| ``EERRMSG VARCHAR(1024)`` | ← | ``record.error_message`` | Truncado a 1024 |
 
-### Per-environment column names (049)
+### Nombres de columna por-entorno (049)
 
-The table above lists the **canonical** physical column names. The
-bank runs CMCourier against several AS400 environments whose
-NIARVILOG table has the same 15 columns under **different physical
-names**. Map them with ``tracking.as400_sync.columns`` — one logical
-key per column, defaulting to the canonical name:
+La tabla de arriba lista los nombres físicos **canónicos** de columna. El
+banco corre CMCourier contra varios entornos AS400 cuya tabla
+NIARVILOG tiene las mismas 15 columnas bajo **distintos nombres
+físicos**. Mapealos con ``tracking.as400_sync.columns`` — una clave
+lógica por columna, defaulteando al nombre canónico:
 
-| `columns.*` key | canonical default | logical meaning |
+| clave `columns.*` | default canónico | significado lógico |
 |---|---|---|
-| ``system_id_column`` | ``SISCOD`` | trigger system id |
-| ``txn_num_column`` | ``TRNNUM`` | RVABREP txn number |
-| ``doc_format_column`` | ``DOCFRM`` | RVI doc type |
-| ``image_archive_column`` | ``IMGARC`` | first-page file name |
-| ``image_type_column`` | ``IMGTIP`` | image type |
-| ``client_cif_column`` | ``CTECIF`` | client shortname |
-| ``client_num_column`` | ``CTENUM`` | CIF as numeric |
-| ``status_column`` | ``STSCOD`` | N / I / O / F state |
-| ``idcm_column`` | ``IDNBAC`` | CM short id |
-| ``cm_type_column`` | ``TIPIDN`` | CMIS type |
-| ``cm_object_id_column`` | ``OBJIDN`` | CMIS object id |
-| ``retry_count_column`` | ``NUMREI`` | retry counter |
-| ``started_at_column`` | ``PMRREI`` | claim timestamp |
-| ``finished_at_column`` | ``FINREI`` | DB2 row-change timestamp |
-| ``error_message_column`` | ``EERRMSG`` | last error |
+| ``system_id_column`` | ``SISCOD`` | system id del trigger |
+| ``txn_num_column`` | ``TRNNUM`` | número de txn RVABREP |
+| ``doc_format_column`` | ``DOCFRM`` | tipo de doc RVI |
+| ``image_archive_column`` | ``IMGARC`` | nombre de archivo de primera página |
+| ``image_type_column`` | ``IMGTIP`` | tipo de imagen |
+| ``client_cif_column`` | ``CTECIF`` | shortname del cliente |
+| ``client_num_column`` | ``CTENUM`` | CIF como numérico |
+| ``status_column`` | ``STSCOD`` | estado N / I / O / F |
+| ``idcm_column`` | ``IDNBAC`` | id corto de CM |
+| ``cm_type_column`` | ``TIPIDN`` | tipo CMIS |
+| ``cm_object_id_column`` | ``OBJIDN`` | object id CMIS |
+| ``retry_count_column`` | ``NUMREI`` | contador de retry |
+| ``started_at_column`` | ``PMRREI`` | timestamp de claim |
+| ``finished_at_column`` | ``FINREI`` | timestamp row-change DB2 |
+| ``error_message_column`` | ``EERRMSG`` | último error |
 
-Omit the ``columns`` block entirely and every name stays canonical —
-the emitted SQL is byte-identical to pre-049. Override only the keys
-that differ in your environment.
+Omití el bloque ``columns`` enteramente y cada nombre queda canónico —
+el SQL emitido es byte-idéntico a pre-049. Override solo las claves
+que difieren en tu entorno.
 
-**Identifier validation.** These names — plus ``library`` and
-``table`` — are interpolated directly into SQL (a SQL identifier can
-never be a ``?`` bind-param). Every one is validated at config-load
-time against the DB2-for-i ordinary identifier grammar
-(``letter / @ / # / $`` then ``letters / digits / _ / @ / # / $``,
-128 chars max). A name with a space, quote, semicolon, leading
-digit, or over-length raises a ``ConfigurationError`` before any
-connection is opened.
+**Validación de identificadores.** Estos nombres — más ``library`` y
+``table`` — se interpolan directamente en SQL (un identificador SQL nunca
+puede ser un bind-param ``?``). Cada uno se valida al cargar config
+contra la gramática de identificadores ordinarios DB2-for-i
+(``letter / @ / # / $`` después ``letters / digits / _ / @ / # / $``,
+128 chars máx). Un nombre con un espacio, comilla, punto y coma, dígito
+inicial, o sobre-largo levanta un ``ConfigurationError`` antes de que
+se abra alguna conexión.
 
-### Status transitions
+### Transiciones de estado
 
 ```
         (no row yet)
               │
               ▼  try_claim → INSERT (rowcount=1)
             ┌─────┐
-            │  I  │ ← in progress (we own it)
+            │  I  │ ← en progreso (lo poseemos)
             └──┬──┘
         upload ok                 upload failed
               │                          │
@@ -143,99 +143,99 @@ connection is opened.
                                         │
                                         ▼  cleanup_stale (after 30 min)
                                       ┌─────┐
-                                      │  N  │ ← reclaimable
+                                      │  N  │ ← reclamable
                                       └─────┘
 ```
 
-The ``cleanup_stale_in_progress`` pre-flight resets rows stuck
-in ``I`` for longer than ``stale_in_progress_minutes`` back to
-``N`` — recovers from any process that crashed mid-claim.
+El pre-flight ``cleanup_stale_in_progress`` resetea filas pegadas en
+``I`` por más de ``stale_in_progress_minutes`` de vuelta a ``N`` —
+recupera de cualquier proceso que crasheó a mitad del claim.
 
 ---
 
-## Concurrency model
+## Modelo de concurrencia
 
-When ``enabled: true``, the pipeline's S5 stage does this for
-each doc:
+Cuando ``enabled: true``, la stage S5 del pipeline hace esto para
+cada doc:
 
 1. ``UPDATE NIARVILOG SET STSCOD='I' WHERE …PK… AND STSCOD='N'``.
-2. If ``rowcount == 1`` → we won the claim; proceed.
-3. If ``rowcount == 0`` → the row is missing **or** in
-   ``I/O/F``. Try ``INSERT`` with ``STSCOD='I'``.
-4. ``IntegrityError`` on INSERT → someone else inserted first
-   (race lost) → skip this doc and log ``as400_claim_lost``.
+2. Si ``rowcount == 1`` → ganamos el claim; proceder.
+3. Si ``rowcount == 0`` → la fila falta **o** está en
+   ``I/O/F``. Probar ``INSERT`` con ``STSCOD='I'``.
+4. ``IntegrityError`` en INSERT → alguien más insertó primero
+   (perdimos la race) → saltear este doc y loguear ``as400_claim_lost``.
 
-This is **DB2-level atomicity**: two processes hitting the same
-row see deterministic exclusive ownership. The bank's parallel
-Java migrator can use the same protocol without changes.
+Esto es **atomicidad a nivel DB2**: dos procesos pegándole a la misma
+fila ven ownership exclusivo determinista. El migrador Java paralelo
+del banco puede usar el mismo protocolo sin cambios.
 
-After the upload:
+Después del upload:
 
-* Success → SQLite ``S5_DONE`` + ``UPDATE STSCOD='O', OBJIDN=?``.
-* Failure → SQLite ``S5_FAILED`` + ``UPDATE STSCOD='F', EERRMSG=?, NUMREI=NUMREI+1``.
+* Éxito → SQLite ``S5_DONE`` + ``UPDATE STSCOD='O', OBJIDN=?``.
+* Fallo → SQLite ``S5_FAILED`` + ``UPDATE STSCOD='F', EERRMSG=?, NUMREI=NUMREI+1``.
 
-SQLite is written **first** (it's the in-process resume
-anchor), AS400 second.
-
----
-
-## Pre-flight reconciliation
-
-When the pipeline starts and the toggle is on, the
-``IdempotencyCoordinator`` does:
-
-1. ``cleanup_stale_in_progress`` — reset old ``I`` rows.
-2. For each txn in the batch scope:
-   * ``read_state_by_txn(trnnum)`` returns the NIARVILOG row.
-   * Compare with SQLite's ``is_uploaded(txn)``.
-   * Three outcomes:
-     * **Imported**: AS400 says ``O``, SQLite has no row →
-       record it (the operator can re-run the pipeline; the
-       in-process resume sees AS400 ``O`` and skips).
-     * **Conflict**: AS400 says ``N/I/F``, SQLite says
-       uploaded → operator-driven resolution (next section).
-     * **Consistent**: no action.
-
-If conflicts are non-empty, the pipeline aborts with exit 2.
+SQLite se escribe **primero** (es el anchor de resume en-proceso),
+AS400 segundo.
 
 ---
 
-## Conflict resolution playbook
+## Reconciliación pre-flight
 
-Conflicts surface only when the two stores disagree on a
-"is this doc done?" terminal state. Resolve with the new
-``cmcourier sync`` subcommand.
+Cuando el pipeline arranca y el toggle está activo, el
+``IdempotencyCoordinator`` hace:
 
-### Inspection
+1. ``cleanup_stale_in_progress`` — resetear filas viejas ``I``.
+2. Para cada txn en el scope del batch:
+   * ``read_state_by_txn(trnnum)`` devuelve la fila NIARVILOG.
+   * Comparar con ``is_uploaded(txn)`` de SQLite.
+   * Tres outcomes:
+     * **Imported**: AS400 dice ``O``, SQLite no tiene fila →
+       registrarlo (el operador puede re-correr el pipeline; el
+       resume en-proceso ve AS400 ``O`` y saltea).
+     * **Conflict**: AS400 dice ``N/I/F``, SQLite dice
+       uploaded → resolución dirigida por operador (próxima sección).
+     * **Consistent**: sin acción.
+
+Si los conflictos son no vacíos, el pipeline aborta con exit 2.
+
+---
+
+## Playbook de resolución de conflictos
+
+Los conflictos aparecen solo cuando los dos stores no acuerdan en un
+estado terminal "¿está hecho este doc?". Resolver con el nuevo
+subcomando ``cmcourier sync``.
+
+### Inspección
 
 ```bash
 cmcourier sync status --config prod.yaml
 # sync status: stale_cleaned=2
 ```
 
-Read-only: runs the cleanup + tells you how many ``I`` rows
-were reset.
+Read-only: corre el cleanup + te dice cuántas filas ``I``
+se resetearon.
 
-### Prefer AS400 (most common)
+### Preferir AS400 (más común)
 
-When AS400 has the authoritative ``O`` state but local SQLite
-doesn't know:
+Cuando AS400 tiene el estado autoritativo ``O`` pero SQLite local
+no lo sabe:
 
 ```bash
 cmcourier sync resolve 0001234 --prefer-as400 --config prod.yaml
 # resolved 0001234: imported AS400 state — STSCOD='O', OBJIDN='cm-abc-xyz'
 ```
 
-This **prints** the AS400 state but doesn't write SQLite
-directly. Operator then re-runs the pipeline with
-``--resume`` — the in-process logic sees AS400 ``O`` and
-skips the doc cleanly. This avoids extending the SQLite
-``ITrackingStore`` API just for the resolve flow.
+Esto **imprime** el estado AS400 pero no escribe SQLite
+directamente. El operador después re-corre el pipeline con
+``--resume`` — la lógica en-proceso ve AS400 ``O`` y
+saltea el doc limpiamente. Esto evita extender la API
+``ITrackingStore`` de SQLite solo para el flow de resolve.
 
-### Prefer local (rare)
+### Preferir local (raro)
 
-When SQLite uploaded the doc but AS400 missed the update
-(e.g. AS400 was down during S5):
+Cuando SQLite subió el doc pero AS400 perdió el update
+(ej. AS400 estaba caído durante S5):
 
 ```bash
 cmcourier sync resolve 0001234 \
@@ -245,74 +245,73 @@ cmcourier sync resolve 0001234 \
 # resolved 0001234: pushed local cm_object_id='cm-abc-xyz' to AS400.
 ```
 
-The ``--cm-object-id`` is **required** — get it from
-``cmcourier batch show <batch_id>``. The UPDATE only fires if
-the row already exists in NIARVILOG; if it doesn't, re-run
-the pipeline so ``try_claim`` inserts it.
+El ``--cm-object-id`` es **requerido** — sacalo de
+``cmcourier batch show <batch_id>``. El UPDATE solo dispara si
+la fila ya existe en NIARVILOG; si no, re-corré
+el pipeline así ``try_claim`` la inserta.
 
 ---
 
 ## Retry / backoff
 
-Transient ``pyodbc.OperationalError`` (network drops, deadlocks,
-"server temporarily unavailable") triggers automatic retry:
+Un ``pyodbc.OperationalError`` transient (drops de red, deadlocks,
+"servidor temporalmente no disponible") dispara retry automático:
 
-* Attempts: ``retry_attempts`` from the YAML (default 3).
-* Delay: ``retry_base_delay_s * 2^(attempt-1)`` capped at
-  5 minutes. Default sequence: 5s, 10s, 20s.
-* Between attempts, the cached connection is reset (most
-  transient errors leave the connection in an unusable state).
-* After the final attempt fails → ``As400UnreachableError``
-  raised; the pipeline aborts with exit 2.
+* Intentos: ``retry_attempts`` desde el YAML (default 3).
+* Delay: ``retry_base_delay_s * 2^(attempt-1)`` capeado en
+  5 minutos. Secuencia default: 5s, 10s, 20s.
+* Entre intentos, la conexión cacheada se resetea (la mayoría de los
+  errores transient dejan la conexión en un estado inutilizable).
+* Después de que el último intento falla → ``As400UnreachableError``
+  levantado; el pipeline aborta con exit 2.
 
-``IntegrityError`` is **never** retried — it's the
-race-detection signal for ``try_claim``. Other ``pyodbc.Error``
-subclasses (schema mismatches, syntax errors) are propagated
-as ``As400CoordinationError`` immediately.
+``IntegrityError`` **nunca** se retryea — es la
+señal de detección de race para ``try_claim``. Otras subclases
+de ``pyodbc.Error`` (mismatches de schema, errores de sintaxis) se
+propagan como ``As400CoordinationError`` inmediatamente.
 
 ---
 
-## Operational knobs reference
+## Referencia de perillas operacionales
 
-| YAML field | Default | Description |
+| Campo YAML | Default | Descripción |
 |---|---|---|
-| ``enabled`` | ``false`` | Master toggle. ``true`` activates everything below. |
-| ``connection`` | required when enabled | AS400 ODBC params (host, port, database, driver). |
-| ``library`` | ``RVILIB`` | DB2 schema name. Validated as a DB2 identifier. |
-| ``table`` | ``NIARVILOG`` | Table name. Override if the bank renamed it. Validated as a DB2 identifier. |
-| ``columns`` | canonical names | Per-environment physical column-name map — see [Per-environment column names](#per-environment-column-names-049). Each value validated as a DB2 identifier. |
-| ``stale_in_progress_minutes`` | ``30`` | How long an ``I`` row can sit before pre-flight resets it. |
-| ``retry_attempts`` | ``3`` | Total attempts per write (incl. the first). Range: 1..10. |
-| ``retry_base_delay_s`` | ``5.0`` | Base for exponential backoff. Must be > 0. |
+| ``enabled`` | ``false`` | Toggle maestro. ``true`` activa todo lo de abajo. |
+| ``connection`` | requerido cuando enabled | Params ODBC AS400 (host, port, database, driver). |
+| ``library`` | ``RVILIB`` | Nombre del schema DB2. Validado como identificador DB2. |
+| ``table`` | ``NIARVILOG`` | Nombre de tabla. Override si el banco la renombró. Validado como identificador DB2. |
+| ``columns`` | nombres canónicos | Mapa de nombres físicos de columna por-entorno — ver [Nombres de columna por-entorno](#nombres-de-columna-por-entorno-049). Cada valor validado como identificador DB2. |
+| ``stale_in_progress_minutes`` | ``30`` | Cuánto puede sentarse una fila ``I`` antes de que pre-flight la resetee. |
+| ``retry_attempts`` | ``3`` | Intentos totales por escritura (incl. el primero). Rango: 1..10. |
+| ``retry_base_delay_s`` | ``5.0`` | Base para exponential backoff. Debe ser > 0. |
 
 ---
 
-## Known limitations (intentional)
+## Limitaciones conocidas (intencionales)
 
-* **One row per txn**: per the bank's operational convention,
-  NIARVILOG has at most one row per ``TRNNUM`` (the first
-  page's ``IMGARC``). Multi-page docs share a single row.
-  Confirmed with the operator in spec 034.
-* **``sync resolve --prefer-as400`` doesn't write SQLite
-  directly** in 034 — operator re-runs the pipeline with
-  ``--resume``. Direct write can be added in a future change
-  if the workflow proves cumbersome.
-* **``sync resolve --prefer-local`` requires
-  ``--cm-object-id`` explicit**. The operator gets it from
-  ``cmcourier batch show`` — avoids extending
-  ``ITrackingStore`` with a ``find_record_by_txn`` surface
-  that's only used here.
+* **Una fila por txn**: según la convención operacional del banco,
+  NIARVILOG tiene a lo más una fila por ``TRNNUM`` (el ``IMGARC``
+  de la primera página). Docs multi-página comparten una fila única.
+  Confirmado con el operador en spec 034.
+* **``sync resolve --prefer-as400`` no escribe SQLite
+  directamente** en 034 — el operador re-corre el pipeline con
+  ``--resume``. La escritura directa se puede agregar en un cambio
+  futuro si el workflow resulta cumbersome.
+* **``sync resolve --prefer-local`` requiere
+  ``--cm-object-id`` explícito**. El operador lo saca de
+  ``cmcourier batch show`` — evita extender
+  ``ITrackingStore`` con una superficie ``find_record_by_txn``
+  que se usa solo acá.
 
 ---
 
 ## Cross-references
 
-* POST-MVP roadmap entry: ``docs/roadmap/POST-MVP.md`` §4.
+* Entrada del roadmap POST-MVP: ``docs/roadmap/POST-MVP.md`` §4.
 * Spec: ``specs/034-as400-niarvilog-sync/``.
-* Mapping CSV split: change 035 (``MapeoRVI_CM.csv`` +
-  ``MetadatosCM.csv`` + ``CMISType`` column —
-  see ``specs/035-mapping-csv-split/`` and ``MappingConfig``
-  in ``docs/configuration-guide.md``).
-* Related: change 014 (AS400 trigger source — same pyodbc
-  pattern), change 028 (multi-batch — claim happens
-  inside ``_upload_one``).
+* Split de CSV de mapping: cambio 035 (``MapeoRVI_CM.csv`` +
+  ``MetadatosCM.csv`` + columna ``CMISType`` —
+  ver ``specs/035-mapping-csv-split/`` y ``MappingConfig``
+  en ``docs/configuration-guide.md``).
+* Relacionados: cambio 014 (fuente trigger AS400 — mismo patrón pyodbc),
+  cambio 028 (multi-batch — el claim ocurre adentro de ``_upload_one``).

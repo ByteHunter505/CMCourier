@@ -1,188 +1,192 @@
-# How-to: Staging dry-run
+# How-to: Dry-run de staging
 
-A staging dry-run validates the combination **code + config + real data**
-against a non-production CMIS repository **before** the first production
-migration. It surfaces the bugs that no synthetic test can catch:
-encoding quirks, CMIS connectivity, mapping coverage, performance
-characteristics on actual link bandwidth, AS400 schema drift.
+Un dry-run de staging valida la combinación **código + config + datos reales**
+contra un repositorio CMIS no productivo **antes** de la primera
+migración productiva. Hace aparecer los bugs que ningún test sintético
+puede atrapar: rarezas de encoding, conectividad CMIS, cobertura de
+mapping, características de performance sobre el bandwidth real del link,
+drift de schema AS400.
 
-This runbook is **generic** — it applies to any staging environment
-(bank-provided CMIS staging, our own Alfresco simulation, a future
-multi-tenant test instance). For the specific local Alfresco-on-Docker
-setup, see `docs/how-to/local-staging-simulation.md`.
+Este runbook es **genérico** — se aplica a cualquier entorno de staging
+(CMIS staging provisto por el banco, nuestra propia simulación de
+Alfresco, una futura instancia multi-tenant de test). Para el setup
+específico Alfresco-on-Docker local, ver `docs/how-to/local-staging-simulation.md`.
 
 ---
 
-## Prerequisites
+## Prerrequisitos
 
-1. **Staging CMIS URL + credentials** in env vars `CMIS_USERNAME` /
+1. **URL + credenciales de CMIS staging** en env vars `CMIS_USERNAME` /
    `CMIS_PASSWORD`.
-2. **Sample of RVABREP rows** — CSV exported from production AS400 or
-   an ODBC replica. 100-1000 rows minimum to exercise lanes (036) +
+2. **Sample de filas RVABREP** — CSV exportado de AS400 productivo o
+   una réplica ODBC. 100-1000 filas mínimo para ejercitar `lane`s (036) +
    multi-batch (028).
-3. **Sample of source files** — TIFFs / PDFs reachable via the
-   configured `assembly.source_root` path.
-4. **Production mapping CSVs** — `MapeoRVI_CM.csv` + `MetadatosCM.csv`
-   from the bank, OR our synthetic dataset for simulation.
-5. **An empty SQLite tracking DB** under `tracking.db_path` — drops
-   on every run keeps batches isolated.
+3. **Sample de archivos fuente** — TIFFs / PDFs alcanzables vía el
+   path `assembly.source_root` configurado.
+4. **CSVs de mapping productivos** — `MapeoRVI_CM.csv` + `MetadatosCM.csv`
+   del banco, O nuestro dataset sintético para simulación.
+5. **Una DB de tracking SQLite vacía** bajo `tracking.db_path` — dropearla
+   en cada corrida mantiene los batches aislados.
 
-## The seven steps
+## Los siete pasos
 
-The dry-run runs as a **gated cascade**. Each step has a **stop
-condition**: if it fails, fix and retry before advancing. Don't skip
-ahead — a step-3 failure on top of a step-2 failure can mask root
-causes.
+El dry-run corre como una **cascada con gates**. Cada paso tiene una
+**condición de stop**: si falla, arreglar y reintentar antes de avanzar.
+No salteés — un fallo de paso 3 sobre un fallo de paso 2 puede ocultar
+causas raíz.
 
-### Step 0 — `cmcourier doctor`
+### Paso 0 — `cmcourier doctor`
 
 ```bash
 cmcourier doctor -c config-staging.yaml
 ```
 
-The six pre-flight checks:
+Los seis checks pre-flight:
 
-1. `log_dir_writable` — ./logs is writable.
-2. `cmis_connectivity` — staging CMIS responds.
-3. `tracking_openable` — SQLite opens with WAL mode.
-4. `mapping_completeness` — Modelo Documental has ≥1 row.
-5. `metadata_sources` — every CSV alias source loads ≥1 row.
-6. `cm_type_alignment` — every distinct `cm_object_type` derived from
-   the mapping resolves via CMIS `getTypeDefinition`. **The most
-   discriminating check** — failure here means types are missing on
-   staging, or you need the `cmis_type` override (039) to map them to
-   a generic type.
-7. `sample_dry_run` — S1→S4 walk on the first trigger's first doc.
+1. `log_dir_writable` — ./logs es escribible.
+2. `cmis_connectivity` — el CMIS staging responde.
+3. `tracking_openable` — SQLite abre con modo WAL.
+4. `mapping_completeness` — el Modelo Documental tiene ≥1 fila.
+5. `metadata_sources` — cada fuente de alias CSV carga ≥1 fila.
+6. `cm_type_alignment` — cada `cm_object_type` distinto derivado del
+   mapping resuelve vía CMIS `getTypeDefinition`. **El check más
+   discriminante** — un fallo acá significa que faltan tipos en
+   staging, o que necesitás el override `cmis_type` (039) para
+   mapearlos a un tipo genérico.
+7. `sample_dry_run` — walk S1→S4 sobre el primer doc del primer trigger.
 
-**Stop condition**: any FAIL except a SKIPped `sample_dry_run` (which
-happens when the trigger has no docs, OK on dataset issues we know
-about). Fix the failing check; rerun.
+**Condición de stop**: cualquier FAIL excepto un `sample_dry_run`
+SKIPpeado (que ocurre cuando el trigger no tiene docs, OK en issues
+de dataset que ya conocemos). Arreglar el check que falla; reintentar.
 
-### Step 1 — One doc end-to-end
+### Paso 1 — Un doc de punta a punta
 
 ```bash
 cmcourier rvabrep-pipeline run -c config-staging.yaml --total 1
 ```
 
-The pipeline runs S0→S5 for **exactly one doc**. The first true upload.
+El pipeline corre S0→S5 para **exactamente un doc**. El primer upload real.
 
-**Validate post-run**:
-- The doc appears in CMIS staging under the expected folder path.
-- Its `cmis:objectTypeId` matches what we set (the override target if
-  used, the derived value otherwise).
-- Its properties contain the resolved metadata.
-- `tracking.db` has one row at `S5_DONE` with the CMIS object id.
-- If `metadata.cache.enabled = true`, `document_cache` has the entry.
+**Validar post-corrida**:
+- El doc aparece en CMIS staging bajo el path de carpeta esperado.
+- Su `cmis:objectTypeId` matchea lo que seteamos (el target del override
+  si se usa, el valor derivado en otro caso).
+- Sus propiedades contienen los metadatos resueltos.
+- `tracking.db` tiene una fila en `S5_DONE` con el object id CMIS.
+- Si `metadata.cache.enabled = true`, `document_cache` tiene la entrada.
 
-**Stop condition**: anything wrong. **One doc is your alignment
-opportunity** — at scale these problems compound.
+**Condición de stop**: cualquier cosa mal. **Un doc es tu oportunidad
+de alineación** — a escala estos problemas se componen.
 
-### Step 2 — 100 docs with TUI
+### Paso 2 — 100 docs con TUI
 
 ```bash
 cmcourier rvabrep-pipeline run -c config-staging.yaml --total 100 --tui
 ```
 
-The TUI shows live throughput, p95 latency, AIMD decisions, bandwidth
-usage, slow ops.
+El TUI muestra throughput live, latencia p95, decisiones AIMD, uso de
+bandwidth, slow ops.
 
-**What to watch**:
-- **PREP tab**: any S0-S4 stage that takes meaningfully more time
-  than its theoretical lower bound is a bug or a bad config.
-- **UPLOAD tab**: p95 should be < `cmis.auto_tune.target_p95_ms`
-  (default 5 s). If AIMD keeps shrinking workers, the CMIS staging
-  link or your config is the bottleneck.
-- **Bandwidth chart**: current vs ceiling. If always at ceiling, the
-  bandwidth cap is the bottleneck — bump `cmis.max_bandwidth_mbps`
-  or accept the SLA.
-- **Cache hit rate** (if enabled): structured `document_cache_hit /
-  miss` events in `logs/pipeline-<date>.jsonl`.
+**Qué mirar**:
+- **Tab PREP**: cualquier stage S0-S4 que se tome significativamente
+  más tiempo que su límite inferior teórico es un bug o una config
+  mala.
+- **Tab UPLOAD**: p95 debe ser < `cmis.auto_tune.target_p95_ms`
+  (default 5 s). Si AIMD sigue achicando workers, el link CMIS staging
+  o tu config es el bottleneck.
+- **Gráfico de bandwidth**: actual vs techo. Si siempre en el techo, el
+  cap de bandwidth es el bottleneck — bumpear `cmis.max_bandwidth_mbps`
+  o aceptar el SLA.
+- **Tasa de hit del cache** (si está habilitado): eventos
+  estructurados `document_cache_hit / miss` en
+  `logs/pipeline-<date>.jsonl`.
 
-**Stop condition**: failures > 0, memory monotonically increasing
-beyond the staged-batch size, AIMD oscillates without converging.
+**Condición de stop**: fallos > 0, memoria monotonicamente creciente
+más allá del tamaño staged-batch, AIMD oscila sin converger.
 
-### Step 3 — Analyze
+### Paso 3 — Analyze
 
 ```bash
 cmcourier analyze batch <batch_id> -c config-staging.yaml
 ```
 
-Per-stage p50/p95/p99, slow ops by kind (`cmis_upload`,
-`s4_assembly`), lane rebalances (if dual mode is on), cache hits.
+Por-stage p50/p95/p99, slow ops por kind (`cmis_upload`,
+`s4_assembly`), rebalances de `lane` (si el modo dual está on), cache hits.
 
-**Decisions data**:
-- `cmis.workers` — if AIMD converged on a value, use that as the
-  static default in production.
-- `cmis.max_bandwidth_mbps` — bench-tested with `--total 100`,
-  document the headroom.
-- `heavy_threshold_bytes` (036) — pick the inflection point of the
-  observed size distribution.
-- `metadata.cache.ttl_minutes` (037) — match observed re-use pattern.
+**Datos para decisiones**:
+- `cmis.workers` — si AIMD convergió en un valor, usá ese como default
+  estático en producción.
+- `cmis.max_bandwidth_mbps` — bench-testeado con `--total 100`,
+  documentar el headroom.
+- `heavy_threshold_bytes` (036) — elegir el punto de inflexión de la
+  distribución de tamaños observada.
+- `metadata.cache.ttl_minutes` (037) — matchear el patrón de reuso
+  observado.
 
-### Step 4 — 1000 docs (or full sample)
+### Paso 4 — 1000 docs (o sample completo)
 
 ```bash
 cmcourier rvabrep-pipeline run -c config-staging.yaml --total 1000
 ```
 
-Scale validation. The numbers from Step 3 should hold linearly. If
-throughput drops past N=500, hunt the bottleneck:
+Validación de escala. Los números del Paso 3 deberían mantenerse
+linealmente. Si el throughput cae pasando N=500, cazá el bottleneck:
 
-- CMIS server saturated → ask staging admin
-- Local disk IO → check `iostat`
-- SQLite tracking contention → look at the writer queue depth
-- Bandwidth limiter holding things back → check current vs ceiling
+- Servidor CMIS saturado → preguntá al admin de staging
+- IO de disco local → chequear `iostat`
+- Contención de tracking SQLite → mirar la profundidad de cola del writer
+- Limitador de bandwidth aguantando las cosas → chequear actual vs techo
 
-### Step 5 — Multi-batch (optional, if shipping 028)
+### Paso 5 — Multi-batch (opcional, si shippea 028)
 
 ```bash
 cmcourier rvabrep-pipeline run -c config-staging.yaml --batch-size 250 --total 1000 --tui
 ```
 
-Triggers 4 batches × 250 docs with the multi-batch orchestrator (N=2
-overlap). Validates `CHUNKS` tab + cross-batch coordination.
+Dispara 4 batches × 250 docs con el orquestador multi-batch (overlap
+N=2). Valida la tab `CHUNKS` + coordinación cross-batch.
 
-### Step 6 — Failure injection (optional)
+### Paso 6 — Inyección de fallos (opcional)
 
-Manually stop staging CMIS mid-run. Verify:
-- Retries fire (`cmis_upload_retry` events in network log).
-- After staging recovers, no doc is double-uploaded (cross-batch
-  idempotency via `tracking.is_uploaded`).
-- `cmcourier batch retry-failed <batch_id>` resumes cleanly.
+Parar CMIS staging manualmente en medio de una corrida. Verificar:
+- Los retries disparan (eventos `cmis_upload_retry` en el log de network).
+- Después de que staging se recupera, ningún doc se sube doble
+  (idempotencia cross-batch vía `tracking.is_uploaded`).
+- `cmcourier batch retry-failed <batch_id>` resume limpiamente.
 
-### Step 7 — Sign-off
+### Paso 7 — Firma
 
-Document the run:
+Documentar la corrida:
 
 ```bash
 cmcourier batch show <batch_id> -c config-staging.yaml > runs/$(date -I)-batch-show.txt
 cmcourier analyze batch <batch_id> -c config-staging.yaml --format json > runs/$(date -I)-analyze.json
 ```
 
-Tag the commit hash of the build that ran. Decide: **green-light for
-production migration, or schedule a fix sprint**.
+Tagueá el hash del commit del build que corrió. Decidir: **luz verde
+para migración productiva, o programar un sprint de fixes**.
 
 ---
 
-## Common findings (catalogue)
+## Findings comunes (catálogo)
 
-After enough dry-runs you start seeing patterns:
+Después de suficientes dry-runs empezás a ver patrones:
 
-| Symptom | Likely cause | Fix |
+| Síntoma | Causa probable | Fix |
 | --- | --- | --- |
-| Doctor `cm_type_alignment` fails on all types | Staging doesn't have the bank's IBM CM types (or you're against Alfresco) | Use `cmis_type` override (039) — set `CMISType=cmis:document` on the mapping rows for staging only |
-| S3 latency >> expected | A field source (AS400 query or large CSV) re-runs per doc | Enable `metadata.cache.enabled` (037) or fix the field-source's lookup path |
-| Upload 400 "property not declared" | Alfresco staging without a Content Model that declares custom properties | Deploy `scripts/staging/cmcourier-model.xml` (see local-staging-simulation.md) OR set staging to use only `cmis:document` and strip custom properties |
-| TUI shows AIMD oscillating workers between min/max | `target_p95_ms` is set lower than what the staging link can deliver | Raise `cmis.auto_tune.target_p95_ms` |
-| Multi-batch (028) hangs after 1 batch | Tracking writer queue drained but batch coordination stuck | Check `tracking.flush` is being called between batches |
-| Random `Connection pool is full` warnings | `cmis.workers > pool_size` (pre-038) | Update to 0.39.0+; `pool_size` is auto-sized to `auto_tune.max_threads` |
+| Doctor `cm_type_alignment` falla en todos los tipos | Staging no tiene los tipos IBM CM del banco (o estás contra Alfresco) | Usar override `cmis_type` (039) — setear `CMISType=cmis:document` en las filas del mapping solo para staging |
+| Latencia S3 >> esperada | Una fuente de campo (query AS400 o CSV grande) re-corre por doc | Habilitar `metadata.cache.enabled` (037) o arreglar el path de lookup de la fuente del campo |
+| Upload 400 "property not declared" | Alfresco staging sin un Content Model que declare propiedades custom | Desplegar `scripts/staging/cmcourier-model.xml` (ver local-staging-simulation.md) O setear staging para usar solo `cmis:document` y strippear propiedades custom |
+| TUI muestra AIMD oscilando workers entre min/max | `target_p95_ms` está seteado más bajo de lo que el link staging puede entregar | Subir `cmis.auto_tune.target_p95_ms` |
+| Multi-batch (028) cuelga después de 1 batch | La cola de writer de tracking drenó pero la coordinación de batch se quedó pegada | Chequear que `tracking.flush` se está llamando entre batches |
+| Warnings random `Connection pool is full` | `cmis.workers > pool_size` (pre-038) | Actualizar a 0.39.0+; `pool_size` se auto-dimensiona a `auto_tune.max_threads` |
 
 ---
 
 ## Cross-references
 
-- Specific Alfresco simulation: `docs/how-to/local-staging-simulation.md`.
-- Doctor command: the spec, `src/cmcourier/cli/doctor.py`.
-- Cache observability: `docs/how-to/document-cache.md`.
-- Multi-batch observability: `docs/how-to/multi-batch.md`.
-- Log analysis: `docs/how-to/log-analysis.md`.
+- Simulación específica de Alfresco: `docs/how-to/local-staging-simulation.md`.
+- Comando doctor: la spec, `src/cmcourier/cli/doctor.py`.
+- Observabilidad de cache: `docs/how-to/document-cache.md`.
+- Observabilidad multi-batch: `docs/how-to/multi-batch.md`.
+- Análisis de logs: `docs/how-to/log-analysis.md`.

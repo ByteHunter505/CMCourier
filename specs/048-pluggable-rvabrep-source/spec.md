@@ -1,45 +1,46 @@
-# 048 — Pluggable RVABREP source (CSV ↔ AS400)
+# 048 — Fuente RVABREP pluggable (CSV ↔ AS400)
 
-## Why
+## Por qué
 
-The user corrected a conflation baked into the trigger model: the
-``rvabrep`` pipeline and the ``as400`` pipeline are **the same
-pipeline**. The only thing that differs is where the RVABREP table
-lives:
+El usuario corrigió una confusión cocinada en el modelo de trigger:
+el pipeline ``rvabrep`` y el pipeline ``as400`` son **el mismo
+pipeline**. Lo único que difiere es dónde vive la tabla RVABREP:
 
-- **csv** — a CSV file simulating the RVABREP table (testing,
-  staging dry-runs, small banks that export RVABREP to a file).
-- **as400** — the live RVABREP table on DB2/AS400, reached by a
-  ``SELECT`` that returns an RVABREP-shaped result set. The
-  operator's SQL may carry JOINs / filters, but the **output
-  columns are RVABREP-shaped** — same contract either way.
+- **csv** — un archivo CSV simulando la tabla RVABREP (testing,
+  dry-runs de staging, bancos chicos que exportan RVABREP a un
+  archivo).
+- **as400** — la tabla RVABREP en vivo en DB2/AS400, alcanzada por
+  un ``SELECT`` que devuelve un result set con forma RVABREP. El
+  SQL del operador puede llevar JOINs / filtros, pero las
+  **columnas de output tienen forma RVABREP** — mismo contrato
+  cualquiera de las dos vías.
 
-The current architecture (pre-048) gets this wrong in two places:
+La arquitectura actual (pre-048) se equivoca en esto en dos lugares:
 
-1. ``IndexingSourceConfig`` (``schema.py:173``) hard-wires the
-   RVABREP source to a CSV: ``csv_path: FilePath`` is the only
-   option. ``wiring.py:78`` always builds
-   ``TabularDataSource(config.indexing.csv_path)``. There is no
-   way to point S0 (rvabrep-direct) or S1 (indexing) at AS400.
-2. ``As400TriggerConfig`` smuggled the AS400 path in as a SEPARATE
-   ``trigger.kind: as400`` carrying an arbitrary ``query: str``,
-   handled by a SEPARATE ``As400TriggerStrategy``. That's a
-   strategy-vs-source conflation: "where the data lives" got
-   modeled as "how triggers are discovered".
+1. ``IndexingSourceConfig`` (``schema.py:173``) hard-wirea la
+   fuente RVABREP a un CSV: ``csv_path: FilePath`` es la única
+   opción. ``wiring.py:78`` siempre construye
+   ``TabularDataSource(config.indexing.csv_path)``. No hay manera
+   de apuntar S0 (rvabrep-direct) o S1 (indexing) a AS400.
+2. ``As400TriggerConfig`` contrabandeó el camino AS400 como un
+   ``trigger.kind: as400`` SEPARADO llevando un ``query: str``
+   arbitrario, manejado por un ``As400TriggerStrategy`` SEPARADO.
+   Esa es una confusión strategy-vs-source: "dónde vive la data"
+   quedó modelado como "cómo se descubren los triggers".
 
-``DirectRvabrepTriggerStrategy`` already accepts any
-``IDataSource`` — it never needed a CSV specifically. And
-``As400DataSource`` already supports a ``query`` mode that wraps
-the SQL as ``(query) AS T`` and exposes the full ``IDataSource``
-contract (``get_all`` / ``get_by_fields`` / ``get_by_fields_in``).
-The pieces to compose this cleanly already exist; 048 wires them
-together.
+``DirectRvabrepTriggerStrategy`` ya acepta cualquier ``IDataSource``
+— nunca necesitó un CSV específicamente. Y ``As400DataSource`` ya
+soporta un modo ``query`` que envuelve el SQL como ``(query) AS T``
+y expone el contrato completo de ``IDataSource``
+(``get_all`` / ``get_by_fields`` / ``get_by_fields_in``). Las
+piezas para componer esto limpiamente ya existen; 048 las wirea
+juntas.
 
-## What
+## Qué
 
-### 1. RVABREP source becomes a discriminated union
+### 1. La fuente RVABREP pasa a ser un union discriminado
 
-A new ``RvabrepSourceUnion`` discriminated on ``kind``:
+Una nueva ``RvabrepSourceUnion`` discriminada por ``kind``:
 
 ```python
 class CsvRvabrepSource(BaseModel):
@@ -49,11 +50,11 @@ class CsvRvabrepSource(BaseModel):
 class As400RvabrepSource(BaseModel):
     kind: Literal["as400"]
     connection: As400ConnectionConfig
-    query: str   # SELECT returning RVABREP-shaped columns; JOINs/filters OK
+    query: str   # SELECT devolviendo columnas con forma RVABREP; JOINs/filtros OK
 ```
 
-``IndexingSourceConfig`` is renamed ``IndexingConfig`` and its
-``csv_path`` field is replaced by ``source: RvabrepSourceUnion``:
+``IndexingSourceConfig`` se renombra a ``IndexingConfig`` y su
+campo ``csv_path`` se reemplaza por ``source: RvabrepSourceUnion``:
 
 ```yaml
 indexing:
@@ -74,111 +75,118 @@ indexing:
   batch_size: 50
 ```
 
-The ``columns`` block keeps working for both — for the AS400
-variant the operator aliases their SELECT output to the RVABREP
-physical column names (or overrides ``columns`` to match their
-aliases).
+El bloque ``columns`` sigue funcionando para los dos — para la
+variante AS400 el operador aliasea el output de su SELECT a los
+nombres físicos de columnas de RVABREP (o sobrescribe ``columns``
+para que matchee sus aliases).
 
-### 2. Wiring builds the source once, feeds S0 + S1
+### 2. El wiring construye la fuente una vez, alimenta S0 + S1
 
-``wiring.py`` gains ``_build_rvabrep_source(indexing_cfg, secrets)
+``wiring.py`` gana ``_build_rvabrep_source(indexing_cfg, secrets)
 -> IDataSource``:
 
 - ``CsvRvabrepSource`` → ``TabularDataSource(csv_path)``.
 - ``As400RvabrepSource`` → ``As400DataSource(connection..., query=...)``
-  — credentials come from ``secrets`` (``AS400_USERNAME`` /
-  ``AS400_PASSWORD`` env vars), same as the pre-048 ``as400``
-  trigger path.
+  — las credenciales vienen de ``secrets`` (env vars
+  ``AS400_USERNAME`` / ``AS400_PASSWORD``), igual que el camino
+  pre-048 del trigger ``as400``.
 
-The resulting ``IDataSource`` is the single ``rvabrep_src`` passed
-to BOTH:
-- ``IndexingService`` (S1 — doc lookup for csv-trigger + single-doc).
-- ``DirectRvabrepTriggerStrategy`` (S0 — trigger discovery for
-  rvabrep-direct).
+El ``IDataSource`` resultante es el único ``rvabrep_src`` pasado
+a AMBOS:
+- ``IndexingService`` (S1 — lookup de docs para csv-trigger +
+  single-doc).
+- ``DirectRvabrepTriggerStrategy`` (S0 — descubrimiento de
+  triggers para rvabrep-direct).
 
-Bonus: the csv-trigger and local-scan pipelines also gain the
-AS400 RVABREP source for free — a CSV trigger list can now drive
-S1 lookups against the live AS400 table.
+Bonus: los pipelines csv-trigger y local-scan también ganan la
+fuente RVABREP AS400 gratis — una lista de triggers CSV ahora
+puede impulsar los lookups de S1 contra la tabla AS400 en vivo.
 
-### 3. ``trigger.kind: as400`` is removed
+### 3. ``trigger.kind: as400`` se remueve
 
-- ``As400TriggerConfig`` is deleted from ``TriggerConfigUnion``.
-- ``As400TriggerStrategy`` (``services/triggers/as400.py``) is
-  deleted — it was redundant. The "operator SQL with JOINs/filters"
-  use case is fully covered by ``As400RvabrepSource.query``:
-  ``DirectRvabrepTriggerStrategy`` over an ``As400DataSource``
-  built from that query does exactly the same job, and now S1
-  enrichment runs against the same source instead of re-querying
-  a CSV.
-- To run "the rvabrep pipeline against AS400" post-048:
+- ``As400TriggerConfig`` se borra de ``TriggerConfigUnion``.
+- ``As400TriggerStrategy`` (``services/triggers/as400.py``) se
+  borra — era redundante. El caso de uso "operador SQL con
+  JOINs/filtros" queda cubierto por completo por
+  ``As400RvabrepSource.query``:
+  ``DirectRvabrepTriggerStrategy`` sobre un ``As400DataSource``
+  construido desde esa query hace exactamente el mismo trabajo, y
+  ahora el enrichment de S1 corre contra la misma fuente en vez
+  de re-quereyar un CSV.
+- Para correr "el pipeline rvabrep contra AS400" post-048:
   ``trigger.kind: rvabrep`` + ``indexing.source.kind: as400``.
 
-After 048 the trigger kinds are: ``csv``, ``rvabrep``,
-``local_scan``, ``single_doc``. Four, not five.
+Después de 048 los kinds de trigger son: ``csv``, ``rvabrep``,
+``local_scan``, ``single_doc``. Cuatro, no cinco.
 
-### 4. NIARVILOG is untouched
+### 4. NIARVILOG queda intacto
 
-``As400NiarvilogStore`` (spec 034) is the AS400-level distributed
-**idempotency tracking store** — a completely separate concern from
-the RVABREP data source. 048 does not touch it. ``As400ConnectionConfig``
-stays a shared config type (used by both ``As400RvabrepSource`` and
-the NIARVILOG sync config).
+``As400NiarvilogStore`` (spec 034) es el **tracking store de
+idempotencia distribuida** a nivel AS400 — una preocupación
+completamente separada de la fuente de datos RVABREP. 048 no lo
+toca. ``As400ConnectionConfig`` se queda como tipo de config
+compartido (usado por ``As400RvabrepSource`` y la config de sync
+NIARVILOG).
 
-## Out of scope
+## Fuera de alcance
 
-- A config-format migration shim. The project is pre-production —
-  every config lives in-repo (``sample/*.yaml`` + test fixtures).
-  048 migrates them all in Phase 2; there are no field configs to
-  preserve. Clean break, consistent with 040-047.
-- Pushing ``RvabrepFilters`` (systems / document_types) down into
-  the AS400 ``WHERE`` clause. The filters stay applied in Python
-  by ``DirectRvabrepTriggerStrategy`` as today — the operator who
-  wants server-side filtering bakes it into their ``query``.
-- ``metadata.sources`` AS400 support — that path already exists
-  (``wiring.py`` already builds ``As400DataSource`` for metadata
-  source aliases). 048 only touches the RVABREP source.
-- Connection pooling / retry tuning for the AS400 RVABREP source.
-  ``As400DataSource`` already has its retry behavior; 048 reuses
-  it unchanged.
+- Un shim de migración del formato de config. El proyecto es
+  pre-producción — cada config vive en-repo (``sample/*.yaml`` +
+  fixtures de test). 048 los migra todos en la Fase 2; no hay
+  configs de campo que preservar. Corte limpio, consistente con
+  040-047.
+- Empujar ``RvabrepFilters`` (systems / document_types) hacia
+  abajo en la cláusula ``WHERE`` del AS400. Los filtros se siguen
+  aplicando en Python por ``DirectRvabrepTriggerStrategy`` como
+  hoy — el operador que quiera filtrado server-side lo cocina en
+  su ``query``.
+- Soporte de AS400 en ``metadata.sources`` — ese camino ya existe
+  (``wiring.py`` ya construye ``As400DataSource`` para aliases de
+  fuente de metadata). 048 solo toca la fuente RVABREP.
+- Pool de conexiones / tuning de retry para la fuente RVABREP de
+  AS400. ``As400DataSource`` ya tiene su comportamiento de retry;
+  048 lo reusa sin cambios.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- ``indexing.source.kind: csv`` builds a ``TabularDataSource`` and
-  the rvabrep + csv-trigger pipelines behave byte-identically to
-  pre-048 (same staging smoke output).
-- ``indexing.source.kind: as400`` builds an ``As400DataSource`` in
-  query mode; a unit/integration test confirms
-  ``DirectRvabrepTriggerStrategy`` and ``IndexingService`` both
-  receive that source.
-- ``trigger.kind: as400`` is rejected by the config loader with a
-  clear error pointing at ``indexing.source.kind: as400``.
-- ``services/triggers/as400.py`` is deleted; no import of
-  ``As400TriggerStrategy`` survives anywhere.
-- All 6 ``sample/config-staging*.yaml`` configs migrated to
+- ``indexing.source.kind: csv`` construye un ``TabularDataSource``
+  y los pipelines rvabrep + csv-trigger se comportan byte-idénticos
+  a pre-048 (mismo output del smoke de staging).
+- ``indexing.source.kind: as400`` construye un ``As400DataSource``
+  en modo query; un test unit/integration confirma que
+  ``DirectRvabrepTriggerStrategy`` e ``IndexingService`` ambos
+  reciben esa fuente.
+- ``trigger.kind: as400`` se rechaza por el config loader con un
+  error claro apuntando a ``indexing.source.kind: as400``.
+- ``services/triggers/as400.py`` se borra; ningún import de
+  ``As400TriggerStrategy`` sobrevive en ningún lado.
+- Los 6 configs ``sample/config-staging*.yaml`` migrados a
   ``indexing.source``.
-- All test fixtures / inline YAML migrated; full unit + integration
-  suite green.
-- Live re-verify: a staging run with the migrated
-  ``config-staging-rvabrep.yaml`` (``--total 5``) produces the same
-  result as pre-048.
-- ``CHANGELOG.md [0.51.0]`` entry.
-- mypy + ruff clean.
+- Todos los fixtures de test / YAML inline migrados; suite
+  completa unit + integration verde.
+- Re-verify en vivo: un run de staging con la
+  ``config-staging-rvabrep.yaml`` migrada (``--total 5``) produce
+  el mismo resultado que pre-048.
+- Entrada ``CHANGELOG.md [0.51.0]``.
+- mypy + ruff limpios.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The AS400 RVABREP source can't be exercised against a live AS400
-in CI (Constitution VI — AS400 never mocked, but the ``pyodbc``
-cursor IS faked at the driver level, mirroring ``As400DataSource``'s
-existing test approach). Phase 2 adds:
+La fuente RVABREP de AS400 no se puede ejercitar contra un AS400
+en vivo en CI (Constitución VI — AS400 nunca mockeado, pero el
+cursor ``pyodbc`` SÍ se fakea a nivel driver, espejando el enfoque
+de tests existente de ``As400DataSource``). La Fase 2 agrega:
 
-- A wiring unit test asserting ``_build_rvabrep_source`` returns an
-  ``As400DataSource`` for the ``as400`` variant and a
-  ``TabularDataSource`` for ``csv``.
-- A config-loader test asserting the ``RvabrepSourceUnion``
-  discriminator works and ``trigger.kind: as400`` is rejected.
-- The existing ``test_as400.py`` driver-level fake covers the
-  ``As400DataSource`` query-mode contract — no new AS400 plumbing
-  tests needed.
+- Un test unitario de wiring asserteando que
+  ``_build_rvabrep_source`` devuelve un ``As400DataSource`` para
+  la variante ``as400`` y un ``TabularDataSource`` para ``csv``.
+- Un test del config loader asserteando que el discriminador
+  ``RvabrepSourceUnion`` funciona y que ``trigger.kind: as400`` se
+  rechaza.
+- El fake a nivel driver existente de ``test_as400.py`` cubre el
+  contrato del modo query de ``As400DataSource`` — no hacen falta
+  tests nuevos de plomería de AS400.
 
-The live re-verify uses the CSV variant (the AS400 variant has no
-reachable server); the CSV path is the regression gate.
+El re-verify en vivo usa la variante CSV (la variante AS400 no
+tiene servidor alcanzable); el camino CSV es el gate de
+regresión.

@@ -1,111 +1,115 @@
-# 045 — Idempotent S5 document upload on 409 conflict
+# 045 — Subida de documento idempotente en S5 ante conflicto 409
 
-## Why
+## Por qué
 
-The §H.1 live verification of 0.47.0 closed the resume detection
-gap, but exposed a residual issue from the same kill-race: 4 docs
-landed in Alfresco from run 1 successfully (200 OK from CMIS) but
-``kill -9`` interrupted the pipeline BEFORE the SQLite
-``mark_stage_done(txn, batch_id, S5_DONE)`` commit could persist.
-On resume, those 4 docs look "still pending S5" to the migration
-log; the orchestrator retries the upload; Alfresco's ``cmis:name``
-uniqueness constraint rejects with HTTP 409 → those 4 retries land
-as ``S5_FAILED`` in the migration log even though the docs are
-already in CMIS.
+La verificación en vivo §H.1 de 0.47.0 cerró el gap de detección de
+resume, pero expuso un issue residual de la misma `race condition`
+del kill: 4 docs aterrizaron en Alfresco desde el run 1 exitosamente
+(200 OK desde CMIS) pero ``kill -9`` interrumpió el pipeline ANTES
+de que el commit ``mark_stage_done(txn, batch_id, S5_DONE)`` de
+SQLite pudiera persistir. En el resume, esos 4 docs lucen "todavía
+pending S5" al migration log; el orchestrator reintenta la subida;
+la constraint de unicidad de ``cmis:name`` de Alfresco rechaza con
+HTTP 409 → esos 4 reintentos aterrizan como ``S5_FAILED`` en el
+migration log aunque los docs ya están en CMIS.
 
-The folder-creation path in ``CmisUploader`` already implements
-this idempotent-409 pattern (the spec / the docstring at line
-11): if a folder POST returns 409 because the folder already
-exists, the uploader proceeds with the cached id instead of
-failing. The document POST path has no such handling — 045 brings
-it parity with folders.
+El camino de creación de folder en ``CmisUploader`` ya implementa
+este patrón idempotente-409 (la spec / el docstring en la línea
+11): si un POST de folder devuelve 409 porque el folder ya existe,
+el uploader procede con el id cacheado en vez de fallar. El camino
+del POST de documento no tiene tal manejo — 045 lo lleva a paridad
+con folders.
 
-## What
+## Qué
 
 ### 1. ``CmisUploader._lookup_existing_object_id(folder_url, name)``
 
-New private helper. Lists the folder children via
-``cmisselector=children`` and returns the ``cmis:objectId`` of the
-child whose ``cmis:name`` matches ``name``. Returns ``None`` if
-not found. Honors the same retry / timeout / metrics path as the
-existing GET helpers in the uploader.
+Nuevo helper privado. Lista los hijos del folder vía
+``cmisselector=children`` y devuelve el ``cmis:objectId`` del hijo
+cuyo ``cmis:name`` matchea ``name``. Devuelve ``None`` si no se
+encuentra. Honra el mismo camino de retry / timeout / métricas que
+los helpers GET existentes en el uploader.
 
-We use the children-walk (not ``cmisselector=query``) because
-Alfresco's Solr indexing has a lag of seconds-to-minutes and is
-unreliable as a freshness oracle (we observed this during 040 / 041
-verifications — fresh uploads were invisible to SQL queries for
-the first ~30 s). The children endpoint reflects the canonical
-folder state immediately.
+Usamos el children-walk (no ``cmisselector=query``) porque la
+indexación Solr de Alfresco tiene un lag de segundos-a-minutos y es
+poco confiable como oráculo de freshness (esto lo observamos durante
+las verificaciones de 040 / 041 — los uploads frescos eran invisibles
+a queries SQL durante los primeros ~30 s). El endpoint de hijos
+refleja el estado canónico del folder inmediatamente.
 
-### 2. ``upload(...)`` catches 409 and attempts recovery
+### 2. ``upload(...)`` atrapa el 409 e intenta recuperación
 
-After the multipart POST raises ``CMISClientError`` with
-``status_code == 409``, the upload path:
+Después de que el POST multipart levante ``CMISClientError`` con
+``status_code == 409``, el camino de upload:
 
-1. Logs a structured ``s5_upload_409_recovery_attempt`` event so
-   the operator can audit the recovery decisions in
+1. Loguea un evento estructurado ``s5_upload_409_recovery_attempt``
+   así el operador puede auditar las decisiones de recuperación en
    metrics.jsonl.
-2. Calls ``_lookup_existing_object_id(folder_url, document_name)``.
-3. If the lookup returns a non-None ``cmis:objectId``:
-   - Emit ``s5_upload_409_recovered`` (success, recovered).
-   - Return that objectId from ``upload(...)`` as if the upload
-     had succeeded — the orchestrator will mark S5_DONE normally.
-4. If the lookup returns ``None`` (true 409 — not a kill-race
-   duplicate, e.g. permission constraint with a different
-   ``cmis:name`` collision):
-   - Emit ``s5_upload_409_recovery_failed``.
-   - Re-raise the original ``CMISClientError`` so the failure path
-     continues unchanged.
+2. Llama a ``_lookup_existing_object_id(folder_url, document_name)``.
+3. Si el lookup devuelve un ``cmis:objectId`` no-None:
+   - Emitir ``s5_upload_409_recovered`` (éxito, recuperado).
+   - Devolver ese objectId desde ``upload(...)`` como si la subida
+     hubiera tenido éxito — el orchestrator marcará S5_DONE
+     normalmente.
+4. Si el lookup devuelve ``None`` (409 verdadero — no un duplicado
+   por la `race condition` del kill, p. ej. constraint de permisos
+   con una colisión distinta de ``cmis:name``):
+   - Emitir ``s5_upload_409_recovery_failed``.
+   - Re-raisear el ``CMISClientError`` original así el camino de
+     falla continúa sin cambios.
 
-### 3. New StageOutcome distinction (deferred)
+### 3. Nueva distinción de StageOutcome (diferida)
 
-The upload-side outcome enum currently is ``"done" | "failed" |
-"skipped"``. We considered adding ``"recovered"`` so the CHUNKS
-tab can show recovery distinctly from a fresh upload — but every
-downstream metric/counter treats "done" identically to a normal
-success and the bookkeeping cost of a new outcome dwarfs the
-visibility value at this scale. Recovered uploads count as
-``done`` in the tally; the structured
-``s5_upload_409_recovered`` event provides per-doc auditability.
+El enum de outcomes del lado upload actualmente es ``"done" |
+"failed" | "skipped"``. Consideramos agregar ``"recovered"`` así el
+tab CHUNKS puede mostrar recovery distinto de un upload fresco —
+pero cada métrica/contador downstream trata "done" idénticamente a
+un éxito normal y el costo de bookkeeping de un nuevo outcome
+empequeñece el valor de visibilidad a esta escala. Los uploads
+recuperados cuentan como ``done`` en el tally; el evento
+estructurado ``s5_upload_409_recovered`` provee auditabilidad
+por-doc.
 
-## Out of scope
+## Fuera de alcance
 
-- 409 retry on folder creation. That path was already idempotent
+- Retry de 409 en creación de folder. Ese camino ya era idempotente
   pre-045.
-- Verifying the recovered doc's content/properties match what we
-  intended to upload. The uniqueness contract is ``cmis:name``;
-  if a different doc legitimately shares that name (e.g. operator
-  uploaded outside the pipeline), the recovery returns its id and
-  the migration log marks it S5_DONE for our txn. This is the
-  "trust the cmis:name uniqueness scheme" contract — documented
-  in the operator runbook.
-- Asynchronous bulk reconciliation. A periodic job that scans the
-  migration_log for "not S5_DONE" rows and checks CMIS folder
-  contents could close the entire class of mid-flight commit
-  losses — out of scope for 045 but a sensible follow-up if more
-  kill-race scenarios surface.
+- Verificar que el content/properties del doc recuperado matchea lo
+  que pretendíamos subir. El contrato de unicidad es ``cmis:name``;
+  si un doc distinto legítimamente comparte ese nombre (p. ej. el
+  operador subió afuera del pipeline), la recuperación devuelve su
+  id y el migration log lo marca S5_DONE para nuestro txn. Este es
+  el contrato "confiar en el esquema de unicidad de cmis:name" —
+  documentado en el runbook del operador.
+- Reconciliación bulk asincrónica. Un job periódico que escanea el
+  migration_log para filas "no S5_DONE" y chequea los contenidos
+  del folder de CMIS podría cerrar toda la clase de pérdidas de
+  commit a mitad de vuelo — fuera de alcance para 045 pero un
+  follow-up razonable si aparecen más escenarios de `race condition`
+  del kill.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- Unit test: ``upload(...)`` with a mocked 409 response from the
-  POST AND a mocked successful lookup returns the existing
-  objectId (no exception).
-- Unit test: ``upload(...)`` with a 409 response AND a lookup that
-  returns ``None`` re-raises ``CMISClientError`` with the original
-  status_code.
-- Unit test: ``upload(...)`` with a 200 response on first attempt
-  never calls the lookup helper (no behavior change on the happy
-  path).
-- Live re-verify of §H.1 staging scenario (kill mid-S5 + resume):
-  final ``s5_failed == 0`` and Alfresco doc count == distinct txns
-  in the batch.
-- ``CHANGELOG.md [0.48.0]`` entry.
-- mypy + ruff clean.
+- Test unitario: ``upload(...)`` con una respuesta 409 mockeada del
+  POST Y un lookup mockeado exitoso devuelve el objectId existente
+  (sin excepción).
+- Test unitario: ``upload(...)`` con una respuesta 409 Y un lookup
+  que devuelve ``None`` re-raisea ``CMISClientError`` con el
+  status_code original.
+- Test unitario: ``upload(...)`` con una respuesta 200 en el primer
+  intento nunca llama al helper de lookup (sin cambios de
+  comportamiento en el happy path).
+- Re-verify en vivo del escenario de staging §H.1 (kill mid-S5 +
+  resume): final ``s5_failed == 0`` y conteo de docs de Alfresco ==
+  txns distintos en el batch.
+- Entrada ``CHANGELOG.md [0.48.0]``.
+- mypy + ruff limpios.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The unit tests stub the ``requests.Session`` via ``responses``
-library (same approach as the existing CMIS uploader tests) so we
-can assert specific URL → status mappings deterministically. The
-lookup helper is exercised directly with its own unit case for
-the "found" / "not found" / "transport error" branches.
+Los tests unitarios stubean el ``requests.Session`` vía la library
+``responses`` (mismo enfoque que los tests existentes del CMIS
+uploader) así podemos assertear mappings específicos de URL →
+status determinísticamente. El helper de lookup se ejercita
+directamente con su propio caso unitario para las ramas
+"encontrado" / "no encontrado" / "error de transporte".

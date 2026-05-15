@@ -1,46 +1,53 @@
 # 070 — Plan
 
-Single-phase. Minimal-touch refactor.
+Una sola fase. Refactor de toque mínimo.
 
-## Phase 1 — code + tests
+## Fase 1 — código + tests
 
 ### `src/cmcourier/orchestrators/streaming.py`
 
-* `__init__`: drop the `LaneController(...)` construction block.
-  Keep `self._lanes_config = config.processing.heavy_light_lanes`
-  (the dispatcher needs the threshold).
-* Drop `self._lane_controller` field — use a property:
+* `__init__`: descartar el bloque de construcción
+  `LaneController(...)`. Mantener
+  `self._lanes_config = config.processing.heavy_light_lanes`
+  (el dispatcher necesita el threshold).
+* Descartar el campo `self._lane_controller` — usar una
+  propiedad:
 
 ```python
 @property
 def lane_controller(self) -> LaneController | None:
-    """070: single LaneController per run, owned by StagedPipeline."""
+    """070: un solo LaneController por run, en propiedad de StagedPipeline."""
     return self._pipeline.lane_controller
 ```
 
-* Every reference to `self._lane_controller` reads through the
-  property (no rename needed at call sites since attribute access
-  pattern matches).
-* The `run()` block that calls `self._lane_controller.start()` /
-  `.stop()` and the dispatcher / consumer code stay as-is; they
-  just now hit the pipeline's instance.
+* Cada referencia a `self._lane_controller` lee a través
+  de la propiedad (sin necesidad de renombrar en los call
+  sites dado que el patrón de acceso a atributo matchea).
+* El bloque de `run()` que llama
+  `self._lane_controller.start()` / `.stop()` y el
+  código del dispatcher / consumer se quedan como están;
+  solo que ahora pegan la instancia del pipeline.
 
 ### Tests
 
 `tests/unit/orchestrators/test_streaming.py`:
 
-* New test `test_streaming_reuses_pipeline_lane_controller`:
-  - Build a `_FakePipeline` with a synthetic
-    `_lane_controller` field (real `LaneController` instance).
-  - Build the orchestrator with lanes_enabled=True.
-  - Assert `orch.lane_controller is pipeline.lane_controller`.
+* Test nuevo
+  `test_streaming_reuses_pipeline_lane_controller`:
+  - Construir un `_FakePipeline` con un campo
+    `_lane_controller` sintético (instancia real de
+    `LaneController`).
+  - Construir el orchestrator con lanes_enabled=True.
+  - Assertear
+    `orch.lane_controller is pipeline.lane_controller`.
 
-* Update `_FakePipeline` to expose a `lane_controller` attribute
-  matching the contract.
+* Actualizar `_FakePipeline` para exponer un atributo
+  `lane_controller` matcheando el contrato.
 
 ### Verify
 
-`pytest tests/unit tests/integration -q` green. ruff + mypy clean.
+`pytest tests/unit tests/integration -q` verde. ruff +
+mypy limpios.
 
 ### Commit
 
@@ -48,12 +55,13 @@ def lane_controller(self) -> LaneController | None:
 fix(streaming): unify LaneController with pipeline — UPLOAD-tab LANES live (070 Phase 1)
 ```
 
-## Phase 2 — release
+## Fase 2 — release
 
 - CHANGELOG `[0.72.0]`
 - pyproject 0.71.0 → 0.72.0
-- `pip install -e . --no-deps` + version verify
-- README feature row tick
-- FF to main
+- `pip install -e . --no-deps` + chequeo de versión
+- Tick en fila de features de README
+- FF a main
 
-Commit: `docs(070): CHANGELOG 0.72.0 + version bump (070 Phase 2)`.
+Commit:
+`docs(070): CHANGELOG 0.72.0 + version bump (070 Phase 2)`.

@@ -1,48 +1,49 @@
-# How-to: Heavy / Light upload lanes (036, POST-MVP §1)
+# How-to: Lanes heavy / light de upload (036, POST-MVP §1)
 
-Enable two adaptive upload lanes when an operator-known portion of
-your batch is **substantially larger** than the rest, and you can
-afford the small extra coordination cost in exchange for predictable
-per-doc latency.
+Habilitar dos `lane`s adaptativos de upload cuando una porción conocida
+por el operador de tu batch es **sustancialmente más grande** que el resto,
+y podés afrontar el pequeño costo extra de coordinación a cambio de
+latencia predecible por documento.
 
-**Default is OFF** (`processing.heavy_light_lanes.enabled = false`).
-Single-lane behavior is byte-identical to pre-036.
+**Default OFF** (`processing.heavy_light_lanes.enabled = false`).
+El comportamiento single-lane es byte-idéntico a pre-036.
 
-## When to turn this on
+## Cuándo activar esto
 
-Turn it ON when:
+Activalo cuando:
 
-- Batches are bimodal — a tail of large documents (multi-page PDFs,
-  high-res TIFFs) mixed with many small ones.
-- Operators care about light-doc latency, not just total wall clock.
-  Light docs ship in **milliseconds** instead of queueing behind a
-  heavy upload slot.
-- You can pick a `heavy_threshold_bytes` value that cleanly separates
-  the two populations.
+- Los batches son bimodales — una cola de documentos grandes (PDFs
+  multi-página, TIFFs de alta resolución) mezclados con muchos
+  pequeños.
+- A los operadores les importa la latencia de docs livianos, no solo
+  el wall clock total. Los docs livianos shippean en **milisegundos**
+  en vez de encolarse detrás de un slot de upload pesado.
+- Podés elegir un valor `heavy_threshold_bytes` que separe limpiamente
+  las dos poblaciones.
 
-Leave it OFF when:
+Dejalo OFF cuando:
 
-- Document sizes are uniform.
-- The batch is small (under `heavy_lane_min_batch`, default 50 — the
-  splitter falls back to single-lane automatically).
-- Total throughput is the only thing that matters and the heavy tail
-  dominates anyway.
+- Los tamaños de documento son uniformes.
+- El batch es chico (debajo de `heavy_lane_min_batch`, default 50 — el
+  splitter cae automáticamente a single-lane).
+- El throughput total es lo único que importa y la cola pesada domina
+  igualmente.
 
-## What you actually gain
+## Qué ganás realmente
 
-Be realistic about the win:
+Sé realista con la ganancia:
 
-- **Latency for light docs**: significant. They stop queueing behind
-  heavies.
-- **Total wall clock**: modest. Synthetic benchmarks show **~5-10%**
-  on heavy-dominated bimodal batches with `N=4` workers. The tail
-  is still the tail.
+- **Latencia para docs livianos**: significativa. Dejan de encolarse
+  detrás de pesados.
+- **Wall clock total**: modesto. Benchmarks sintéticos muestran **~5-10%**
+  en batches bimodales dominados por pesados con `N=4` workers. La cola
+  sigue siendo la cola.
 
-The original POST-MVP §1 acceptance criterion wrote ≥ 30 %
-throughput — that was aspirational. Production heuristics will be
-tuned in the real-data dry-run phase.
+El criterio de aceptación original POST-MVP §1 escribía ≥ 30 %
+de throughput — eso fue aspiracional. Las heurísticas productivas se
+afinarán en la fase de dry-run con datos reales.
 
-## Configuration
+## Configuración
 
 `config.yaml`:
 
@@ -57,49 +58,52 @@ processing:
     idle_threshold_s: 15.0                # default: 15 s
 ```
 
-### Knob reference
+### Referencia de perillas
 
-| Field                  | What it does                                          | Tuning hint                                 |
+| Campo                  | Qué hace                                          | Hint de tuning                                 |
 | ---------------------- | ----------------------------------------------------- | ------------------------------------------- |
-| `heavy_threshold_bytes` | A staged file ≥ this size goes to the heavy lane.    | Pick the inflection point in your size histogram. 10 MB is a safe default for mixed PDF/TIFF migrations. |
-| `heavy_lane_min_batch`  | Batches smaller than this skip the split entirely.   | Default 50. Below that, coordination cost > parallelism gain. |
-| `heavy_initial_ratio`   | Share of `cmis.workers` reserved for heavies on start. | 0.2 means 20 % of workers begin on heavies. Higher when most of the wall-clock is heavies; lower when lights are >90 % of the batch. |
-| `rebalance_interval_s`  | Daemon thread tick period.                            | Keep at 10 s default. Smaller = more responsive but more CPU. |
-| `idle_threshold_s`      | Time a lane must stay empty before migrating workers. | Default 15 s avoids flapping on short pauses. Drop to 1-2 s for very-fast batches; bump up for large heavies whose lane should stay reserved. |
+| `heavy_threshold_bytes` | Un archivo staged ≥ este tamaño va al `lane` heavy.    | Elegí el punto de inflexión en tu histograma de tamaños. 10 MB es un default seguro para migraciones PDF/TIFF mixtas. |
+| `heavy_lane_min_batch`  | Batches más chicos que esto saltean el split entero.   | Default 50. Por debajo de eso, el costo de coordinación > ganancia de paralelismo. |
+| `heavy_initial_ratio`   | Share de `cmis.workers` reservado para pesados al arrancar. | 0.2 significa que 20 % de los workers arrancan en pesados. Más alto cuando la mayor parte del wall-clock son pesados; más bajo cuando los livianos son >90 % del batch. |
+| `rebalance_interval_s`  | Período del tick del thread daemon.                            | Mantené el default 10 s. Más chico = más responsivo pero más CPU. |
+| `idle_threshold_s`      | Tiempo que un `lane` debe quedar vacío antes de migrar workers. | Default 15 s evita flapping en pausas cortas. Bajalo a 1-2 s para batches muy rápidos; subilo para pesados grandes cuyo `lane` debe quedar reservado. |
 
-## How rebalancing works
+## Cómo funciona el rebalance
 
-The `LaneController` tracks when each lane's queue first reaches
-zero (`*_first_empty_at`). On every `rebalance_interval_s` tick, if
-the elapsed time since that stamp exceeds `idle_threshold_s` for one
-lane and the other lane still has work, the controller migrates the
-drained lane's capacity to the active one. The drained side keeps a
-floor of 1 (the `ResizableSemaphore` minimum) but no items remain to
-acquire it, so the slot is effectively dormant.
+El `LaneController` trackea cuándo la cola de cada `lane` llega a
+cero por primera vez (`*_first_empty_at`). En cada tick de
+`rebalance_interval_s`, si el tiempo elapsed desde ese stamp excede
+`idle_threshold_s` para un `lane` y el otro `lane` todavía tiene
+trabajo, el controller migra la capacidad del `lane` drenado al activo.
+El lado drenado conserva un piso de 1 (el mínimo del `ResizableSemaphore`)
+pero no quedan items para adquirirlo, así que el slot está efectivamente
+dormido.
 
-**AIMD coupling**: when `cmis.auto_tune.enabled = true`, AIMD steers
-the TOTAL worker budget; the controller redistributes between lanes
-preserving the current heavy/light ratio. The two controllers do not
-fight each other.
+**Acoplamiento con AIMD**: cuando `cmis.auto_tune.enabled = true`, AIMD
+dirige el budget TOTAL de workers; el controller redistribuye entre los
+`lane`s preservando el ratio heavy/light actual. Los dos controllers no
+pelean entre sí.
 
-## Reading the TUI
+## Leyendo el TUI
 
-When dual-lane mode is active for a batch, the UPLOAD tab swaps the
-single WORKERS panel for two stacked HEAVY / LIGHT sub-panels:
+Cuando el modo dual-lane está activo para un batch, la tab UPLOAD
+intercambia el panel WORKERS único por dos sub-paneles apilados
+HEAVY / LIGHT:
 
 ```
- WORKERS (heavy/light · total budget 8)
+ WORKERS (heavy/light · budget total 8)
   HEAVY  capacity   2   in-use   2   idle   0   queue    3
          done    17   failed    1
   LIGHT  capacity   6   in-use   5   idle   1   queue   42
          done   134   failed    0
 ```
 
-The NETWORK + bandwidth chart + slow-ops sections are unchanged.
+Las secciones NETWORK + gráfico de bandwidth + slow-ops quedan sin
+cambios.
 
-## Reading the logs
+## Leyendo los logs
 
-Each rebalance emits a structured log line with
+Cada rebalance emite una línea de log estructurada con
 `event=lane_rebalance`:
 
 ```json
@@ -114,26 +118,25 @@ Each rebalance emits a structured log line with
 }
 ```
 
-`cmcourier analyze batch <id>` surfaces these in its rebalance count.
+`cmcourier analyze batch <id>` los expone en su conteo de rebalance.
 
-## Disabling at runtime
+## Deshabilitar en runtime
 
-Set `enabled: false` (or remove the block entirely) and restart.
-Single-lane mode runs byte-identically to pre-036; existing batches
-in-flight on the new code path will already have finished by the
-restart.
+Seteá `enabled: false` (o eliminá el bloque entero) y reiniciá.
+El modo single-lane corre byte-idéntico a pre-036; los batches existentes
+en vuelo en el nuevo code path ya habrán terminado para cuando reinicies.
 
-## Bandwidth limiter
+## Limitador de bandwidth
 
-The shared `TokenBucket` from change 029 (`cmis.max_bandwidth_mbps`)
-caps the **combined** transfer rate across both lanes. Dual-mode
-does **not** double your bandwidth budget — both lanes draw from the
-same global ceiling. The 029 unit test
-`test_throttles_via_shared_bucket` already covers the property.
+El `TokenBucket` compartido del cambio 029 (`cmis.max_bandwidth_mbps`)
+limita la tasa de transferencia **combinada** entre ambos `lane`s. El
+modo dual **no** duplica tu budget de bandwidth — ambos `lane`s extraen
+del mismo techo global. El test unitario de 029
+`test_throttles_via_shared_bucket` ya cubre la propiedad.
 
 ## Cross-references
 
 - Spec: `specs/036-heavy-light-lanes/`.
-- POST-MVP entry: `docs/roadmap/POST-MVP.md §1`.
-- Related: change 025 (S5 worker pool + AIMD), change 029 (shared
-  bandwidth limiter), change 030 (TUI multi-batch view).
+- Entrada POST-MVP: `docs/roadmap/POST-MVP.md §1`.
+- Relacionados: cambio 025 (`worker pool` S5 + AIMD), cambio 029 (limitador
+  de bandwidth compartido), cambio 030 (vista TUI multi-batch).

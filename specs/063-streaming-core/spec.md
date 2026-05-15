@@ -1,77 +1,88 @@
-# 063 — Streaming orchestrator (core, single-lane)
+# 063 — Orchestrator de streaming (core, single-lane)
 
-## Why
+## Por qué
 
-The current pipeline runs in **batched mode**: triggers are chunked
-into `batch_size`-sized groups, and a `MultiBatchOrchestrator` runs
-N=2 chunks in flight — chunk N uploads while chunk N+1 prepares.
-That works, but for the production 20M-doc migration two structural
-costs are visible:
+El pipeline actual corre en **modo batched**: los triggers se
+chunkean en grupos de tamaño `batch_size`, y un
+`MultiBatchOrchestrator` corre N=2 chunks en vuelo — el chunk
+N sube mientras el chunk N+1 prepara. Eso funciona, pero para
+la migración de producción de 20M docs son visibles dos
+costos estructurales:
 
-1. **Memory peak** = `batch_size × batches_in_flight`. Today 100 × 2
-   = ~200 docs in flight; with batch_size=1000 it was ~2000.
-2. **The valley between chunks.** When chunk N's S5 finishes faster
-   than chunk N+1's PREP, S5 waits idle. When PREP finishes faster
-   than S5, PREP blocks on the in-flight slot.
+1. **Pico de memoria** = `batch_size × batches_in_flight`.
+   Hoy 100 × 2 = ~200 docs en vuelo; con batch_size=1000
+   eran ~2000.
+2. **El valle entre chunks.** Cuando el S5 del chunk N
+   termina más rápido que el PREP del chunk N+1, S5 espera
+   idle. Cuando el PREP termina más rápido que S5, PREP
+   bloquea en el slot in-flight.
 
-The operator asked for the canonical producer-consumer alternative:
-**a bucket (bounded buffer) of completed-PREP items, drained by S5
-continuously.** PREP refills as the bucket drains. S5 never waits for
-a whole chunk's PREP to complete — it starts as soon as the bucket has
-its first item. Memory peak collapses to `bucket_size` (independent of
-the total trigger count).
+El operador pidió la alternativa canónica
+producer-consumer: **un `bucket` (buffer acotado) de items
+con PREP completado, drenado por S5 continuamente**. El PREP
+rellena mientras el bucket drena. S5 nunca espera a que el
+PREP de un chunk entero complete — arranca apenas el bucket
+tiene su primer item. El pico de memoria colapsa a
+`bucket_size` (independiente del conteo total de triggers).
 
-## What
+## Qué
 
-### 1. Two pipeline modes side-by-side
+### 1. Dos modos de pipeline lado a lado
 
 ```yaml
 processing:
-  mode: "batched"  | "streaming"     # default: "batched" (non-disruptive)
+  mode: "batched"  | "streaming"     # default: "batched" (no disruptivo)
 ```
 
-`"batched"` keeps every byte of behaviour from `MultiBatchOrchestrator`
-intact — including `batches_in_flight`, the per-chunk recorder/AIMD
-swap, and the existing CHUNKS tab. `"streaming"` activates a new
-orchestrator.
+`"batched"` mantiene cada byte del comportamiento de
+`MultiBatchOrchestrator` intacto — incluyendo
+`batches_in_flight`, el swap de recorder/AIMD per-chunk, y
+el tab CHUNKS existente. `"streaming"` activa un orchestrator
+nuevo.
 
-### 2. The streaming orchestrator
+### 2. El orchestrator de streaming
 
-A new `StreamingOrchestrator` lives next to `MultiBatchOrchestrator`,
-constructed by the wiring layer when `processing.mode == "streaming"`.
-It exposes the same `.run(...)` shape and returns a
-`MultiBatchRunReport` for CLI compatibility — the report's `chunks`
-field carries a single synthetic chunk (the whole run).
+Un nuevo `StreamingOrchestrator` vive al lado del
+`MultiBatchOrchestrator`, construido por la capa de wiring
+cuando `processing.mode == "streaming"`. Expone la misma
+forma `.run(...)` y devuelve un `MultiBatchRunReport` para
+compatibilidad con la CLI — el campo `chunks` del reporte
+lleva un único chunk sintético (el run completo).
 
-Internal model:
+Modelo interno:
 
 - **Bucket**: `queue.Queue[_StageItem](maxsize=bucket_size)`.
-- **Producers**: `prep_workers` daemon threads. Each producer pulls
-  one trigger from a thread-safe iterator over the trigger source,
-  runs S1→S4 on it via new `StagedPipeline.streaming_prep_one(trigger,
-  batch_id, recorder)`, and pushes any surviving item to the bucket.
-  Domain failures (`RVABREPDeletedError`, `IDRViNotMappedError`, etc.)
-  are persisted to `migration_log` by the existing per-stage helpers
-  — no special-casing here.
-- **Consumers**: `cmis.workers` daemon threads sized to the AIMD
-  ceiling (`_pool_ceiling()`, spec 057). Each consumer does
-  `bucket.get()`, runs S5 via the existing `_upload_one`, calls
-  `bucket.task_done()`.
-- **Shutdown coordination**: when the trigger iterator raises
-  `StopIteration`, the producer that observed it pushes `N` poison
-  pills (one per consumer) into the bucket. Consumers `break` on
-  poison pill.
-- **Single batch_id for the run**. `tracking_store.start_batch(0)` at
-  the top, `complete_batch(...)` at the end. Every persisted row in
-  `migration_log` carries this one id. (The `total_records=0` is
-  accepted by SQLite — it is informative, not a constraint.)
-- **Single global `MetricsRecorder`** for the run. AIMD reads
-  `current_stage_p95_with_count("S5")` from that one recorder — no
-  swap per-chunk. The `min_samples` guard (spec 061) handles the
-  cold-start outlier.
-- **Back-pressure is automatic**: when the bucket is full,
-  `bucket.put()` blocks the producer. When the bucket is empty,
-  `bucket.get()` blocks the consumer. Idle workers consume zero CPU.
+- **Producers**: `prep_workers` threads daemon. Cada
+  producer tira un trigger de un iterador thread-safe sobre
+  la fuente de triggers, corre S1→S4 sobre él vía nuevo
+  `StagedPipeline.streaming_prep_one(trigger, batch_id,
+  recorder)`, y empuja cualquier item sobreviviente al
+  bucket. Las fallas de dominio (`RVABREPDeletedError`,
+  `IDRViNotMappedError`, etc.) se persisten al
+  `migration_log` por los helpers per-stage existentes — sin
+  casos especiales acá.
+- **Consumers**: `cmis.workers` threads daemon dimensionados
+  al techo de AIMD (`_pool_ceiling()`, spec 057). Cada
+  consumer hace `bucket.get()`, corre S5 vía el `_upload_one`
+  existente, llama `bucket.task_done()`.
+- **Coordinación de shutdown**: cuando el iterador de
+  triggers levanta `StopIteration`, el producer que la
+  observó empuja `N` `poison pill`s (uno por consumer) al
+  bucket. Los consumers `break` en `poison pill`.
+- **Un solo batch_id para el run**.
+  `tracking_store.start_batch(0)` en el tope,
+  `complete_batch(...)` al final. Cada fila persistida en
+  `migration_log` lleva este único id. (El
+  `total_records=0` es aceptado por SQLite — es
+  informativo, no una constraint.)
+- **Un solo `MetricsRecorder` global** para el run. AIMD
+  lee `current_stage_p95_with_count("S5")` de ese único
+  recorder — sin swap per-chunk. El guard `min_samples`
+  (spec 061) maneja el outlier de cold-start.
+- **La `back-pressure` es automática**: cuando el bucket
+  está lleno, `bucket.put()` bloquea al producer. Cuando el
+  bucket está vacío, `bucket.get()` bloquea al consumer.
+  Los workers idle consumen cero CPU.
 
 ### 3. Config
 
@@ -82,86 +93,97 @@ class StreamingConfig(BaseModel):
 class ProcessingConfig(BaseModel):
     mode: Literal["batched", "streaming"] = "batched"
     streaming: StreamingConfig = Field(default_factory=StreamingConfig)
-    # ...existing fields kept...
+    # ...campos existentes se mantienen...
 ```
 
-`processing.batches_in_flight` is ignored when `mode=="streaming"`
-(documented in the field docstring).
+`processing.batches_in_flight` se ignora cuando
+`mode=="streaming"` (documentado en el docstring del campo).
 
 ### 4. Wiring
 
-`cli/app.py` reads `config.processing.mode`. The orchestrator factory
-returns either `MultiBatchOrchestrator(...)` or
-`StreamingOrchestrator(...)`. Both honour the same `.run(...)`
-signature so the rest of `app.py` is unchanged.
+`cli/app.py` lee `config.processing.mode`. La factory de
+orchestrator devuelve o `MultiBatchOrchestrator(...)` o
+`StreamingOrchestrator(...)`. Las dos honran la misma firma
+`.run(...)` así el resto de `app.py` queda sin cambios.
 
-### 5. Resume semantics
+### 5. Semánticas de resume
 
-In streaming mode, **resume = a new run**. Cross-batch idempotency
-(spec 062 — `S1_SKIPPED` rows) provides traceability for docs
-already uploaded in any prior run. `from_stage=N` and operator-named
-`batch_id` are **rejected** with a clear ValueError when
-`mode=="streaming"`. The batched path keeps full resume semantics.
+En modo streaming, **resume = un run nuevo**. La idempotencia
+cross-batch (spec 062 — filas `S1_SKIPPED`) provee
+trazabilidad para los docs ya subidos en cualquier run
+anterior. `from_stage=N` y `batch_id` nombrado por el
+operador son **rechazados** con un ValueError claro cuando
+`mode=="streaming"`. El camino batched mantiene las
+semánticas completas de resume.
 
-## Out of scope
+## Fuera de alcance
 
-- **TUI BUCKET tab** (spec 064). The new orchestrator still updates the
-  base `MetricsRecorder` (stages, slow ops, bandwidth), so the
-  existing PREP/UPLOAD/CHUNKS tabs degrade-gracefully: PREP and
-  UPLOAD show real stage data; the CHUNKS tab will show a single
-  synthetic row "STREAMING (1 chunk for the whole run)". 064
-  replaces it with a real BUCKET tab.
-- **Heavy/light lanes in streaming** (spec 065). Streaming starts
-  single-lane. The wiring constructs the `StreamingOrchestrator`
-  **without** the `LaneController` even if
-  `heavy_light_lanes.enabled: true` — with a clear startup WARN log
-  pointing at spec 065.
-- **TUI `chunks_state` snapshot**. `StreamingOrchestrator.chunks_snapshot()`
-  returns a single-row list describing the streaming run as one
-  conceptual chunk. Good enough for 063; the dedicated tab arrives in
-  064.
+- **Tab BUCKET de la TUI** (spec 064). El orchestrator nuevo
+  todavía actualiza el `MetricsRecorder` base (stages, slow
+  ops, bandwidth), así que los tabs PREP/UPLOAD/CHUNKS
+  existentes degradan gracefully: PREP y UPLOAD muestran
+  data real de stage; el tab CHUNKS mostrará una única fila
+  sintética "STREAMING (1 chunk para todo el run)". 064 lo
+  reemplaza con un tab BUCKET real.
+- **Lanes heavy/light en streaming** (spec 065). Streaming
+  arranca single-lane. El wiring construye el
+  `StreamingOrchestrator` **sin** el `LaneController`
+  aunque `heavy_light_lanes.enabled: true` — con un log
+  WARN claro de arranque apuntando a la spec 065.
+- **Snapshot `chunks_state` de la TUI**.
+  `StreamingOrchestrator.chunks_snapshot()` devuelve una
+  lista de una sola fila describiendo el run de streaming
+  como un chunk conceptual. Suficiente para 063; el tab
+  dedicado llega en 064.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `processing.mode` defaults to `"batched"` and rejects unknown values
-  (Pydantic Literal). `processing.streaming.bucket_size` defaults to
-  100, rejects `< 1`.
-- A `StreamingOrchestrator.run(...)` against a small fixture set
-  uploads every doc successfully — end-to-end test via the existing
-  `pipeline_harness`.
-- The bucket caps memory: a test with `bucket_size=5` and 50 triggers
-  asserts that the bucket's `qsize()` never exceeds 5 mid-run
-  (probed via a hook).
-- Shutdown is clean: every consumer thread joins, no zombies.
-- `from_stage > 1` or non-None `batch_id` with `mode="streaming"`
-  raises `ValueError`.
-- Cross-batch idempotency (spec 062 / the spec) works in streaming
-  exactly as in batched — a re-run of the same triggers produces
-  `S1_SKIPPED` rows.
-- The wiring layer picks the right orchestrator and surfaces a clear
-  WARN when `heavy_light_lanes.enabled: true` is combined with
-  `mode="streaming"` (deferred to spec 065).
-- Full unit + integration suite green; mypy + ruff clean.
+- `processing.mode` default a `"batched"` y rechaza valores
+  desconocidos (Pydantic Literal).
+  `processing.streaming.bucket_size` default a 100, rechaza
+  `< 1`.
+- Un `StreamingOrchestrator.run(...)` contra un set de
+  fixture chico sube cada doc exitosamente — test
+  end-to-end vía el `pipeline_harness` existente.
+- El bucket topa la memoria: un test con `bucket_size=5` y
+  50 triggers assertea que el `qsize()` del bucket nunca
+  excede 5 a mitad de run (sondeado vía un hook).
+- El shutdown es limpio: cada thread consumer joinea, sin
+  zombies.
+- `from_stage > 1` o `batch_id` non-None con
+  `mode="streaming"` levanta `ValueError`.
+- La idempotencia cross-batch (spec 062 / la spec) funciona
+  en streaming exactamente como en batched — un re-run de
+  los mismos triggers produce filas `S1_SKIPPED`.
+- La capa de wiring elige el orchestrator correcto y
+  surface un WARN claro cuando
+  `heavy_light_lanes.enabled: true` se combina con
+  `mode="streaming"` (diferido a la spec 065).
+- Suite completa unit + integration verde; mypy + ruff
+  limpios.
 - `CHANGELOG.md [0.65.0]`; `pyproject.toml` 0.64.0 → 0.65.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The `pipeline_harness` (`tests/integration/pipeline/conftest.py`) is
-re-used: a new `build_streaming_pipeline(triggers_csv, **kwargs)`
-factory wires the `StreamingOrchestrator`. The existing `respx`-based
-CMIS stubbing works unchanged — the new orchestrator goes through the
-same `CmisUploader`. Two key tests:
+El `pipeline_harness` (`tests/integration/pipeline/conftest.py`)
+se reusa: una nueva factory
+`build_streaming_pipeline(triggers_csv, **kwargs)` wirea el
+`StreamingOrchestrator`. El stubbing de CMIS basado en
+`respx` existente funciona sin cambios — el orchestrator
+nuevo pasa por el mismo `CmisUploader`. Dos tests clave:
 
-- `test_streaming_run_uploads_all_docs` — happy path, 6-doc fixture,
-  every doc lands `S5_DONE`.
-- `test_streaming_bucket_caps_memory` — `bucket_size=5`, instrument
-  the queue to record peak `qsize()`, assert ≤ 5.
-- `test_streaming_rejects_resume_args` — `from_stage=3` or
-  `batch_id="x"` with `mode="streaming"` raises.
-- `test_streaming_cross_batch_idempotency` — second run produces
-  `S1_SKIPPED` rows just like the batched path (062).
+- `test_streaming_run_uploads_all_docs` — happy path,
+  fixture de 6 docs, cada doc aterriza `S5_DONE`.
+- `test_streaming_bucket_caps_memory` — `bucket_size=5`,
+  instrumentar la cola para grabar el `qsize()` pico,
+  assertear ≤ 5.
+- `test_streaming_rejects_resume_args` — `from_stage=3` o
+  `batch_id="x"` con `mode="streaming"` levanta.
+- `test_streaming_cross_batch_idempotency` — el segundo
+  run produce filas `S1_SKIPPED` igual que el camino
+  batched (062).
 
-The orchestrator itself gets unit tests for the iterator
-thread-safety + poison-pill shutdown via a `_FakePipeline`-style
-harness, mirroring the pattern used in
-`tests/unit/orchestrators/test_multi_batch.py`.
+El orchestrator mismo recibe tests unitarios para la
+thread-safety del iterador + shutdown de `poison pill` vía
+un harness estilo `_FakePipeline`, espejando el patrón
+usado en `tests/unit/orchestrators/test_multi_batch.py`.

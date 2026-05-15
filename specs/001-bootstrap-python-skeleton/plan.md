@@ -1,71 +1,71 @@
 # Plan — 001-bootstrap-python-skeleton
 
-**Status**: Draft (under review)
-**Created**: 2026-05-08
-**Spec reference**: `specs/001-bootstrap-python-skeleton/spec.md`
-**Constitution version at draft time**: v1.0.0
+**Status**: Borrador (en revisión)
+**Creado**: 2026-05-08
+**Referencia al spec**: `specs/001-bootstrap-python-skeleton/spec.md`
+**Versión de la constitución al momento del borrador**: v1.0.0
 
-> The **how** of this change. Describes architectural decisions, library choices, and the final layout. Implementation breakdown lives in `tasks.md`.
-
----
-
-## 1. Approach Summary
-
-A single `pyproject.toml` (PEP 621) declares the entire build, dependencies, and tooling configuration. No `setup.py`. No `setup.cfg`. The repo gets a `src/`-layout skeleton with empty `__init__.py` files in every package, a smoke test that proves importability, and a pre-commit pipeline that enforces the constitutional rules from the first commit.
-
-The change is intentionally narrow: every line of code or configuration in this change must be justified by a requirement in `spec.md`. Nothing is added "because we'll need it later" — that is the kind of speculative scaffolding that grew the old `pipeline.py` to 1341 lines.
+> El **cómo** de este cambio. Describe decisiones de arquitectura, elecciones de librerías y el layout final. El desglose de implementación vive en `tasks.md`.
 
 ---
 
-## 2. Build & Packaging Decisions
+## 1. Resumen del Enfoque
+
+Un único `pyproject.toml` (PEP 621) declara todo el `build`, dependencias y configuración del `tooling`. Sin `setup.py`. Sin `setup.cfg`. El repo obtiene un esqueleto de layout `src/` con archivos `__init__.py` vacíos en cada paquete, un `smoke test` que prueba la `importability`, y un `pipeline` de `pre-commit` que hace `enforcement` de las reglas constitucionales desde el primer `commit`.
+
+El cambio es intencionalmente acotado: cada línea de código o configuración en este cambio debe estar justificada por un requisito en `spec.md`. No se agrega nada "porque lo vamos a necesitar después" — ese es el tipo de andamiaje especulativo que llevó al viejo `pipeline.py` a tener 1341 líneas.
+
+---
+
+## 2. Decisiones de Build y Packaging
 
 ### 2.1 Build backend: `setuptools`
 
-**Decision**: Use `setuptools>=68` as the build backend.
+**Decisión**: Usar `setuptools>=68` como `build backend`.
 
-**Alternatives considered**:
-- `hatchling`: modern, lightweight, fewer features. Adoption growing.
-- `pdm-backend`: tied to PDM; we are not using PDM as the dependency manager.
-- `poetry-core`: tied to Poetry; we are not using Poetry.
+**Alternativas consideradas**:
+- `hatchling`: moderno, liviano, menos features. Adopción creciente.
+- `pdm-backend`: atado a PDM; no estamos usando PDM como gestor de dependencias.
+- `poetry-core`: atado a Poetry; no estamos usando Poetry.
 
-**Rationale**:
-- `setuptools` is the default. Every Python developer on the planet understands it.
-- We do not need any feature that `hatchling` provides above `setuptools` (no plugins, no dynamic versioning beyond `version = "0.0.0"`).
-- Switching backend later is cheap if a feature gap appears.
-- Constitution Principle IX: "concepts over code, verify over assume". Choosing the boring default is the verified option.
+**Justificación**:
+- `setuptools` es el default. Todo desarrollador Python del planeta lo entiende.
+- No necesitamos ninguna feature que `hatchling` provea por encima de `setuptools` (sin plugins, sin versionado dinámico más allá de `version = "0.0.0"`).
+- Cambiar de `backend` después es barato si aparece un `gap` de features.
+- Principio IX de la Constitución: "concepts over code, verify over assume". Elegir el default aburrido es la opción verificada.
 
-### 2.2 src layout (PEP 420)
+### 2.2 Layout src (PEP 420)
 
-**Decision**: All importable code lives under `src/cmcourier/`. No top-level `cmcourier/` directory.
+**Decisión**: Todo el código importable vive bajo `src/cmcourier/`. Sin directorio `cmcourier/` a nivel `top-level`.
 
-**Rationale**:
-- Forces editable installs to actually install the package (rather than picking up the repo root as if it were on `PYTHONPATH`). This catches missing `__init__.py` and mis-declared modules at install time, not at runtime.
-- Eliminates a class of "tests pass locally but fail on CI" problems caused by import resolution differences.
-- Standard practice for modern Python projects.
+**Justificación**:
+- Fuerza que los `editable installs` realmente instalen el paquete (en lugar de tomar la raíz del repo como si estuviera en `PYTHONPATH`). Esto captura `__init__.py` faltantes y módulos mal declarados al momento de la instalación, no en `runtime`.
+- Elimina una clase de problemas de "los tests pasan local pero fallan en CI" causados por diferencias en la resolución de imports.
+- Práctica estándar para proyectos Python modernos.
 
-### 2.3 Version
+### 2.3 Versión
 
-**Decision**: Hardcoded `__version__ = "0.0.0"` in `src/cmcourier/__init__.py`. SemVer bumps from there as real features land.
+**Decisión**: `__version__ = "0.0.0"` hardcodeado en `src/cmcourier/__init__.py`. Los bumps de SemVer suceden desde ahí a medida que aterricen features reales.
 
-**Rationale**:
-- We do not need dynamic versioning from git tags yet. When the first MVP ships, we revisit (likely `setuptools-scm` or a manual bump policy).
-- Empty skeleton ≠ shippable software. `0.0.0` is honest; `0.1.0` would imply something works.
+**Justificación**:
+- Todavía no necesitamos versionado dinámico desde `git tags`. Cuando se entregue el primer MVP, lo revisamos (probablemente `setuptools-scm` o una política manual de `bump`).
+- Esqueleto vacío ≠ software entregable. `0.0.0` es honesto; `0.1.0` implicaría que algo funciona.
 
-### 2.4 Entry point reservation
+### 2.4 Reserva del entry point
 
-**Decision**: Declare `[project.scripts] cmcourier = "cmcourier.cli.app:main"` even though `main` does not exist beyond a placeholder Click group.
+**Decisión**: Declarar `[project.scripts] cmcourier = "cmcourier.cli.app:main"` aunque `main` no exista más allá de un `placeholder` de grupo Click.
 
-**Rationale**:
-- Reserves the binary name from day one. The first contributor to add a real CLI command does not have to refactor the install.
-- Forces the placeholder `main()` function to exist with the correct signature, which is documentation in itself.
+**Justificación**:
+- Reserva el nombre del binario desde el día uno. El primer contribuyente que agregue un comando CLI real no tiene que refactorizar la instalación.
+- Fuerza que la función `placeholder` `main()` exista con la firma correcta, lo cual es documentación en sí mismo.
 
 ---
 
-## 3. Dependency Pinning Policy
+## 3. Política de Pinning de Dependencias
 
-### 3.1 Runtime dependencies
+### 3.1 Dependencias de runtime
 
-Pin to **minimum compatible versions** with `>=` (no upper bound) for now:
+`Pin` a **versiones mínimas compatibles** con `>=` (sin tope superior) por ahora:
 
 ```toml
 [project]
@@ -82,12 +82,12 @@ dependencies = [
 ]
 ```
 
-**Rationale**:
-- Lower bound = minimum we have validated against. We will validate against these versions during MVP.
-- Upper bound = next major. Major versions are where breaking changes happen; we want to consciously choose to upgrade.
-- No exact pins (`==`) at this layer. Exact pins live in a `requirements.lock` file (post-MVP, when we have a CI pipeline that needs reproducibility).
+**Justificación**:
+- Tope inferior = mínimo contra el que validamos. Vamos a validar contra estas versiones durante el MVP.
+- Tope superior = la siguiente `major`. Las versiones `major` son donde suceden los cambios `breaking`; queremos elegir conscientemente cuándo actualizar.
+- Sin `pins` exactos (`==`) en esta capa. Los `pins` exactos viven en un archivo `requirements.lock` (post-MVP, cuando tengamos un `pipeline` de CI que necesite reproducibilidad).
 
-### 3.2 Development dependencies
+### 3.2 Dependencias de desarrollo
 
 ```toml
 [project.optional-dependencies]
@@ -104,7 +104,7 @@ dev = [
 
 ---
 
-## 4. Tooling Configuration
+## 4. Configuración del Tooling
 
 ### 4.1 ruff
 
@@ -138,11 +138,11 @@ ignore = []
 # defaults are fine; ruff format mimics black
 ```
 
-**Decision on `F401` for `__init__.py`**: yes, exempt. Re-exports are intentional in `__init__.py`.
+**Decisión sobre `F401` para `__init__.py`**: sí, eximido. Las re-exportaciones son intencionales en `__init__.py`.
 
 ### 4.2 mypy
 
-Two-tier strictness as specified in the spec:
+`Strict` de dos niveles como se especifica en el `spec`:
 
 ```toml
 [tool.mypy]
@@ -169,7 +169,7 @@ module = ["img2pdf", "pyodbc", "PyPDF2", "requests_toolbelt.*"]
 ignore_missing_imports = true
 ```
 
-**Rationale**: strict mode on the inner layers (where the constitution demands cleanliness) and pragmatic mode on the adapter layer (where third-party libraries with bad stubs would otherwise produce noise). This matches Constitution §Constraints / Type checking.
+**Justificación**: modo `strict` en las capas internas (donde la constitución exige limpieza) y modo pragmático en la capa de adaptadores (donde las librerías `third-party` con `stubs` malos generarían ruido). Esto coincide con Constitución §Constraints / Type checking.
 
 ### 4.3 pytest
 
@@ -202,11 +202,11 @@ exclude_lines = [
 ]
 ```
 
-**Note**: 80% threshold is configured but the skeleton itself has zero production code. Coverage of an empty package is trivially 100%, so the threshold "passes" from day one without being meaningful. The threshold becomes binding the moment real code ships. This is by design.
+**Nota**: el umbral del 80% está configurado, pero el esqueleto en sí tiene cero código de producción. El `coverage` de un paquete vacío es trivialmente 100%, así que el umbral "pasa" desde el día uno sin ser significativo. El umbral se vuelve vinculante en el momento en que se entregue código real. Esto es por diseño.
 
 ---
 
-## 5. Pre-commit Pipeline
+## 5. Pipeline de Pre-commit
 
 ### 5.1 Hooks
 
@@ -245,9 +245,9 @@ repos:
         stages: [commit-msg]
 ```
 
-### 5.2 The `no-co-authored-by` hook
+### 5.2 El hook `no-co-authored-by`
 
-Implemented as a tiny shell script under `scripts/hooks/no-co-authored-by.sh`:
+Implementado como un pequeño script de shell bajo `scripts/hooks/no-co-authored-by.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -260,19 +260,19 @@ if grep -qiE '^[[:space:]]*Co-Authored-By:' "$msg_file"; then
 fi
 ```
 
-**Rationale**: a pre-commit hook is the only place this rule is enforced automatically. Constitution prose alone does not block bad commits.
+**Justificación**: un `pre-commit hook` es el único lugar donde esta regla se aplica automáticamente. La prosa de la constitución por sí sola no bloquea `commits` malos.
 
-### 5.3 Hooks framework version pin
+### 5.3 Pin de versión del framework de hooks
 
-**Decision**: pin all hook versions exactly (the `rev:` field above). Pre-commit's own version is pinned in `dev` deps with `>=3.5,<5.0`.
+**Decisión**: pinear todas las versiones de hooks exactamente (el campo `rev:` arriba). La versión de `pre-commit` propiamente dicha está pineada en las `dev deps` con `>=3.5,<5.0`.
 
-**Rationale**: hook versions changing under us is a CI surprise we do not need. Bumping is a deliberate `chore: bump pre-commit hooks` change.
+**Justificación**: que las versiones de los hooks cambien debajo nuestro es una sorpresa de CI que no necesitamos. Hacer el `bump` es un cambio deliberado `chore: bump pre-commit hooks`.
 
 ---
 
-## 6. Final Repo Layout
+## 6. Layout Final del Repo
 
-After this change merges:
+Después de que este cambio se mergee:
 
 ```
 CMCourier/
@@ -345,15 +345,15 @@ CMCourier/
         └── pipeline/__init__.py
 ```
 
-**Notes on the layout**:
-- Every empty `__init__.py` is **intentional** — no namespace packages, every subdirectory is an explicit package.
-- `domain/{models,ports,exceptions}.py` are docstring-only placeholders so the layering is visually obvious from day one.
-- `cli/app.py` exists as a placeholder so the entry point declared in `pyproject.toml` actually resolves.
-- `tests/` mirrors `src/cmcourier/` partially — only the layers that will hold unit tests (`domain`, `services`, `orchestrators`) need stubs. Integration tests are organized by what they test (`adapters`, `pipeline`).
+**Notas sobre el layout**:
+- Cada `__init__.py` vacío es **intencional** — sin `namespace packages`, cada subdirectorio es un paquete explícito.
+- `domain/{models,ports,exceptions}.py` son `placeholders` de solo `docstring` para que el `layering` sea visualmente obvio desde el día uno.
+- `cli/app.py` existe como `placeholder` para que el `entry point` declarado en `pyproject.toml` realmente resuelva.
+- `tests/` espeja parcialmente `src/cmcourier/` — solo las capas que van a tener `unit tests` (`domain`, `services`, `orchestrators`) necesitan `stubs`. Los `integration tests` se organizan por lo que testean (`adapters`, `pipeline`).
 
 ---
 
-## 7. Smoke Test Detail
+## 7. Detalle del Smoke Test
 
 `tests/test_smoke.py`:
 
@@ -379,13 +379,13 @@ def test_version_is_set() -> None:
     )
 ```
 
-**Decision on placement**: `tests/test_smoke.py` (top-level), NOT `tests/unit/test_smoke.py`. Reason: the smoke test is meta — it tests that the build works, not a domain unit. It should not be discovered as part of unit tests once `tests/unit/` fills up.
+**Decisión sobre la ubicación**: `tests/test_smoke.py` (top-level), NO `tests/unit/test_smoke.py`. Razón: el `smoke test` es meta — testea que el `build` funciona, no una unidad de dominio. No debería descubrirse como parte de `unit tests` una vez que `tests/unit/` se llene.
 
 ---
 
-## 8. README "Getting started" Section
+## 8. Sección "Getting started" del README
 
-Replaces the current placeholder:
+Reemplaza el `placeholder` actual:
 
 ```markdown
 ## Getting started
@@ -431,9 +431,9 @@ You don't bypass pre-commit hooks. If a hook fails, fix the cause and create a n
 
 ---
 
-## 9. CHANGELOG Entry
+## 9. Entrada del CHANGELOG
 
-Under `[Unreleased]` in `CHANGELOG.md`, replace the "Planned for next release" bullets with:
+Bajo `[Unreleased]` en `CHANGELOG.md`, reemplazar los bullets de "Planned for next release" con:
 
 ```markdown
 ## [Unreleased]
@@ -456,64 +456,64 @@ Under `[Unreleased]` in `CHANGELOG.md`, replace the "Planned for next release" b
 
 ---
 
-## 10. Risks & Mitigations
+## 10. Riesgos y Mitigaciones
 
-| Risk | Mitigation |
-|------|------------|
-| `pyodbc` install fails on CI / contributor host without `unixODBC-dev` | README Getting started lists the prerequisite explicitly. Future CI pipeline (separate change) installs it via apt/brew. |
-| `pre-commit` first-run is slow (downloads hook environments) | Documented in README. One-time cost. |
-| `mypy --strict` blocks the first real code change with stub gaps in `pyodbc`/`img2pdf` | `tool.mypy.overrides` for those modules already set `ignore_missing_imports = true`. |
-| Coverage threshold of 80% on empty skeleton looks like cheating | It is, by design. Documented as such. Becomes binding when first real code lands. |
-| Pre-commit hook on commit-msg fails on `git commit -m "..."` (no editor) | conventional-pre-commit and the no-co-authored-by hook both run on `commit-msg`, which fires for `-m` commits too. Works. |
-| Conventional Commits hook is too strict for `wip` commits during local development | Contributors are expected to squash before opening PR. Documented in CONTRIBUTING.md. If pain becomes real, we add an opt-in skip (separate change). |
-
----
-
-## 11. Implementation Order Hint
-
-The `tasks.md` file groups tasks by phase. The phases are sequenced so that each phase produces a partial-working state — at the end of any phase, the contributor can stop, push, and have a meaningful intermediate commit.
-
-Phases:
-1. Repo hygiene (gitignore, editorconfig)
-2. Source layout (empty `__init__.py` everywhere)
-3. Build & tooling config (`pyproject.toml`)
-4. Tests skeleton + smoke test
-5. Pre-commit pipeline
-6. Verification + docs update
-
-This order matches the dependency graph: hygiene before layout, layout before pyproject (which references the layout), pyproject before tests (so `pip install -e .[dev]` works), tests before pre-commit (so `pre-commit run --all-files` has things to run against), pre-commit before docs (so the docs reflect the working state).
+| Riesgo | Mitigación |
+|--------|------------|
+| La instalación de `pyodbc` falla en CI / `host` del contribuyente sin `unixODBC-dev` | El README Getting started lista el prerequisito explícitamente. El futuro `pipeline` de CI (cambio separado) lo instala vía apt/brew. |
+| La primera corrida de `pre-commit` es lenta (descarga los entornos de los hooks) | Documentado en el README. Costo de una sola vez. |
+| `mypy --strict` bloquea el primer cambio de código real por gaps en los `stubs` de `pyodbc`/`img2pdf` | `tool.mypy.overrides` para esos módulos ya tiene `ignore_missing_imports = true`. |
+| El umbral de `coverage` del 80% sobre un esqueleto vacío parece trampa | Lo es, por diseño. Documentado como tal. Se vuelve vinculante cuando aterriza el primer código real. |
+| El `pre-commit hook` en `commit-msg` falla en `git commit -m "..."` (sin editor) | Tanto `conventional-pre-commit` como el hook `no-co-authored-by` corren en `commit-msg`, que también se dispara para `commits` con `-m`. Funciona. |
+| El hook de `Conventional Commits` es demasiado estricto para `commits` `wip` durante desarrollo local | Se espera que los contribuyentes hagan `squash` antes de abrir el PR. Documentado en CONTRIBUTING.md. Si el dolor se vuelve real, agregamos un `skip` opt-in (cambio separado). |
 
 ---
 
-## 12. Open Questions (now resolved)
+## 11. Pista sobre el Orden de Implementación
 
-The spec listed 4 open questions. Resolved here:
+El archivo `tasks.md` agrupa tareas por fase. Las fases están secuenciadas para que cada fase produzca un estado parcialmente funcional — al final de cualquier fase, el contribuyente puede parar, pushear, y tener un `commit` intermedio significativo.
 
-| Question | Resolution |
+Fases:
+1. Higiene del repo (`gitignore`, `editorconfig`)
+2. Layout del código fuente (`__init__.py` vacío en todos lados)
+3. Configuración de `build` y `tooling` (`pyproject.toml`)
+4. Esqueleto de tests + `smoke test`
+5. Pipeline de `pre-commit`
+6. Verificación + actualización de documentación
+
+Este orden coincide con el grafo de dependencias: higiene antes de layout, layout antes de `pyproject` (que referencia el layout), `pyproject` antes de tests (para que `pip install -e .[dev]` funcione), tests antes de `pre-commit` (para que `pre-commit run --all-files` tenga cosas contra qué correr), `pre-commit` antes de docs (para que la documentación refleje el estado funcional).
+
+---
+
+## 12. Preguntas Abiertas (ahora resueltas)
+
+El `spec` listó 4 preguntas abiertas. Resueltas acá:
+
+| Pregunta | Resolución |
 |----------|------------|
-| Build backend? | `setuptools` (§2.1 above) |
-| pre-commit version pinning? | Exact pins per hook; framework `>=3.5,<5.0` (§5.3) |
-| Smoke test placement? | `tests/test_smoke.py` (top level), NOT `tests/unit/` (§7) |
-| `__init__.py` exempted from `F401`? | Yes, in `[tool.ruff.lint.per-file-ignores]` (§4.1) |
+| Build backend? | `setuptools` (§2.1 arriba) |
+| Pinning de versión de pre-commit? | Pins exactos por hook; framework `>=3.5,<5.0` (§5.3) |
+| Ubicación del smoke test? | `tests/test_smoke.py` (top level), NO `tests/unit/` (§7) |
+| `__init__.py` exento de `F401`? | Sí, en `[tool.ruff.lint.per-file-ignores]` (§4.1) |
 
 ---
 
-## 13. Documentation Architecture
+## 13. Arquitectura de Documentación
 
-CMCourier uses a **Diátaxis-inspired** documentation layout (https://diataxis.fr): documentation is split by *purpose* rather than by topic. This avoids the typical mess of one giant README that tries to teach, explain, and reference all at once.
+CMCourier usa un layout de documentación **inspirado en Diátaxis** (https://diataxis.fr): la documentación se divide por *propósito* en lugar de por tema. Esto evita el típico desastre de un README gigante que intenta enseñar, explicar y referenciar todo a la vez.
 
-### 13.1 The four quadrants of Diátaxis
+### 13.1 Los cuatro cuadrantes de Diátaxis
 
-| Quadrant | Purpose | Reader's mindset |
-|----------|---------|------------------|
-| **Tutorials** | Learning-oriented | "I am new and want to learn by doing" |
-| **How-to guides** | Problem-oriented | "I need to solve this specific task" |
-| **Reference** | Information-oriented | "I need to look up a specific fact" |
-| **Explanation** | Understanding-oriented | "I want to understand how/why this works" |
+| Cuadrante | Propósito | Mentalidad del lector |
+|-----------|-----------|----------------------|
+| **Tutoriales** | Orientado al aprendizaje | "Soy nuevo y quiero aprender haciendo" |
+| **Guías how-to** | Orientado a problemas | "Necesito resolver esta tarea específica" |
+| **Reference** | Orientado a información | "Necesito buscar un dato específico" |
+| **Explicación** | Orientado a entender | "Quiero entender cómo/por qué funciona esto" |
 
-### 13.2 What we ship in 001 (pragmatic subset)
+### 13.2 Lo que entregamos en 001 (subconjunto pragmático)
 
-For this change we materialize **only the two quadrants the user explicitly requested**: `how-to` and `explanation`. Tutorials and reference are deferred until natural content appears — a tutorial is best written when the first pipeline ships and there is something to walk through; a reference is best written when the CLI command surface stabilizes.
+Para este cambio materializamos **solamente los dos cuadrantes que el usuario pidió explícitamente**: `how-to` y `explanation`. Los tutoriales y la `reference` se difieren hasta que aparezca contenido natural — un tutorial se escribe mejor cuando se entrega el primer `pipeline` y hay algo concreto que recorrer; una `reference` se escribe mejor cuando se estabiliza la superficie de comandos de la CLI.
 
 ```
 docs/
@@ -530,26 +530,26 @@ docs/
     └── README.md                 # purpose + naming convention + index of explanations
 ```
 
-the project's domain spec stays where it is despite being explanation-class. It is the **domain ground truth** with precedence #4 in the constitution; moving it would invalidate cross-references in already-shipped artifacts (constitution, README, plan files). It is linked from `docs/explanation/README.md` as canonical domain explanation.
+La `domain spec` del proyecto se queda donde está a pesar de ser de clase explicación. Es la **fuente de verdad del dominio** con precedencia #4 en la constitución; moverla invalidaría referencias cruzadas en artefactos ya entregados (constitución, README, archivos de `plan`). Se linkea desde `docs/explanation/README.md` como la explicación canónica del dominio.
 
-### 13.3 Naming conventions
+### 13.3 Convenciones de nombres
 
-- **How-to**: `docs/how-to/<task-slug>.md` (e.g., `run-rvabrep-pipeline.md`, `configure-cmis-credentials.md`, `recover-from-failed-batch.md`).
-- **Explanation**: `docs/explanation/<concept-slug>.md` (e.g., `stage-architecture.md`, `metadata-resolution-cascade.md`, `cmis-session-warmup.md`).
-- Slugs are kebab-case, descriptive, stable. Renaming an existing doc is a breaking change for external links — bump CHANGELOG.
+- **How-to**: `docs/how-to/<task-slug>.md` (por ejemplo, `run-rvabrep-pipeline.md`, `configure-cmis-credentials.md`, `recover-from-failed-batch.md`).
+- **Explanation**: `docs/explanation/<concept-slug>.md` (por ejemplo, `stage-architecture.md`, `metadata-resolution-cascade.md`, `cmis-session-warmup.md`).
+- Los `slugs` son `kebab-case`, descriptivos, estables. Renombrar un doc existente es un cambio `breaking` para los links externos — bumpear el CHANGELOG.
 
-### 13.4 What goes in each subdirectory README
+### 13.4 Qué va en cada README de subdirectorio
 
-Each `how-to/README.md` and `explanation/README.md`:
+Cada `how-to/README.md` y `explanation/README.md`:
 
-1. States the purpose of that kind of doc in 2-3 sentences (the Diátaxis quadrant definition adapted to CMCourier).
-2. Lists the naming convention from §13.3.
-3. Lists currently-available content as a markdown bullet list (empty at MVP start; filled as docs are added — every change that ships a doc updates the appropriate README).
-4. Links back to `docs/INDEX.md` for navigation.
+1. Declara el propósito de ese tipo de doc en 2-3 oraciones (la definición del cuadrante de Diátaxis adaptada a CMCourier).
+2. Lista la convención de nombres de §13.3.
+3. Lista el contenido actualmente disponible como una lista de `bullets` markdown (vacía al inicio del MVP; se llena a medida que se agregan docs — cada cambio que entregue un doc actualiza el README apropiado).
+4. Linkea de vuelta a `docs/INDEX.md` para navegación.
 
-### 13.5 What goes in `docs/INDEX.md`
+### 13.5 Qué va en `docs/INDEX.md`
 
-A single-page map of **every** documentation artifact in the repo, grouped by category, with one-line descriptions and links. Approximate shape:
+Un mapa de una sola página de **cada** artefacto de documentación en el repo, agrupado por categoría, con descripciones de una línea y links. Forma aproximada:
 
 ```markdown
 # CMCourier — Documentation Index
@@ -583,21 +583,21 @@ The single map of every document in the project. Pick the quadrant that matches 
 - (none yet — see docs/explanation/README.md)
 ```
 
-The INDEX is updated by every change that adds or moves a documentation artifact (the change's `tasks.md` includes a task to update it; CONTRIBUTING.md will document this responsibility).
+El INDEX se actualiza con cada cambio que agregue o mueva un artefacto de documentación (el `tasks.md` del cambio incluye una tarea para actualizarlo; CONTRIBUTING.md va a documentar esta responsabilidad).
 
-### 13.6 Future evolution
+### 13.6 Evolución futura
 
-- When the first tutorial is written (likely when `rvabrep-pipeline` ships end-to-end and we have a real walkthrough to give a new operator), create `docs/tutorials/` with its own README.md following the same pattern.
-- When the CLI command surface stabilizes (post-MVP), create `docs/reference/` with a CLI command reference and a config schema reference.
-- Each addition is documented in CHANGELOG.md and the INDEX.md.
+- Cuando se escriba el primer tutorial (probablemente cuando `rvabrep-pipeline` se entregue de punta a punta y tengamos un `walkthrough` real para dar a un operador nuevo), crear `docs/tutorials/` con su propio README.md siguiendo el mismo patrón.
+- Cuando se estabilice la superficie de comandos de la CLI (post-MVP), crear `docs/reference/` con una `reference` de comandos CLI y una `reference` de schema de configuración.
+- Cada agregado se documenta en CHANGELOG.md y en el INDEX.md.
 
 ---
 
-## 14. Cross-References
+## 14. Referencias Cruzadas
 
 - Spec: `specs/001-bootstrap-python-skeleton/spec.md`
 - Tasks: `specs/001-bootstrap-python-skeleton/tasks.md`
-- Constitution: `.specify/memory/constitution.md`
-- the spec (Project Layout), §15 (Implementation Order)
-- CONTRIBUTING.md (workflow conventions this change enforces via hooks)
-- Diátaxis framework: https://diataxis.fr
+- Constitución: `.specify/memory/constitution.md`
+- la `spec` (Project Layout), §15 (Implementation Order)
+- CONTRIBUTING.md (convenciones del workflow que este cambio aplica vía hooks)
+- Framework Diátaxis: https://diataxis.fr

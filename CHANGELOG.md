@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to CMCourier are documented here.
+Todos los cambios notables de CMCourier están documentados acá.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) once code begins shipping.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html) una vez que el código empiece a shippearse.
 
-> **Pre-implementation phase**: while no code has shipped yet, releases are tagged at meaningful documentation milestones (constitution ratification, architectural decisions, roadmap consolidation). Once the first MVP change merges, the project moves to standard SemVer.
+> **Fase pre-implementación**: mientras todavía no shippeó código, los releases se taguean en hitos significativos de documentación (ratificación de la constitución, decisiones arquitectónicas, consolidación del roadmap). Una vez que el primer cambio del MVP se mergee, el proyecto pasa a SemVer estándar.
 
 ---
 
@@ -12,46 +12,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Tooling
 
-- **031** — `cmcourier mock generate`: synthetic RVABREP file-tree
-  generator for dry runs and integration tests. Reads RVABREP rows from
-  CSV or AS400, materializes valid PDFs (`img2pdf` multi-page), TIFFs
-  (Pillow LZW), and JPEGs (Pillow) under a configurable root mirroring
-  `<source_root>/<ABAICD>/<ABAJCD>`. Suffix-parsed size bounds
-  (`--pdf-min 10kb`, `--pdf-max 2mb`, …), `--seed`, `--dry-run`,
-  `--force`, `--include-deleted`, `--limit`, `--system`,
-  `--document-type`. Pure-additive surface; see
+- **031** — `cmcourier mock generate`: generador sintético de árbol
+  de archivos RVABREP para dry runs y tests de integración. Lee filas
+  RVABREP desde CSV o AS400, materializa PDFs válidos (`img2pdf`
+  multi-página), TIFFs (Pillow LZW), y JPEGs (Pillow) bajo un root
+  configurable espejando `<source_root>/<ABAICD>/<ABAJCD>`. Límites
+  de tamaño parseados por sufijo (`--pdf-min 10kb`, `--pdf-max 2mb`, …),
+  `--seed`, `--dry-run`, `--force`, `--include-deleted`, `--limit`,
+  `--system`, `--document-type`. Superficie pure-additive; ver
   `specs/031-mock-file-generator/spec.md`.
 
-### Planned for next releases
+### Planificado para próximos releases
 
-Post-MVP roadmap (`docs/roadmap/POST-MVP.md`) — still pending:
+Roadmap post-MVP (`docs/roadmap/POST-MVP.md`) — todavía pendiente:
 
-- **§7 (N > 2)** — Raise `batches_in_flight` cap above 2 (the
-  N=2 producer-consumer overlap shipped in 028; N=3..5 requires
-  a deeper refactor — deferred).
-- **§8** — Per-batch bandwidth quota.
-- **§10** — Watchlist items (per-folder CMIS concurrency, pool
-  warm-up, retry budgets per pipeline, CLI auto-completion, …).
+- **§7 (N > 2)** — Elevar el cap de `batches_in_flight` por encima de 2
+  (el overlap producer-consumer N=2 shippeó en 028; N=3..5 requiere
+  un refactor más profundo — diferido).
+- **§8** — Cuota de bandwidth por-batch.
+- **§10** — Items de watchlist (concurrencia CMIS por-carpeta,
+  warm-up del pool, budgets de retry por pipeline, auto-completion
+  CLI, …).
 
-Operational milestones outside the roadmap doc:
+Hitos operacionales fuera del documento de roadmap:
 
-- Real-data dry run against staging.
-- First production migration.
+- Dry run con datos reales contra staging.
+- Primera migración productiva.
 
-### Removed (no longer pending)
+### Removidos (ya no pendientes)
 
-- ~~§2 System metrics tier 5 (`psutil` sampling)~~ — shipped in 026.
-- ~~§3 Offline log analysis (`cmcourier analyze`)~~ — shipped in 027.
-- ~~§4 AS400 NIARVILOG distributed idempotency~~ — shipped in 034.
-- ~~§5 AIMD adaptive worker auto-tuning~~ — shipped in 025.
-- ~~§6 Additional pipelines (csv / as400 / local-scan)~~ —
-  shipped in 012 / 014 / 016.
-- ~~§7 (N=2)~~ — producer-consumer overlap of two batches in
-  flight, shipped in 028.
+- ~~§2 Nivel 5 de métricas de sistema (sampleo con `psutil`)~~ — shippeado en 026.
+- ~~§3 Análisis de logs offline (`cmcourier analyze`)~~ — shippeado en 027.
+- ~~§4 Idempotencia distribuida AS400 NIARVILOG~~ — shippeado en 034.
+- ~~§5 Auto-tuning adaptativo de workers AIMD~~ — shippeado en 025.
+- ~~§6 Pipelines adicionales (csv / as400 / local-scan)~~ —
+  shippeado en 012 / 014 / 016.
+- ~~§7 (N=2)~~ — overlap producer-consumer de dos batches en
+  vuelo, shippeado en 028.
 
 ---
 
-## [0.72.0] — 2026-05-15 — **Unify the LaneController across streaming + batched**
+## [0.72.0] — 2026-05-15 — **Unificar el LaneController entre streaming + batched**
 
 Operator-reported in the post-067 streaming run: UPLOAD tab's
 LANES sub-block shows `queue 0` for both HEAVY and LIGHT — always,
@@ -74,7 +75,7 @@ was setting the budget on the *idle* controller; the streaming
 dispatcher's actual per-lane semaphore split never got rebalanced
 by AIMD.
 
-### Fixed
+### Corregido
 
 - **`StreamingOrchestrator` reuses `pipeline.lane_controller`**
   instead of constructing its own. The constructor no longer
@@ -88,7 +89,7 @@ by AIMD.
 - AIMD's `set_total_budget` reaches the live streaming-mode
   per-lane semaphores.
 
-### Notes
+### Notas
 
 - No behaviour change for batched mode.
 - No behaviour change for streaming single-lane mode (lanes
@@ -98,7 +99,7 @@ by AIMD.
 
 ---
 
-## [0.71.0] — 2026-05-15 — **Bandwidth sampler: distribute bytes over real transmission window**
+## [0.71.0] — 2026-05-15 — **Sampler de bandwidth: distribuir bytes sobre la ventana real de transmisión**
 
 Operator-reported during the same 068 staging run: even after AIMD
 scales aggressively, the TUI shows `current 11 MB/s` one second
@@ -113,7 +114,7 @@ transmitting during them. `current_mbps()` (which reads the
 previous full bucket) became completion-event aliased: it flipped
 between "spike" and "valley" depending on the bucket's luck.
 
-### Fixed
+### Corregido
 
 - **`_BandwidthSampler.record_upload`** new signature
   `(size_bytes, *, started_at, completed_at)`. Distributes bytes
@@ -129,7 +130,7 @@ between "spike" and "valley" depending on the bucket's luck.
   fallback to crediting at completion when `duration_ms` is
   missing or zero.
 
-### Notes
+### Notas
 
 - `cumulative_bytes` is unchanged — still the authoritative
   running total. The change is only in how bytes are *distributed
@@ -144,7 +145,7 @@ between "spike" and "valley" depending on the bucket's luck.
 
 ---
 
-## [0.70.0] — 2026-05-15 — **AIMD aggressive growth + soft halve (heavy-file workloads)**
+## [0.70.0] — 2026-05-15 — **Crecimiento agresivo de AIMD + halve suave (cargas con archivos pesados)**
 
 Operator-reported during a `mockfiles-mixed` streaming run against
 Alfresco staging: bandwidth peak `<20 MB/s` despite a 300 Mbps
@@ -159,7 +160,7 @@ re-handshake + GC pause) trips the `1.2× target` halve threshold
 and `÷2`s the pool. Then recovery is `+1 per 15s tick`, so a single
 halve costs ~6 minutes of growth.
 
-### Added
+### Agregado
 
 Three tunable knobs on `cmis.auto_tune`:
 
@@ -180,7 +181,7 @@ Three tunable knobs on `cmis.auto_tune`:
   `1.2 × target` — more tolerance for heavy-file p95 variance.
   Setting `1.2` recovers the pre-068 shape.
 
-### Changed
+### Cambiado
 
 - The `Decision.action` label changed from `"+1"` to `"+N"` —
   steps are no longer always 1. TUI `auto_tune_last_action` shows
@@ -189,7 +190,7 @@ Three tunable knobs on `cmis.auto_tune`:
 - AIMD module header rewrote the **AI / MD** description as
   **MI (multiplicative increase) / Soft halve**.
 
-### Notes on impact
+### Notas sobre el impacto
 
 * For your `mockfiles-mixed` 30 MB workload: capacity should
   reach the 50-thread ceiling within the first ~3 minutes and
@@ -207,7 +208,7 @@ Three tunable knobs on `cmis.auto_tune`:
 
 ---
 
-## [0.69.0] — 2026-05-15 — **Streaming-mode TUI bug fixes: bar, timer, CHUNKS, lane queue**
+## [0.69.0] — 2026-05-15 — **Fixes de bugs en TUI modo streaming: barra, timer, CHUNKS, cola de lane**
 
 Operator-reported during the first end-to-end streaming run after
 0.68.0 shipped. Four distinct bugs in `StreamingOrchestrator`'s TUI
@@ -216,7 +217,7 @@ based binding shape from `MultiBatchOrchestrator` but never
 populated its live fields. All four fixes live entirely in
 `streaming.py`; no changes to the renderer or the batched path.
 
-### Fixed
+### Corregido
 
 - **UPLOAD-tab progress bar stuck at `count/count`.** The bar's
   target = `count + queue_depth`. The batched path calls
@@ -249,7 +250,7 @@ populated its live fields. All four fixes live entirely in
   (`_heavy_first_empty_at` / `_light_first_empty_at` never
   triggered pre-067 because depth never hit zero).
 
-### Notes
+### Notas
 
 - The UPLOAD-tab "X/Y docs" denominator in streaming is now
   `count + currently-pending`, which is honest but not the same as
@@ -260,7 +261,7 @@ populated its live fields. All four fixes live entirely in
 
 ---
 
-## [0.68.0] — 2026-05-15 — **S4 PDF assembly in ProcessPoolExecutor (real CPU parallelism)**
+## [0.68.0] — 2026-05-15 — **Ensamblado PDF S4 en ProcessPoolExecutor (paralelismo CPU real)**
 
 Diagnosed during a real streaming run with
 `prep_workers: 16` and a mixed 5000-doc source: BUCKET tab showed
@@ -274,7 +275,7 @@ threads existed but only one ran at any instant.
 S1 (indexing), S2 (mapping), S3 (metadata) are all dict-lookup-in-
 memory — they parallelize fine with threading and were not affected.
 
-### Added
+### Agregado
 
 - **`processing.s4_use_processes: bool = True`** — NEW DEFAULT.
   When true, S4 runs in a `ProcessPoolExecutor`, bypassing the
@@ -289,7 +290,7 @@ memory — they parallelize fine with threading and were not affected.
 - **`StagedPipeline.__init__(..., s4_process_pool=None)`** — new
   optional dependency injected by the wiring layer.
 
-### Changed
+### Cambiado
 
 - **`StagedPipeline._s4_one`** routes through
   `pool.submit(_pool_assemble, doc).result()` when the pool is
@@ -311,7 +312,7 @@ memory — they parallelize fine with threading and were not affected.
   `DeprecationWarning` on Python 3.12. `spawn` builds a fresh
   interpreter and re-runs `_pool_init` cleanly.
 
-### Notes on impact
+### Notas sobre el impacto
 
 - Aggregate PREP throughput scales with `s4_max_processes` for
   CPU-bound workloads. With `os.cpu_count() = 8`, expect ~8x
@@ -325,7 +326,7 @@ memory — they parallelize fine with threading and were not affected.
 
 ---
 
-## [0.67.0] — 2026-05-15 — **Heavy/light lanes in streaming mode**
+## [0.67.0] — 2026-05-15 — **Lanes heavy/light en modo streaming**
 
 063 shipped streaming with a single S5 consumer pool — a single
 heavy PDF could starve a flock of small ones queued behind it.
@@ -337,7 +338,7 @@ per-lane queue by `staged_file.size_bytes >= heavy_threshold_bytes`.
 Heavy and light lanes each get their own consumer pool gated by
 the existing `LaneController` semaphores + drain-driven rebalance.
 
-### Added
+### Agregado
 
 - **Streaming dual-lane path** — when
   `processing.mode == "streaming"` **and**
@@ -354,7 +355,7 @@ the existing `LaneController` semaphores + drain-driven rebalance.
   busy, queue depth, and total budget when dual mode is active.
   Hidden in single-lane mode.
 
-### Changed
+### Cambiado
 
 - **`StagedPipeline.streaming_upload_one(..., lane=None)`** — new
   kwarg threads the lane choice to `_upload_one`, which already
@@ -363,7 +364,7 @@ the existing `LaneController` semaphores + drain-driven rebalance.
   "heavy/light lanes deferred to spec 065" is removed — the
   combination now works.
 
-### Notes
+### Notas
 
 - The dispatcher is a single thread — one comparison + one
   `queue.put` per item. It is not a bottleneck for any realistic
@@ -380,7 +381,7 @@ the existing `LaneController` semaphores + drain-driven rebalance.
 
 ---
 
-## [0.66.0] — 2026-05-15 — **TUI BUCKET tab for streaming mode**
+## [0.66.0] — 2026-05-15 — **Tab BUCKET del TUI para modo streaming**
 
 063 introduced streaming mode but the live TUI was built for the
 batched model — its CHUNKS tab showed a single synthetic row in
@@ -389,7 +390,7 @@ with a dedicated BUCKET tab showing the back-pressure state of
 the bounded buffer, throughput on both sides of the bucket, and
 cumulative outcomes.
 
-### Added
+### Agregado
 
 - **BUCKET tab** (`b` keybind) — bucket level vs cap with an
   ASCII bar, peak level since run start, 5s sliding-window
@@ -411,7 +412,7 @@ cumulative outcomes.
   callable so the data provider stays decoupled from the
   orchestrator type.
 
-### Changed
+### Cambiado
 
 - The TUI always mounts both CHUNKS and BUCKET tabs. The renderer
   prints a one-line stub on the inactive tab pointing the operator
@@ -421,7 +422,7 @@ cumulative outcomes.
   orchestrator's `streaming_snapshot` callable (only when
   `StreamingOrchestrator`) into `TUIDataProvider`.
 
-### Notes
+### Notas
 
 - PREP `in_flight` increments before `streaming_prep_one` and
   decrements in `finally`, so the counter never leaks across
@@ -433,7 +434,7 @@ cumulative outcomes.
 
 ---
 
-## [0.65.0] — 2026-05-15 — **Streaming orchestrator: bucket-based producer-consumer pipeline**
+## [0.65.0] — 2026-05-15 — **Orquestador streaming: pipeline producer-consumer basado en bucket**
 
 The batched pipeline has two structural costs that hurt at the
 20M-doc scale: memory peak grows as
@@ -447,7 +448,7 @@ prepared docs sits between PREP (S1–S4 producers) and UPLOAD
 (S5 consumers), so memory peak collapses to `bucket_size` and
 neither side ever waits for the other to finish a "batch".
 
-### Added
+### Agregado
 
 - **`processing.mode: "batched" | "streaming"`** — orchestrator
   selector. Default `"batched"` keeps every byte of pre-063
@@ -470,7 +471,7 @@ neither side ever waits for the other to finish a "batch".
 - **`StagedPipeline.streaming_upload_one`** — public S5 thin
   wrapper used by streaming consumers.
 
-### Changed
+### Cambiado
 
 - **Resume in streaming mode = a new run.** `--from-stage > 1`
   and operator-named `--batch-id` raise `ValueError` when
@@ -484,7 +485,7 @@ neither side ever waits for the other to finish a "batch".
   synthetic row in streaming mode; spec 064 replaces it with a
   real BUCKET tab.
 
-### Notes
+### Notas
 
 - **Heavy/light lanes** (036) are deferred in streaming mode for
   this spec — the wiring emits a clear WARN when
@@ -500,7 +501,7 @@ neither side ever waits for the other to finish a "batch".
 
 ---
 
-## [0.64.0] — 2026-05-15 — **Persist S1 filtered + cross-batch-skipped docs to migration_log**
+## [0.64.0] — 2026-05-15 — **Persistir docs filtrados en S1 + skipeados cross-batch a migration_log**
 
 The operator inspected the DETAIL tab during a staging run and
 correctly noticed two gaps: the per-doc detail didn't show which docs
@@ -509,7 +510,7 @@ the docs skipped by cross-batch idempotency. Both were
 counted but never persisted, so neither the DETAIL tab nor
 `analyze batch` nor `cmcourier batch show` could surface them.
 
-### Added
+### Agregado
 
 - **`StageStatus.S1_FILTERED`** — terminal state for docs whose
   RVABREP row was delete-coded at source. The row's
@@ -525,7 +526,7 @@ counted but never persisted, so neither the DETAIL tab nor
   accepts any `*_FAILED` / `*_FILTERED` / `*_SKIPPED` suffix and
   does NOT bump `retry_count`.
 
-### Changed
+### Cambiado
 
 - **The prior "silent skip" contract is intentionally reversed.**
   Cross-batch skipped docs previously left no trace in `migration_log`
@@ -538,7 +539,7 @@ counted but never persisted, so neither the DETAIL tab nor
   existing `list_docs_for_batch` query and the `render_detail`
   status + reason columns don't change.
 
-### Notes
+### Notas
 
 - `analyze batch <id>` and `cmcourier batch show <id>` also see the
   new rows for free — both already pivot on `status` from
@@ -550,13 +551,13 @@ counted but never persisted, so neither the DETAIL tab nor
 
 ---
 
-## [0.63.0] — 2026-05-14 — **AIMD min_samples guard: stop halving on outlier-with-few-samples**
+## [0.63.0] — 2026-05-14 — **Guardia min_samples de AIMD: dejar de halvear con outlier-con-pocas-muestras**
 
 The operator reported that the AIMD controller **always** issued a
 `halve` a few seconds after the first chunk's S5 upload began —
 reproducible, deterministic, every run.
 
-### Fixed
+### Corregido
 
 - **AIMD halved on a single cold-connection outlier in the first
   chunk.** With nearest-rank p95 and N=5..6 samples, one upload that
@@ -578,7 +579,7 @@ reproducible, deterministic, every run.
   promote to `last_decision`, so the "last move" line keeps showing
   the most recent real decision instead of a noisy transient.
 
-### Notes
+### Notas
 
 - `MetricsRecorder.current_stage_p95_with_count(stage)` is the new
   primitive — atomic `(p95, count)`. The single-value
@@ -592,7 +593,7 @@ reproducible, deterministic, every run.
 
 ---
 
-## [0.62.0] — 2026-05-14 — **HTTP client migrated to httpx[http2]**
+## [0.62.0] — 2026-05-14 — **Cliente HTTP migrado a httpx[http2]**
 
 The 058 staging diagnosis pinned the bottleneck OUTSIDE the program — at
 ~1.5 s p50 per CMIS POST, with documents averaging ~76 KB. For workloads
@@ -602,7 +603,7 @@ carrying one request at a time, one TCP connection carries all N
 requests simultaneously. `requests` does not speak HTTP/2; `httpx`
 does, behind the same sync API.
 
-### Changed
+### Cambiado
 
 - **`CmisUploader` now uses `httpx.Client(http2=True)`.** HTTP/2 is
   negotiated via ALPN at TLS handshake; if the server only advertises
@@ -628,7 +629,7 @@ does, behind the same sync API.
   `responses`, `types-requests`; added `httpx[http2]` (main) and
   `respx` (dev).
 
-### Notes
+### Notas
 
 - Public surface (`IUploader.upload`, `CmisConfig`, wiring layer) is
   unchanged. Every caller is byte-compatible.
@@ -640,13 +641,13 @@ does, behind the same sync API.
 
 ---
 
-## [0.61.0] — 2026-05-14 — **DETAIL tab fixes: persist staged-file metadata + scrollable pane**
+## [0.61.0] — 2026-05-14 — **Fixes de tab DETAIL: persistir metadatos de archivo staged + panel scrolleable**
 
 Two bugs on the DETAIL tab (spec 052) the operator hit during a real
 staging run — the `size` column always read `—`, and chunks bigger
 than the visible height could not be scrolled.
 
-### Fixed
+### Corregido
 
 - **The `file_size_bytes` of every doc was never persisted.**
   `_build_record` takes the metadata from `item.staged_file`, but
@@ -669,7 +670,7 @@ than the visible height could not be scrolled.
   `batch_size` of 1000 — and the `… N more — full list: cmcourier
   batch show ...` hint stays for genuinely huge chunks.
 
-### Notes
+### Notas
 
 - The PREP / UPLOAD / CHUNKS panes are fixed-size dashboards that fit
   on screen — they keep the existing `Static.tab_body { height: 1fr }`
@@ -681,13 +682,13 @@ than the visible height could not be scrolled.
 
 ---
 
-## [0.60.0] — 2026-05-14 — **Size the S5 thread pool to the AIMD ceiling**
+## [0.60.0] — 2026-05-14 — **Dimensionar el thread pool de S5 al techo de AIMD**
 
 The operator watched the UPLOAD tab's pool capacity climb — 4 → 8 → 12
 — while "in use" stayed pinned at 4. The auto-tune knob was
 disconnected from the engine.
 
-### Fixed
+### Corregido
 
 - **The S5 `ThreadPoolExecutor` was sized to the initial
   `cmis.workers`, not the AIMD ceiling.** Upload concurrency is gated
@@ -714,7 +715,7 @@ disconnected from the engine.
   worker budget") always intended. Surplus threads sit parked on the
   work queue at near-zero cost.
 
-### Notes
+### Notas
 
 - With AIMD disabled, `_pool_ceiling()` returns `cmis.workers` — the
   pre-060 value — so behaviour is byte-identical when auto-tune is off.
@@ -730,14 +731,14 @@ disconnected from the engine.
 
 ---
 
-## [0.59.0] — 2026-05-14 — **Configurable prep workers: parallelize S2/S3/S4**
+## [0.59.0] — 2026-05-14 — **Workers de prep configurables: paralelizar S2/S3/S4**
 
 The assembly stage (S4) was crawling on the TUI — and it turned out
 `_stage_s4`, like `_stage_s2` and `_stage_s3`, was a plain serial
 `for item in items:` loop, one document at a time on a single thread,
 while S5 has run on an N-thread pool since spec 025.
 
-### Added
+### Agregado
 
 - **`processing.prep_workers`** — a YAML knob for how many threads the
   prep stages **S2 (mapping), S3 (metadata), S4 (assembly)** may use.
@@ -749,7 +750,7 @@ while S5 has run on an N-thread pool since spec 025.
   S5 machinery — no AIMD auto-tune, no heavy/light lanes, no bandwidth
   limiter, no TUI panel. Just a thread count.
 
-### Notes
+### Notas
 
 - **S0/S1 stay serial by design.** `_stage_s0_s1` carries the
   cross-batch idempotency, the `resume_scope`, and the
@@ -774,13 +775,13 @@ while S5 has run on an N-thread pool since spec 025.
 
 ---
 
-## [0.58.0] — 2026-05-14 — **Network events carry the batch_id: unbreak the bandwidth + slow-op handlers**
+## [0.58.0] — 2026-05-14 — **Los eventos de network llevan el batch_id: arreglar los handlers de bandwidth + slow-op**
 
 The root cause behind the dead UPLOAD tab. Spec 054 fixed *which
 recorder* the snapshot reads — but the operator re-ran and it was
 still empty, because **no recorder was receiving the events at all**.
 
-### Fixed
+### Corregido
 
 - **Every `cmis_upload` network event was silently dropped.**
   `CmisUploader._emit_network` built the log record's `extra` with
@@ -804,7 +805,7 @@ still empty, because **no recorder was receiving the events at all**.
   `s5_upload_failed` diagnostic events in `network-*.jsonl` become
   batch-attributable as well.
 
-### Notes
+### Notas
 
 - This is also the omission that left `network-*.jsonl` records
   without a `batch_id` — the gap spec 053 worked around by associating
@@ -824,14 +825,14 @@ still empty, because **no recorder was receiving the events at all**.
 
 ---
 
-## [0.57.0] — 2026-05-14 — **UPLOAD-tab recorder wiring: finish the 042 split**
+## [0.57.0] — 2026-05-14 — **Cableado del recorder de la tab UPLOAD: terminar el split de 042**
 
 On an N=2 staging run the UPLOAD tab was dead: bandwidth `0.00 MB/s`,
 peak `0.00 MB/s`, a blank UPLOAD SPEED sparkline, SLOW OPS
 "(none yet)" — and the per-chunk timer counted from a point long
 before S5 started. Two bugs, both incomplete fallout from 042.
 
-### Fixed
+### Corregido
 
 - **Bandwidth / peak / sparkline / slow ops read the PREP recorder.**
   042 split the TUI's recorder binding (`recorder_provider` follows the
@@ -854,7 +855,7 @@ before S5 started. Two bugs, both incomplete fallout from 042.
   `upload_started_monotonic`, `DONE` uses the frozen `upload_elapsed_s`,
   `PREP` is `0.0`. Single-batch (no active chunk) is unchanged.
 
-### Notes
+### Notas
 
 - The gap that let both bugs ship: no `TUIDataProvider` test wired
   **divergent** PREP and UPLOAD recorders, so `_metrics` and
@@ -864,14 +865,14 @@ before S5 started. Two bugs, both incomplete fallout from 042.
 
 ---
 
-## [0.56.0] — 2026-05-14 — **Bottleneck classifier: stage-aware + time-window log association**
+## [0.56.0] — 2026-05-14 — **Clasificador de bottleneck: consciente de stages + asociación de logs por ventana temporal**
 
 `cmcourier analyze batch` is supposed to answer *where the time went*
 and *whether the bottleneck is inside the program or outside it*. On a
 real 95-doc staging run — S5 (upload) was **26× the next stage** — it
 reported `under-utilized`. Exactly wrong.
 
-### Fixed
+### Corregido
 
 - **The classifier ignored the stage breakdown.**
   `classify_bottleneck` *received* the per-stage timing but it was
@@ -891,7 +892,7 @@ reported `under-utilized`. Exactly wrong.
   `cmis_upload p95 > 5000 ms` fallback never fired for a run whose S5
   dominated 26× but whose p95 was "only" ~1.1 s.
 
-### Changed
+### Cambiado
 
 - **Classification is stage-led.** The per-stage breakdown is the
   PRIMARY signal: when one stage holds ≥ 45% of total stage time it
@@ -910,7 +911,7 @@ reported `under-utilized`. Exactly wrong.
   outranks it. `under-utilized` is returned only when no stage
   dominates *and* no system signal fires.
 
-### Notes
+### Notas
 
 - Out of scope: tagging network/system records with a real `batch_id`
   (contextvar plumbing through the S5 worker pool). Time-window
@@ -922,12 +923,12 @@ reported `under-utilized`. Exactly wrong.
 
 ---
 
-## [0.55.0] — 2026-05-14 — **CHUNKS tab: live rates, frozen timer, drill-down**
+## [0.55.0] — 2026-05-14 — **Tab CHUNKS: rates live, timer congelado, drill-down**
 
 Three gaps the operator hit on the TUI during a `--total 2000`
 staging run.
 
-### Added
+### Agregado
 
 - **Per-chunk throughput in the CHUNKS tab.** A new `RATE MB/s·d/s`
   column shows each chunk's UPLOAD-phase throughput (and a TOTAL
@@ -942,7 +943,7 @@ staging run.
   table caps at 100 rows and points at `cmcourier batch show` for
   the full list.
 
-### Fixed
+### Corregido
 
 - **The run timer never stopped.** `TUIDataProvider` measured
   `elapsed` to `time.monotonic()` on every snapshot, so the footer
@@ -951,7 +952,7 @@ staging run.
   `snapshot()` measures to it — the timer **stops** when the run
   does.
 
-### Notes
+### Notas
 
 - Out of scope: a mouse-clickable `DataTable` rewrite of the CHUNKS
   tab (the `Static` + `[`/`]` cursor is lower-risk and sufficient
@@ -960,7 +961,7 @@ staging run.
 
 ---
 
-## [0.54.0] — 2026-05-14 — **"Filtered at S1" is a first-class outcome**
+## [0.54.0] — 2026-05-14 — **"Filtrado en S1" es un outcome de primera clase**
 
 A `--total 2000` staging run showed S1 processing 1000 triggers per
 chunk but only ~943 reaching S2–S5 — ~57 docs per chunk **vanished
@@ -973,7 +974,7 @@ delete-coded RVABREP row — no count, no log, no surface. The doc was
 neither `done`, nor `skipped` (cross-batch), nor `failed`: a fourth
 outcome the pipeline had no name for.
 
-### Fixed
+### Corregido
 
 - **Delete-coded RVABREP rows are no longer dropped silently at S1.**
   `_enrich_known_row` now raises `RVABREPDeletedError` (consistent
@@ -981,7 +982,7 @@ outcome the pipeline had no name for.
   counts it as **filtered** — a first-class outcome — and emits one
   structured INFO log per doc with `reason="deleted_at_source"`.
 
-### Changed
+### Cambiado
 
 - **`RVABREPDeletedError` is now a *filter*, not a *failure*** — for
   **both** trigger paths. A doc deleted at source is correctly
@@ -999,7 +1000,7 @@ outcome the pipeline had no name for.
   `FILTERED (S1, deleted at source)` line; the CHUNKS tab's per-chunk
   `PREP d/s/f` breakdown becomes `d/s/f/x` (x = filtered).
 
-### Notes
+### Notas
 
 - Out of scope: `DirectRvabrepTriggerStrategy.acquire`'s blank-row
   filter (it drops malformed rows in S0 *before* they become
@@ -1009,7 +1010,7 @@ outcome the pipeline had no name for.
 
 ---
 
-## [0.53.0] — 2026-05-14 — **Streaming trigger pipeline (bounded memory)**
+## [0.53.0] — 2026-05-14 — **Pipeline trigger en streaming (memoria acotada)**
 
 The bank's real RVABREP table is ~20 million rows. The pipeline
 materialized the **entire** trigger set in RAM before doing any work
@@ -1021,7 +1022,7 @@ memory is released before the next chunk is pulled. Peak in-flight
 memory is now `O(batch_size × batches_in_flight)`, not
 `O(total triggers)`.
 
-### Fixed
+### Corregido
 
 - **`MultiBatchOrchestrator._run_overlapped` (N=2)** —
   `triggers = list(acquire(...))` + `chunk_list = list(chunked(...))`
@@ -1044,14 +1045,14 @@ memory is now `O(batch_size × batches_in_flight)`, not
   materialized. Now `itertools.islice` pulls exactly N from the
   iterator.
 
-### Changed
+### Cambiado
 
 - The N=2 CHUNKS tab no longer shows the full chunk plan upfront —
   chunks appear as they enter PREP. Knowing the total chunk count
   *is* materializing the total trigger set, which 053 exists to
   avoid.
 
-### Notes
+### Notas
 
 - **The 20M production migration runs against
   `indexing.source.kind: as400`** — the live AS400 RVABREP table,
@@ -1069,7 +1070,7 @@ memory is now `O(batch_size × batches_in_flight)`, not
 
 ---
 
-## [0.52.0] — 2026-05-14 — **Configurable NIARVILOG column names**
+## [0.52.0] — 2026-05-14 — **Nombres de columna NIARVILOG configurables**
 
 The bank runs CMCourier against several AS400 environments whose
 `NIARVILOG` coordination table carries the **same 15 columns under
@@ -1079,7 +1080,7 @@ RVABREP column names were already per-environment configurable
 was not — its 15 names were hard-coded in every SQL statement of
 `as400_niarvilog.py`. 049 closes that gap.
 
-### Added
+### Agregado
 
 - **`tracking.as400_sync.columns`** — a `NiarvilogColumnsModel`
   logical→physical column map, symmetric to `indexing.columns`.
@@ -1100,14 +1101,14 @@ was not — its 15 names were hard-coded in every SQL statement of
         txn_num_column: NUMTRX
   ```
 
-### Changed
+### Cambiado
 
 - `As400NiarvilogStore` builds every `SELECT` / `UPDATE` / `INSERT`
   from a `NiarvilogColumns` value object instead of hard-coded
   identifiers. With default columns the emitted SQL is
   byte-identical to pre-049.
 
-### Security
+### Seguridad
 
 - **Identifier validation.** NIARVILOG column / library / table
   names are string-interpolated into SQL (a SQL identifier can never
@@ -1117,7 +1118,7 @@ was not — its 15 names were hard-coded in every SQL statement of
   also closes a pre-049 latent gap: `tracking.as400_sync.library` /
   `.table` were interpolated into `_full_table()` **unvalidated**.
 
-### Notes
+### Notas
 
 - RVABREP column names are **not** affected — for the AS400 RVABREP
   source the operator supplies the full `query` and
@@ -1126,7 +1127,7 @@ was not — its 15 names were hard-coded in every SQL statement of
 
 ---
 
-## [0.51.0] — 2026-05-14 — **Pluggable RVABREP source**
+## [0.51.0] — 2026-05-14 — **Fuente RVABREP pluggable**
 
 The `rvabrep-pipeline` and the old `as400-trigger-pipeline` were never
 two different pipelines — they ran the *same* stages over the *same*
@@ -1134,7 +1135,7 @@ RVABREP-shaped table. The only real difference was **where the table
 came from**: a CSV file simulating RVABREP, or a live SQL query against
 the AS400. 048 makes that the only thing that varies.
 
-### Changed
+### Cambiado
 
 - **`indexing.source` is now a discriminated union** (`kind: csv` or
   `kind: as400`). The CSV variant carries `csv_path`; the AS400 variant
@@ -1146,7 +1147,7 @@ the AS400. 048 makes that the only thing that varies.
 - The `rvabrep-pipeline` command now serves **both** sources. Pick the
   source in config, not in the command name.
 
-### Removed
+### Eliminado
 
 - **`as400-trigger-pipeline` command** and the `trigger.kind: as400`
   config kind. AS400 is a *source* choice, not a *trigger* kind. Configs
@@ -1156,7 +1157,7 @@ the AS400. 048 makes that the only thing that varies.
 - `As400TriggerConfig`, `As400TriggerStrategy`, and
   `services/triggers/as400.py`.
 
-### Notes
+### Notas
 
 - NIARVILOG (AS400-level idempotency tracking, 034) is untouched — it
   remains a separate concern from the RVABREP source.
@@ -1165,14 +1166,14 @@ the AS400. 048 makes that the only thing that varies.
 
 ---
 
-## [0.50.0] — 2026-05-14 — **Persist cm_object_id on S5_DONE**
+## [0.50.0] — 2026-05-14 — **Persistir cm_object_id en S5_DONE**
 
 The §L.3 step of the validation checklist ("GET a doc by objectId,
 pulling the OID from the tracking DB") was non-functional:
 ``migration_log.cm_object_id`` was ``NULL`` for every row even after
 a successful upload.
 
-### Fixed
+### Corregido
 
 - **``cm_object_id`` never reached SQLite.** The orchestrator's S5
   path assigned the CMIS objectId onto the in-memory ``_StageItem``
@@ -1187,7 +1188,7 @@ a successful upload.
   the OID to ``As400NiarvilogStore.OBJIDN``); 047 brings the SQLite
   ``migration_log`` to parity.
 
-### Changed
+### Cambiado
 
 - ``ITrackingStore.mark_stage_done`` signature gains keyword-only
   ``cm_object_id: str | None = None``. S1..S4 callers pass nothing
@@ -1195,7 +1196,7 @@ a successful upload.
   byte-identical to pre-047). ``IdempotencyCoordinator.mark_uploaded``
   and the orchestrator's S5_DONE call thread the real OID through.
 
-### Notes
+### Notas
 
 - Historical batches uploaded before 0.50.0 keep ``NULL``
   ``cm_object_id`` — not back-filled. The value is recoverable from
@@ -1203,7 +1204,7 @@ a successful upload.
 
 ---
 
-## [0.49.0] — 2026-05-13 — **Polymorphic Trigger model**
+## [0.49.0] — 2026-05-13 — **Modelo Trigger polimórfico**
 
 Closes the deepest architectural mismatch caught during the validation
 checklist sweep: the pre-046 ``TriggerRecord`` was a fixed 3-tuple
@@ -1218,7 +1219,7 @@ it was the trigger shape forcing semantic over-broad expansion. 046
 brings each pipeline its natural trigger shape and S1 dispatches per
 subtype.
 
-### Added
+### Agregado
 
 - ``cmcourier.domain.models.Trigger`` abstract base + three concrete
   subtypes:
@@ -1239,7 +1240,7 @@ subtype.
   so the document_cache persists CIF without inspecting the trigger
   subtype.
 
-### Changed
+### Cambiado
 
 - **local-scan semantics**: a scan pool of N files now uploads exactly
   N docs (one per file). Pre-046 each file was inflated to "all docs
@@ -1262,14 +1263,14 @@ subtype.
   ``ClientTrigger`` inputs (the only ones the coordinator sees in
   production today).
 
-### Fixed
+### Corregido
 
 - §E.4 "over-broad upload expansion" in local-scan
   (catalogued as a doc finding during the checklist sweep). The fix
   is architectural — local-scan now uploads exactly the files in
   the scan pool.
 
-### Out of scope (deferred)
+### Fuera de scope (diferido)
 
 - ``single-doc --txn-num`` for per-doc CLI runs. Future spec.
 - ``as400-trigger`` shape change. The operator-defined SQL may project
@@ -1278,7 +1279,7 @@ subtype.
 
 ---
 
-## [0.48.0] — 2026-05-13 — **Idempotent S5 upload on 409 conflict**
+## [0.48.0] — 2026-05-13 — **Upload S5 idempotente ante conflicto 409**
 
 Closes the last gap surfaced by §H.1's kill-mid-S5 verification.
 After 0.47.0 fixed the resume detection logic, a real
@@ -1295,7 +1296,7 @@ folder creation since 025 to the document upload
 path: on 409 we look the object up by ``cmis:name`` and treat the
 upload as successful if a match exists.
 
-### Fixed
+### Corregido
 
 - **Kill-race idempotency for S5 uploads.** ``CmisUploader.upload``
   now recovers from 409 conflicts by listing the target folder's
@@ -1305,7 +1306,7 @@ upload as successful if a match exists.
   the 409 propagates as a real failure (the conflict was for some
   other reason — different name collision, server-side ACL).
 
-### Added
+### Agregado
 
 - ``CmisUploader._lookup_existing_object_id(folder_url, name)`` —
   internal helper that GETs ``cmisselector=children`` and returns
@@ -1324,7 +1325,7 @@ upload as successful if a match exists.
   ``recovered_object_id`` and ``detail`` so the recovery events
   land in ``network-YYYY-MM-DD.jsonl`` with all their context.
 
-### Operational note
+### Nota operacional
 
 Recovered docs count as ``s5_done`` in the report — there is no
 new outcome enum. To audit which docs were recovered after a
@@ -1344,7 +1345,7 @@ is now 1114/1114 green.
 
 ---
 
-## [0.47.0] — 2026-05-13 — **Robust resume after kill -9 mid-S5**
+## [0.47.0] — 2026-05-13 — **Resume robusto tras kill -9 en medio de S5**
 
 Live §H.1 verification against staging caught a class of bugs in
 ``_apply_resume`` that made the documented resume flow non-functional
@@ -1365,7 +1366,7 @@ after a real crash:
   check, so an operator could not force a replay of an outwardly-
   complete batch.
 
-### Fixed
+### Corregido
 
 - **Resume now detects ``S{N}_DONE → S{N+1}`` gaps.** For each
   stage N<5, if any doc is at ``S{N}_DONE`` with no failure or
@@ -1384,14 +1385,14 @@ after a real crash:
   detection or emitting the "is clean" exit. The operator gets the
   replay they asked for.
 
-### Changed
+### Cambiado
 
 - ``_apply_resume`` algorithm order: validate inputs → honor
   explicit ``--from-stage`` → auto-detect (FAILED/PENDING priority
   → ``DONE`` gap fallback) → clean exit. Previously: detect-first,
   override-second, which lost the override on clean batches.
 
-### Test additions
+### Adiciones de tests
 
 - ``tests/unit/cli/test_apply_resume.py`` covers every branch of
   the rewritten ``_apply_resume`` (failed/pending priority,
@@ -1403,7 +1404,7 @@ after a real crash:
   complete batches when the new gap detection would otherwise
   classify a partial seed as "needs resume".
 
-### Operational note
+### Nota operacional
 
 If a previously-killed batch was abandoned as "clean" pre-0.47 and
 the operator wants to recover it, simply re-run with the same
@@ -1415,7 +1416,7 @@ is tracked separately.
 
 ---
 
-## [0.46.0] — 2026-05-13 — **AIMD auto-tune sees real p95 in multi-batch mode**
+## [0.46.0] — 2026-05-13 — **El auto-tune AIMD ve p95 real en modo multi-batch**
 
 Live verification of 0.45.0 against staging
 (``--total 200 --batches-in-flight 2``, F.4 of the validation
@@ -1434,7 +1435,7 @@ small, surgical wire-up: 043 introduces a swappable p95 source on
 the controller and the orchestrator points it at
 ``upload_recorder()`` before starting the controller thread.
 
-### Fixed
+### Corregido
 
 - **AIMD ignored S5 latency in multi-batch mode.** The pipeline's
   ``self._metrics`` recorder never sees S5 events when chunks have
@@ -1445,7 +1446,7 @@ the controller and the orchestrator points it at
   multi-batch orchestrator now overrides this binding to read from
   the upload-active recorder.
 
-### Added
+### Agregado
 
 - ``AutoTuneController.set_p95_provider(provider)`` — swap the p95
   source after construction. Atomic reference replacement; takes
@@ -1456,7 +1457,7 @@ the controller and the orchestrator points it at
   ``0.0`` fallback for the warmup window. Wired into
   ``_run_overlapped._upload_loop`` before ``controller.start()``.
 
-### Operational note
+### Nota operacional
 
 Single-batch (``batches_in_flight=1``) behavior is unchanged —
 the controller keeps reading from ``self._metrics`` which still
@@ -1464,7 +1465,7 @@ receives every S5 event on that path. The fix is multi-batch-only.
 
 ---
 
-## [0.45.0] — 2026-05-13 — **TUI metrics: per-chunk isolation + live UPLOAD counters**
+## [0.45.0] — 2026-05-13 — **Métricas del TUI: aislamiento por-chunk + contadores UPLOAD live**
 
 Live verification of 0.44.0 against the testserver Alfresco with
 ``batches_in_flight=2`` surfaced three multi-batch overlap bugs the
@@ -1473,7 +1474,7 @@ public APIs change except ``_BandwidthHandler.__init__`` (private —
 the constructor now requires a ``batch_id`` kwarg, mirroring the
 existing ``_SlowOpHandler`` signature).
 
-### Fixed
+### Corregido
 
 - **Bandwidth bleed across overlapping chunks.** Pre-042, the
   per-chunk ``MetricsRecorder._bandwidth`` sampler was fed by a
@@ -1506,7 +1507,7 @@ existing ``_SlowOpHandler`` signature).
   from this slot, leaving ``active_recorder()`` for the PREP-tab
   (which already had correct semantics).
 
-### Added
+### Agregado
 
 - ``MetricsRecorder.record_upload_done()`` /
   ``record_upload_failed()`` + their ``upload_done_count()`` /
@@ -1516,7 +1517,7 @@ existing ``_SlowOpHandler`` signature).
 - ``MultiBatchOrchestrator.upload_recorder()`` callback.
 - ``TUIDataProvider(upload_recorder_provider=...)`` kwarg.
 
-### Operational note
+### Nota operacional
 
 No config changes. Existing staging configs work unchanged. The
 fixes are observable: with the TUI on and ``batches_in_flight=2``,
@@ -1526,13 +1527,13 @@ to its final value at the DONE transition.
 
 ---
 
-## [0.44.0] — 2026-05-13 — **TUI: clean dashboard + MB progress + CHUNKS breakdown**
+## [0.44.0] — 2026-05-13 — **TUI: dashboard limpio + progreso MB + breakdown CHUNKS**
 
 Three operator-visible TUI improvements surfaced during the
 staging dry-run. None changes pipeline semantics — they all make
 the live dashboard usable when a real chunked run is in flight.
 
-### Added
+### Agregado
 
 - ``cmcourier.observability.setup.configure(..., tui_active: bool)``.
   When ``True`` (set by the CLI right before the Textual app
@@ -1561,7 +1562,7 @@ the live dashboard usable when a real chunked run is in flight.
   when a chunk leaves the stage; the TUI computes live elapsed
   for in-flight stages from the matching ``*_started_monotonic``.
 
-### Changed
+### Cambiado
 
 - ``render_upload`` now puts the MB segment on the right of the
   progress bar (``S5 UPLOAD  ████░░  9 / 22 docs   127.3 MB / 312.8 MB``)
@@ -1578,7 +1579,7 @@ the live dashboard usable when a real chunked run is in flight.
   previous". Allows partial transitions (e.g. "we just entered
   PREP — record the start timestamp, leave totals at zero").
 
-### Operational note
+### Nota operacional
 
 The TUI's main thread no longer competes with logging for the
 terminal. If you need to watch app logs during a run, open a
@@ -1586,14 +1587,14 @@ second terminal and ``tail -F sample/logs/app-$(date +%F).log``.
 
 ---
 
-## [0.43.0] — 2026-05-13 — **Alfresco CMIS compatibility**
+## [0.43.0] — 2026-05-13 — **Compatibilidad CMIS Alfresco**
 
 Closes the gap that prevented CMCourier from running end-to-end
 against Alfresco Community 23.x. Four targeted fixes inside the
 ``CmisUploader`` + observability + doctor — the staging dry-run
 now ships 0 failures from doctor through pipeline upload.
 
-### Added
+### Agregado
 
 - ``CmisUploader._service_url(suffix)`` helper. When
   ``CmisConfig.repo_id`` is set, emits the IBM-CM path form
@@ -1607,7 +1608,7 @@ now ships 0 failures from doctor through pipeline upload.
   ``TestAlfrescoStyleUrls`` (3 integration cases confirming
   emitted URLs contain no doubled slashes).
 
-### Changed
+### Cambiado
 
 - ``CmisUploader.test_connection`` unwraps Alfresco's wrapped
   ``repositoryInfo`` response (``{"<repo_id>": {...}}``) so the
@@ -1638,7 +1639,7 @@ now ships 0 failures from doctor through pipeline upload.
 - ``docs/how-to/local-staging-simulation.md`` uses ``repo_id: ""``
   in the example config.
 
-### Live verification
+### Verificación en vivo
 
 Against the testserver Alfresco staging on Tailscale:
 
@@ -1654,7 +1655,7 @@ See ``specs/040-alfresco-url-compat/`` for the full proposal.
 
 ---
 
-## [0.42.0] — 2026-05-13 — **Synthetic RVABREP CSV generator**
+## [0.42.0] — 2026-05-13 — **Generador sintético de CSV RVABREP**
 
 Closes the scale gap between the 10-row hand-curated fixtures the
 repo ships and the bank's real RVABREP exports. Operators can now
@@ -1662,7 +1663,7 @@ produce a deterministic CSV at any scale (100, 50 000, 1 000 000)
 that chains directly into the existing ``mock generate`` (031) for
 file-tree materialization.
 
-### Added
+### Agregado
 
 - ``cmcourier mock rvabrep`` subcommand under the existing
   ``mock`` group. Flags: ``--rows``, ``--output``, ``--seed``,
@@ -1680,14 +1681,14 @@ file-tree materialization.
   chained ``mock generate`` flow, and the ``--idrvi-source``
   caveat against CMIS-target type registration.
 
-### Column shape
+### Forma de columnas
 
 Output uses **ABA codes** (``ABABCD``, ``ABAANB``, ``ABAHCD``, ...)
 to match ``IndexingColumnsModel`` defaults so the CSV is consumed
 by ``mock generate`` and every downstream pipeline without a
 config override.
 
-### Per-column rules
+### Reglas por columna
 
 - ``ABABCD`` shortname: pool of ``--clients`` distinct identifiers
   from a banking lexicon + 2-digit suffix.
@@ -1724,7 +1725,7 @@ See ``specs/039-mock-rvabrep-generator/`` for the full proposal.
 
 ---
 
-## [0.41.0] — 2026-05-13 — **CMIS target pre-flight + upload payload trace**
+## [0.41.0] — 2026-05-13 — **Pre-flight de destino CMIS + trace de payload de upload**
 
 Closes three gaps that previously surfaced as mid-batch S5 failures:
 
@@ -1745,7 +1746,7 @@ Closes three gaps that previously surfaced as mid-batch S5 failures:
    ``s5_upload_failed`` event carrying the status code, truncated
    response body, and a runnable ``curl_equivalent``.
 
-### Added
+### Agregado
 
 - Two optional columns of the split mapping CSVs are now consumed:
   - ``MapeoRVI_CM.CMISFolder`` → ``CMMapping.cmis_folder``. When
@@ -1768,7 +1769,7 @@ Closes three gaps that previously surfaced as mid-batch S5 failures:
   (``clbNonGroup.BAC_CIF``, ``cmcourier:Nombre_Cliente``).
 - ``docs/how-to/cmis-target-preflight.md`` — operator runbook.
 
-### Changed
+### Cambiado
 
 - **BREAKING (port contract):** ``IUploader.ensure_folder(path) → None``
   is replaced by ``IUploader.verify_folder_exists(path) → bool``.
@@ -1779,14 +1780,14 @@ Closes three gaps that previously surfaced as mid-batch S5 failures:
 - ``orchestrators/staged.py`` S5 URL builder consumes
   ``mapping.cmis_folder`` when set, ``mapping.cm_folder`` otherwise.
 
-### Removed
+### Eliminado
 
 - ``CmisUploader._create_folder_segment`` — folder creation was the
   only consumer and is now out of scope.
 - ``CmisUploader._folder_cache`` / ``_folder_lock`` — no longer
   needed without on-demand creation.
 
-### Sample fixtures
+### Fixtures de muestra
 
 - ``docs/samples/csv/MapeoRVI_CM.csv`` gains a ``CMISFolder``
   column; the ``CN01`` row is populated with
@@ -1804,7 +1805,7 @@ See ``specs/038-cmis-target-preflight/`` for the full proposal.
 
 ---
 
-## [0.40.0] — 2026-05-11 — **CMIS object_type_id override + staging dry-run scaffolding**
+## [0.40.0] — 2026-05-11 — **Override de object_type_id CMIS + scaffolding de dry-run de staging**
 
 S5 now uses ``mapping.cmis_type`` as the upload's
 ``object_type_id`` when that field is set (carried in from
@@ -1814,7 +1815,7 @@ Lets CMCourier upload against non-IBM-CM repositories — Alfresco
 staging today, or a future bank type that doesn't match the
 hardcoded pattern.
 
-### Added
+### Agregado
 
 - ``scripts/staging/`` scaffolding for a self-contained
   Alfresco-in-Docker dry-run environment:
@@ -1831,20 +1832,20 @@ hardcoded pattern.
 - ``docs/how-to/local-staging-simulation.md`` — runbook for the
   Alfresco-on-Compu-B setup specifically.
 
-### Changed
+### Cambiado
 
 - ``orchestrators/staged.py``: ``_stage_s5`` computes
   ``object_type_id = mapping.cmis_type or mapping.cm_object_type``
   before each upload.
 
-### Backwards compatibility
+### Compatibilidad hacia atrás
 
 Empty ``cmis_type`` (the historical default) preserves the
 pre-039 derived-type behavior byte-for-byte. Test fixtures that
 omit ``CMISType`` from MapeoRVI_CM keep landing on the IBM CM
 pattern. All 1000 pre-039 tests pass.
 
-### Why no formal spec/
+### Por qué no hay spec/ formal
 
 Pure micro-op + documentation. The override is one line of
 production code; the rest is operator runbook + container files.
@@ -1852,7 +1853,7 @@ See ``scripts/staging/README.md`` for the surface area.
 
 ---
 
-## [0.39.0] — 2026-05-11 — **CMIS connection pool sizing + eager warm-up (POST-MVP §10.2)**
+## [0.39.0] — 2026-05-11 — **Sizing del connection pool CMIS + warm-up eager (POST-MVP §10.2)**
 
 S5 stops paying the TCP + TLS + JSESSIONID handshake on the
 critical path of the first N uploads. The CMIS uploader now:
@@ -1872,7 +1873,7 @@ critical path of the first N uploads. The CMIS uploader now:
   open connections instead of paying ~100-400 ms per worker on the
   TLS handshake.
 
-### Added
+### Agregado
 
 - ``CmisConfig.pool_size: int = 10``.
 - ``CmisUploader.warm_connection_pool(n) -> int`` — returns the
@@ -1880,7 +1881,7 @@ critical path of the first N uploads. The CMIS uploader now:
 - Structured log event ``cmis_pool_warmed`` with
   ``requested`` + ``succeeded`` counters.
 
-### Changed
+### Cambiado
 
 - ``CmisUploader.__init__`` configures ``HTTPAdapter`` on both
   ``http://`` and ``https://`` schemas with ``max_retries=0`` so
@@ -1888,7 +1889,7 @@ critical path of the first N uploads. The CMIS uploader now:
 - ``config/wiring.py`` derives the effective pool size from the
   config and passes it into ``CmisConfig``.
 
-### Backwards compatibility
+### Compatibilidad hacia atrás
 
 Pool size defaults to 10 (the urllib3 baseline). Behavior is
 strictly additive: configs that did not set ``cmis.workers`` to
@@ -1903,7 +1904,7 @@ process start").
 
 ---
 
-## [0.38.0] — 2026-05-11 — **cross-batch document_cache table (POST-MVP §9)**
+## [0.38.0] — 2026-05-11 — **Tabla cross-batch document_cache (POST-MVP §9)**
 
 S3 (Metadata Resolution) gains an optional cross-batch cache so
 re-runs of the same document skip the resolver and reuse previously
@@ -1911,7 +1912,7 @@ resolved properties + healed trigger CIF. Storage is a SQLite table
 in the same DB as the tracking log. Default off — single-batch
 behavior is byte-identical to pre-037.
 
-### Added
+### Agregado
 
 - `MetadataCacheConfig` nested under `MetadataConfigModel.cache`:
   `enabled: bool = False`, `ttl_minutes: int = Field(default=60,
@@ -1931,7 +1932,7 @@ behavior is byte-identical to pre-037.
   (`--txn`, `--all`, `--older-than <minutes>`, exactly-one-of).
 - `docs/how-to/document-cache.md` operator guide.
 
-### Changed
+### Cambiado
 
 - `StagedPipeline.__init__` gains optional `document_cache`. When
   set, `_stage_s3` consults the cache before
@@ -1941,13 +1942,13 @@ behavior is byte-identical to pre-037.
   `metadata.cache.enabled` and points `SqliteDocumentCache` at
   `tracking.db_path`.
 
-### Backwards compatibility
+### Compatibilidad hacia atrás
 
 `metadata.cache.enabled = false` (the default) → cache reference is
 `None`, S3 always invokes the resolver, and the `document_cache`
 table stays empty. All 986 pre-037 tests keep passing.
 
-### Out of scope (deferred)
+### Fuera de scope (diferido)
 
 - AS400-backed cache for §4 environments (single-host SQLite is
   enough until multi-host deployments demand otherwise).
@@ -1963,7 +1964,7 @@ table stays empty. All 986 pre-037 tests keep passing.
 
 ---
 
-## [0.37.0] — 2026-05-11 — **adaptive heavy / light upload lanes (POST-MVP §1)**
+## [0.37.0] — 2026-05-11 — **Lanes adaptativos heavy / light de upload (POST-MVP §1)**
 
 S5 gains an optional dual-lane mode that splits documents by size
 and runs each lane on its own slice of the worker budget. AIMD owns
@@ -1972,7 +1973,7 @@ light split. A daemon thread migrates capacity to whichever lane has
 work when the other has drained. **Default off** — single-lane
 behavior is byte-identical to pre-036.
 
-### Added
+### Agregado
 
 - `HeavyLightLanesConfig` block under `ProcessingConfig`:
   `enabled` (default `false`), `heavy_threshold_bytes` (10 MB),
@@ -2000,7 +2001,7 @@ behavior is byte-identical to pre-036.
   tuning hints, TUI / log expectations, and honest performance
   characterization.
 
-### Changed
+### Cambiado
 
 - AIMD `on_pool_resize` now dispatches between
   `concurrency_limit.set_capacity` (single-lane) and
@@ -2010,7 +2011,7 @@ behavior is byte-identical to pre-036.
 - `_stage_s5` is now a thin dispatcher to `_stage_5_single` (legacy)
   or `_stage_5_dual` (036).
 
-### Performance — honest accounting
+### Performance — contabilidad honesta
 
 The POST-MVP §1 acceptance criterion wrote ≥ 30 % throughput. With
 our actual implementation and a synthetic bimodal batch
@@ -2022,7 +2023,7 @@ queueing behind a heavy slot. The slow integration test
 modest wall-clock improvement; production heuristics will be tuned
 during the real-data dry-run phase.
 
-### Backwards compatibility
+### Compatibilidad hacia atrás
 
 `heavy_light_lanes.enabled = false` (the default) preserves the
 pre-036 S5 single-pool path byte-for-byte. All 944 pre-036 tests
@@ -2031,7 +2032,7 @@ across both lanes — total bytes/sec stays under
 `cmis.max_bandwidth_mbps` (covered by 029's
 `test_throttles_via_shared_bucket`).
 
-### Out of scope (deferred)
+### Fuera de scope (diferido)
 
 - Production tuning of `heavy_threshold_bytes`, `idle_threshold_s`,
   `heavy_initial_ratio`. Operator-tuned after the dry-run.
@@ -2048,7 +2049,7 @@ across both lanes — total bytes/sec stays under
 
 ---
 
-## [0.36.0] — 2026-05-11 — **mapping CSV split (MapeoRVI_CM + MetadatosCM) + CMISType column**
+## [0.36.0] — 2026-05-11 — **Split de CSV de mapping (MapeoRVI_CM + MetadatosCM) + columna CMISType**
 
 Aligns CMCourier with the bank's **production** Modelo Documental
 format. `MappingConfig` now accepts either the legacy consolidated
@@ -2059,7 +2060,7 @@ mode, the service joins `MapeoRVI_CM.csv` and `MetadatosCM.csv` by
 `CMISType` column. This unblocks the AS400 `NIARVILOG.TIPIDN` field
 introduced in 034 (no longer always empty in production).
 
-### Added
+### Agregado
 
 - `MappingConfig.rvi_cm_csv_path` + `metadatos_csv_path` +
   `model_validator` enforcing exactly-one-of with `csv_path`.
@@ -2083,7 +2084,7 @@ introduced in 034 (no longer always empty in production).
 - `docs/samples/csv/MapeoRVI_CM.csv` gains the `CMISType` column
   (empty placeholder values — the bank fills these at deployment).
 
-### Changed
+### Cambiado
 
 - `MappingConfig.csv_path` becomes `FilePath | None` (was
   required) to allow the alternative split mode.
@@ -2093,7 +2094,7 @@ introduced in 034 (no longer always empty in production).
 - `docs/how-to/as400-sync.md` `TIPIDN` row updated; the
   known-limitation note ("empty until 035 ships") removed.
 
-### Backwards compatibility
+### Compatibilidad hacia atrás
 
 All 857 pre-035 tests keep passing. The legacy consolidated test
 fixture `tests/fixtures/services/modelo_documental.csv` continues
@@ -2101,7 +2102,7 @@ to drive `MappingConfig(csv_path=...)`. The Java parallel
 migrator's append-only read of `MapeoRVI_CM.csv` is preserved
 (`CMISType` is added as a trailing column).
 
-### Out of scope
+### Fuera de scope
 
 - Reading the production `MapeoRVI_CM.csv` with `CMISType` values
   populated — the bank owns that file.
@@ -2117,7 +2118,7 @@ migrator's append-only read of `MapeoRVI_CM.csv` is preserved
 
 ---
 
-## [0.35.0] — 2026-05-11 — **AS400 NIARVILOG distributed idempotency (POST-MVP §4)**
+## [0.35.0] — 2026-05-11 — **Idempotencia distribuida AS400 NIARVILOG (POST-MVP §4)**
 
 Adds a toggleable distributed-idempotency layer on top of the
 existing `SQLiteTrackingStore`. When
@@ -2128,7 +2129,7 @@ and multi-workstation operation without double-upload risk.
 When disabled (the default), behavior is byte-identical to
 pre-034.
 
-### Added
+### Agregado
 
 - **`tracking.as400_sync`** Pydantic block with the toggle +
   connection + retry policy. Cross-field validator: enabling
@@ -2184,7 +2185,7 @@ pre-034.
     `NUMREI ← record.retry_count`,
     `EERRMSG ← record.error_message`.
 
-### Changed
+### Cambiado
 
 - **`CMMapping`** gains `cmis_type: str = ""` field. The
   mapping service reads `CMISType` column when present,
@@ -2223,7 +2224,7 @@ pre-034.
 - **857 total green** (up from 829), mypy + ruff + format
   clean across the six phases.
 
-### Documentation
+### Documentación
 
 - New `docs/how-to/as400-sync.md` with the full picture:
   when to enable, YAML snippet, field mapping table, status
@@ -2231,7 +2232,7 @@ pre-034.
   reconciliation, conflict resolution playbook, retry
   semantics, known limitations.
 
-### Notes
+### Notas
 
 - **One row per txn**: per the bank's operational convention,
   NIARVILOG has at most one row per `TRNNUM` (the first
@@ -2248,12 +2249,12 @@ pre-034.
 
 ---
 
-## [0.34.0] — 2026-05-11 — **Tier 1 polish: `--total` flag + CI integration docs**
+## [0.34.0] — 2026-05-11 — **Pulido de Tier 1: flag `--total` + docs de integración CI**
 
 Two small operational ergonomics wins bundled into one change.
 Closes the Tier 1 polish queue.
 
-### Added
+### Agregado
 
 - **`--total <N>` flag** on every pipeline run command
   (`csv-trigger`, `rvabrep`, `as400-trigger`, `local-scan`,
@@ -2280,7 +2281,7 @@ Closes the Tier 1 polish queue.
   zero rejected, `--help` lists the flag on every pipeline.
 - 748 total green (up from 743), mypy + ruff clean.
 
-### Notes
+### Notas
 
 - Skipped version `0.32.0` reserved for the parallel change
   **031 mock-file-generator** developed on a separate branch.
@@ -2290,7 +2291,7 @@ Closes the Tier 1 polish queue.
 
 ---
 
-## [0.33.0] — 2026-05-11 — **shell auto-completion (`cmcourier completion`)**
+## [0.33.0] — 2026-05-11 — **Auto-completion de shell (`cmcourier completion`)**
 
 > Skips 0.32.0 — that version is reserved for the parallel
 > change 031 (HTML report for `cmcourier analyze`) being
@@ -2303,7 +2304,7 @@ The CLI surface area is now ~17 subcommands across 5 pipelines,
 doctor/background/as400-query. Tab-completion stops being a
 nice-to-have and becomes a real DX win.
 
-### Added
+### Agregado
 
 - **`cmcourier completion <bash|zsh|fish>`** subcommand. Emits
   the shell-completion script on stdout. Backed by Click's
@@ -2322,14 +2323,14 @@ nice-to-have and becomes a real DX win.
   the subcommand and the supported shells.
 - 743 total green (up from 737), mypy + ruff clean.
 
-### Notes
+### Notas
 
 - Zero impact on existing functionality — `cmcourier`
   invocations without `completion` behave identically.
 
 ---
 
-## [0.31.0] — 2026-05-11 — **TUI multi-batch view (`CHUNKS` tab)**
+## [0.31.0] — 2026-05-11 — **Vista multi-batch del TUI (tab `CHUNKS`)**
 
 The producer-consumer overlap shipped in 028 had a UX caveat:
 when `--tui` was enabled, the orchestrator forced
@@ -2338,7 +2339,7 @@ single `MetricsRecorder`. 030 lifts that restriction. The TUI
 now renders multi-batch runs faithfully and gains a third
 **`CHUNKS`** tab that lists every chunk's state in real time.
 
-### Added
+### Agregado
 
 - **`ChunkState`** dataclass and orchestrator-level state
   machine (`MultiBatchOrchestrator.chunks_snapshot()` +
@@ -2359,7 +2360,7 @@ now renders multi-batch runs faithfully and gains a third
   shortcut `[C]`): counts header + per-chunk row with
   index, batch_id, status glyph, s5_done, s5_failed.
 
-### Changed
+### Cambiado
 
 - `cli/app.py::_run_with_optional_tui` no longer forces
   `batches_in_flight=1` when `--tui` is on. `--resume`
@@ -2382,7 +2383,7 @@ now renders multi-batch runs faithfully and gains a third
   truncated).
 - 737 total green (up from 728), mypy + ruff clean.
 
-### Notes
+### Notas
 
 - Operator runs that pass `--tui --batches-in-flight 2` now
   get the multi-batch flow with live updates. Operators who
@@ -2391,7 +2392,7 @@ now renders multi-batch runs faithfully and gains a third
 
 ---
 
-## [0.30.1] — 2026-05-11 — **fix: shared `BandwidthLimiter` (real cap enforced)**
+## [0.30.1] — 2026-05-11 — **fix: `BandwidthLimiter` compartido (cap real enforzado)**
 
 A latent bug surfaced by 025's concurrent S5 worker pool: the
 pre-029 `BandwidthLimiter` was constructed **per upload call**,
@@ -2400,7 +2401,7 @@ so each worker thread had its own token bucket. With
 effective network ceiling was `~400 Mbps` — four times the
 configured value. The configured cap was meaningless.
 
-### Fixed
+### Corregido
 
 - **`TokenBucket`** extracted from `BandwidthLimiter` as a
   thread-safe, process-shared bucket. `CmisUploader.__init__`
@@ -2426,7 +2427,7 @@ configured value. The configured cap was meaningless.
   cases unchanged.
 - 727 total green (up from 724), mypy clean, ruff clean.
 
-### Notes
+### Notas
 
 - Not on the POST-MVP roadmap (it was a latent bug, not a
   feature). The roadmap §1 (heavy/light lanes) explicitly
@@ -2435,7 +2436,7 @@ configured value. The configured cap was meaningless.
 
 ---
 
-## [0.30.0] — 2026-05-11 — **multi-batch orchestrator (POST-MVP §7, N=2)**
+## [0.30.0] — 2026-05-11 — **Orquestador multi-batch (POST-MVP §7, N=2)**
 
 The "siempre dos lotes en vuelo, uno preparándose y otro
 cargándose" model from POST-MVP §7 — turns out it was never
@@ -2444,7 +2445,7 @@ sequential pass over the full trigger source. 028 introduces
 a producer-consumer orchestrator that chunks the source and
 overlaps prep + upload of consecutive chunks.
 
-### Added
+### Agregado
 
 - **`ProcessingConfig`** Pydantic block under
   `pipeline.processing` with `batches_in_flight: int = Field(
@@ -2469,7 +2470,7 @@ overlaps prep + upload of consecutive chunks.
   AutoTuneController + tracking store are reused across
   chunks.
 
-### Changed
+### Cambiado
 
 - **`_SlowOpHandler`** now filters log records by
   `record.batch_id` so multiple concurrent
@@ -2496,13 +2497,13 @@ overlaps prep + upload of consecutive chunks.
 - 724 total green (up from 695 in 027), mypy clean, ruff
   clean.
 
-### Documentation
+### Documentación
 
 - New `docs/how-to/multi-batch.md` with the
   producer-consumer model, output format, failure
   semantics, and memory-budgeting guidance.
 
-### Notes
+### Notas
 
 - **N > 2 deferred**. The original POST-MVP §7 spec listed
   N up to 5. Supporting N>2 requires per-chunk shared-pool
@@ -2516,7 +2517,7 @@ overlaps prep + upload of consecutive chunks.
 
 ---
 
-## [0.29.0] — 2026-05-11 — **offline log analyzer (POST-MVP §3)**
+## [0.29.0] — 2026-05-11 — **Analizador de logs offline (POST-MVP §3)**
 
 Closes the second-half of the §17.4 story: now that tier 5 is
 on disk (026), operators have a first-class way to *read* it.
@@ -2524,7 +2525,7 @@ The `cmcourier analyze` subcommand suite consumes the five
 log tiers and produces per-batch reports, pairwise deltas, and
 trend series — all deterministic, all read-only.
 
-### Added
+### Agregado
 
 - **`cmcourier analyze batch <batch_id>`** — full per-batch
   report: header, per-stage table (count/p50/p95/p99),
@@ -2570,7 +2571,7 @@ trend series — all deterministic, all read-only.
   delta).
 - 695 total passing (up from 672 in 026).
 
-### Documentation
+### Documentación
 
 - New `docs/how-to/log-analysis.md` — when to use each
   subcommand, full bottleneck-rule table with thresholds,
@@ -2578,7 +2579,7 @@ trend series — all deterministic, all read-only.
   ("did doubling workers actually help?", "are we drifting
   over time?").
 
-### Notes
+### Notas
 
 - HTML report rendering listed in the POST-MVP §3
   acceptance criteria was explicitly **deferred** to a
@@ -2590,7 +2591,7 @@ trend series — all deterministic, all read-only.
 
 ---
 
-## [0.28.0] — 2026-05-11 — **tier-5 system metrics (POST-MVP §2)**
+## [0.28.0] — 2026-05-11 — **Nivel-5 de métricas de sistema (POST-MVP §2)**
 
 Closes the last `psutil`-shaped gap on the §17.4 observability
 surface. When a pipeline runs, a daemon thread snapshots
@@ -2600,7 +2601,7 @@ and appends one JSON line per sample to
 unblocks the offline log analyzer (POST-MVP §3) and lets us
 validate the AIMD target the 025 auto-tune controller assumes.
 
-### Added
+### Agregado
 
 - **`SystemMetricsSampler`** in
   `cmcourier/observability/system_metrics.py`. Daemon
@@ -2632,7 +2633,7 @@ validate the AIMD target the 025 auto-tune controller assumes.
   `observability.system_metrics`. Returns `None` when
   disabled; constructed (not started) sampler otherwise.
 
-### Changed
+### Cambiado
 
 - `ObservabilityConfig.system_metrics` switches from
   `bool = False` to a nested `SystemMetricsConfig` model.
@@ -2666,7 +2667,7 @@ validate the AIMD target the 025 auto-tune controller assumes.
   over a 60 s window on the dev workstation (12 samples
   written, ≈1 sample/5 s). Spec target was <1%.
 
-### Dependencies
+### Dependencias
 
 - New runtime dep: `psutil>=5.9,<7.0`.
 - New mypy stub dep: `types-psutil>=5.9,<7.0` in
@@ -2674,7 +2675,7 @@ validate the AIMD target the 025 auto-tune controller assumes.
 
 ---
 
-## [0.27.0] — 2026-05-10 — **live TUI + S5 worker pool + AIMD auto-tune**
+## [0.27.0] — 2026-05-10 — **TUI live + worker pool S5 + auto-tune AIMD**
 
 The S5 (CMIS upload) stage moves from a sequential loop to a real
 `ThreadPoolExecutor` worker pool, gains a textual two-tab live
@@ -2682,7 +2683,7 @@ TUI, and grows an AIMD (Additive-Increase / Multiplicative-
 Decrease) auto-tune controller. This is the "TUI by default"
 commitment realized end-to-end.
 
-### Added
+### Agregado
 
 - **`ThreadPoolExecutor`-based S5** in `StagedPipeline._stage_s5`.
   The pool size comes from `cmis.workers` (default 4, range
@@ -2723,7 +2724,7 @@ commitment realized end-to-end.
   enforces `min_workers ≤ max_workers` and
   `min_timeout_s ≤ max_timeout_s`.
 
-### Changed
+### Cambiado
 
 - **`CmisUploader._timeout_s` is now mutable** so the auto-tune
   controller can adjust the upload timeout. `CmisConfig` stays
@@ -2750,7 +2751,7 @@ commitment realized end-to-end.
   the explicit-tui-in-non-TTY → exit 2 branch.
 - 655 tests total green, mypy clean, ruff clean.
 
-### Notes
+### Notas
 
 - Slow / fast S5 lanes remain explicitly post-MVP —
   they aren't in 025 by design. The current
@@ -2761,13 +2762,13 @@ commitment realized end-to-end.
 
 ---
 
-## [0.26.0] — 2026-05-10 — **background runner**
+## [0.26.0] — 2026-05-10 — **Runner background**
 
 Cron-friendly entry point for unattended pipeline execution.
 Closes the last operationally-meaningful CLI gap ahead of the
 real dry run.
 
-### Added
+### Agregado
 
 - **`cmcourier background --pipeline <kind>`** — single
   dispatcher for unattended execution. Accepts the four
@@ -2807,7 +2808,7 @@ real dry run.
     pipeline rejected, quiet success, lock contention exits
     75, lock released after run.
 
-### Changed
+### Cambiado
 
 - **`_run_pipeline_command` in `cli/app.py`** gains a
   keyword-only `quiet: bool = False`. The interactive
@@ -2820,7 +2821,7 @@ real dry run.
   `main.add_command(background_command)` next to the other
   top-level commands.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **587 / 587 pass** in ~100 s (+14 net new).
 - Coverage: total **94 %**;
@@ -2834,7 +2835,7 @@ real dry run.
   existing 9 commands. `cmcourier background --help` lists
   every flag.
 
-### Rationale
+### Justificación
 
 Until 024, the only way to schedule a CMCourier pipeline run
 was to call `csv-trigger-pipeline run` (or one of its
@@ -2888,7 +2889,7 @@ siblings) from cron. That worked but leaked two problems:
 
 ---
 
-## [0.25.0] — 2026-05-10 — **complete operator-CLI menus**
+## [0.25.0] — 2026-05-10 — **Menús CLI de operador completos**
 
 Closes the operator-CLI menus with three small commands. After
 this change the only entries still missing are the `background`
@@ -2896,7 +2897,7 @@ runner and the TUI — both depend on a TUI design that's a
 separate change. Operators now have the full read-only triage +
 offline-analysis surface.
 
-### Added
+### Agregado
 
 - **`cmcourier inspect trigger [--source <descriptor>] [--limit N]`**
   — preview the first N triggers a source would emit. When
@@ -2936,7 +2937,7 @@ offline-analysis surface.
   - `tests/integration/cli/test_batch.py` (5 export-report
     tests).
 
-### Changed
+### Cambiado
 
 - **`cli/commands/inspect.py`** grew from 2 commands to 4
   (rvabrep, mapping, trigger, mapping-stats). Module size
@@ -2952,7 +2953,7 @@ offline-analysis surface.
   work without exporting CMIS creds — a real ergonomics win
   for read-only inspection.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **573 / 573 pass** in ~96 s (+25 net new
   across the change cycle).
@@ -2969,7 +2970,7 @@ offline-analysis surface.
   --help` lists `list`, `show`, `retry-failed`,
   `export-report`.
 
-### Rationale
+### Justificación
 
 Before 023 an operator who wanted to know "what would the
 trigger source emit?" had to spin up a tiny pipeline run.
@@ -3007,14 +3008,14 @@ three gaps — none of them need new ports or schema changes.
 
 ---
 
-## [0.24.0] — 2026-05-10 — **pipeline safety flags**
+## [0.24.0] — 2026-05-10 — **Flags de seguridad de pipeline**
 
 Closes the pre-dry-run safety polish: pipelines auto-run doctor
 before doing work, `--resume` infers the right `--from-stage`
 from tracking state, and `doctor --check <group>` lets the
 operator run a single check during triage.
 
-### Added
+### Agregado
 
 - **Auto-doctor before every pipeline run.** Every
   `*-pipeline run` command (csv-trigger, rvabrep,
@@ -3067,7 +3068,7 @@ operator run a single check during triage.
     group filter + `all` regression + CLI help + invalid
     value rejection.
 
-### Changed
+### Cambiado
 
 - **Every pipeline run command signature** gains `--skip-doctor`
   and `--resume` flags. `_run_pipeline_command` central helper
@@ -3083,7 +3084,7 @@ operator run a single check during triage.
   Scope: ~14 invocations across `test_cli.py`,
   `test_pipeline_kinds.py`, `test_pipeline_emits.py`.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **548 / 548 pass** in ~101 s (+14 net new).
 - Coverage: total **94 %**; `cli/app.py` at **89 %**,
@@ -3093,7 +3094,7 @@ operator run a single check during triage.
 - `pre-commit run --all-files`: ruff + ruff format + mypy all
   pass.
 
-### Rationale
+### Justificación
 
 Before 022 the operator could forget to run `doctor` before a
 pipeline and only discover a broken CMIS auth 30 s into a run —
@@ -3142,7 +3143,7 @@ the operator-CLI surface; the internal check names map cleanly onto them.
 
 ---
 
-## [0.23.0] — 2026-05-10 — **operator CLI essentials**
+## [0.23.0] — 2026-05-10 — **Esenciales del CLI de operador**
 
 Adds the six commands an operator needs between pipeline runs:
 batch lifecycle (list/show/retry-failed), preview commands (inspect
@@ -3150,7 +3151,7 @@ rvabrep/mapping), and a raw AS400 query escape hatch. Pure
 additions on top of the existing pipelines + doctor + single-doc.
 No CLI surface that previously worked has changed.
 
-### Added
+### Agregado
 
 - **`cmcourier batch list [--status in_progress|completed]`** —
   enumerate batches with status + counts, newest first.
@@ -3184,7 +3185,7 @@ No CLI surface that previously worked has changed.
 - **23 new tests**: SQLite store (4 list/3 details/4 retry),
   batch CLI (3 × 4), inspect CLI (3 + 3), as400-query CLI (4).
 
-### Changed
+### Cambiado
 
 - **`cli/app.py`** registers the new groups + standalone command
   via `main.add_command(...)`. No change to existing pipeline
@@ -3194,7 +3195,7 @@ No CLI surface that previously worked has changed.
   `__abstractmethods__` test in `tests/unit/domain/test_ports.py`
   was extended to reflect the new contract.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **534 / 534 pass** in ~91 s (+32 net new across
   the change cycle).
@@ -3211,7 +3212,7 @@ No CLI surface that previously worked has changed.
   `cmcourier batch list --help`, `cmcourier inspect rvabrep
   --help`, `cmcourier as400-query --help` all render correctly.
 
-### Rationale
+### Justificación
 
 Before 021 an operator who wanted to know "which batch failed and
 why?" had to open SQLite manually. "Retry the failed S5 uploads?"
@@ -3259,7 +3260,7 @@ dry run that gets bogged down in tooling.
 
 ---
 
-## [0.22.0] — 2026-05-10 — **observability tiers 1-4**
+## [0.22.0] — 2026-05-10 — **Niveles de observabilidad 1-4**
 
 Full-MVP observability surface. Operators now get structured JSON
 logs, per-batch pipeline timing percentiles (p50/p95/p99), per-request
@@ -3267,7 +3268,7 @@ network latency for AS400 + CMIS, and a top-N slow-ops report — all
 toggleable from YAML, all PII-masked by a central filter, all
 parseable by `jq` or any log shipper. The dry run is no longer blind.
 
-### Added
+### Agregado
 
 - **New package `src/cmcourier/observability/`** — peer to
   adapters/services. Modules: `formatter.py` (JsonFormatter),
@@ -3337,7 +3338,7 @@ parseable by `jq` or any log shipper. The dry run is no longer blind.
   with the expected JSON shape; PII regression confirms no CIF
   value reaches any handler output.
 
-### Changed
+### Cambiado
 
 - **`cmcourier/cli/logging_setup.py`** is now a 4-line shim that
   delegates to `observability.setup.configure(stderr_only=True)`.
@@ -3363,7 +3364,7 @@ parseable by `jq` or any log shipper. The dry run is no longer blind.
   `_emit_network` helper centralizes the structured logging
   call.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **502 / 502 pass** in ~65 s (+35 net new across
   the change cycle; the headline target was ≥15 new tests for
@@ -3376,7 +3377,7 @@ parseable by `jq` or any log shipper. The dry run is no longer blind.
 - `pre-commit run --all-files`: ruff + ruff format + mypy all
   pass.
 
-### Rationale
+### Justificación
 
 The MVP was running on a single stderr text handler — fine for
 unit-test feedback, blind for a real dry run. The multi-tier
@@ -3422,14 +3423,14 @@ matter during a real migration:
 
 ---
 
-## [0.21.0] — 2026-05-10 — **adapter port-hygiene cleanup**
+## [0.21.0] — 2026-05-10 — **Limpieza de higiene de port en adapters**
 
 Closes a Constitution Principle I (hexagonal architecture) deuda:
 the last two adapters that implemented their ports structurally
 (duck-typed) now declare formal inheritance. Pure declarative
 cleanup — zero behavioral changes.
 
-### Added
+### Agregado
 
 - **`PdfAssembler` now inherits from `IAssembler`**. The class
   declaration is `class PdfAssembler(IAssembler):`. Python's ABC
@@ -3447,7 +3448,7 @@ cleanup — zero behavioral changes.
   port)` returns `True`. They fail loudly if a future change
   drops the inheritance.
 
-### Changed
+### Cambiado
 
 - **Adapter import blocks**: `pdf_assembler.py` and
   `cmis_uploader.py` each gained one import line
@@ -3459,7 +3460,7 @@ cleanup — zero behavioral changes.
   work, registries that filter by port type work, doctor /
   diagnostic code can rely on it.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **467 / 467 pass** in ~69 s (+2 net new).
 - Coverage: total **94.79 %** (unchanged);
@@ -3473,7 +3474,7 @@ cleanup — zero behavioral changes.
 - `pre-commit run --all-files`: ruff + ruff format + mypy all
   pass.
 
-### Rationale
+### Justificación
 
 Constitution Principle I demands a strict port/adapter split. The
 project had been 60 % consistent (`TabularDataSource`,
@@ -3497,7 +3498,7 @@ declaration, which port it implements.
 
 ---
 
-## [0.20.0] — 2026-05-10 — **per-source AS400 query override**
+## [0.20.0] — 2026-05-10 — **Override de query AS400 por-fuente**
 
 Closes the production-data scale gap left by 015. AS400 metadata
 sources can now use a custom `SELECT ...` query (with filtering and
@@ -3506,7 +3507,7 @@ MetadataService prefetch is untouched — the adapter wraps the
 query in a derived-table alias so the full `IDataSource` contract
 (`get_all`, `count`, `get_by_fields*`) keeps working transparently.
 
-### Added
+### Agregado
 
 - **`As400MetadataSourceConfig.query: str | None`** — new optional
   field. Operators specify a complete `SELECT ...` statement scoped
@@ -3536,7 +3537,7 @@ query in a derived-table alias so the full `IDataSource` contract
   pipeline whose metadata registry contains an `As400DataSource`
   with the expected `_source_expr`.
 
-### Changed
+### Cambiado
 
 - **`As400DataSource._table` attribute renamed to `_source_expr`**.
   The new name reflects that the value may be either a bare table
@@ -3553,7 +3554,7 @@ query in a derived-table alias so the full `IDataSource` contract
   doctor's `_open_metadata_source` helper pass `query=src_cfg.query`
   through to the adapter. Falsy `table` defaults to `""`.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **465 / 465 pass** in ~70 s (+11 net new: 7
   adapter, 3 schema, 1 wiring).
@@ -3569,7 +3570,7 @@ query in a derived-table alias so the full `IDataSource` contract
   `metadata.sources[].query` correctly, `table` becomes `None`
   when absent.
 
-### Rationale
+### Justificación
 
 015 enabled AS400 metadata sources but only supported `SELECT *
 FROM <table>`. Production AS400 tables can have millions of rows
@@ -3596,7 +3597,7 @@ sees a single polymorphic adapter.
 
 ---
 
-## [0.19.0] — 2026-05-10 — **single-doc-pipeline (diagnostic surface)**
+## [0.19.0] — 2026-05-10 — **single-doc-pipeline (superficie diagnóstica)**
 
 Completes the pipeline surface: 4 production pipelines + 1 diagnostic
 pipeline. Operators can now push a specific shortname/system/cif
@@ -3604,7 +3605,7 @@ through the full S1..S5 chain from the CLI without scanning a batch
 — useful for re-pushing a single failed doc or smoke-testing a new
 config against a known target.
 
-### Added
+### Agregado
 
 - **`cmcourier.services.triggers.single_doc.SingleDocTriggerStrategy`**
   — minimal S0 strategy that yields exactly one `TriggerRecord` built
@@ -3642,7 +3643,7 @@ config against a known target.
 - **1 new doctor test** (sample_dry_run returns SKIP for
   `kind=single_doc`).
 
-### Changed
+### Cambiado
 
 - **`_TriggerKind` Literal in `cli/app.py`** extended to include
   `"single_doc"`.
@@ -3655,7 +3656,7 @@ config against a known target.
 - **Root `--help`** now lists six command groups: 4 pipelines +
   `single-doc` + `doctor`.
 
-### Verification
+### Verificación
 
 - `pytest --cov`: **454 / 454 pass** in ~65 s (+15 net new: 7
   strategy, 2 schema, 2 wiring, 3 CLI, 1 doctor).
@@ -3667,7 +3668,7 @@ config against a known target.
 - Smoke: `cmcourier --help` lists 6 commands;
   `cmcourier single-doc run --help` lists all required flags.
 
-### Rationale
+### Justificación
 
 Closes the pipeline catalog: four production pipelines
 (csv-trigger, rvabrep, as400-trigger, local-scan) + one diagnostic
@@ -3680,13 +3681,13 @@ a narrow, well-documented seam for CLI-driven dispatch.
 
 ---
 
-## [0.18.0] — 2026-05-10 — **local-scan-pipeline (4th production pipeline)**
+## [0.18.0] — 2026-05-10 — **local-scan-pipeline (4ª pipeline de producción)**
 
 Closes the production-pipeline set. With 016, the project covers
 every committed trigger source mode: csv, direct rvabrep, as400,
 local_scan.
 
-### Added
+### Agregado
 
 - **`cmcourier.services.triggers.local_scan.LocalScanTriggerStrategy`**
   — real implementation. Lists `scan_path` non-recursively, filters
@@ -3721,7 +3722,7 @@ local_scan.
 - **1 new wiring test** verifying `LocalScanTriggerStrategy`
   dispatch.
 
-### Changed
+### Cambiado
 
 - **`cmcourier.services.triggers.stubs` module DELETED**. With
   `LocalScanTriggerStrategy` promoted, no stubs remain. The
@@ -3735,7 +3736,7 @@ local_scan.
 - **`__all__` in `cmcourier.config.schema`** adds
   `LocalScanTriggerConfig`.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **439 / 439 pass** in ~64 s (+12 net new: 10 strategy
   + 2 schema + 3 CLI + 1 wiring − 3 obsolete stub tests).
@@ -3748,7 +3749,7 @@ local_scan.
   (csv-trigger-pipeline, rvabrep-pipeline, as400-trigger-pipeline,
   **local-scan-pipeline**, doctor).
 
-### Rationale
+### Justificación
 
 - **Closes the production-pipeline set**. Four trigger source
   modes were committed up front; 016 ships the fourth. No more stubs in the
@@ -3777,14 +3778,14 @@ local_scan.
 
 ---
 
-## [0.17.0] — 2026-05-10 — **AS400 metadata sources**
+## [0.17.0] — 2026-05-10 — **Fuentes de metadatos AS400**
 
 Closes the gap left by 014. Pipelines with `as400:<alias>` source
 types in `metadata.field_sources` now work end-to-end. The MVP is
 fully production-ready: every adapter, every pipeline, every
 metadata source kind.
 
-### Added
+### Agregado
 
 - **`CsvMetadataSourceConfig`** + **`As400MetadataSourceConfig`** —
   two concrete schema classes that tag the `MetadataSourceConfig`
@@ -3808,7 +3809,7 @@ metadata source kind.
   the discriminated union, 2 wiring for the kind-dispatch + missing-
   secret branch, 2 doctor for mixed-source happy paths).
 
-### Changed
+### Cambiado
 
 - **`_inject_default_trigger_kind` renamed to `_inject_default_kinds`**
   and extended to inject `kind: "csv"` into each `metadata.sources[i]`
@@ -3830,7 +3831,7 @@ metadata source kind.
   `CsvMetadataSourceConfig` and is re-exported under
   `__all__`.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **427 / 427 pass** in ~52 s (421 from earlier + 9
   net new tests across schema/wiring/doctor; 3 obsolete tests
@@ -3845,7 +3846,7 @@ metadata source kind.
   the new metadata-source schema is opt-in (operators add `kind:
   as400` entries when they want).
 
-### Rationale
+### Justificación
 
 - **MetadataService unchanged**. The prefetch loop already iterates
   `sources_registry.values()` and calls `IDataSource.get_all()`.
@@ -3892,11 +3893,11 @@ metadata source kind.
 
 ---
 
-## [0.16.0] — 2026-05-10 — **multi-pipeline + AS400 production-ready**
+## [0.16.0] — 2026-05-10 — **multi-pipeline + AS400 listo para producción**
 
 Largest change of the project. Five thrusts in one PR.
 
-### Added
+### Agregado
 
 - **`cmcourier.adapters.sources.as400.As400DataSource`** — concrete
   `IDataSource` over pyodbc. Lazy `import pyodbc` inside `_connect()` so
@@ -3927,7 +3928,7 @@ Largest change of the project. Five thrusts in one PR.
   schema discriminated-union tests, ~3 wiring + CLI tests for the new
   pipelines, ~1 new doctor test.
 
-### Changed
+### Cambiado
 
 - **`CsvTriggerPipeline` → `StagedPipeline`**. Module renamed via
   `git mv` (`orchestrators/csv_trigger.py` → `orchestrators/staged.py`).
@@ -3955,7 +3956,7 @@ Largest change of the project. Five thrusts in one PR.
   `services/triggers/as400.py`. The stubs module retains only
   `LocalScanTriggerStrategy`.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **421 / 421 pass** in ~51 s (395 from earlier + 26
   net new across AS400, schema, wiring, CLI, doctor).
@@ -3969,7 +3970,7 @@ Largest change of the project. Five thrusts in one PR.
 - Smoke: `cmcourier --help` lists 4 commands; each pipeline's
   `--help` lists its flags.
 
-### Rationale
+### Justificación
 
 - **AS400 unblocks every `as400:*` consumer**. Even without
   `MetadataService.as400:<alias>` support shipping today, the
@@ -4000,14 +4001,14 @@ Largest change of the project. Five thrusts in one PR.
 
 ---
 
-## [0.15.0] — 2026-05-10 — **pre-flight `doctor` command**
+## [0.15.0] — 2026-05-10 — **Comando `doctor` pre-flight**
 
 Operators get a fast pre-flight check before the first real
 `csv-trigger-pipeline run`. A mis-configured pipeline that previously
 failed 5-30 s in (after side effects had started) now fails in under
 5 seconds with a structured report naming the specific check.
 
-### Added
+### Agregado
 
 - **`cmcourier doctor --config <yaml>`** — new top-level Click command
   (sibling of `csv-trigger-pipeline`). Runs 6 checks in order and
@@ -4049,7 +4050,7 @@ failed 5-30 s in (after side effects had started) now fails in under
   codes. Plus 3 new `TestGetTypeDefinition` tests in
   `tests/integration/adapters/test_cmis_uploader.py`.
 
-### Changed
+### Cambiado
 
 - `IUploader` port gains one abstract method (`get_type_definition`).
   `tests/unit/domain/test_ports.py` updated to include it in the
@@ -4057,7 +4058,7 @@ failed 5-30 s in (after side effects had started) now fails in under
 - `src/cmcourier/cli/app.py` gains the `doctor` command + a small
   `_emit_doctor_report(report)` helper.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **395 / 395 pass** in ~65 s (380 from earlier + 15
   new: 12 doctor + 3 type-definition).
@@ -4069,7 +4070,7 @@ failed 5-30 s in (after side effects had started) now fails in under
 - `pre-commit run --all-files`: clean.
 - Smoke: `cmcourier doctor --help` lists `--config` and `--log-level`.
 
-### Rationale
+### Justificación
 
 - **Pre-flight or pre-flight**: every operational failure mode
   reachable at validation time is. A 5-second SKIP at the
@@ -4105,7 +4106,7 @@ failed 5-30 s in (after side effects had started) now fails in under
 
 ---
 
-## [0.14.0] — 2026-05-10 — **MVP CLI usable end-to-end**
+## [0.14.0] — 2026-05-10 — **CLI del MVP usable de punta a punta**
 
 This release ships the operator-facing layer. With `cmcourier
 csv-trigger-pipeline run --config <yaml>`, the MVP pipeline is invokable
@@ -4113,7 +4114,7 @@ without writing Python. Four new modules wrap change 011's orchestrator
 under a Pydantic v2 schema, a YAML loader, an adapter factory, and a
 Click command. Credentials live exclusively in environment variables.
 
-### Added
+### Agregado
 
 - `cmcourier.config.schema` — Pydantic v2 model graph for the full
   pipeline. Every model `ConfigDict(frozen=True, extra="forbid")`.
@@ -4135,14 +4136,14 @@ Click command. Credentials live exclusively in environment variables.
 - `pyproject.toml`: PyYAML>=6.0,<7.0 runtime; types-PyYAML>=6.0,<7.0 dev.
 - `.pre-commit-config.yaml`: types-PyYAML in mypy hook's additional_dependencies.
 
-### Changed
+### Cambiado
 
 - `SQLiteTrackingStore` now explicitly inherits `ITrackingStore`
   (nominal typing for mypy strict at the wiring layer).
 - `cmcourier.config.__init__` re-exports PipelineConfig, Secrets,
   load_config, load_secrets, build_pipeline.
 
-### Verification
+### Verificación
 
 - pytest: 380/380 pass in ~62 s.
 - coverage: 96.63% total. config/schema.py, config/loader.py,
@@ -4151,7 +4152,7 @@ Click command. Credentials live exclusively in environment variables.
 - Smoke: `cmcourier --help` and `cmcourier csv-trigger-pipeline run
   --help` list the expected commands and flags.
 
-### Rationale
+### Justificación
 
 - Pydantic v2 without pydantic-settings (per user direction). Env
   vars read manually — one less dep, zero magic.
@@ -4170,18 +4171,18 @@ Click command. Credentials live exclusively in environment variables.
 
 ---
 
-## [0.13.0] — 2026-05-10 — **MVP pipeline end-to-end**
+## [0.13.0] — 2026-05-10 — **Pipeline MVP de punta a punta**
 
 ---
 
-## [0.13.0] — 2026-05-10 — **MVP pipeline end-to-end**
+## [0.13.0] — 2026-05-10 — **Pipeline MVP de punta a punta**
 
 This release ships the **first runnable MVP migration pipeline**. With
 `CsvTriggerPipeline`, all of S0..S6 are wired against real adapters and
 services — no stubs, no placeholders. The orchestrator IS the wiring;
 every collaborator it imports has been on `main` since changes 003-010.
 
-### Added
+### Agregado
 
 - **`cmcourier.orchestrators.csv_trigger.CsvTriggerPipeline`** — the first
   runnable orchestrator. Implements the `csv-trigger-pipeline`
@@ -4236,7 +4237,7 @@ every collaborator it imports has been on `main` since changes 003-010.
   read that depends on writes from the same run (the "read my own writes"
   anchor). Synchronous implementations may make this a no-op.
 
-### Changed
+### Cambiado
 
 - **`SQLiteTrackingStore.is_stage_done(txn, batch_id, stage)`** semantic
   changed from "row's `status` field equals exactly `stage.value`" to
@@ -4255,7 +4256,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `src/cmcourier/domain/ports.py` gains two abstract methods on
   `ITrackingStore` (above). `tests/unit/domain/test_ports.py` updated.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **337 / 337 pass** in ~58 s (314 from earlier changes + 20
   pipeline tests + 2 SQLite port-amendment tests + 1 ports test).
@@ -4267,7 +4268,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy
   all pass.
 
-### Rationale
+### Justificación
 
 - **First MVP pipeline**. Every adapter and service from changes 003-010
   is now reachable through `CsvTriggerPipeline.run`. The only remaining
@@ -4317,7 +4318,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.12.0] — 2026-05-10
 
-### Added
+### Agregado
 
 - **`cmcourier.adapters.upload.cmis_uploader.CmisUploader`** — concrete `IUploader` for IBM Content Manager via the CMIS Browser Binding REST/JSON protocol. Single-threaded MVP: one `requests.Session` shared across calls; thread-local sessions deferred to a follow-up change when the orchestrator's worker pool lands. Holds an in-memory `set[str]` folder cache so a verified or created folder path is never re-POSTed within a process lifetime.
 - **Lazy JSESSIONID warmup**: no HTTP at construction time; the first call to `test_connection`, `ensure_folder`, or `upload` issues `GET {base_url}/{repo_id}?cmisselector=repositoryInfo`. Re-warmup fires on any 401 from a subsequent POST.
@@ -4329,12 +4330,12 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **`cmcourier.adapters.upload.cmis_uploader.CmisConfig`** — frozen+slots dataclass with `base_url`, `repo_id`, `username`, `password`, `timeout_seconds=300.0`, `verify_ssl=False`, `max_bandwidth_mbps=0.0`, `retry_max_attempts=3`, `retry_base_delay_s=2.0`.
 - **26 integration tests** in `tests/integration/adapters/test_cmis_uploader.py` across 9 groups: config, warmup, `test_connection`, `ensure_folder` (skip `$`, recursive, cache, 409, cached-after-409), upload happy path (3 objectId fallbacks + Content-Type assertion), retry (5xx-then-201, 4xx fail-fast, 401 re-warmup, retries exhausted), Windows-10053 (delay doubling + ERROR log), BandwidthLimiter (throttle + passthrough + passthrough methods), logging discipline. Branch coverage on `cmis_uploader.py`: **94%** (target ≥ 85%).
 
-### Changed
+### Cambiado
 
 - `src/cmcourier/adapters/upload/__init__.py` re-exports `BandwidthLimiter`, `CmisConfig`, `CmisUploader`.
 - **`pyproject.toml`** dev deps add `responses>=0.25,<1.0` for HTTP mocking. `responses` is the dev-only library that lets the integration tests exercise the real `requests` stack with the network stubbed — Constitution Principle VI's "no mocking the SUT" applies; `responses` mocks the network, not `requests`.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **314 / 314 pass** in ~36 s (288 from earlier changes + 26 new).
 - `pytest --cov=src/cmcourier`: total branch coverage **96.21%**; `adapters/upload/cmis_uploader.py` at **94%**.
@@ -4342,7 +4343,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy --strict on cmcourier.*`: clean across 29 source files.
 - `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - **Stage S5 closes the adapter set** for the MVP `rvabrep-pipeline`. With S0 (triggers), S1 (indexing), S2 (mapping), S3 (metadata), S4 (assembly), S5 (upload), and S6 (tracking) all real, the next change is the orchestrator — every adapter it cables will be production code, not a stub.
 - **MVP includes BandwidthLimiter and complete retry policy** (per user direction). Skipping these to ship the adapter faster would mean either a noticeable production retry hole or a flaky first-week dry-run on shared corporate networks. The retry policy is the most heavily-tested area of the adapter precisely because its failure modes are silent and expensive.
@@ -4357,7 +4358,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.11.0] — 2026-05-10
 
-### Added
+### Agregado
 
 - **`cmcourier.adapters.assembly.pdf_assembler.PdfAssembler`** — concrete `IAssembler` for Stage S4. Dispatches on `RVABREPDocument.is_pdf`: native PDFs pass through via `shutil.copy2` to `{temp_dir}/{txn_num}.pdf` with `page_count` read from `doc.total_pages` (we trust RVABREP, do not parse the PDF); paged documents are glob-discovered, sorted by `int(extension)` to handle variable padding, and merged via `img2pdf.convert` (fast path) with a `PIL.Image` + `PyPDF2.PdfMerger` fallback for mixed-content edge cases.
 - **`cmcourier.adapters.assembly.pdf_assembler.AssemblerConfig`** — frozen+slots dataclass exposing `source_root`, `temp_dir`, and `image_type_map` (defaults: `B → image/tiff`, `O → application/pdf`, `C → image/jpeg`).
@@ -4368,11 +4369,11 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **`tests/integration/adapters/conftest.py`** — session-scoped autouse fixture generator using Pillow to materialize the binary fixtures (TIFF / JPEG / PDF) under `tests/fixtures/assembly/`. Idempotent (skips existing files). Generated binaries are gitignored.
 - **`.gitignore`** updated with patterns for the generated assembly fixtures (`tests/fixtures/assembly/**/*.{pdf,PDF,tif,tiff,jpg,jpeg}` plus numeric-extension page files like `.001`, `.10`, `.540`).
 
-### Changed
+### Cambiado
 
 - `src/cmcourier/adapters/assembly/__init__.py` re-exports `PdfAssembler` and `AssemblerConfig`.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **288 / 288 pass** in ~33 s (270 from earlier changes + 18 new).
 - `pytest --cov=src/cmcourier`: total branch coverage **96.55%**; `adapters/assembly/pdf_assembler.py` at **98%**.
@@ -4380,7 +4381,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy --strict on cmcourier.*`: clean across 28 source files (the existing `img2pdf` / `PyPDF2` `ignore_missing_imports` blocks in `pyproject.toml` cover the new module's third-party imports).
 - `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - **Stage S4 is self-contained** — filesystem only, no network, no AS400. With S4 shipping, the only remaining adapter for the MVP `rvabrep-pipeline` is S5 (CMIS upload). Tracking + service triangle + S0 strategies are all already in place.
 - **Both assembly paths included in MVP** (per user direction): the Pillow/PyPDF2 fallback adds ~30 LOC and ~2 tests but exercises real `PIL` + `PyPDF2` code under a monkey-patched img2pdf, so the adapter is "fit for purpose" from v1 without leaving a half-shipped fallback to wire up later.
@@ -4394,7 +4395,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.10.0] — 2026-05-10
 
-### Added
+### Agregado
 
 - **`cmcourier.services.indexing.IndexingService`** — concrete Stage S1. Given a `TriggerRecord`, returns every non-deleted `RVABREPDocument` matching `(shortname, system_id)`. CIF is intentionally NOT a filter — CIF self-healing is the responsibility of Stage S3.
 - **Two public APIs**: `find_documents(trigger) -> list[RVABREPDocument]` raises `RVABREPNotFoundError` / `RVABREPDeletedError` / `IndexingError`; `find_documents_batch(triggers) -> Iterator[(trigger, list)]` yields one pair per input trigger with empty lists on miss (silent — orchestrators decide semantics). Batched API chunks input into IN-list batches of 50 issuing one `get_by_fields_in` call per chunk.
@@ -4404,12 +4405,12 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **22 unit tests** in `tests/unit/services/test_indexing.py` across 7 groups (construction, single-trigger, duplicates, batched, coercion, error wrap, logging). Branch coverage on `services/indexing.py`: **96%** (target ≥ 95%).
 - **1 fixture CSV** under `tests/fixtures/services/rvabrep_index_sample.csv`: 15 synthetic rows covering vanilla multi-match, fully-deleted, mixed-deleted, duplicate txn_num, same-shortname-across-systems, `last_view_date='0'` / `''`, PDF and paged variants.
 
-### Changed
+### Cambiado
 
 - `src/cmcourier/services/__init__.py` re-exports `IndexingService` and `IndexingColumnsConfig` (alongside the prior 15 public symbols).
 - **`cmcourier.domain.exceptions.RVABREPDeletedError`** amended from `(txn_num, delete_code)` to `(shortname, system_id, deleted_count)`. The exception's first real consumer (IndexingService) describes the SET case "every matching row is deleted", not "this specific record is deleted". `tests/unit/domain/test_exceptions.py` updated to assert the new shape. No production code uses the old signature.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **270 / 270 pass** in ~24 s (248 from earlier changes + 22 new).
 - `pytest --cov=src/cmcourier`: total branch coverage **96.40%**; `services/indexing.py` at **96%**.
@@ -4417,7 +4418,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy --strict on cmcourier.*`: clean across 27 source files.
 - `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - **Closes the service triangle**. Mapping (S2, change 004), Metadata (S3, change 005), and now Indexing (S1) are the three services every CMCourier pipeline relies on. With this change, the next milestone is the first orchestrator that wires S0..S6 end-to-end.
 - **CIF is NOT a filter here**. CIF self-healing is a Stage S3 responsibility — adding CIF to the WHERE clause would either reject legitimate documents (when the trigger's CIF is missing) or duplicate CIF resolution logic across two stages. Single source of truth wins.
@@ -4430,18 +4431,18 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.9.0] — 2026-05-10
 
-### Added
+### Agregado
 
 - **`cmcourier.adapters.tracking.sqlite.SQLiteTrackingStore`** — concrete `ITrackingStore` over stdlib `sqlite3`. Two-connection model (sync reader + async writer daemon thread fed by a `queue.Queue`); WAL journal + `synchronous=OFF` + 64 MiB page cache + temp_store=MEMORY; batched commits up to 500 writes or every 1 s; cross-batch idempotency via the partial index `idx_migration_log_uploaded` on `rvabrep_txn_num WHERE status='S5_DONE'`; within-batch idempotency via the unique index `idx_migration_log_txn_batch` on `(rvabrep_txn_num, batch_id)` plus `INSERT OR IGNORE` on `mark_stage_pending`. `start_batch` is the only synchronous write (returns a UUID4 the caller needs immediately). `flush()` blocks on `queue.join()` for test determinism and orchestrators that need to read state they just wrote. `close()` is idempotent and drains pending writes.
 - **`MigrationRecord.batch_id: str`** — new required field on the domain dataclass (`src/cmcourier/domain/models.py`) between `rvabrep_file_name` and `status`. Resolves a port inconsistency where `mark_stage_pending(record, stage)` had no way to know the record's batch — putting it on the record itself is cleaner than amending the port signature.
 - **`tests/integration/adapters/test_sqlite_tracking_store.py`** — 25 integration tests against a real per-test SQLite file (no mocks; Constitution Principle VI) across 7 groups: schema, batch lifecycle, per-stage state machine, queries, lifecycle, error wrapping, and the writer's 500-row batch cap. `_make_record(batch_id, txn_num, **overrides)` helper at module level.
 - **2 new unit tests** in `tests/unit/domain/test_models.py` covering the new `batch_id` field on `MigrationRecord` (default-value rejection + presence on construction). Existing `MigrationRecord` constructions in the file updated to pass `batch_id="batch-test-001"`.
 
-### Changed
+### Cambiado
 
 - `src/cmcourier/adapters/tracking/__init__.py` re-exports `SQLiteTrackingStore`.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **248 / 248 pass** in ~22 s (222 from earlier changes + 25 new integration tests + 1 new unit test on the new field; net +26).
 - `pytest --cov=src/cmcourier`: total branch coverage **96.41 %**; `adapters/tracking/sqlite.py` at **92 %** (target ≥ 90 %).
@@ -4449,7 +4450,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy --strict on cmcourier.*`: clean across 26 source files.
 - `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - Stage S6 (Tracking) is transversal — every pipeline depends on it. Without it, no orchestrator can resume after a crash, no `is_uploaded` skip-check is possible, and no per-stage retry can be scoped. This change ships the only tracking backend the MVP needs.
 - **Two SQLite connections, one writer thread** is the lightest design that simultaneously meets the throughput target (a 200 000-document target on a single process) and respects SQLite's threading rules. WAL coordinates the two connections so a writer never blocks a reader. `synchronous=OFF` is acceptable because every operation is idempotent (Constitution Principle II) — a crashed batch is replayed, not corrupted.
@@ -4462,7 +4463,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.8.0] — 2026-05-10
 
-### Added
+### Agregado
 
 - **`cmcourier.services.triggers.csv.CsvTriggerStrategy`** — concrete `S0Strategy` over any tabular `IDataSource`. Validates required columns at first row; treats blank `CIF` as `None` (CIF self-healing in stage S3 covers it); skips rows with blank `shortname`/`system_id` with an INFO log of the count. Lazy iteration.
 - **`cmcourier.services.triggers.direct_rvabrep.DirectRvabrepTriggerStrategy`** — concrete `S0Strategy` that scans RVABREP itself, with optional `RvabrepFilters(systems, document_types)`. Picks the smaller filter for the IN-list query and rejects the other in Python during iteration. Deduplicates `(shortname, system_id)` pairs (first occurrence wins, matching the MappingService precedent).
@@ -4471,11 +4472,11 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **21 unit tests** in `tests/unit/services/test_trigger_strategies.py` (3 test classes covering CSV, RVABREP, stubs). All using real `TabularDataSource` over CSV fixtures. Branch coverage on `services/triggers/*`: **100%**.
 - **4 fixture CSVs** under `tests/fixtures/services/triggers/`: `trigger_list.csv` (5 rows incl. blanks), `trigger_list_alt_columns.csv` (custom column names), `trigger_list_missing_col.csv` (validates required-column error), `rvabrep_export.csv` (8 rows, 4 unique pairs after dedup).
 
-### Changed
+### Cambiado
 
 - `src/cmcourier/services/__init__.py` re-exports the 7 new public symbols from `triggers/` (in addition to the 8 from `mapping`/`metadata`).
 
-### Verification
+### Verificación
 
 - `pytest -v`: **222 / 222 pass** in ~3 s (201 from earlier changes + 21 new).
 - `pytest --cov`: total project branch coverage holds at ≥94%; `services/triggers/*` at **100%**.
@@ -4483,7 +4484,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy --strict on cmcourier.services.*`: clean across 25 source files.
 - `pre-commit run --all-files`: clean.
 
-### Rationale
+### Justificación
 
 - Stage S0 (Trigger Acquisition) is the entry point of every pipeline. With S0 unimplemented, no orchestrator could run end-to-end. This change ships the two real strategies needed for the MVP pipelines (`rvabrep-pipeline`, `csv-trigger-pipeline`) and gates the other two with explicit stubs that document the missing dependency.
 - **No `TriggerService` wrapper class.** The `S0Strategy` port already represents the trigger-acquisition abstraction; orchestrators in future changes instantiate the appropriate strategy directly per pipeline. The strategies ARE the service.
@@ -4494,7 +4495,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.7.0] — 2026-05-10
 
-### Added
+### Agregado
 
 - **`cmcourier.services.metadata.MetadataService`** — most complex service in CMCourier so far; engine of stage S3 (Metadata Resolution). Per-field fallback chain with validation regexes (`re.fullmatch`), default-value fallback (validated against the first source's regex), CIF self-healing (returns a new `TriggerRecord` since the input is frozen), and field-alias normalization (case-insensitive forward map).
 - **Five frozen+slots dataclasses**: `MetadataConfig`, `FieldSourceConfig`, `SourceConfig`, `ValidationConfig`, `MetadataResolution`. Carry the configuration shape and the resolution result.
@@ -4505,12 +4506,12 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **32 unit tests** in `tests/unit/services/test_metadata.py` covering construction + pre-fetch (3), vanilla per source type (3), fallback chain (5), CIF self-healing (4), aliases (3), source dispatch (3), type immutability (2), and edge cases (9). Branch coverage on `metadata.py`: **99%** (target ≥95%).
 - **3 CSV fixtures** under `tests/fixtures/services/metadata/`: `clients.csv`, `accounts.csv`, `cards.csv`. Synthetic CIFs (`123456`, `234567`, `345678`) and synthetic names (`JUAN PEREZ TEST`, etc.).
 
-### Changed
+### Cambiado
 
 - **Pre-commit hook bumped**: `.pre-commit-config.yaml` `ruff-pre-commit` rev from `v0.4.10` to `v0.15.12` to align with the local venv's resolved version. Five changes in a row had hit the version drift; this resolves it. Ruff's hook IDs changed slightly (`ruff` → `ruff (legacy alias)`, `ruff-format` → `ruff format`) but behavior is identical.
 - `src/cmcourier/services/__init__.py` re-exports the six new public symbols from `metadata` (in addition to the two from `mapping`).
 
-### Verification
+### Verificación
 
 - `pytest -v`: **201 / 201 pass** in ~3 s (169 from earlier changes + 32 new).
 - `pytest --cov=src/cmcourier`: total branch coverage **94%+**. Coverage on `services/metadata.py`: **99%**.
@@ -4518,7 +4519,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy --strict on cmcourier.services.*`: clean across 21 source files.
 - `pre-commit run --all-files`: ruff (legacy alias), ruff format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - The metadata layer is the heart of CMCourier's "configurability" promise: every CMIS property comes from the fallback chain, with validation per source and a safety-net default. Without this service, no document can be uploaded with correct metadata.
 - **Pre-fetching included in this change (not deferred)**: without it, a 200,000-document migration would fire tens of thousands of point queries against AS400. The pre-fetch is central to the architecture, not an optimization to bolt on later.
@@ -4530,7 +4531,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.6.0] — 2026-05-09
 
-### Added
+### Agregado
 
 - **`cmcourier.services.mapping.MappingService`** — the first service-layer class. Caches the Modelo Documental at construction from any `IDataSource` and exposes `get_mapping(id_rvi)`, `get_all()`, `count()`, and `__contains__`. Stage S2 of every pipeline depends on this lookup, as does the future `doctor` command's mapping-completeness check.
 - **`cmcourier.services.mapping.MappingColumnsConfig`** — frozen dataclass for column-name overrides. Defaults match the canonical Modelo Documental columns (`"ID CLASE DOCUMENTAL"`, `"ID RVI"`, `"ID Corto"`, `"CLASE DOCUMENTAL"`, `"METADATOS"`).
@@ -4540,19 +4541,19 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **`tests/unit/services/test_mapping.py`** — 21 unit tests using a real `TabularDataSource` over `tests/fixtures/services/modelo_documental.csv` (no IDataSource mocks; the SUT does no I/O so the adapter is wiring, not the system under test). Coverage on `services/mapping.py`: **100 %**.
 - **`tests/fixtures/services/modelo_documental.csv`** — 8-row fixture with vanilla rows, METADATOS edge cases (empty, whitespace, trailing comma, doubled comma), one duplicate `ID RVI`, and one empty-ID row.
 
-### Changed
+### Cambiado
 
 - `src/cmcourier/services/__init__.py` re-exports `MappingService` and `MappingColumnsConfig` so callers write `from cmcourier.services import MappingService`.
 - README "Status checklist" ticks the fourth-change milestone.
 
-### Verification
+### Verificación
 
 - `pytest -v`: **169 / 169 pass** in 1.32 s (148 from earlier changes + 21 new).
 - `pytest --cov=src/cmcourier`: **total branch coverage 95.34 %** (threshold 80 %); `services/mapping.py` 100 %; `domain/*` 95-100 %; `adapters/sources/tabular.py` 96 %.
 - `ruff check`, `ruff format --check`, `mypy --strict`: all clean.
 - `pre-commit run --all-files`: ruff, ruff-format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - **First service layer in CMCourier**. Validates that the hexagonal architecture established by 001-003 holds together end-to-end: `services/mapping.py` imports only `cmcourier.domain.*` (Constitution Principle I); the test wires a real `TabularDataSource` adapter; the service raises the domain-defined `IDRViNotMappedError` on cache miss. Future services (metadata, trigger, document) follow the same shape.
 - **Eager-load + dict cache** chosen over lazy-with-cache-miss-query because the Modelo Documental is small (< 1000 rows in practice) and stage S2 needs O(1) lookup at pipeline scale.
@@ -4563,20 +4564,20 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.5.0] — 2026-05-09
 
-### Added
+### Agregado
 
 - **`cmcourier.adapters.sources.tabular.TabularDataSource`** — first concrete `IDataSource` implementation. Reads CSV and XLSX files via pandas (with `openpyxl` as the engine for `.xlsx`/`.xls`), exposes the full IDataSource contract minus the SQL methods, and normalizes pandas `NaN` to Python `None` at the port boundary so callers never see pandas-specific sentinels.
 - **`tests/integration/adapters/test_tabular_data_source.py`** — 34 integration tests parametrized over CSV / XLSX. Covers the contract methods, lifecycle (`close`, idempotency, post-close access), file-extension dispatch (case-insensitive, unknown rejected), encoding override (latin-1 fixture), and multi-sheet XLSX selection. Branch coverage on the new module: 96 % (target ≥ 90 %).
 - **`tests/fixtures/sources/`** — synthetic test fixtures: `sample.csv`, `bad_extension.txt`, `latin1.csv` (committed), and `sample.xlsx` / `multi_sheet.xlsx` (generated at session start by a new `tests/conftest.py` autouse fixture; `*.xlsx` is gitignored to keep binaries out of the repo).
 - **`openpyxl>=3.1,<4.0`** added to runtime dependencies — required by `pandas.read_excel` for `.xlsx` files.
 
-### Changed
+### Cambiado
 
 - `tests/conftest.py` now hosts a session-scoped autouse fixture (`_generate_xlsx_fixtures`) that materializes `sample.xlsx` and `multi_sheet.xlsx` at session start if they do not exist. Previously the file held only a docstring.
 - `src/cmcourier/adapters/sources/__init__.py` re-exports `TabularDataSource` so callers write `from cmcourier.adapters.sources import TabularDataSource`.
 - `.gitignore` excludes `tests/fixtures/sources/*.xlsx` (deterministic regeneration; binary diffs in git are noise).
 
-### Verification
+### Verificación
 
 - `pytest`: **148 / 148 pass** in 2.81 s (112 unit + 34 integration + 2 smoke tests).
 - `pytest --cov=src/cmcourier`: **total branch coverage 94.33 %** (threshold 80 %; tabular.py 96 %, domain layer 95-100 %).
@@ -4584,7 +4585,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `mypy src/cmcourier/`: clean across 19 source files.
 - `pre-commit run --all-files`: ruff, ruff-format, mypy all pass.
 
-### Rationale
+### Justificación
 
 - Provides the first concrete adapter so subsequent service-layer changes (004+) have a real `IDataSource` to test against without depending on AS400 — Constitution Principle VI's canonical dev/test substitute. The AS400 adapter, when it lands, implements the same port; both are interchangeable behind the abstraction.
 - `query()` and `query_stream()` raise `NotImplementedError` with explicit messages rather than fake SQL via `pandasql` or `duckdb`. The IDataSource port is broad enough to cover both AS400 (SQL) and tabular (field-based) use cases; service code that calls `query()` knows it is talking to a SQL-capable adapter. A future ISP refactor of the port can split the SQL methods off if the asymmetry becomes painful.
@@ -4596,7 +4597,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.4.0] — 2026-05-09
 
-### Added
+### Agregado
 
 - **`cmcourier.domain.models`** — frozen dataclasses (`@dataclass(frozen=True, slots=True)`) for `TriggerRecord`, `RVABREPDocument`, `CMMapping`, `ResolvedMetadata`, `StagedFile`, and `MigrationRecord`. The `StageStatus` enum (subclassing `enum.StrEnum` from Python 3.11) encodes the per-stage state machine with values matching member names so persistence layers can store them directly. Module-level helpers `parse_cymmdd`, `is_pdf_filename`, `compute_cm_folder`, and `compute_cm_object_type` live alongside the models because they are intrinsic to model semantics.
 - **`cmcourier.domain.ports`** — abstract interfaces `IDataSource`, `ITrackingStore` (with stage-aware methods `is_stage_done`, `mark_stage_pending`, `mark_stage_done`, `mark_stage_failed`, plus the cross-batch `is_uploaded` idempotency anchor), `IAssembler`, `IUploader`, and `S0Strategy` (the new abstraction for the four trigger source modes). All declared as `abc.ABC` with `@abstractmethod` decorators. Concrete implementations land in 003+.
@@ -4604,7 +4605,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **`cmcourier.domain.__init__`** re-exports every public name (35 symbols) so callers write `from cmcourier.domain import IDataSource` regardless of which submodule the symbol lives in. `__all__` is alphabetized.
 - **`tests/unit/domain/test_models.py`**, **`test_ports.py`**, **`test_exceptions.py`**, **`test_imports.py`** — 112 unit tests covering construction, validation rejection, frozen-ness, computed properties, helper edge cases (CYYMMDD round-trip, the canonical clase_id → folder/object-type example, etc.), abstract-class semantics, exception hierarchy filtering, structured-context surfacing in `str(exc)`, and complete `__all__` re-export coverage.
 
-### Verification
+### Verificación
 
 - `pytest -m unit -v tests/unit/domain/`: **112 / 112 pass** in 0.17 s.
 - `pytest --cov=src/cmcourier/domain`: **98.56 % branch coverage** (target ≥ 95 %).
@@ -4612,7 +4613,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 - `ruff check src/ tests/`, `ruff format --check`: clean.
 - `pre-commit run --all-files`: ruff, ruff-format, and mypy hooks all pass.
 
-### Rationale
+### Justificación
 
 - Provides the stable contract that every adapter (003+) and service (004+) will build against. Without this layer, no concrete code can be written without inventing types ad-hoc.
 - All dataclasses are `frozen=True, slots=True` to make accidental mutation impossible and to keep per-instance memory footprint small at scale (200 000+ records in flight is plausible).
@@ -4623,7 +4624,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.3.0] — 2026-05-09
 
-### Added
+### Agregado
 
 - **`pyproject.toml`** (PEP 621) declaring all runtime and dev dependencies per Constitution §Constraints, with major-version bounds on every package: `pydantic`, `click`, `pyodbc`, `requests`, `requests-toolbelt`, `pandas`, `img2pdf`, `Pillow`, `PyPDF2` (runtime); `pytest`, `pytest-cov`, `ruff`, `mypy`, `pre-commit`, `types-requests`, `pandas-stubs` (dev).
 - **`src/cmcourier/`** in src layout (PEP 420) with hexagonal layering visible from day one: `domain/`, `adapters/{sources,tracking,assembly,upload}/`, `services/`, `orchestrators/`, `cli/{commands,ui}/`, `config/`. Every directory has an explicit `__init__.py` with a layer-purpose docstring.
@@ -4640,12 +4641,12 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **README "Getting started"** section populated with prerequisites (including unixODBC-dev / IBM iSeries Access driver requirement for `pyodbc`), install / test / lint / type-check commands, env-var conventions, and a pointer to `docs/INDEX.md`.
 - **README "Documentation map"** prominently links `docs/INDEX.md` as the canonical entry point.
 
-### Changed
+### Cambiado
 
 - README "Documentation map" expanded with rows for `docs/INDEX.md`, `docs/how-to/README.md`, `docs/explanation/README.md`.
 - README "Status checklist" ticks the `/sdd-init` and Python-skeleton-bootstrap milestones.
 
-### Rationale
+### Justificación
 
 - This change executes Phase 0 of the implementation order from the project's domain spec, now under SDD discipline (spec / plan / tasks landed in commits `c908927` and `56a091c`; this commit ships the implementation).
 - The skeleton holds **no business logic** — its only purpose is to give every subsequent change a working sandbox. The smoke test (`tests/test_smoke.py`) is the single proof that the scaffolding works: it asserts that `import cmcourier` succeeds and that `__version__` is a SemVer string.
@@ -4657,7 +4658,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.2.0] — 2026-05-08
 
-### Added
+### Agregado
 - **Domain spec §10 rewritten**: replaced the old "Execution Modes A/B/C" model with a stage-based pipeline architecture. Eight atomic stages (`S0`–`S7`) compose into named pipelines exposed as CLI commands.
 - **Domain spec §10.5**: Pre-Flight Validation specification. Automatic before any pipeline run; available as standalone `cmcourier doctor` command.
 - **Domain spec §10.6**: TUI by default with PREP / UPLOAD tabs (Rich); `cmcourier background` is the explicit headless exception.
@@ -4669,10 +4670,10 @@ every collaborator it imports has been on `main` since changes 003-010.
 - **`CONTRIBUTING.md`**: SDD workflow, branching, conventional commits, PR standards, constitutional amendment procedure pointer.
 - **`CHANGELOG.md`**: this file.
 
-### Changed
+### Cambiado
 - **Configuration schema**: removed the global `datasource_mode` field. Trigger source is selected by which pipeline command is invoked, not by a config flag.
 
-### Rationale
+### Justificación
 - The user surfaced a list of design changes that the rewrite should adopt: pipelines as composable stages, modes as commands rather than config, an explicit `doctor` command, TUI everywhere except background, batch-as-first-class with two-batch producer-consumer flow, stage-by-stage execution per batch, exhaustive observability, validatable mapping/metadata configurations.
 - Document Class Mapping (`S2`) was promoted to a separate stage from Metadata Resolution (`S3`) so missing mappings and missing metadata produce distinct error classes — better diagnosis, better doctor output.
 - The adaptive heavy/light lane design was explicitly deferred to post-MVP after a viability vs complexity trade-off review. Single-lane MVP delivers correct results; adaptive lanes deliver faster results.
@@ -4681,7 +4682,7 @@ every collaborator it imports has been on `main` since changes 003-010.
 
 ## [0.1.0] — 2026-05-08
 
-### Added
+### Agregado
 - **`.specify/memory/constitution.md`** ratified at v1.0.0 with nine core principles:
   - I. Hexagonal Architecture is Non-Negotiable
   - II. Idempotency is Sacred
@@ -4697,25 +4698,25 @@ every collaborator it imports has been on `main` since changes 003-010.
 - Governance section: amendment procedure with SemVer (MAJOR/MINOR/PATCH), enforcement, document precedence chain.
 - Project structure under `docs/domain/` (ground truth) and `docs/samples/{csv,excel,responses}/` (reference fixtures from RVIMigration).
 
-### Moved
+### Movido
 - The domain spec was moved into `docs/domain/` (preserved as git rename).
 - `*.csv`, `*.xlsx`, `EjemploRespuestaCMIS.txt` → `docs/samples/{csv,excel,responses}/` (preserved as git renames).
 
-### Rationale
+### Justificación
 - The old project (`RVIMigration`) drifted into a 1341-line God Object without immutable principles guiding the work. The constitution exists so the rewrite does not repeat that history.
 - Spec Kit was chosen over OpenSpec for file-based, git-versioned SDD artifacts.
 
 ---
 
-## How to read this changelog
+## Cómo leer este changelog
 
-- **Added**: new functionality or documentation
-- **Changed**: existing behavior or documentation modified
-- **Deprecated**: behavior or feature on its way out
-- **Removed**: behavior or feature deleted
-- **Fixed**: bug fixes
-- **Security**: security-relevant changes
-- **Moved**: file relocations (preserved as git renames where possible)
-- **Rationale**: the *why* behind a release, when not obvious from the entries above
+- **Agregado**: nueva funcionalidad o documentación
+- **Cambiado**: comportamiento o documentación existente modificada
+- **Deprecado**: comportamiento o funcionalidad en vías de salir
+- **Eliminado**: comportamiento o funcionalidad borrada
+- **Corregido**: fixes de bugs
+- **Seguridad**: cambios relevantes para seguridad
+- **Movido**: relocalizaciones de archivos (preservadas como git renames donde sea posible)
+- **Justificación**: el *por qué* detrás de un release, cuando no es obvio de las entradas arriba
 
-Pre-1.0.0 versions are documentation milestones. 1.0.0 will mark the first production-ready MVP migration.
+Las versiones pre-1.0.0 son hitos de documentación. La 1.0.0 va a marcar la primera migración MVP lista para producción.

@@ -1,129 +1,149 @@
-# 054 — UPLOAD-tab recorder wiring: finish the 042 split
+# 054 — Wiring del recorder del tab UPLOAD: terminar el split de 042
 
-## Why
+## Por qué
 
-On an N=2 staging run the operator reported the UPLOAD tab was dead:
-bandwidth `0.00 MB/s`, peak `0.00 MB/s`, the UPLOAD SPEED sparkline
-blank, SLOW OPS "(none yet)" — and the per-chunk timer was counting
-from a point *long before* S5 started, as if it began at program
-launch.
+En un run de staging N=2 el operador reportó que el tab UPLOAD
+estaba muerto: bandwidth `0.00 MB/s`, peak `0.00 MB/s`, la
+sparkline de UPLOAD SPEED en blanco, SLOW OPS "(none yet)" — y
+el timer por-chunk contaba desde un punto *muy anterior* al
+arranque de S5, como si empezara en el lanzamiento del programa.
 
-Two bugs, both in `src/cmcourier/tui/data_provider.py`, both
-incomplete fallout from spec 042.
+Dos bugs, ambos en `src/cmcourier/tui/data_provider.py`, ambos
+fallout incompleto de la spec 042.
 
-### Background — what 042 did
+### Contexto — qué hizo 042
 
-042 split the TUI's recorder binding in two:
+042 separó el binding del recorder de la TUI en dos:
 
-- `recorder_provider` → `orchestrator.active_recorder()` — the
-  **most-recently-started** chunk's recorder. When chunk N+1 enters
-  PREP while chunk N is still uploading, this flips to N+1.
-- `upload_recorder_provider` → `orchestrator.upload_recorder()` — the
-  recorder of the chunk **actually inside S5**. Stays on N until N
-  finishes.
+- `recorder_provider` → `orchestrator.active_recorder()` — el
+  recorder del chunk **más-recientemente-arrancado**. Cuando el
+  chunk N+1 entra a PREP mientras el chunk N todavía está
+  subiendo, esto se da vuelta a N+1.
+- `upload_recorder_provider` → `orchestrator.upload_recorder()`
+  — el recorder del chunk **realmente adentro de S5**. Se queda
+  en N hasta que N termina.
 
-Each `MetricsRecorder` owns a `_BandwidthHandler` and a
-`_SlowOpHandler` that **filter log records by `batch_id`**
-(`metrics.py` — `record.batch_id != self._batch_id` → dropped). So the
-recorder of the chunk in PREP (N+1) receives **zero** `cmis_upload`
-events — those all carry batch N's id and land only in N's recorder.
+Cada `MetricsRecorder` tiene su propio `_BandwidthHandler` y
+`_SlowOpHandler` que **filtran log records por `batch_id`**
+(`metrics.py` — `record.batch_id != self._batch_id` →
+descartado). Así que el recorder del chunk en PREP (N+1) recibe
+**cero** eventos `cmis_upload` — esos llevan el id del batch N
+y aterrizan solo en el recorder de N.
 
-In `data_provider.py`, `self._metrics` follows `recorder_provider`
-(PREP-aware) and `self._upload_metrics` follows
-`upload_recorder_provider` (UPLOAD-bound).
+En `data_provider.py`, `self._metrics` sigue a
+`recorder_provider` (PREP-aware) y `self._upload_metrics` sigue
+a `upload_recorder_provider` (UPLOAD-bound).
 
-### Bug 1 — bandwidth / peak / sparkline / slow ops read the PREP recorder
+### Bug 1 — bandwidth / peak / sparkline / slow ops leen del recorder de PREP
 
-042 moved `_current_chunk_progress` to read `self._upload_metrics`,
-but **four fields in `snapshot()` were left on `self._metrics`**:
+042 movió `_current_chunk_progress` para leer
+`self._upload_metrics`, pero **cuatro campos en `snapshot()`
+quedaron en `self._metrics`**:
 
 - `bandwidth_current_mbps = self._metrics.bandwidth.current_mbps()`
 - `bandwidth_peak_mbps = self._metrics.bandwidth.peak_mbps()`
 - `bandwidth_series = self._metrics.bandwidth.series(60)`
 - `slow_ops_all = self._metrics.aggregator_snapshot()`
 
-During N's upload (with N+1 in PREP) `self._metrics` is N+1's
-recorder — whose bandwidth sampler and slow-op aggregator never saw a
-single byte of N's upload. Result: all four read empty/zero. The
-existing `test_slow_ops_passes_through_aggregator` never caught it
-because it builds the provider **without** `upload_recorder_provider`,
-so `_metrics == _upload_metrics` and the two can't diverge.
+Durante el upload de N (con N+1 en PREP) `self._metrics` es el
+recorder de N+1 — cuyo sampler de bandwidth y aggregator de
+slow-op nunca vieron un solo byte del upload de N. Resultado:
+los cuatro leen empty/cero. El test existente
+`test_slow_ops_passes_through_aggregator` nunca lo agarró
+porque construye el provider **sin** `upload_recorder_provider`,
+así que `_metrics == _upload_metrics` y los dos no pueden
+divergir.
 
-### Bug 2 — the per-chunk timer measures from PREP start
+### Bug 2 — el timer por-chunk mide desde el arranque de PREP
 
-`_current_chunk_progress` derives the active chunk's `elapsed_s` from
-`prep_started_monotonic` — the moment the chunk began **preparing**,
-not uploading. The UPLOAD tab renders that as "chunk elapsed", so for
-chunk 0 it counts from roughly program launch. It also poisons
-`current_chunk_avg_mbps = bytes_uploaded / elapsed_s` — dividing bytes
-uploaded by a window that includes the entire PREP phase, so the
-average speed reads far lower than reality.
+`_current_chunk_progress` deriva el `elapsed_s` del chunk
+activo desde `prep_started_monotonic` — el momento en que el
+chunk empezó a **preparar**, no a subir. El tab UPLOAD lo
+renderiza como "chunk elapsed", así que para el chunk 0 cuenta
+desde aproximadamente el lanzamiento del programa. También
+envenena `current_chunk_avg_mbps = bytes_uploaded / elapsed_s`
+— dividiendo bytes subidos por una ventana que incluye toda la
+fase PREP, así que la velocidad promedio se lee mucho más baja
+que la realidad.
 
-`ChunkState` already carries `upload_started_monotonic` (stamped when
-the chunk enters S5) and a frozen `upload_elapsed_s` (stamped at DONE)
-— the provider just wasn't using them.
+`ChunkState` ya lleva `upload_started_monotonic` (stampeado
+cuando el chunk entra a S5) y un `upload_elapsed_s` frozen
+(stampeado en DONE) — el provider simplemente no los estaba
+usando.
 
-## What
+## Qué
 
-### 1. Point the bandwidth + slow-ops fields at the UPLOAD recorder
+### 1. Apuntar los campos de bandwidth + slow-ops al recorder de UPLOAD
 
-In `snapshot()`, the four fields above read from `self._upload_metrics`
-instead of `self._metrics`. `self._upload_metrics` already falls back
-to `self._metrics` when no `upload_recorder_provider` is wired
-(single-batch runs), so single-batch behaviour is unchanged.
+En `snapshot()`, los cuatro campos de arriba leen de
+`self._upload_metrics` en vez de `self._metrics`.
+`self._upload_metrics` ya hace fallback a `self._metrics`
+cuando ningún `upload_recorder_provider` está wireado (runs
+single-batch), así que el comportamiento single-batch queda
+sin cambios.
 
-### 2. Measure the per-chunk timer from S5 start
+### 2. Medir el timer por-chunk desde el arranque de S5
 
-`_current_chunk_progress` resolves the active chunk's `elapsed_s` by
-status:
+`_current_chunk_progress` resuelve el `elapsed_s` del chunk
+activo por status:
 
-- `UPLOAD` → `now − upload_started_monotonic` (live).
-- `DONE` → the frozen `upload_elapsed_s`.
-- `PREP` (or unknown) → `0.0` — S5 hasn't started, there is no upload
-  elapsed yet. The `_chunk_timer_line` guard already suppresses the
-  line when elapsed and bytes are both zero.
-- No active chunk (single-batch) → unchanged: the global run elapsed.
+- `UPLOAD` → `now − upload_started_monotonic` (en vivo).
+- `DONE` → el `upload_elapsed_s` frozen.
+- `PREP` (o desconocido) → `0.0` — S5 no arrancó, no hay
+  upload elapsed todavía. El guard de `_chunk_timer_line` ya
+  suprime la línea cuando elapsed y bytes son ambos cero.
+- Sin chunk activo (single-batch) → sin cambios: el elapsed
+  global del run.
 
-`current_chunk_avg_mbps` then divides bytes uploaded by the *upload*
-window, so it reports the real S5 throughput.
+`current_chunk_avg_mbps` entonces divide bytes subidos por la
+ventana de *upload*, así que reporta el throughput real de S5.
 
-## Out of scope
+## Fuera de alcance
 
-- Re-tagging `network-*` / `system-*` log records with a real
-  `batch_id` (the contextvar plumbing called out as out-of-scope in
-  053) — unrelated; this spec is purely the in-memory TUI binding.
-- Any change to `_BandwidthHandler` / `_SlowOpHandler` filtering — the
-  per-batch filter is correct; the bug is which recorder the snapshot
-  reads.
-- The CHUNKS-tab RATE column (052) — it already reads per-chunk
-  `upload_elapsed_s` and is unaffected.
+- Re-taguear los log records `network-*` / `system-*` con un
+  `batch_id` real (la plomería de contextvar nombrada como
+  fuera-de-alcance en 053) — no relacionado; esta spec es
+  puramente el binding in-memory de la TUI.
+- Cualquier cambio al filtrado de `_BandwidthHandler` /
+  `_SlowOpHandler` — el filtro per-batch es correcto; el bug
+  es qué recorder lee el snapshot.
+- La columna RATE del tab CHUNKS (052) — ya lee
+  `upload_elapsed_s` por-chunk y no se ve afectada.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- With a provider wired with **divergent** `recorder_provider` (a PREP
-  recorder) and `upload_recorder_provider` (an UPLOAD recorder that
-  has bandwidth + slow-op data), `snapshot()` returns non-zero
-  `bandwidth_current_mbps`, `bandwidth_peak_mbps`, a non-empty
-  `bandwidth_series`, and the UPLOAD recorder's slow ops in
-  `slow_ops_all` — a test asserts each.
-- For an active chunk in status `UPLOAD`, `current_chunk_elapsed_s`
-  measures from `upload_started_monotonic`, not `prep_started_monotonic`
-  — a test with both timestamps set asserts the gap is excluded.
-- For an active chunk in status `DONE`, `current_chunk_elapsed_s`
-  equals the frozen `upload_elapsed_s`.
-- For an active chunk in status `PREP`, `current_chunk_elapsed_s` is
-  `0.0`.
-- Single-batch behaviour (no `upload_recorder_provider`) is unchanged
-  — the existing data-provider tests stay green.
-- Full unit + integration suite green; mypy + ruff clean.
+- Con un provider wireado con **divergent**
+  `recorder_provider` (un recorder de PREP) y
+  `upload_recorder_provider` (un recorder de UPLOAD que tiene
+  data de bandwidth + slow-op), `snapshot()` devuelve
+  `bandwidth_current_mbps` no-cero, `bandwidth_peak_mbps`
+  no-cero, un `bandwidth_series` no-vacío, y los slow ops del
+  recorder de UPLOAD en `slow_ops_all` — un test assertea cada
+  uno.
+- Para un chunk activo en status `UPLOAD`,
+  `current_chunk_elapsed_s` mide desde
+  `upload_started_monotonic`, no `prep_started_monotonic` —
+  un test con ambos timestamps seteados assertea que el gap se
+  excluye.
+- Para un chunk activo en status `DONE`,
+  `current_chunk_elapsed_s` iguala el `upload_elapsed_s` frozen.
+- Para un chunk activo en status `PREP`,
+  `current_chunk_elapsed_s` es `0.0`.
+- El comportamiento single-batch (sin `upload_recorder_provider`)
+  queda sin cambios — los tests existentes del data-provider
+  quedan verdes.
+- Suite completa unit + integration verde; mypy + ruff limpios.
 - `CHANGELOG.md [0.57.0]`; `pyproject.toml` 0.56.0 → 0.57.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The gap that let both bugs ship is that no data-provider test wired
-**divergent** PREP and UPLOAD recorders. The new tests build the
-provider with two distinct `MetricsRecorder`s — one fed PREP-shaped
-data, one fed UPLOAD-shaped data (bytes + a slow `cmis_upload`) — and
-assert the snapshot reads UPLOAD-shaped fields from the UPLOAD one.
-The per-chunk timer cases feed a `chunks_provider` returning a single
-chunk dict with the status under test and both monotonic stamps set.
+El gap que dejó pasar ambos bugs es que ningún test del
+data-provider wireaba recorders PREP y UPLOAD **divergentes**.
+Los tests nuevos construyen el provider con dos
+`MetricsRecorder` distintos — uno alimentado con data
+PREP-shaped, uno alimentado con data UPLOAD-shaped (bytes + un
+`cmis_upload` lento) — y assertean que el snapshot lee los
+campos UPLOAD-shaped del de UPLOAD. Los casos del timer
+por-chunk alimentan un `chunks_provider` devolviendo un único
+dict de chunk con el status bajo test y ambos stamps monotónicos
+seteados.

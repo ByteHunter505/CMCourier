@@ -1,68 +1,68 @@
-# CMCourier — Documentation Index
+# CMCourier — Índice de Documentación
 
-> The single map of every document in the project. Pick the quadrant that matches your intent and click through.
+> El único mapa de cada documento del proyecto. Elegí el cuadrante que coincida con tu intención y entrá.
 
-This index is **canonical**: every documentation artifact in the repository appears here. Subdirectory READMEs (under `docs/how-to/`, `docs/explanation/`) link back to this page for navigation.
+Este índice es **canónico**: cada artefacto de documentación del repositorio aparece acá. Los READMEs de subdirectorios (bajo `docs/how-to/`, `docs/explanation/`) linkean de vuelta a esta página para la navegación.
 
-The structure follows the [Diátaxis framework](https://diataxis.fr): documentation is split by *purpose* (learn / solve / look up / understand) rather than by topic.
-
----
-
-## For everyone
-
-| Document | Purpose |
-|----------|---------|
-| [`README.md`](../README.md) | Project overview, current status, getting started |
-| [`CHANGELOG.md`](../CHANGELOG.md) | Versioned history (Keep a Changelog format) |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Workflow, commit standards, PR rules, SDD discipline |
-
-## Engineering law
-
-| Document | Purpose |
-|----------|---------|
-| [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) | The 9 immutable principles. Specs and code that violate it are rejected without debate |
-
-## Domain ground truth
-
-| Document | Purpose |
-|----------|---------|
-| the project's domain spec | Full domain specification — RVI source system, CMIS target system, RVABREP schema, stage architecture, metadata resolution, file assembly, idempotency, observability tiers |
-
-## Project planning
-
-| Document | Purpose |
-|----------|---------|
-| [`docs/roadmap/POST-MVP.md`](roadmap/POST-MVP.md) | Every feature deferred beyond the MVP, with intent + design + acceptance criteria |
-| `specs/<NNN-feature-slug>/` | Per-change SDD artifacts (`spec.md`, `plan.md`, `tasks.md`, optionally `research.md` and `data-model.md`). One folder per change, append-only numbering |
-
-## Reference data (samples from the legacy project)
-
-| Document | Purpose |
-|----------|---------|
-| [`docs/samples/csv/`](samples/csv/) | Sample CSVs: `MapeoRVI_CM.csv` (Modelo Documental), `MetadatosCM.csv` (per-class metadata definitions), `TriggerExample.csv` (trigger list shape), and per-source metadata samples (`metadata_clients.csv`, `metadata_accounts.csv`, etc.) |
-| [`docs/samples/excel/RVILIB_RVABREP.xlsx`](samples/excel/RVILIB_RVABREP.xlsx) | Real RVABREP table dump — column shape and example rows |
-| [`docs/samples/responses/EjemploRespuestaCMIS.txt`](samples/responses/EjemploRespuestaCMIS.txt) | Real CMIS Browser Binding response example — useful when implementing the upload adapter |
-
-## How to use (recipes — problem-oriented)
-
-See [`docs/how-to/README.md`](how-to/README.md) for the index of how-to guides and the naming convention.
-
-- *(none yet — this section grows as pipelines, the doctor command, and operator workflows ship)*
-
-## How it works (explanations — understanding-oriented)
-
-See [`docs/explanation/README.md`](explanation/README.md) for the index of explanations and the naming convention.
-
-- *(none yet — this section grows as architectural concepts get standalone walkthroughs; the comprehensive explanation lives in the project's domain spec)*
-- Future: `docs/explanation/tabular-data-source.md` (deferred — the spec/plan in `specs/003-tabular-data-source-adapter/` is sufficient for now)
+La estructura sigue el [framework Diátaxis](https://diataxis.fr): la documentación está dividida por *propósito* (aprender / resolver / consultar / entender) en lugar de por tema.
 
 ---
 
-## Maintenance
+## Para todos
 
-This file is updated by **every change** that adds, moves, or renames a documentation artifact. The change's `tasks.md` includes a task to update this index. CONTRIBUTING.md documents that responsibility.
+| Documento | Propósito |
+|----------|---------|
+| [`README.md`](../README.md) | Overview del proyecto, estado actual, cómo empezar |
+| [`CHANGELOG.md`](../CHANGELOG.md) | Historia versionada (formato Keep a Changelog) |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Workflow, estándares de commit, reglas de PR, disciplina SDD |
 
-Future quadrants (deferred until natural content appears):
+## Ley de ingeniería
 
-- **`docs/tutorials/`** — learning-oriented. Created when the first end-to-end walkthrough exists (likely when `rvabrep-pipeline` ships).
-- **`docs/reference/`** — information-oriented. Created when the CLI command surface and config schema stabilize (post-MVP).
+| Documento | Propósito |
+|----------|---------|
+| [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) | Los 9 principios inmutables. Specs y código que los violan son rechazados sin debate |
+
+## Verdad de dominio
+
+| Documento | Propósito |
+|----------|---------|
+| la spec de dominio del proyecto | Especificación de dominio completa — sistema fuente RVI, sistema destino CMIS, esquema RVABREP, arquitectura de stages, resolución de metadatos, ensamblado de archivos, idempotencia, niveles de observabilidad |
+
+## Planificación del proyecto
+
+| Documento | Propósito |
+|----------|---------|
+| [`docs/roadmap/POST-MVP.md`](roadmap/POST-MVP.md) | Cada feature diferida más allá del MVP, con intención + diseño + criterios de aceptación |
+| `specs/<NNN-feature-slug>/` | Artefactos SDD por cambio (`spec.md`, `plan.md`, `tasks.md`, opcionalmente `research.md` y `data-model.md`). Una carpeta por cambio, numeración append-only |
+
+## Datos de referencia (samples del proyecto legacy)
+
+| Documento | Propósito |
+|----------|---------|
+| [`docs/samples/csv/`](samples/csv/) | CSVs sample: `MapeoRVI_CM.csv` (Modelo Documental), `MetadatosCM.csv` (definiciones de metadatos por clase), `TriggerExample.csv` (forma de la lista de triggers), y samples de metadatos por fuente (`metadata_clients.csv`, `metadata_accounts.csv`, etc.) |
+| [`docs/samples/excel/RVILIB_RVABREP.xlsx`](samples/excel/RVILIB_RVABREP.xlsx) | Volcado real de tabla RVABREP — forma de columnas y filas de ejemplo |
+| [`docs/samples/responses/EjemploRespuestaCMIS.txt`](samples/responses/EjemploRespuestaCMIS.txt) | Ejemplo real de respuesta CMIS Browser Binding — útil al implementar el adapter de upload |
+
+## Cómo usar (recetas — orientado a problemas)
+
+Ver [`docs/how-to/README.md`](how-to/README.md) para el índice de guías how-to y la convención de nombres.
+
+- *(ninguna todavía — esta sección crece a medida que pipelines, el comando doctor, y workflows de operador se shippean)*
+
+## Cómo funciona (explicaciones — orientado a entendimiento)
+
+Ver [`docs/explanation/README.md`](explanation/README.md) para el índice de explicaciones y la convención de nombres.
+
+- *(ninguna todavía — esta sección crece a medida que conceptos arquitectónicos reciban walkthroughs standalone; la explicación comprensiva vive en la spec de dominio del proyecto)*
+- Futuro: `docs/explanation/tabular-data-source.md` (diferido — la spec/plan en `specs/003-tabular-data-source-adapter/` es suficiente por ahora)
+
+---
+
+## Mantenimiento
+
+Este archivo se actualiza con **cada cambio** que agregue, mueva o renombre un artefacto de documentación. El `tasks.md` del cambio incluye una tarea para actualizar este índice. CONTRIBUTING.md documenta esa responsabilidad.
+
+Cuadrantes futuros (diferidos hasta que aparezca contenido natural):
+
+- **`docs/tutorials/`** — orientado al aprendizaje. Creado cuando exista el primer walkthrough de punta a punta (probablemente cuando shippee `rvabrep-pipeline`).
+- **`docs/reference/`** — orientado a información. Creado cuando la superficie de comandos CLI y el schema de config se estabilicen (post-MVP).

@@ -1,21 +1,24 @@
-# 070 — Unify the LaneController across streaming + batched
+# 070 — Unificar el LaneController a través de streaming + batched
 
-## Why
+## Por qué
 
-Operator-reported in the post-067 streaming run: the UPLOAD tab's
-LANES sub-block shows `queue 0` for both HEAVY and LIGHT — always,
-never moves. The BUCKET tab's LANES block shows correct live
-queue values for the same run.
+Reportado por el operador en el run streaming post-067: el
+sub-bloque LANES del tab UPLOAD muestra `queue 0` tanto
+para HEAVY como para LIGHT — siempre, nunca se mueve. El
+bloque LANES del tab BUCKET muestra valores live correctos
+de queue para el mismo run.
 
-Same data, two renderers, two different sources. Root cause:
-**there are two independent `LaneController` instances in a
-streaming run with `heavy_light_lanes.enabled: true`**.
+Misma data, dos renderers, dos fuentes distintas. Causa
+raíz: **hay dos instancias independientes de
+`LaneController` en un run streaming con
+`heavy_light_lanes.enabled: true`**.
 
-### The dual-controller bug
+### El bug del dual-controller
 
-`StagedPipeline.__init__` constructs its own `LaneController` when
-`heavy_light_lanes.enabled=True` (this was 036's wiring, for the
-batched S5 dual-pool path):
+`StagedPipeline.__init__` construye su propio
+`LaneController` cuando `heavy_light_lanes.enabled=True`
+(este era el wiring de 036, para el camino dual-pool de S5
+batched):
 
 ```python
 self._lane_controller: LaneController | None = None
@@ -23,8 +26,9 @@ if heavy_light_lanes is not None and heavy_light_lanes.enabled:
     self._lane_controller = LaneController(...)
 ```
 
-`StreamingOrchestrator.__init__` (065) constructs **another**
-`LaneController` — its own — for the streaming dispatcher:
+`StreamingOrchestrator.__init__` (065) construye **otro**
+`LaneController` — el suyo propio — para el dispatcher de
+streaming:
 
 ```python
 self._lane_controller: LaneController | None = None
@@ -32,13 +36,13 @@ if self._lanes_config.enabled:
     self._lane_controller = LaneController(...)
 ```
 
-Both instances exist concurrently in a streaming-mode run. The
-**streaming** dispatcher and consumers call
-`set_queue_depth(...)` on the **orchestrator's** controller. The
-**batched** controller (sitting idle on the pipeline) never
-receives any updates.
+Las dos instancias existen concurrentemente en un run en
+modo streaming. El dispatcher y consumers de **streaming**
+llaman a `set_queue_depth(...)` sobre el controller del
+**orchestrator**. El controller **batched** (sentado idle
+en el pipeline) nunca recibe ningún update.
 
-The TUI wiring (`cli/app.py` line 689):
+El wiring de TUI (`cli/app.py` línea 689):
 
 ```python
 data_provider = TUIDataProvider(
@@ -48,17 +52,19 @@ data_provider = TUIDataProvider(
 )
 ```
 
-reads the pipeline's controller — the dead one in streaming. The
-BUCKET tab (064) reads through a separate `bucket_provider`
-callable that returns `orch.streaming_snapshot()` with
-`lane_snapshot=self._lane_controller.snapshot()` of the
-orchestrator's controller — that one is live.
+lee el controller del pipeline — el muerto en streaming. El
+tab BUCKET (064) lee a través de un callable
+`bucket_provider` separado que devuelve
+`orch.streaming_snapshot()` con
+`lane_snapshot=self._lane_controller.snapshot()` del
+controller del orchestrator — ese está vivo.
 
-Result: BUCKET tab correct, UPLOAD tab dead.
+Resultado: tab BUCKET correcto, tab UPLOAD muerto.
 
-Beyond the visibility bug, this also means **AIMD can't talk to
-the streaming-mode lane controller**. AIMD's `set_total_budget`
-goes through `StagedPipeline._on_pool_resize`:
+Más allá del bug de visibilidad, esto también significa
+que **AIMD no puede hablarle al lane controller en modo
+streaming**. El `set_total_budget` de AIMD pasa a través
+de `StagedPipeline._on_pool_resize`:
 
 ```python
 def _on_pool_resize(self, new_total: int) -> None:
@@ -68,91 +74,111 @@ def _on_pool_resize(self, new_total: int) -> None:
         self._concurrency_limit.set_capacity(new_total)
 ```
 
-That sets the budget on the **pipeline's** (idle) controller. The
-streaming controller — the one actually gating per-lane
-concurrency in the run — gets nothing. AIMD growth in streaming
-+ heavy/light has been silently broken since 065.
+Eso setea el budget sobre el controller (idle) del
+**pipeline**. El controller de streaming — el que realmente
+gateea la concurrencia per-lane en el run — no recibe
+nada. El crecimiento de AIMD en streaming + heavy/light
+estuvo silenciosamente roto desde 065.
 
-## What
+## Qué
 
-**One LaneController per run.** The `StagedPipeline` owns its
-construction (as in 036). The `StreamingOrchestrator` reuses
-`self._pipeline.lane_controller` instead of building its own.
+**Un LaneController por run.** El `StagedPipeline` es
+dueño de su construcción (como en 036). El
+`StreamingOrchestrator` reusa
+`self._pipeline.lane_controller` en vez de construir el
+suyo propio.
 
-### Changes in `StreamingOrchestrator`
+### Cambios en `StreamingOrchestrator`
 
-* Drop the constructor block that builds
+* Descartar el bloque del constructor que construye
   `self._lane_controller = LaneController(...)`.
-* Replace `self._lane_controller` reads with
-  `self._pipeline.lane_controller` (the pipeline's instance).
-* The `lane_controller` property already exposed for the TUI now
-  forwards: `return self._pipeline.lane_controller`.
-* Keep `self._lanes_config = config.processing.heavy_light_lanes`
-  for the dispatcher's threshold lookup and the
-  enabled / disabled branch.
+* Reemplazar las lecturas de `self._lane_controller` con
+  `self._pipeline.lane_controller` (la instancia del
+  pipeline).
+* La propiedad `lane_controller` ya expuesta para la TUI
+  ahora forwardea: `return self._pipeline.lane_controller`.
+* Mantener
+  `self._lanes_config = config.processing.heavy_light_lanes`
+  para el lookup del threshold del dispatcher y la rama
+  enabled / disabled.
 
-### Why this is correct
+### Por qué es correcto
 
-* `StagedPipeline._lane_controller` exists only when
-  `heavy_light_lanes.enabled=True`. The streaming orchestrator's
-  same-config decision tree triggers on the same boolean, so the
-  two are always in sync.
-* The pipeline's controller is unused by the batched S5 path
-  *because that path doesn't run in streaming mode*. We're not
-  contending — we're occupying the previously-empty slot.
-* AIMD's `_on_pool_resize → pipeline.lane_controller.set_total_budget`
-  now correctly steers the streaming dispatcher's lane budgets.
-* TUI wiring (`cli/app.py`) stays exactly the same. Both
-  `pipeline.lane_controller` (UPLOAD tab) and
-  `orch.streaming_snapshot().lane_snapshot` (BUCKET tab) read the
-  same instance.
+* `StagedPipeline._lane_controller` existe solo cuando
+  `heavy_light_lanes.enabled=True`. El árbol de decisión de
+  same-config del orchestrator de streaming dispara sobre
+  el mismo boolean, así que los dos están siempre en
+  sync.
+* El controller del pipeline está sin usar por el camino
+  batched de S5 *porque ese camino no corre en modo
+  streaming*. No estamos contendiendo — estamos ocupando
+  el slot previamente-vacío.
+* El `_on_pool_resize → pipeline.lane_controller.set_total_budget`
+  de AIMD ahora steerea correctamente los budgets de lane
+  del dispatcher de streaming.
+* El wiring de TUI (`cli/app.py`) queda exactamente igual.
+  Tanto `pipeline.lane_controller` (tab UPLOAD) como
+  `orch.streaming_snapshot().lane_snapshot` (tab BUCKET)
+  leen la misma instancia.
 
-### What happens in `lane_controller.start()` / `stop()`
+### Qué pasa en `lane_controller.start()` / `stop()`
 
-Both the batched path and the streaming path call `start()` /
-`stop()` on the controller around the S5 work. With the unified
-controller:
+Tanto el camino batched como el camino streaming llaman
+`start()` / `stop()` al controller alrededor del trabajo
+de S5. Con el controller unificado:
 
-* In batched mode, `_stage_5_dual` already starts/stops it. No
-  change.
-* In streaming mode, `StreamingOrchestrator.run` already
-  starts/stops `self._lane_controller` — which is now the same
-  pipeline instance. No code change; just the target shifts.
+* En modo batched, `_stage_5_dual` ya lo
+  arranca/detiene. Sin cambios.
+* En modo streaming, `StreamingOrchestrator.run` ya
+  arranca/detiene `self._lane_controller` — que ahora es
+  la misma instancia del pipeline. Sin cambio de código;
+  solo el target se corre.
 
-`LaneController.start()` is idempotent (the existing
-implementation guards on `self._thread is not None`), so even if
-both paths called it accidentally, no harm.
+`LaneController.start()` es idempotente (la
+implementación existente se guarda contra
+`self._thread is not None`), así que aunque ambos caminos
+lo llamaran accidentalmente, no pasa nada.
 
-## Out of scope
+## Fuera de alcance
 
-- Migrating the batched S5 path to share the streaming dispatcher
-  shape. That's a unification spec — not in scope here.
-- Adding a CLI flag to disable lanes per-mode. Operators can
-  already do that with `heavy_light_lanes.enabled: false` in YAML.
+- Migrar el camino batched de S5 a compartir la forma del
+  dispatcher de streaming. Eso es una spec de
+  unificación — no está en alcance acá.
+- Agregar una flag CLI para deshabilitar lanes per-modo.
+  Los operadores ya pueden hacer eso con
+  `heavy_light_lanes.enabled: false` en YAML.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `StreamingOrchestrator` no longer constructs a `LaneController`
-  in `__init__`. It reads from `self._pipeline.lane_controller`.
-- `StreamingOrchestrator.lane_controller` property returns
+- `StreamingOrchestrator` ya no construye un
+  `LaneController` en `__init__`. Lee de
   `self._pipeline.lane_controller`.
-- UPLOAD-tab LANES sub-block shows live `queue`, `in-use`, etc.
-  matching the BUCKET-tab LANES block (same data source).
-- AIMD-triggered `set_total_budget` reaches the streaming
-  dispatcher's per-lane semaphore split.
-- All existing unit tests pass (including
+- La propiedad
+  `StreamingOrchestrator.lane_controller` devuelve
+  `self._pipeline.lane_controller`.
+- El sub-bloque LANES del tab UPLOAD muestra `queue`,
+  `in-use`, etc. en vivo matcheando el bloque LANES del
+  tab BUCKET (misma fuente de data).
+- El `set_total_budget` triggereado por AIMD llega al
+  split de semáforo per-lane del dispatcher de
+  streaming.
+- Todos los tests unitarios existentes pasan
+  (incluyendo
   `test_streaming_snapshot_carries_lane_snapshot_when_enabled`
-  and `test_lane_queue_depth_never_exceeds_bucket_size` from 067).
-- New test pinning the unification: in streaming + lanes mode,
-  `pipeline.lane_controller is orch.lane_controller`.
-- mypy + ruff clean.
+  y `test_lane_queue_depth_never_exceeds_bucket_size` de
+  067).
+- Test nuevo clavando la unificación: en modo streaming
+  + lanes, `pipeline.lane_controller is orch.lane_controller`.
+- mypy + ruff limpios.
 - CHANGELOG `[0.72.0]`; pyproject 0.71.0 → 0.72.0.
 
-## Notes on impact
+## Notas sobre impacto
 
-* No behaviour change for batched mode.
-* No behaviour change for streaming single-lane (lanes disabled).
-* In streaming + lanes mode:
-  - UPLOAD-tab LANES block becomes live.
-  - AIMD-driven lane rebalance becomes effective (was silently
-    broken pre-070, see "Why" above).
+* Sin cambios de comportamiento para modo batched.
+* Sin cambios de comportamiento para streaming
+  single-lane (lanes deshabilitado).
+* En modo streaming + lanes:
+  - El bloque LANES del tab UPLOAD pasa a estar live.
+  - El rebalance de lane impulsado por AIMD pasa a ser
+    efectivo (estaba silenciosamente roto pre-070, ver
+    "Por qué" arriba).

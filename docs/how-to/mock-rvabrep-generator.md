@@ -1,26 +1,26 @@
-# How-to: Generate a synthetic RVABREP CSV (039)
+# How-to: Generar un CSV RVABREP sintético (039)
 
-> Status: `[0.42.0]` and later. Operator runbook for the
-> `cmcourier mock rvabrep` subcommand.
+> Estado: `[0.42.0]` y posterior. Runbook de operador para el subcomando
+> `cmcourier mock rvabrep`.
 
-The pipeline test surface needed something between the 10-row
-hand-curated fixtures shipped with the repo and the bank's real
-RVABREP exports (which are PII-laden and out of bounds for
-external work). `cmcourier mock rvabrep` fills the gap: produces a
-seed-deterministic CSV at any scale — 100, 50 000, 1 000 000 — that
-the existing `cmcourier mock generate` (031) consumes directly to
-materialize the on-disk file tree.
+La superficie de testing del pipeline necesitaba algo entre los fixtures
+de 10 filas curados a mano que shippea el repo y los exports RVABREP
+reales del banco (que están cargados de PII y fuera de límites para
+trabajo externo). `cmcourier mock rvabrep` llena el hueco: produce un
+CSV determinista por semilla a cualquier escala — 100, 50 000, 1 000 000 —
+que el `cmcourier mock generate` (031) existente consume directamente para
+materializar el árbol de archivos en disco.
 
 ## TL;DR
 
 ```bash
-# 1. Generate 50k rows in <5s
+# 1. Generar 50k filas en <5s
 cmcourier mock rvabrep \
   --rows 50000 \
   --output sample/rvabrep-50k.csv \
   --seed 50000
 
-# 2. Materialize 50k physical files from that CSV
+# 2. Materializar 50k archivos físicos desde ese CSV
 cmcourier mock generate \
   --rvabrep-csv sample/rvabrep-50k.csv \
   --root sample/files \
@@ -29,63 +29,63 @@ cmcourier mock generate \
   --seed 1
 ```
 
-The CSV header uses **ABA codes** (`ABABCD`, `ABAANB`, `ABAHCD`, ...)
-— the same column names `IndexingColumnsModel` defaults to. No
-config override is needed at any downstream stage (mock generate,
-the pipeline runners, `doctor`).
+El header del CSV usa **códigos ABA** (`ABABCD`, `ABAANB`, `ABAHCD`, ...)
+— los mismos nombres de columna a los que `IndexingColumnsModel` apunta
+por default. No se necesita override de config en ningún stage downstream
+(mock generate, los runners de pipeline, `doctor`).
 
-## §1 — What gets generated
+## §1 — Qué se genera
 
-Per the the spec column shape:
+Según la forma de columnas de la spec:
 
-| ABA code | Friendly meaning | Generation rule |
+| código ABA | Significado amigable | Regla de generación |
 | --- | --- | --- |
-| `ABABCD` | shortname | Pool of `--clients` (default 5000) distinct identifiers from a small banking lexicon + 2-digit suffix |
+| `ABABCD` | shortname | Pool de `--clients` (default 5000) identificadores distintos de un pequeño lexicon bancario + sufijo de 2 dígitos |
 | `ABAACD` | system_id | 70% `"1"` / 15% `"5"` / 10% `"2"` / 5% `"3"` |
-| `ABAANB` | txn_num | `T` + 6-char base32 deterministic from row index — globally unique |
-| `ABACST` | delete_code | `"D"` with probability `--delete-rate` (default 5%), `""` otherwise |
-| `ABACCD` | index2 / CIF | One stable 6-digit CIF per client; present with probability `--cif-rate` (default 95%) |
-| `ABADCD`..`ABAGCD` | index3..6 | Always blank (matches every observed sample) |
-| `ABAHCD` | index7 / IDRVI | Zipf-weighted draw from the top `--idrvi-top` (default 20) IDRVIs in `--idrvi-source` (default `docs/samples/csv/MapeoRVI_CM.csv`). Most popular IDRVI gets ~30% of the volume, second ~15%, etc. |
+| `ABAANB` | txn_num | `T` + 6 chars base32 determinista del índice de fila — globalmente único |
+| `ABACST` | delete_code | `"D"` con probabilidad `--delete-rate` (default 5%), `""` si no |
+| `ABACCD` | index2 / CIF | Un CIF estable de 6 dígitos por cliente; presente con probabilidad `--cif-rate` (default 95%) |
+| `ABADCD`..`ABAGCD` | index3..6 | Siempre en blanco (matchea cada sample observado) |
+| `ABAHCD` | index7 / IDRVI | Sorteo ponderado Zipf desde los top `--idrvi-top` (default 20) IDRVIs en `--idrvi-source` (default `docs/samples/csv/MapeoRVI_CM.csv`). El IDRVI más popular recibe ~30% del volumen, el segundo ~15%, etc. |
 | `ABABST` | image_type | `--image-mix` (default `tiff:60,pdf:20,jpeg:20`) → `B` / `O` / `C` |
-| `ABAICD` | image_path | `PROD/YYYY/MM/DD` derived from creation_date |
-| `ABAJCD` | file_name | Prefix letter aligned with image_type (`D`/`M` for B, `C` for C, `0` for O) + 7-char random body + correct extension (`.001` for paged, `.PDF` for native) |
-| `ABAADT` | creation_date | Uniform CYYMMDD in `[--date-from, --date-to]` (default 2024-01-01..2025-12-31) |
-| `ABABDT` | last_view_date | `"0"` with probability 0.9, else CYYMMDD ≥ creation_date |
-| `ABABUN` | total_pages | `1` for PDF rows; for paged: 70% in `[1,5]`, 25% in `[6,50]`, 5% in `[51,540]` |
+| `ABAICD` | image_path | `PROD/YYYY/MM/DD` derivado de creation_date |
+| `ABAJCD` | file_name | Letra de prefijo alineada con image_type (`D`/`M` para B, `C` para C, `0` para O) + body random de 7 chars + extensión correcta (`.001` para paged, `.PDF` para nativo) |
+| `ABAADT` | creation_date | CYYMMDD uniforme en `[--date-from, --date-to]` (default 2024-01-01..2025-12-31) |
+| `ABABDT` | last_view_date | `"0"` con probabilidad 0.9, si no CYYMMDD ≥ creation_date |
+| `ABABUN` | total_pages | `1` para filas PDF; para paged: 70% en `[1,5]`, 25% en `[6,50]`, 5% en `[51,540]` |
 
-Every row is validated before write (correct extension, integer
-`ABABUN`, parseable CYYMMDD, etc.). Any invariant failure raises
-`ConfigurationError` with the row index — the generator never
-writes a partial CSV.
+Cada fila se valida antes de escribir (extensión correcta, `ABABUN`
+entero, CYYMMDD parseable, etc.). Cualquier fallo de invariante levanta
+`ConfigurationError` con el índice de fila — el generador nunca escribe
+un CSV parcial.
 
-## §2 — Reproducibility
+## §2 — Reproducibilidad
 
-A single `--seed` drives every choice. Same seed = byte-identical
-output, every time, on every host. This holds across:
+Una sola `--seed` maneja cada elección. Misma semilla = output
+byte-idéntico, cada vez, en cada host. Esto se mantiene a través de:
 
-- Multiple invocations on the same machine.
-- Different hosts (modulo line-ending policy — the writer uses
-  `csv.writer` defaults, so `\r\n` on Windows and `\n` on POSIX).
-- Different Python minor versions (3.11, 3.12).
+- Invocaciones múltiples en la misma máquina.
+- Hosts distintos (modulo política de fin de línea — el writer usa
+  los defaults de `csv.writer`, así que `\r\n` en Windows y `\n` en POSIX).
+- Versiones menores distintas de Python (3.11, 3.12).
 
-The seed for `mock rvabrep` is **independent** of the seed for
-`mock generate` — the former determines the row distribution, the
-latter determines the file content within those rows.
+La semilla para `mock rvabrep` es **independiente** de la semilla para
+`mock generate` — la primera determina la distribución de filas, la
+segunda determina el contenido de los archivos dentro de esas filas.
 
-## §3 — Scales
+## §3 — Escalas
 
-| Scale | Wall clock | Output size |
+| Escala | Wall clock | Tamaño output |
 | --- | --- | --- |
-| 100 rows | < 0.5 s | ~12 KB |
-| 1 000 rows | < 0.5 s | ~120 KB |
-| 50 000 rows | ~3 s | ~6 MB |
-| 1 000 000 rows | ~50 s | ~120 MB |
+| 100 filas | < 0.5 s | ~12 KB |
+| 1 000 filas | < 0.5 s | ~120 KB |
+| 50 000 filas | ~3 s | ~6 MB |
+| 1 000 000 filas | ~50 s | ~120 MB |
 
-Memory stays bounded — the generator streams row-by-row via
-`csv.writer`, never accumulating the full dataset.
+La memoria se mantiene acotada — el generador streamea fila por fila
+vía `csv.writer`, nunca acumulando el dataset completo.
 
-## §4 — Chaining into `mock generate`
+## §4 — Encadenado en `mock generate`
 
 ```bash
 cmcourier mock rvabrep --rows 50000 --output /tmp/r.csv --seed 50000
@@ -95,53 +95,52 @@ cmcourier mock generate --rvabrep-csv /tmp/r.csv --root /tmp/files \
   --seed 1
 ```
 
-The two seeds are **independent**:
-- `--seed 50000` (rvabrep): controls which row gets which shortname,
+Las dos semillas son **independientes**:
+- `--seed 50000` (rvabrep): controla qué fila obtiene qué shortname,
   txn_num, file_name, etc.
-- `--seed 1` (generate): controls the bytes inside each file
-  (blank-page filler PDFs/TIFFs/JPEGs sized between the configured
-  bounds).
+- `--seed 1` (generate): controla los bytes dentro de cada archivo
+  (PDFs/TIFFs/JPEGs de página en blanco como filler, dimensionados
+  entre los límites configurados).
 
-Re-generating with the same RVABREP seed but a different file-content
-seed gives you the **same** CSV with **different** file bytes —
-useful for stressing the assembler with new content while keeping
-the trigger / RVABREP shape stable.
+Regenerar con la misma semilla RVABREP pero distinta semilla de
+contenido de archivo te da el **mismo** CSV con **distintos** bytes —
+útil para estresar el assembler con contenido nuevo mientras
+mantenés la forma del trigger / RVABREP estable.
 
-## §5 — `--idrvi-source` caveats
+## §5 — Caveats de `--idrvi-source`
 
-The default source is `docs/samples/csv/MapeoRVI_CM.csv` — the
-bank's mapping table shipped with the repo, 282 distinct IDRVIs.
-The generator picks the top `--idrvi-top` by **lexicographic
-order** (deterministic and source-agnostic). Defaults to `20`.
+La fuente default es `docs/samples/csv/MapeoRVI_CM.csv` — la tabla de
+mapping del banco shippeada con el repo, 282 IDRVIs distintos.
+El generador elige los top `--idrvi-top` por **orden lexicográfico**
+(determinista y agnóstico a la fuente). Default `20`.
 
-If you point `--idrvi-source` at a CSV with fewer than
-`--idrvi-top` distinct IDRVIs, the generator raises a
-`ConfigurationError` — there is no silent fallback. Either drop
-`--idrvi-top` or expand the source.
+Si apuntás `--idrvi-source` a un CSV con menos de `--idrvi-top` IDRVIs
+distintos, el generador levanta un `ConfigurationError` — no hay fallback
+silencioso. O bajás `--idrvi-top` o expandís la fuente.
 
-### Aligning with the CMIS target
+### Alineando con el destino CMIS
 
-If you intend to run the generated batch end-to-end against a CMIS
-target (staging Alfresco, the bank's CM staging), be aware that
-**every distinct IDRVI in the output will demand a matching CMIS
-type registration**. With `--idrvi-top 20` you have 20 distinct
-IDRVIs in the batch — the pre-flight `doctor --check cm-targets`
-will issue 20 `getTypeDefinition` requests. Make sure the target
-has those types registered, or:
-- Drop to `--idrvi-top 1` for a single-type smoke run.
-- Override `CMISType` for every IDRVI in your MapeoRVI_CM to
-  point at one staging type (e.g. `D:cmcourier:bacDoc`) so the
-  20 IDRVIs share one CMIS type.
+Si planeás correr el batch generado de punta a punta contra un destino
+CMIS (staging Alfresco, el CM staging del banco), tené en cuenta que
+**cada IDRVI distinto en la salida va a demandar un registro de tipo
+CMIS coincidente**. Con `--idrvi-top 20` tenés 20 IDRVIs distintos en
+el batch — el pre-flight `doctor --check cm-targets` va a emitir 20
+requests `getTypeDefinition`. Asegurate de que el destino tenga esos
+tipos registrados, o:
+- Bajá a `--idrvi-top 1` para una corrida smoke de un solo tipo.
+- Overrideá `CMISType` por cada IDRVI en tu MapeoRVI_CM para apuntar
+  a un único tipo de staging (ej. `D:cmcourier:bacDoc`) así los
+  20 IDRVIs comparten un solo tipo CMIS.
 
-## §6 — When NOT to use this
+## §6 — Cuándo NO usar esto
 
-- **Production runs.** The generator emits synthetic data with
-  meaningless CIFs and shortnames. Real migration uses the bank's
-  actual RVABREP export.
-- **Reproducing a bug from real data.** If a specific real row is
-  triggering a failure, you want the actual row, not a synthetic
-  approximation.
-- **Per-document-type validation.** The Zipf distribution biases
-  toward a few IDRVIs. If you need to test a long-tail type, pin
-  `--idrvi-top 1` with a curated `--idrvi-source` containing only
-  that type.
+- **Corridas productivas.** El generador emite datos sintéticos con
+  CIFs y shortnames sin sentido. La migración real usa el export RVABREP
+  real del banco.
+- **Reproducir un bug a partir de datos reales.** Si una fila real
+  específica está disparando un fallo, querés la fila real, no una
+  aproximación sintética.
+- **Validación por tipo de documento.** La distribución Zipf sesga
+  hacia unos pocos IDRVIs. Si necesitás testear un tipo de cola larga,
+  fijá `--idrvi-top 1` con un `--idrvi-source` curado conteniendo solo
+  ese tipo.

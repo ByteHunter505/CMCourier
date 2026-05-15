@@ -1,114 +1,133 @@
-# 060 — Migrate CmisUploader from requests to httpx[http2]
+# 060 — Migrar CmisUploader de requests a httpx[http2]
 
-## Why
+## Por qué
 
-On the staging diagnosis (058) we proved the bottleneck is **upload-bound,
-outside the program**: the Alfresco server holds ~1.5 s p50 per POST, and
-the average doc is small (~76 KB). For docs that small, the **overhead per
-request** (RTT + per-request bookkeeping) dominates transfer time. The
-canonical remedy when the workload is "many small uploads in parallel" is
-HTTP/2 multiplexing: instead of N TCP connections each carrying one
-request at a time, **one TCP connection carries all N requests
-simultaneously**.
+En el diagnóstico de staging (058) probamos que el cuello de
+botella es **upload-bound, afuera del programa**: el server
+Alfresco aguanta ~1.5 s p50 por POST, y el doc promedio es
+chico (~76 KB). Para docs así de chicos, el **overhead por
+request** (RTT + bookkeeping per-request) domina el tiempo de
+transferencia. El remedio canónico cuando la carga es "muchos
+uploads chicos en paralelo" es **multiplexing** HTTP/2: en
+vez de N conexiones TCP cada una llevando un request a la
+vez, **una conexión TCP lleva los N requests simultáneamente**.
 
-`requests` does not speak HTTP/2. `httpx` does. The Alfresco production
-endpoint sits behind an Apache reverse proxy that negotiates HTTP/2 via
-ALPN — so the migration is expected to pay off in prod, where it counts.
-Staging (Tomcat-direct, HTTP/1.1) is a no-op fallback — the same code
-keeps working.
+`requests` no habla HTTP/2. `httpx` sí. El endpoint de
+producción de Alfresco está detrás de un proxy reverso Apache
+que negocia HTTP/2 vía `ALPN` — así que la migración se
+espera que pague en prod, donde cuenta. Staging
+(Tomcat-directo, HTTP/1.1) es un fallback no-op — el mismo
+código sigue andando.
 
-## What
+## Qué
 
-### 1. Adapter rewrite — `CmisUploader`
+### 1. Reescritura del adapter — `CmisUploader`
 
-`requests.Session` → `httpx.Client(http2=True)`. httpx negotiates HTTP/2
-via ALPN; if the server speaks only HTTP/1.1, it falls back transparently
-— same wire protocol as today, same behaviour. When the server *does*
-speak HTTP/2, the N concurrent workers share one TCP connection and
-upload latency drops.
+`requests.Session` → `httpx.Client(http2=True)`. httpx negocia
+HTTP/2 vía `ALPN`; si el server solo habla HTTP/1.1, hace
+fallback transparente — mismo protocolo de cable que hoy,
+mismo comportamiento. Cuando el server *sí* habla HTTP/2, los
+N workers concurrentes comparten una conexión TCP y la
+latencia de upload baja.
 
-Concrete substitutions:
+Substituciones concretas:
 
-- `requests.Session()` → `httpx.Client(http2=True, limits=httpx.Limits(...))`.
-- `HTTPAdapter(pool_connections=N, pool_maxsize=N)` → `httpx.Limits(
-  max_connections=N, max_keepalive_connections=N)`.
-- `requests_toolbelt.MultipartEncoder` → httpx's native `files=` /
-  `data=` multipart API. The body is streamed from disk (same memory
-  footprint).
-- `requests.exceptions.ConnectionError` → `httpx.ConnectError /
-  httpx.NetworkError / httpx.RemoteProtocolError`.
-- The Windows 10053 abort detection (substring match on the exception
-  string) is preserved — the OS-level message is the same regardless
-  of the HTTP client library.
+- `requests.Session()` →
+  `httpx.Client(http2=True, limits=httpx.Limits(...))`.
+- `HTTPAdapter(pool_connections=N, pool_maxsize=N)` →
+  `httpx.Limits(max_connections=N,
+  max_keepalive_connections=N)`.
+- `requests_toolbelt.MultipartEncoder` → la API multipart
+  nativa de httpx `files=` / `data=`. El body se streamea
+  desde disco (mismo footprint de memoria).
+- `requests.exceptions.ConnectionError` → `httpx.ConnectError
+  / httpx.NetworkError / httpx.RemoteProtocolError`.
+- La detección del aborto Windows 10053 (match de substring
+  sobre el string de la excepción) se preserva — el mensaje
+  a nivel OS es el mismo sin importar la library de cliente
+  HTTP.
 
-The `BandwidthLimiter` (rate-limited file wrapper) passes through
-unchanged — httpx accepts any `IO[bytes]`-like for multipart files.
+El `BandwidthLimiter` (wrapper de archivo rate-limited) pasa
+sin cambios — httpx acepta cualquier `IO[bytes]`-like para
+files de multipart.
 
 ### 2. Tests — `test_cmis_uploader.py`
 
-The 55+ tests use `responses` (a `requests`-specific HTTP mock).
-Migrate them to `respx`, which is the httpx-native equivalent. Same
-shape: register URL + method + response; assert on call URLs, headers,
-status codes. The `@responses.activate` decorator becomes
+Los 55+ tests usan `responses` (un mock HTTP específico de
+`requests`). Migrarlos a `respx`, que es el equivalente
+nativo de httpx. Misma forma: registrar URL + method +
+response; assertear sobre URLs de llamada, headers, status
+codes. El decorador `@responses.activate` pasa a ser
 `@respx.mock`.
 
-### 3. Dependencies
+### 3. Dependencias
 
-- Remove `requests`, `requests-toolbelt`, `responses`, `types-requests`.
-- Add `httpx[http2]` (which pulls `h2` + `hpack` + `hyperframe`), `respx`
-  (dev-only).
+- Remover `requests`, `requests-toolbelt`, `responses`,
+  `types-requests`.
+- Agregar `httpx[http2]` (que tira de `h2` + `hpack` +
+  `hyperframe`), `respx` (solo dev).
 
-### 4. Public API — unchanged
+### 4. API pública — sin cambios
 
-`IUploader.upload(...)` signature stays as it is (the spec 055 keyword
-`batch_id` is still there). The wiring layer (`config/wiring.py`) keeps
-constructing a `CmisUploader(CmisConfig(...))` exactly as before. Every
-caller is byte-compatible.
+La firma de `IUploader.upload(...)` se queda como está (el
+keyword `batch_id` de la spec 055 sigue ahí). La capa de
+wiring (`config/wiring.py`) sigue construyendo
+`CmisUploader(CmisConfig(...))` exactamente como antes. Cada
+caller es byte-compatible.
 
-## Out of scope
+## Fuera de alcance
 
-- `async`/`await`. httpx has `AsyncClient` but the orchestrator runs on
-  a `ThreadPoolExecutor` and uses sync calls — converting to async would
-  require rewriting the entire S5 dispatch loop. Sync `httpx.Client` is
-  thread-safe and works perfectly with our existing pool. The HTTP/2
-  multiplexing benefit does NOT require async — sync is enough.
-- HTTP/2 server push or stream prioritization. Default httpx behaviour
-  is fine.
-- Removing the warm-pool concept. `warm_connection_pool(n)` still
-  exists; with HTTP/2 it warms a single connection but the GET is still
-  useful as a JSESSIONID prime + ALPN handshake.
+- `async`/`await`. httpx tiene `AsyncClient` pero el
+  orchestrator corre sobre un `ThreadPoolExecutor` y usa
+  llamadas sync — convertir a async requeriría reescribir el
+  loop de dispatch entero de S5. El `httpx.Client` sync es
+  thread-safe y funciona perfectamente con nuestro pool
+  existente. El beneficio del multiplexing HTTP/2 NO requiere
+  async — sync alcanza.
+- Server push de HTTP/2 o priorización de streams. El
+  comportamiento default de httpx está bien.
+- Remover el concepto de pool tibio. `warm_connection_pool(n)`
+  todavía existe; con HTTP/2 calienta una sola conexión pero
+  el GET sigue siendo útil como prime de JSESSIONID +
+  handshake de `ALPN`.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- `CmisUploader` is built with `httpx.Client(http2=True)` and accepts
-  the same `CmisConfig` it does today.
-- A `respx.mock`-driven happy-path test asserts a successful upload
-  returns the expected `cmis:objectId`.
-- A `respx.mock` retry test asserts 5xx → retry → 201 still works (the
-  retry policy in `_post_with_retries` is preserved).
-- A `respx.mock` 4xx test asserts `CMISClientError` is still raised
-  with the right status_code.
-- A `respx.mock` Windows-10053 simulation asserts the doubled backoff
-  is still applied.
-- A test reads the on-the-wire protocol header from a real localhost
-  HTTP/2 echo (or asserts `client.http2 is True` directly) so we have
-  a regression line proving HTTP/2 is enabled.
-- Full unit + integration suite green; mypy + ruff clean.
-- `pyproject.toml` no longer carries `requests`, `requests-toolbelt`,
-  `responses`, `types-requests`; carries `httpx[http2]` (main) and
-  `respx` (dev).
-- `CHANGELOG.md [0.62.0]` describes the migration with the prod
-  expectation (HTTP/2 multiplexing on Apache-fronted Alfresco) and the
-  staging behaviour (HTTP/1.1 fallback, no change in latency).
+- `CmisUploader` se construye con `httpx.Client(http2=True)`
+  y acepta la misma `CmisConfig` que hoy.
+- Un test happy-path impulsado por `respx.mock` assertea que
+  un upload exitoso devuelve el `cmis:objectId` esperado.
+- Un test de retry con `respx.mock` assertea que 5xx →
+  retry → 201 sigue andando (la política de retry en
+  `_post_with_retries` se preserva).
+- Un test 4xx con `respx.mock` assertea que se sigue
+  levantando `CMISClientError` con el status_code correcto.
+- Una simulación Windows-10053 con `respx.mock` assertea que
+  el backoff doblado todavía se aplica.
+- Un test lee el header de protocolo on-the-wire desde un
+  echo HTTP/2 real en localhost (o assertea
+  `client.http2 is True` directo) así tenemos una línea de
+  regresión probando que HTTP/2 está habilitado.
+- Suite completa unit + integration verde; mypy + ruff
+  limpios.
+- `pyproject.toml` ya no lleva `requests`,
+  `requests-toolbelt`, `responses`, `types-requests`; lleva
+  `httpx[http2]` (main) y `respx` (dev).
+- `CHANGELOG.md [0.62.0]` describe la migración con la
+  expectativa de prod (multiplexing HTTP/2 sobre Alfresco
+  fronted-por-Apache) y el comportamiento de staging
+  (fallback HTTP/1.1, sin cambio en latencia).
 - `pyproject.toml` 0.61.0 → 0.62.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-`respx` is API-compatible with `responses` in spirit but the syntax
-differs. The migration is mechanical for the most part: register the
-URL/method/json on a `respx.mock` router instead of `responses.add`,
-and assert on `respx_mock.calls` instead of `responses.calls`. The
-window where coverage could regress is the multipart body shape — we
-add an explicit assertion that the request `Content-Type` starts with
-`multipart/form-data; boundary=` (already there) plus that the body
-contains the expected file content.
+`respx` es API-compatible con `responses` en espíritu pero la
+sintaxis difiere. La migración es mecánica en su mayoría:
+registrar la URL/method/json en un router `respx.mock` en vez
+de `responses.add`, y assertear sobre `respx_mock.calls` en
+vez de `responses.calls`. La ventana donde la cobertura
+podría regresarse es la forma del body de multipart —
+agregamos una aserción explícita de que el `Content-Type` del
+request arranca con `multipart/form-data; boundary=` (ya
+está ahí) más que el body contiene el contenido del archivo
+esperado.

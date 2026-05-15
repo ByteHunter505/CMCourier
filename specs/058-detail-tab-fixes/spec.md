@@ -1,39 +1,42 @@
-# 058 — DETAIL tab fixes: persist staged-file metadata + scrollable pane
+# 058 — Fixes del tab DETAIL: persistir metadata de staged-file + panel scrolleable
 
-## Why
+## Por qué
 
-Two bugs on the DETAIL tab (spec 052) the operator hit during a real
-staging run:
+Dos bugs en el tab DETAIL (spec 052) que el operador encontró
+durante un run de staging real:
 
-1. The `size` column always shows `—`. The peso of the files **never
-   makes it to the screen**.
-2. The pane does not scroll. Chunks with more than a screen's worth of
-   docs are truncated visually — the operator cannot see the rows
-   below the fold.
+1. La columna `size` siempre muestra `—`. El peso de los
+   archivos **nunca llega a la pantalla**.
+2. El panel no scrollea. Los chunks con más docs que los que
+   entran en una pantalla quedan visualmente truncados — el
+   operador no puede ver las filas debajo del fold.
 
-Both are present in every run, every chunk.
+Los dos están presentes en cada run, en cada chunk.
 
-### Bug 1 — `file_size_bytes` never persists
+### Bug 1 — `file_size_bytes` nunca persiste
 
-`_build_record` (`staged.py:478-480`) takes the staged-file metadata
-(`source_file_path`, `page_count`, `file_size_bytes`) from
-`item.staged_file`. But that field is `None` until **S4** finishes
-assembling — and the row is **first inserted in S1**
-(`staged.py:566`), where `item.staged_file is None`. So the initial
-INSERT writes `None`. Worse: `mark_stage_pending` uses
-**`INSERT OR IGNORE`** (`sqlite.py:335`), so the S4 call —
-which would carry the real values — is silently ignored: the row
-already exists. And no later `UPDATE` ever touches those columns
-(`mark_stage_done` only writes `status` / `completed_at` /
-`cm_object_id`; `mark_stage_failed` only writes `status` /
-`error_message` / `retry_count`).
+`_build_record` (`staged.py:478-480`) toma la metadata del
+staged-file (`source_file_path`, `page_count`,
+`file_size_bytes`) de `item.staged_file`. Pero ese campo es
+`None` hasta que **S4** termina de armar — y la fila se
+**inserta por primera vez en S1** (`staged.py:566`), donde
+`item.staged_file is None`. Así que el INSERT inicial escribe
+`None`. Peor: `mark_stage_pending` usa
+**`INSERT OR IGNORE`** (`sqlite.py:335`), así que la llamada
+en S4 — que llevaría los valores reales — se ignora
+silenciosamente: la fila ya existe. Y ningún `UPDATE`
+posterior toca esas columnas (`mark_stage_done` solo escribe
+`status` / `completed_at` / `cm_object_id`;
+`mark_stage_failed` solo escribe `status` / `error_message` /
+`retry_count`).
 
-End state: `file_size_bytes` stays `NULL` forever. `list_docs_for_batch`
-COALESCE's it to `0`. `render_detail` calls `_human_size(0)` which
-returns `"—"`. Same fate for `source_file_path` and `page_count` —
-all three are S4-known but never written.
+Estado final: `file_size_bytes` queda `NULL` para siempre.
+`list_docs_for_batch` hace COALESCE a `0`. `render_detail`
+llama a `_human_size(0)` que devuelve `"—"`. Mismo destino
+para `source_file_path` y `page_count` — los tres se conocen
+en S4 pero nunca se escriben.
 
-### Bug 2 — DETAIL pane is not scrollable
+### Bug 2 — El panel DETAIL no scrollea
 
 `app.py:82-83`:
 ```python
@@ -41,17 +44,18 @@ with TabPane("DETAIL", id="detail"):
     yield Container(Static(id="detail_body", classes="tab_body"))
 ```
 
-`Container` from `textual.containers` is a plain box — **it does not
-scroll**. The `Static.tab_body { height: 1fr }` CSS makes the inner
-widget fill the pane; content beyond the visible height is **cropped,
-not scrollable**. That is why 052 truncates to `_MAX_ROWS = 100` —
-a workaround for the missing scroll, not a feature.
+`Container` de `textual.containers` es una caja plana — **no
+scrollea**. El CSS `Static.tab_body { height: 1fr }` hace que
+el widget interno llene el pane; el contenido más allá de la
+altura visible queda **cropeado, no scrolleable**. Eso es por
+qué 052 trunca a `_MAX_ROWS = 100` — un workaround para el
+scroll faltante, no un feature.
 
-## What
+## Qué
 
-### 1. Persist the staged-file metadata when S4 succeeds
+### 1. Persistir la metadata del staged-file cuando S4 tiene éxito
 
-A new port method on `ITrackingStore`:
+Un nuevo método de port en `ITrackingStore`:
 
 ```python
 def record_staged_file_metadata(
@@ -65,70 +69,82 @@ def record_staged_file_metadata(
 ) -> None:
 ```
 
-Implemented in `SQLiteTrackingStore` as a single `UPDATE migration_log
-SET source_file_path = ?, page_count = ?, file_size_bytes = ?` keyed
-on `(rvabrep_txn_num, batch_id)`, enqueued through the existing async
-writer so it stays consistent with the rest of the store's writes.
+Implementado en `SQLiteTrackingStore` como un único
+`UPDATE migration_log SET source_file_path = ?, page_count = ?,
+file_size_bytes = ?` keyeado en `(rvabrep_txn_num, batch_id)`,
+encolado a través del async writer existente para que quede
+consistente con el resto de los writes del store.
 
-`_s4_one` (`staged.py`) calls it after the assembler returns
-successfully — **outside** the `if not is_stage_done` guard, so a
-resume re-run that finds S4 already done **also** backfills the
-metadata. The call is idempotent: rewriting the same values is a
+`_s4_one` (`staged.py`) lo llama después de que el assembler
+devuelve exitosamente — **afuera** del guard
+`if not is_stage_done`, así que un re-run de resume que
+encuentra S4 ya hecho **también** back-fillea la metadata. La
+llamada es idempotente: reescribir los mismos valores es un
 no-op.
 
-### 2. Make the DETAIL pane scrollable
+### 2. Hacer el panel DETAIL scrolleable
 
-- `app.py`: the DETAIL `TabPane` yields `VerticalScroll(Static(...))`
-  instead of `Container(Static(...))`. `VerticalScroll` from
-  `textual.containers` is the standard scrollable box.
-- CSS: a `#detail_body` rule with `height: auto` and `padding: 0 1`,
-  so the inner `Static` sizes to its content and the parent's scroll
-  can move through it. The `Static.tab_body` rule (used by PREP /
-  UPLOAD / CHUNKS — all fixed-size dashboards) keeps `height: 1fr` and
-  is **not** applied to `#detail_body`.
-- `render_detail`: raise `_MAX_ROWS` from `100` to `2000`. A chunk is
-  capped at `batch_size` (default 1000); 2000 is a generous safety
-  ceiling. The `… N more — full list: cmcourier batch show ...` hint
-  stays for the genuine overflow case.
+- `app.py`: el `TabPane` DETAIL rinde
+  `VerticalScroll(Static(...))` en vez de
+  `Container(Static(...))`. `VerticalScroll` de
+  `textual.containers` es la caja scrolleable estándar.
+- CSS: una regla `#detail_body` con `height: auto` y
+  `padding: 0 1`, así el `Static` interno se dimensiona a su
+  contenido y el scroll del padre puede moverse a través de
+  él. La regla `Static.tab_body` (usada por PREP / UPLOAD /
+  CHUNKS — todos dashboards de tamaño fijo) mantiene
+  `height: 1fr` y **no** se aplica a `#detail_body`.
+- `render_detail`: subir `_MAX_ROWS` de `100` a `2000`. Un
+  chunk está topado en `batch_size` (default 1000); 2000 es
+  un techo de seguridad generoso. El hint
+  `… N más — lista completa: cmcourier batch show ...` se
+  queda para el caso de overflow genuino.
 
-## Out of scope
+## Fuera de alcance
 
-- Re-rendering optimisations for very large chunks. The DETAIL pane
-  is re-rendered every 250 ms with the rest of the dashboard, and a
-  2000-row string render is well within Textual's budget. If
-  performance becomes an issue we can add an "only re-render when the
-  selected chunk or its doc list changed" guard — but that is a
-  separate change.
-- The PREP / UPLOAD / CHUNKS panes — they are fixed-size dashboards
-  that fit on screen and do not need scroll.
-- A retroactive backfill for rows written before 058. New runs will
-  carry the metadata correctly; old rows can be backfilled with a one
-  shot SQL update if anyone needs it.
+- Optimizaciones de re-renderizado para chunks muy grandes.
+  El panel DETAIL se re-renderiza cada 250 ms con el resto
+  del dashboard, y un render de string de 2000 filas está
+  bien dentro del budget de Textual. Si la performance pasa a
+  ser un issue podemos agregar un guard "solo re-renderizar
+  cuando el chunk seleccionado o su lista de docs cambió" —
+  pero es un cambio separado.
+- Los paneles PREP / UPLOAD / CHUNKS — son dashboards de
+  tamaño fijo que entran en pantalla y no necesitan scroll.
+- Un backfill retroactivo para las filas escritas antes de
+  058. Los runs nuevos llevarán la metadata correctamente;
+  las filas viejas se pueden back-fillear con un SQL update
+  de un tiro si alguien lo necesita.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- A new `ITrackingStore.record_staged_file_metadata` port method
-  exists, implemented in `SQLiteTrackingStore` via the async writer
-  queue. An adapter test starts a batch, inserts an S1-pending row
-  (file_size = NULL), calls the new method, and asserts the row's
-  `file_size_bytes` / `source_file_path` / `page_count` are now the
-  passed values.
-- `_s4_one` invokes the method after a successful `assemble()` — a
-  pipeline-level test runs a single-doc batch, queries the
-  `migration_log` row, and asserts `file_size_bytes > 0`.
-- The DETAIL `TabPane` yields a `VerticalScroll` containing
-  `#detail_body` — a TUI test asserts `detail_body.parent` is a
-  `VerticalScroll` instance.
-- `render_detail` shows up to 2000 rows; a rendering test passes 1500
-  `DocDetail`s and asserts all of them appear in the output (no
-  truncation hint).
-- Full unit + integration suite green; mypy + ruff clean.
+- Existe un nuevo método de port
+  `ITrackingStore.record_staged_file_metadata`, implementado
+  en `SQLiteTrackingStore` vía la cola del async writer. Un
+  test del adapter arranca un batch, inserta una fila
+  S1-pending (file_size = NULL), llama al método nuevo, y
+  assertea que `file_size_bytes` / `source_file_path` /
+  `page_count` de la fila son ahora los valores pasados.
+- `_s4_one` invoca el método después de un `assemble()`
+  exitoso — un test a nivel pipeline corre un batch de un
+  solo doc, quereya la fila de `migration_log`, y assertea
+  `file_size_bytes > 0`.
+- El `TabPane` DETAIL rinde un `VerticalScroll` conteniendo
+  `#detail_body` — un test de TUI assertea que
+  `detail_body.parent` es una instancia de `VerticalScroll`.
+- `render_detail` muestra hasta 2000 filas; un test de
+  rendering pasa 1500 `DocDetail`s y assertea que todos
+  aparecen en el output (sin hint de truncamiento).
+- Suite completa unit + integration verde; mypy + ruff
+  limpios.
 - `CHANGELOG.md [0.61.0]`; `pyproject.toml` 0.60.0 → 0.61.0.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-Bug 1 is exercised at two levels — a unit-style adapter test that
-pins the new `UPDATE` semantics, plus a real pipeline run asserting
-the row's `file_size_bytes` is non-zero after S4 completes. Bug 2 is
-exercised by mounting the Textual app under `App.run_test()` (Textual's
-built-in async test pilot) and inspecting the widget tree.
+El Bug 1 se ejercita en dos niveles — un test estilo-unitario
+de adapter que clava las semánticas del nuevo `UPDATE`, más
+un run real de pipeline asserteando que `file_size_bytes` de
+la fila es no-cero después de que S4 completa. El Bug 2 se
+ejercita montando la app Textual bajo `App.run_test()` (el
+piloto de test async incorporado de Textual) e inspeccionando
+el árbol de widgets.

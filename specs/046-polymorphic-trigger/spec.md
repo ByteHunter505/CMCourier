@@ -1,230 +1,235 @@
-# 046 — Polymorphic Trigger model
+# 046 — Modelo de Trigger polimórfico
 
-## Why
+## Por qué
 
-The current ``TriggerRecord`` is a fixed 3-tuple ``(shortname, cif,
-system_id)`` that every S0 strategy is forced to produce. Every S1
-pass then re-queries RVABREP by ``(shortname, system_id)`` to
-expand the trigger into a list of documents. That model is the
-natural fit for **only one** pipeline kind (csv-trigger, where the
-CSV literally is a client roster). For every other pipeline it's
-the wrong granularity and creates real semantic bugs:
+El ``TriggerRecord`` actual es una 3-tupla fija ``(shortname, cif,
+system_id)`` que cada estrategia S0 está forzada a producir. Cada
+pase de S1 después re-quereya RVABREP por ``(shortname, system_id)``
+para expandir el trigger a una lista de documentos. Ese modelo es el
+ajuste natural para **solo una** clase de pipeline (csv-trigger,
+donde el CSV literalmente es una lista de clientes). Para cada otro
+pipeline es la granularidad equivocada y crea bugs semánticos
+reales:
 
-### local-scan: wrong upload set
+### local-scan: set de upload equivocado
 
-Today's flow (``services/triggers/local_scan.py``):
+Flujo de hoy (``services/triggers/local_scan.py``):
 
-1. ``iterdir(scan_path)`` finds 1 file: ``foo.001``.
-2. ``rvabrep.get_by_fields({file_name: 'foo.001'})`` returns the
-   matching RVABREP row — **the full row**, with txn_num,
-   file_name, page_count, everything.
-3. The strategy throws all of that away and yields
+1. ``iterdir(scan_path)`` encuentra 1 archivo: ``foo.001``.
+2. ``rvabrep.get_by_fields({file_name: 'foo.001'})`` devuelve la
+   fila RVABREP que matchea — **la fila completa**, con txn_num,
+   file_name, page_count, todo.
+3. La estrategia tira todo eso a la basura y rinde
    ``TriggerRecord(shortname=X, cif=Y, system_id=Z)``.
-4. S1 ``find_documents(trigger)`` re-queries RVABREP by
-   ``(X, Z)`` and returns **every doc of client X**.
-5. The pipeline uploads all docs of client X to CMIS, not just
+4. S1 ``find_documents(trigger)`` re-quereya RVABREP por
+   ``(X, Z)`` y devuelve **cada doc del cliente X**.
+5. El pipeline sube todos los docs del cliente X a CMIS, no solo
    ``foo.001``.
 
-This is what §E.4 of the validation checklist surfaced: a scan
-pool of 100 files produced 1860 uploaded docs. I misdiagnosed it
-as a "missing dedup bug" in 046's predecessor analysis. The real
-issue is **the trigger shape doesn't match what local-scan
-semantically means**. An operator who drops a file into a scan
-directory expects that one file to be migrated, not all
-documents belonging to that file's owning client.
+Esto es lo que la §E.4 del checklist de validación destapó: un pool
+de 100 archivos de scan produjo 1860 docs subidos. Lo
+mis-diagnostiqué como un "bug de dedup faltante" en el análisis
+predecesor de 046. El issue real es **la forma del trigger no
+matchea lo que local-scan significa semánticamente**. Un operador
+que deposita un archivo en un directorio de scan espera que ese
+único archivo sea migrado, no todos los documentos pertenecientes al
+cliente dueño del archivo.
 
-### rvabrep-direct: double work + over-broad dedup
+### rvabrep-direct: doble trabajo + dedup demasiado amplio
 
-Today's flow (``services/triggers/direct_rvabrep.py:44-89``):
+Flujo de hoy (``services/triggers/direct_rvabrep.py:44-89``):
 
-1. Scan the RVABREP source (CSV or AS400).
-2. **Dedup by ``(shortname, system_id)``** — collapse N rows of a
-   client into one trigger.
-3. Yield ``TriggerRecord(shortname, cif, system_id)``.
-4. S1 re-queries the same RVABREP source by the same
-   ``(shortname, system_id)`` to re-expand to those same N rows.
+1. Escanear la fuente RVABREP (CSV o AS400).
+2. **Dedup por ``(shortname, system_id)``** — colapsar N filas de un
+   cliente en un trigger.
+3. Rendir ``TriggerRecord(shortname, cif, system_id)``.
+4. S1 re-quereya la misma fuente RVABREP por el mismo
+   ``(shortname, system_id)`` para re-expandir a esas mismas N filas.
 
-The whole dedup-then-re-expand round-trip is wasted work. Worse:
-when an operator wants to migrate a specific RVABREP slice (e.g.
-by document_type filter), the current model first collapses,
-then re-expands without the filter context.
+El round-trip completo de dedup-then-re-expand es trabajo
+desperdiciado. Peor: cuando un operador quiere migrar una porción
+específica de RVABREP (p. ej. por filtro de document_type), el
+modelo actual primero colapsa, después re-expande sin el contexto
+del filtro.
 
-### Conceptual mismatch
+### Mismatch conceptual
 
-A trigger is **whatever disparates a doc through the pipeline**.
-Its natural shape depends on what the disparador IS:
+Un trigger es **lo que dispara un doc a través del pipeline**. Su
+forma natural depende de lo que el disparador ES:
 
-| Pipeline | Natural trigger | Semantic meaning |
+| Pipeline | Trigger natural | Significado semántico |
 |---|---|---|
-| csv-trigger | row of the trigger CSV | "process every doc of this client" |
-| rvabrep-direct | row of RVABREP | "process THIS doc" |
-| local-scan | a file on disk | "process the doc backing this file" |
-| as400-trigger | row from operator SQL (typically NIARVILOG) | "process THIS work-item" |
-| single-doc | CLI args | "process docs matching this (sn, sys[, cif])" |
+| csv-trigger | fila del CSV trigger | "procesar cada doc de este cliente" |
+| rvabrep-direct | fila de RVABREP | "procesar ESTE doc" |
+| local-scan | un archivo en disco | "procesar el doc que respalda este archivo" |
+| as400-trigger | fila del SQL del operador (típicamente NIARVILOG) | "procesar ESTE work-item" |
+| single-doc | args de la CLI | "procesar docs que matchean este (sn, sys[, cif])" |
 
-S1's job is **enrichment**, not universal re-expansion. The
-enrichment a trigger needs depends on what the trigger already
-carries.
+El trabajo de S1 es **enriquecimiento**, no re-expansión universal.
+El enriquecimiento que necesita un trigger depende de lo que el
+trigger ya lleva.
 
-## What
+## Qué
 
-### 1. New ``Trigger`` hierarchy
+### 1. Nueva jerarquía ``Trigger``
 
-``domain/models.py`` introduces an abstract ``Trigger`` base + four
-concrete subtypes:
+``domain/models.py`` introduce una base abstracta ``Trigger`` + cuatro
+subtipos concretos:
 
 ```python
 class Trigger:
-    """ABC for everything that can disparar one or more docs."""
-    def audit_row(self) -> dict[str, str | None]: ...  # for migration_log
+    """ABC para todo lo que puede disparar uno o más docs."""
+    def audit_row(self) -> dict[str, str | None]: ...  # para migration_log
 
 @dataclass(frozen=True, slots=True)
 class ClientTrigger(Trigger):
-    """csv-trigger + single-doc: a client tuple expanded by S1."""
+    """csv-trigger + single-doc: una tupla de cliente expandida por S1."""
     shortname: str
     cif: str | None
     system_id: str
 
 @dataclass(frozen=True, slots=True)
 class RvabrepRowTrigger(Trigger):
-    """rvabrep-direct + as400-trigger: one RVABREP row is one doc.
-    Carries the full row so S1 skips the re-query.
+    """rvabrep-direct + as400-trigger: una fila RVABREP es un doc.
+    Lleva la fila completa así S1 saltea la re-query.
     """
     row: Mapping[str, Any]
 
 @dataclass(frozen=True, slots=True)
 class LocalScanTrigger(Trigger):
-    """local-scan: a file on disk + the RVABREP row that describes
-    it. S1 produces exactly one RVABREPDocument for this file.
+    """local-scan: un archivo en disco + la fila RVABREP que lo
+    describe. S1 produce exactamente un RVABREPDocument para este archivo.
     """
     file_path: Path
     row: Mapping[str, Any]
 ```
 
-``TriggerRecord`` becomes a backward-compat alias for
-``ClientTrigger`` so existing code (csv-trigger, single-doc,
-tests) keeps compiling.
+``TriggerRecord`` pasa a ser un alias backward-compat para
+``ClientTrigger`` así el código existente (csv-trigger, single-doc,
+tests) sigue compilando.
 
-### 2. S1 ``IndexingService`` becomes polymorphic
+### 2. ``IndexingService`` (S1) pasa a ser polimórfico
 
-The new contract: S1 **enriches** a trigger into a list of
-``RVABREPDocument`` instances. Dispatch by trigger type:
+El nuevo contrato: S1 **enriquece** un trigger en una lista de
+instancias ``RVABREPDocument``. Dispatch por tipo de trigger:
 
 ```python
 def enrich(self, trigger: Trigger) -> list[RVABREPDocument]:
     match trigger:
         case ClientTrigger():
-            return self._expand_client(trigger)          # today's find_documents
+            return self._expand_client(trigger)          # find_documents de hoy
         case RvabrepRowTrigger(row=row):
-            return [self._row_to_document(row)]          # one doc, no query
+            return [self._row_to_document(row)]          # un doc, sin query
         case LocalScanTrigger(row=row):
-            return [self._row_to_document(row)]          # one doc, no query
+            return [self._row_to_document(row)]          # un doc, sin query
 ```
 
-``find_documents`` and ``find_documents_batch`` stay for the
-``ClientTrigger`` path (csv-trigger uses the batched IN-list query
-to amortize 50 lookups). The other subtypes don't need batching
-because their row is already known.
+``find_documents`` y ``find_documents_batch`` se quedan para el
+camino de ``ClientTrigger`` (csv-trigger usa la query batched
+IN-list para amortizar 50 lookups). Los otros subtipos no necesitan
+batching porque su fila ya se conoce.
 
-### 3. S0 strategies emit the right subtype
+### 3. Las estrategias S0 emiten el subtipo correcto
 
-- ``CsvTriggerStrategy`` → ``ClientTrigger`` (no change in shape).
-- ``DirectRvabrepTriggerStrategy`` → ``RvabrepRowTrigger`` per
-  matched row. **Dedup by ``(shortname, system_id)`` is dropped**.
-  Operators who want one trigger per client should use
-  csv-trigger; rvabrep-direct now means literal "one trigger per
-  RVABREP row".
-- ``LocalScanTriggerStrategy`` → ``LocalScanTrigger`` per scanned
-  file. When the file matches multiple RVABREP rows (rare —
-  filename collision across systems), emit one
-  ``LocalScanTrigger`` per matched row.
-- ``As400TriggerStrategy`` → ``ClientTrigger`` (unchanged). The
-  operator-defined SQL may project from any table with any column
-  aliases (typically NIARVILOG with SHORTNAME/CIF/SYSTEMID
-  semantics), so the row IS a client tuple by convention. A future
-  spec could introduce a per-doc as400 mode if the production
-  upstream calls for it.
-- ``SingleDocTriggerStrategy`` → ``ClientTrigger`` (no change).
+- ``CsvTriggerStrategy`` → ``ClientTrigger`` (sin cambios de forma).
+- ``DirectRvabrepTriggerStrategy`` → ``RvabrepRowTrigger`` por
+  cada fila matcheada. **Se descarta el dedup por ``(shortname,
+  system_id)``**. Los operadores que quieran un trigger por cliente
+  deberían usar csv-trigger; rvabrep-direct ahora significa literal
+  "un trigger por fila RVABREP".
+- ``LocalScanTriggerStrategy`` → ``LocalScanTrigger`` por archivo
+  escaneado. Cuando el archivo matchea múltiples filas RVABREP (raro
+  — colisión de filename entre sistemas), emitir un
+  ``LocalScanTrigger`` por cada fila matcheada.
+- ``As400TriggerStrategy`` → ``ClientTrigger`` (sin cambios). El SQL
+  definido por el operador puede proyectar desde cualquier tabla con
+  cualquier alias de columna (típicamente NIARVILOG con semántica
+  SHORTNAME/CIF/SYSTEMID), así que la fila ES una tupla de cliente
+  por convención. Una spec futura podría introducir un modo
+  per-doc para as400 si el upstream de producción lo pide.
+- ``SingleDocTriggerStrategy`` → ``ClientTrigger`` (sin cambios).
 
-### 4. Downstream code
+### 4. Código downstream
 
-- **S2 (mapping)**, **S3 (metadata)**, **S4 (assembly)**: read
-  ``RVABREPDocument`` fields exclusively, NOT trigger fields —
-  with one exception (S3 CIF self-healing).
-- **S3 CIF self-healing**: today reads ``trigger.cif`` to
-  short-circuit when the CSV has a blank CIF. The new code reads
-  CIF from whichever trigger surfaces it:
-  - ``ClientTrigger.cif`` (existing).
+- **S2 (mapping)**, **S3 (metadata)**, **S4 (assembly)**: leen
+  campos de ``RVABREPDocument`` exclusivamente, NO campos del
+  trigger — con una excepción (self-healing de CIF en S3).
+- **Self-healing de CIF en S3**: hoy lee ``trigger.cif`` para
+  cortocircuitar cuando el CSV tiene un CIF en blanco. El nuevo
+  código lee CIF desde el trigger que lo surface:
+  - ``ClientTrigger.cif`` (existente).
   - ``RvabrepRowTrigger.row[col_cif]``.
   - ``LocalScanTrigger.row[col_cif]``.
 
-  A helper ``_trigger_cif(trigger) -> str | None`` centralizes
-  this lookup so the resolver doesn't grow a match statement.
-- **``_build_record``** in the orchestrator (which builds a
-  ``MigrationRecord`` for tracking) calls
-  ``trigger.audit_row()`` to fill ``trigger_shortname /
-  trigger_cif / trigger_system_id``. Each subtype produces
-  best-effort values from whatever it carries; rows that don't
-  have all three leave the missing field None.
+  Un helper ``_trigger_cif(trigger) -> str | None`` centraliza este
+  lookup así el resolver no crece una sentencia match.
+- **``_build_record``** en el orchestrator (que construye un
+  ``MigrationRecord`` para tracking) llama a
+  ``trigger.audit_row()`` para llenar ``trigger_shortname /
+  trigger_cif / trigger_system_id``. Cada subtipo produce valores
+  best-effort de lo que sea que lleve; las filas que no tienen los
+  tres dejan el campo faltante en None.
 
-### 5. migration_log schema
+### 5. Schema de migration_log
 
-**No schema change**. The existing columns
+**Sin cambios de schema**. Las columnas existentes
 (``trigger_shortname``, ``trigger_cif``, ``trigger_system_id``)
-stay as nullable text — same as today, just populated through the
-``audit_row()`` accessor. The canonical per-doc identity remains
-``rvabrep_txn_num`` (unchanged). The audit trail keeps the same
-shape; only the source of those three columns shifts from "always
-the literal trigger fields" to "best-effort projection of
-whatever the trigger carries".
+quedan como nullable text — igual que hoy, solo que pobladas a
+través del accessor ``audit_row()``. La identidad canónica por-doc
+sigue siendo ``rvabrep_txn_num`` (sin cambios). El audit trail
+mantiene la misma forma; solo la fuente de esas tres columnas se
+corre de "siempre los campos literales del trigger" a "proyección
+best-effort de lo que sea que el trigger lleve".
 
-## Out of scope
+## Fuera de alcance
 
-- Renaming or restructuring the migration_log SQLite tables.
-- Adding new CLI flags (e.g. ``single-doc --txn-num``). Future
-  spec — single-doc stays as ``ClientTrigger`` for now.
-- Changing csv-trigger semantics. The CSV-row → client → N docs
-  model is intentional and unchanged.
-- Removing the ``find_documents_batch`` IN-list batching. It still
-  matters for csv-trigger and single-doc.
-- Refactoring S2/S3/S4 to be trigger-agnostic. They already mostly
-  are; only S3's CIF self-healing reads from the trigger and that
-  one path gets a small abstraction.
-- as400-trigger end-to-end staging verification — we don't have an
-  AS400 reachable; unit tests cover the strategy shape change.
+- Renombrar o restructurar las tablas SQLite de migration_log.
+- Agregar flags nuevas de CLI (p. ej. ``single-doc --txn-num``).
+  Spec futura — single-doc se queda como ``ClientTrigger`` por ahora.
+- Cambiar la semántica de csv-trigger. El modelo CSV-row → cliente →
+  N docs es intencional y sin cambios.
+- Remover el batching IN-list de ``find_documents_batch``. Sigue
+  importando para csv-trigger y single-doc.
+- Refactorizar S2/S3/S4 para que sean trigger-agnostic. Ya lo son
+  en su mayoría; solo el self-healing de CIF de S3 lee del trigger
+  y ese único camino gana una abstracción chica.
+- Verificación de staging end-to-end de as400-trigger — no tenemos
+  un AS400 alcanzable; los tests unitarios cubren el cambio de forma
+  de la estrategia.
 
-## Acceptance criteria
+## Criterios de aceptación
 
-- Existing csv-trigger tests pass unchanged (``TriggerRecord ==
-  ClientTrigger`` alias preserved).
-- New unit test: ``RvabrepRowTrigger`` flows through S1 without
-  hitting ``IDataSource`` (assertion via a mock that fails the
-  test if a query is made).
-- New unit test: ``LocalScanTrigger`` flows through S1 producing
-  exactly one ``RVABREPDocument`` per trigger, even when the
-  underlying client has 50+ docs.
-- Live re-verify of §E.4 against staging:
-  - Same pool of 100 files in ``sample/local-scan-pool``.
-  - Pre-046 we saw 1860 docs uploaded (over-broad expansion).
-  - Post-046 must upload **exactly 100 docs** (one per file).
-- ``migration_log`` rows from a rvabrep-direct run still have
-  ``trigger_shortname / trigger_cif / trigger_system_id``
-  populated (best-effort from the row).
-- ``CHANGELOG.md [0.49.0]`` entry.
-- mypy + ruff clean. Full unit + integration suite green.
+- Los tests existentes de csv-trigger pasan sin cambios (alias
+  ``TriggerRecord == ClientTrigger`` preservado).
+- Nuevo test unitario: ``RvabrepRowTrigger`` fluye a través de S1
+  sin pegarle a ``IDataSource`` (assertion vía un mock que falla el
+  test si se hace una query).
+- Nuevo test unitario: ``LocalScanTrigger`` fluye a través de S1
+  produciendo exactamente un ``RVABREPDocument`` por trigger, incluso
+  cuando el cliente subyacente tiene 50+ docs.
+- Re-verify en vivo de §E.4 contra staging:
+  - Mismo pool de 100 archivos en ``sample/local-scan-pool``.
+  - Pre-046 vimos 1860 docs subidos (expansión demasiado amplia).
+  - Post-046 debe subir **exactamente 100 docs** (uno por archivo).
+- Las filas de ``migration_log`` de un run de rvabrep-direct todavía
+  tienen ``trigger_shortname / trigger_cif / trigger_system_id``
+  poblado (best-effort desde la fila).
+- Entrada ``CHANGELOG.md [0.49.0]``.
+- mypy + ruff limpios. Suite completa de unit + integration verde.
 
-## Notes on test strategy
+## Notas sobre estrategia de tests
 
-The polymorphic dispatch needs three test surfaces:
+El dispatch polimórfico necesita tres superficies de test:
 
-1. **Per-subtype unit tests** at the ``IndexingService`` level —
-   verify the right code path fires for each subtype. The
-   ``RvabrepRowTrigger`` and ``LocalScanTrigger`` cases pass a
-   ``MagicMock`` IDataSource that raises if ``get_*`` is called.
-2. **End-to-end staged-pipeline tests** with each strategy
-   plugged in. The existing test fixtures already cover the csv
-   path; we add two new fixtures for rvabrep-direct (one row
-   selected → exactly that doc uploaded) and local-scan (one file
-   in pool → exactly that doc uploaded).
-3. **Live re-run of §E.4** against staging Alfresco as the
-   integration acceptance gate.
+1. **Tests unitarios por-subtipo** al nivel de ``IndexingService`` —
+   verificar que el camino de código correcto se dispara para cada
+   subtipo. Los casos de ``RvabrepRowTrigger`` y
+   ``LocalScanTrigger`` pasan un ``MagicMock`` IDataSource que
+   levanta si se llama a ``get_*``.
+2. **Tests end-to-end del staged-pipeline** con cada estrategia
+   enchufada. Los fixtures de test existentes ya cubren el camino
+   csv; agregamos dos fixtures nuevos para rvabrep-direct (una fila
+   seleccionada → exactamente ese doc subido) y local-scan (un
+   archivo en el pool → exactamente ese doc subido).
+3. **Re-run en vivo de §E.4** contra el Alfresco de staging como el
+   gate de aceptación de integración.

@@ -1,65 +1,74 @@
 # 056 — Plan
 
-Two phases (~1.5 h total).
+Dos fases (~1.5 h total).
 
-## Phase 1 — `prep_workers` config + parallelize S2/S3/S4 + tests (~70 min)
+## Fase 1 — Config de `prep_workers` + paralelizar S2/S3/S4 + tests (~70 min)
 
-### Files
+### Archivos
 
 - `src/cmcourier/config/schema.py`
-  - `ProcessingConfig` — add `prep_workers: int = Field(default=1, ge=1)`.
+  - `ProcessingConfig` — agregar
+    `prep_workers: int = Field(default=1, ge=1)`.
 
 - `src/cmcourier/orchestrators/staged.py`
-  - `__init__` — add `prep_workers: int = 1`; store
+  - `__init__` — agregar `prep_workers: int = 1`; guardar
     `self._prep_workers = max(1, int(prep_workers))`.
-  - Extract the per-item body of each stage into a helper that
-    **catches its own domain exceptions** and returns
-    `tuple[_StageItem | None, bool]` = `(survivor_or_None, counted_failure)`:
-    - `_s2_one(item, batch_id, rec)` — mapping lookup.
-    - `_s3_one(item, batch_id, rec)` — cache try_get / metadata resolve / cache put.
+  - Extraer el body per-item de cada stage en un helper que
+    **atrapa sus propias excepciones de dominio** y devuelve
+    `tuple[_StageItem | None, bool]` =
+    `(survivor_o_None, falla_contada)`:
+    - `_s2_one(item, batch_id, rec)` — lookup de mapping.
+    - `_s3_one(item, batch_id, rec)` — cache try_get / metadata
+      resolve / cache put.
     - `_s4_one(item, batch_id, rec)` — assemble.
-  - New shared dispatch helper
+  - Nuevo helper de dispatch compartido
     `_run_prep_stage(items, worker) -> tuple[list[_StageItem], int]`:
-    - `self._prep_workers == 1` → `results = [worker(i) for i in items]`
-      (serial — byte-identical to the current loop).
-    - else → `with ThreadPoolExecutor(max_workers=self._prep_workers,
+    - `self._prep_workers == 1` →
+      `results = [worker(i) for i in items]` (serial —
+      byte-idéntico al loop actual).
+    - sino → `with ThreadPoolExecutor(max_workers=self._prep_workers,
       thread_name_prefix="cmcourier-prep") as pool:
-      results = list(pool.map(worker, items))` (`pool.map` preserves
-      input order).
+      results = list(pool.map(worker, items))` (`pool.map`
+      preserva el orden de input).
     - `survivors = [s for s, _ in results if s is not None]`;
       `failed = sum(1 for _, c in results if c)`.
-  - `_stage_s2` / `_stage_s3` / `_stage_s4` — become thin wrappers:
-    build the `worker` (a `functools.partial` or local closure binding
-    `batch_id` + `rec`) and call `_run_prep_stage`.
-  - The S0/S1 path (`_stage_s0_s1`) is untouched.
+  - `_stage_s2` / `_stage_s3` / `_stage_s4` — pasan a ser
+    wrappers finos: construir el `worker` (un
+    `functools.partial` o closure local bindeando `batch_id` +
+    `rec`) y llamar a `_run_prep_stage`.
+  - El camino S0/S1 (`_stage_s0_s1`) queda intacto.
 
-- The wiring layer that constructs `StagedPipeline` — pass
-  `prep_workers=config.processing.prep_workers`. (Locate via
-  `grep -rn "StagedPipeline(" src/cmcourier/` — likely `cli/app.py` or
-  a builder module; update every construction site.)
+- La capa de wiring que construye `StagedPipeline` — pasar
+  `prep_workers=config.processing.prep_workers`. (Localizar
+  vía `grep -rn "StagedPipeline(" src/cmcourier/` —
+  probablemente `cli/app.py` o un módulo builder; actualizar
+  cada call site de construcción.)
 
-### Tests — `tests/` (the staged-pipeline test module)
+### Tests — `tests/` (el módulo de tests del staged-pipeline)
 
 - `test_prep_workers_defaults_to_one` — `ProcessingConfig()` →
-  `prep_workers == 1`; `prep_workers=0` raises `ValidationError`.
-- `test_prep_stage_serial_path_when_one_worker` — `prep_workers=1`
-  over a known multi-item batch → survivors + `failed` exactly as the
-  pre-056 serial loop.
-- `test_prep_stage_parallel_preserves_order` — `prep_workers=4` over a
-  multi-item batch → `survivors` in **input order**, all present.
-- `test_prep_stage_parallel_failure_counting` — a batch with one
-  domain-failing item → dropped from survivors, `failed == 1`, under
-  both `prep_workers=1` and `prep_workers=4`.
-- `test_prep_stage_parallel_resume_already_done` — a failing item that
-  is already `S*_DONE` from a prior run → dropped, **not** counted in
-  `failed` (the resume edge case the `bool` in the helper return
-  preserves).
-- If a `StagedPipeline` builder/fixture exists in the test suite,
-  thread `prep_workers` through it.
+  `prep_workers == 1`; `prep_workers=0` levanta
+  `ValidationError`.
+- `test_prep_stage_serial_path_when_one_worker` —
+  `prep_workers=1` sobre un batch multi-item conocido →
+  survivors + `failed` exactamente como el loop serial
+  pre-056.
+- `test_prep_stage_parallel_preserves_order` —
+  `prep_workers=4` sobre un batch multi-item → `survivors` en
+  **orden de input**, todos presentes.
+- `test_prep_stage_parallel_failure_counting` — un batch con un
+  item que falla por dominio → descartado de survivors,
+  `failed == 1`, bajo `prep_workers=1` y `prep_workers=4`.
+- `test_prep_stage_parallel_resume_already_done` — un item que
+  falla pero que ya está `S*_DONE` de un run anterior →
+  descartado, **no** contado en `failed` (el edge case de
+  resume que el `bool` en el retorno del helper preserva).
+- Si existe un builder/fixture de `StagedPipeline` en la suite
+  de tests, pasarle `prep_workers`.
 
 ### Verify
 
-Full unit + integration suite + ruff + mypy.
+Suite completa unit + integration + ruff + mypy.
 
 ### Commit
 
@@ -67,24 +76,25 @@ Full unit + integration suite + ruff + mypy.
 feat(prep): configurable prep_workers — parallelize S2/S3/S4 on a fixed thread pool (056 Phase 1)
 ```
 
-## Phase 2 — CHANGELOG 0.59.0 + version bump + docs + FF (~20 min)
+## Fase 2 — CHANGELOG 0.59.0 + bump de versión + docs + FF (~20 min)
 
-### Files
+### Archivos
 
-- `CHANGELOG.md` `[0.59.0]` — Added (`processing.prep_workers` — a
-  fixed-size thread pool for S2/S3/S4; S4 assembly was fully serial;
-  default `1` keeps current behaviour; S0/S1 stay serial by design).
+- `CHANGELOG.md` `[0.59.0]` — Added (`processing.prep_workers`
+  — un pool de threads de tamaño fijo para S2/S3/S4; el
+  armado S4 era completamente serial; default `1` mantiene
+  comportamiento actual; S0/S1 quedan seriales por diseño).
 - `pyproject.toml` 0.58.0 → 0.59.0.
-- `README.md` feature row tick.
-- `docs/samples/config-reference.yaml` — document
-  `processing.prep_workers` with the default and the "S0/S1 stay
-  serial" note.
+- Tick en fila de features de `README.md`.
+- `docs/samples/config-reference.yaml` — documentar
+  `processing.prep_workers` con el default y la nota
+  "S0/S1 quedan seriales".
 
 ### Release dance
 
 ```bash
 .venv/bin/pip install -e . --no-deps
-.venv/bin/cmcourier --version    # expect 0.59.0
+.venv/bin/cmcourier --version    # esperar 0.59.0
 ```
 
 ### Commit
@@ -93,4 +103,4 @@ feat(prep): configurable prep_workers — parallelize S2/S3/S4 on a fixed thread
 docs(056): CHANGELOG 0.59.0 + version bump + prep_workers config docs (056 Phase 2)
 ```
 
-### FF to main.
+### FF a main.
