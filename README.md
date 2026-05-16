@@ -4,12 +4,6 @@
 
 **Versión actual**: `0.73.0` — pipeline MVP de punta a punta, modo `streaming` listo, AIMD + lanes en producción, TUI live de 5 tabs.
 
-```bash
-$ cmcourier --help
-$ cmcourier doctor --config config.yaml
-$ cmcourier csv-trigger-pipeline run --config config.yaml --batch-id 2026-05-15-001
-```
-
 ---
 
 ## Documentación
@@ -111,8 +105,8 @@ Ratificación: [`.specify/memory/constitution.md`](.specify/memory/constitution.
 ### Pre-requisitos
 
 - Python 3.11+ (verificado en 3.11 y 3.12)
-- Compilador C + headers ODBC (`pyodbc` lo necesita):
-  - **Linux** (Debian/Ubuntu): `sudo apt install build-essential unixodbc-dev`
+- Driver ODBC para conectarse al AS400:
+  - **Linux** (Debian/Ubuntu): `sudo apt install unixodbc`
   - **macOS**: `brew install unixodbc`
   - **Windows**: instalar el [IBM iSeries Access ODBC Driver](https://www.ibm.com/support/pages/ibm-i-access-client-solutions)
 - Git
@@ -150,7 +144,7 @@ export CMIS_USERNAME="..."
 export CMIS_PASSWORD="..."
 ```
 
-### Tu primera corrida (mock + Alfresco staging)
+### Tu primera corrida (mock)
 
 Setup completo en [`docs/tutorials/00-getting-started.md`](docs/tutorials/00-getting-started.md). El recorrido por todos los comandos en [`docs/tutorials/04-all-commands-tour.md`](docs/tutorials/04-all-commands-tour.md).
 
@@ -185,7 +179,7 @@ Lectura mínima antes de tu primer PR:
 
 **Reglas duras**:
 - Funciones ≤ 50 líneas (Constitution III).
-- Conventional Commits únicamente. Sin `Co-Authored-By`. Sin atribución a AI.
+- Conventional Commits únicamente.
 - Nunca `--no-verify`. Si un hook falla, arreglá la causa.
 - `mypy --strict` debe pasar.
 - Coverage ≥ 80% (`pyproject.toml [tool.coverage.report]`).
@@ -193,19 +187,6 @@ Lectura mínima antes de tu primer PR:
 ---
 
 ## Estado y roadmap
-
-- [x] Pipeline MVP de punta a punta (csv-trigger, rvabrep, local-scan, single-doc)
-- [x] CMIS Browser Binding + HTTP/2 + AIMD + lanes + circuit breaker
-- [x] SQLite tracking + AS400 NIARVILOG distributed sync
-- [x] TUI live de 5 tabs
-- [x] Streaming orchestrator + ProcessPool S4
-- [x] Pre-flight doctor + 12 checks
-- [x] Mock data generator (`cmcourier mock`)
-- [x] Smoke contra Alfresco 23.x (staging) sin failures
-- [ ] Dry run con datos reales contra staging del banco
-- [ ] Primera migración productiva
-
-Roadmap completo de features diferidas: [`docs/roadmap/POST-MVP.md`](docs/roadmap/POST-MVP.md).
 
 Historial detallado por versión: [`CHANGELOG.md`](CHANGELOG.md).
 
