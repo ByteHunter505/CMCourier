@@ -52,6 +52,62 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.74.0] — 2026-05-16 — **Sacar reference data de `docs/`**
+
+`docs/samples/` estaba mezclando documentación (un YAML anotado),
+fixtures de datos (CSVs, xlsx, response txt), y código legacy
+suelto del proyecto viejo (`cmis_service.py`). Peor: el código de
+producción dependía de la ruta — `cmcourier mock rvabrep` tenía
+como default `docs/samples/csv/MapeoRVI_CM.csv`, así que `docs/`
+no era solo doc sino también data directory. Eso violaba un
+principio implícito: docs es para leer, no para ser dependency
+runtime.
+
+### Cambiado
+
+- **Nuevo directorio `reference-data/` en la raíz** con
+  `csv/`, `excel/`, `cmis-responses/`. Los archivos del antiguo
+  `docs/samples/csv/`, `excel/`, `responses/` se movieron acá
+  vía `git mv` (history preservado).
+- **`docs/samples/config-reference.yaml` → `docs/reference/config-reference.yaml`**.
+  El YAML anotado sí es doc; va donde corresponde.
+- **`src/cmcourier/cli/commands/mock.py`**: `_DEFAULT_IDRVI_SOURCE`
+  apunta a `reference-data/csv/MapeoRVI_CM.csv`. La string del
+  flag `--help` también.
+- **Path references actualizadas** en `docs/INDEX.md`,
+  `docs/reference/cli.md`, `docs/adr/007`,
+  `docs/how-to/mock-rvabrep-generator.md`,
+  `docs/how-to/local-staging-simulation.md`,
+  `docs/how-to/developer/add-a-new-config-field.md`,
+  `docs/tutorials/{README,01,05}.md`.
+- **Constitution + skill registry**: `.specify/memory/constitution.md`
+  y `.atl/skill-registry.md` apuntan a `reference-data/` en vez
+  de `docs/samples/`. También se removió la mención a
+  `docs/domain/` (no existe desde 0.74).
+
+### Removido
+
+- **`docs/samples/cmis_service.py`** (untracked, gitignored) —
+  borrado del filesystem. Era código legacy del proyecto viejo
+  sin referencias en el código actual.
+- **`docs/samples/`** — directorio eliminado, queda vacío
+  después del move.
+
+### Notas
+
+- **Breaking change menor**: `cmcourier mock rvabrep` sin
+  `--idrvi-source` ahora resuelve `reference-data/csv/MapeoRVI_CM.csv`
+  en lugar del path viejo. Operadores que invocaban el comando
+  desde un cwd que no tenga `reference-data/` deben pasar
+  `--idrvi-source` explícito.
+- **Specs históricas (001, 003, 035, 039, 050, 056, 061)** mantienen
+  los paths viejos. No se reescribe history.
+- **`CHANGELOG` entries pre-0.74** mantienen los paths viejos por
+  la misma razón.
+- Cero cambios en tests — ningún test referenciaba `docs/samples/`.
+
+---
+
 ## [0.73.0] — 2026-05-15 — **Refactor cosmético: comentarios y docstrings en español + remoción de referencias al code-name antiguo**
 
 Cambio puramente cosmético, sin modificaciones funcionales. Dos
