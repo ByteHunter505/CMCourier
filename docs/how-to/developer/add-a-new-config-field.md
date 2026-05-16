@@ -84,7 +84,7 @@ Agregar la fila en la tabla de `processing` con: nombre, tipo, default, rango, d
 
 ### 5. Sample YAML
 
-Si `docs/samples/config-reference.yaml` documenta el bloque, sumá la línea anotada bajo el bloque que corresponde:
+Si [`docs/reference/config-reference.yaml`](../../reference/config-reference.yaml) documenta el bloque, sumá la línea anotada bajo el bloque que corresponde:
 
 ```yaml
 processing:

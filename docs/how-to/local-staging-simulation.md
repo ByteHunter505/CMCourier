@@ -152,10 +152,10 @@ cmcourier mock generate \
 ### CSVs de mapping
 
 Dos CSVs que el pipeline necesita ya están shippeados en el repo:
-- `docs/samples/csv/MapeoRVI_CM.csv` — el MapeoRVI del banco con 282
+- `reference-data/csv/MapeoRVI_CM.csv` — el MapeoRVI del banco con 282
   IDRVIs. La fila `CN01` lleva el ejemplar de staging
   (`CMISType=D:cmcourier:bacDoc`, `CMISFolder=/cmcourier-staging/CN01`).
-- `docs/samples/csv/MetadatosCM.csv` — metadatos correspondientes.
+- `reference-data/csv/MetadatosCM.csv` — metadatos correspondientes.
   Las cinco filas `CN01` llevan el catálogo de propiedades `cmcourier:*`.
 
 Para tu batch sintético probablemente vas a **necesitar apuntar cada
@@ -164,7 +164,7 @@ el pre-flight `cm-targets` en el Paso 5 falla para los otros 19 tipos.
 O:
 
 - (a) Bajar `--idrvi-top 1` en el Paso 3a así solo se usa un IDRVI.
-- (b) Copiar `docs/samples/csv/MapeoRVI_CM.csv` a
+- (b) Copiar `reference-data/csv/MapeoRVI_CM.csv` a
   `sample/MapeoRVI_CM.csv` y setear
   `CMISType=D:cmcourier:bacDoc` +
   `CMISFolder=/cmcourier-staging/<idrvi>` en cada fila que
@@ -198,8 +198,8 @@ indexing:
     csv_path: sample/rvabrep-50k.csv
 
 mapping:
-  rvi_cm_csv_path: sample/MapeoRVI_CM.csv      # o docs/samples/csv/...
-  metadatos_csv_path: sample/MetadatosCM.csv   # o docs/samples/csv/...
+  rvi_cm_csv_path: sample/MapeoRVI_CM.csv      # o reference-data/csv/...
+  metadatos_csv_path: sample/MetadatosCM.csv   # o reference-data/csv/...
 
 assembly:
   source_root: sample/files

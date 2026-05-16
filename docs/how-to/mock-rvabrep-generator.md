@@ -48,7 +48,7 @@ Según la forma de columnas de la spec:
 | `ABACST` | delete_code | `"D"` con probabilidad `--delete-rate` (default 5%), `""` si no |
 | `ABACCD` | index2 / CIF | Un CIF estable de 6 dígitos por cliente; presente con probabilidad `--cif-rate` (default 95%) |
 | `ABADCD`..`ABAGCD` | index3..6 | Siempre en blanco (matchea cada sample observado) |
-| `ABAHCD` | index7 / IDRVI | Sorteo ponderado Zipf desde los top `--idrvi-top` (default 20) IDRVIs en `--idrvi-source` (default `docs/samples/csv/MapeoRVI_CM.csv`). El IDRVI más popular recibe ~30% del volumen, el segundo ~15%, etc. |
+| `ABAHCD` | index7 / IDRVI | Sorteo ponderado Zipf desde los top `--idrvi-top` (default 20) IDRVIs en `--idrvi-source` (default `reference-data/csv/MapeoRVI_CM.csv`). El IDRVI más popular recibe ~30% del volumen, el segundo ~15%, etc. |
 | `ABABST` | image_type | `--image-mix` (default `tiff:60,pdf:20,jpeg:20`) → `B` / `O` / `C` |
 | `ABAICD` | image_path | `PROD/YYYY/MM/DD` derivado de creation_date |
 | `ABAJCD` | file_name | Letra de prefijo alineada con image_type (`D`/`M` para B, `C` para C, `0` para O) + body random de 7 chars + extensión correcta (`.001` para paged, `.PDF` para nativo) |
@@ -111,7 +111,7 @@ mantenés la forma del trigger / RVABREP estable.
 
 ## §5 — Caveats de `--idrvi-source`
 
-La fuente default es `docs/samples/csv/MapeoRVI_CM.csv` — la tabla de
+La fuente default es `reference-data/csv/MapeoRVI_CM.csv` — la tabla de
 mapping del banco shippeada con el repo, 282 IDRVIs distintos.
 El generador elige los top `--idrvi-top` por **orden lexicográfico**
 (determinista y agnóstico a la fuente). Default `20`.

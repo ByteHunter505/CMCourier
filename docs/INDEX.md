@@ -183,9 +183,10 @@ Samples del proyecto legacy y del flujo CMIS.
 
 | Documento | Propósito |
 |-----------|-----------|
-| [`samples/csv/`](samples/csv/) | CSVs sample: `MapeoRVI_CM.csv` (Modelo Documental), `MetadatosCM.csv` (definiciones por clase), `TriggerExample.csv`, metadatos por fuente |
-| [`samples/excel/RVILIB_RVABREP.xlsx`](samples/excel/RVILIB_RVABREP.xlsx) | Volcado real de tabla RVABREP — forma de columnas y filas de ejemplo |
-| [`samples/responses/EjemploRespuestaCMIS.txt`](samples/responses/EjemploRespuestaCMIS.txt) | Ejemplo real de respuesta CMIS Browser Binding |
+| [`../reference-data/csv/`](../reference-data/csv/) | CSVs de referencia: `MapeoRVI_CM.csv` (Modelo Documental), `MetadatosCM.csv` (definiciones por clase), `TriggerExample.csv`, metadatos por fuente |
+| [`../reference-data/excel/RVILIB_RVABREP.xlsx`](../reference-data/excel/RVILIB_RVABREP.xlsx) | Volcado real de tabla RVABREP — forma de columnas y filas de ejemplo |
+| [`../reference-data/cmis-responses/EjemploRespuestaCMIS.txt`](../reference-data/cmis-responses/EjemploRespuestaCMIS.txt) | Ejemplo real de respuesta CMIS Browser Binding |
+| [`reference/config-reference.yaml`](reference/config-reference.yaml) | YAML de config anotado con todas las opciones |
 
 ---
 

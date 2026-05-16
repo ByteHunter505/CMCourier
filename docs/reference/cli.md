@@ -335,7 +335,7 @@ Genera un CSV RVABREP sintético consumible por `mock generate`.
 | `--rows` | int (≥ 1) | `50000` | Filas a generar. |
 | `--output` | Path (required) | — | Destino CSV. |
 | `--seed` | int | `None` | PRNG seed. Default = `--rows`. |
-| `--idrvi-source` | Path | `docs/samples/csv/MapeoRVI_CM.csv` | CSV con columna `IDRVI`. |
+| `--idrvi-source` | Path | `reference-data/csv/MapeoRVI_CM.csv` | CSV con columna `IDRVI`. |
 | `--idrvi-top` | int (≥ 1) | `20` | Top-N IDRVIs distintos. |
 | `--image-mix` | str | `tiff:60,pdf:20,jpeg:20` | Pesos. |
 | `--date-from` | str | `2024-01-01` | ISO YYYY-MM-DD. |

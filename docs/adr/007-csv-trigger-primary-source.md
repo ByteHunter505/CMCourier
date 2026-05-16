@@ -42,7 +42,7 @@ La decisión es de **default operativo**, no de exclusión. CSV es lo que recome
 - **Corridas reproducibles trivialmente.** Mismo CSV de input → mismo input lógico de pipeline. Re-correr una corrida que falló es `cmcourier csv-trigger-pipeline run --config X --triggers triggers-2026-05-15.csv`.
 - **Debugging operativo barato.** Operador puede hacer un mini-CSV de 5 triggers para reproducir un bug. Con AS400 directo necesitaría una herramienta separada para construir el mini-set.
 - **Independencia del uptime de AS400 al arranque.** Si AS400 está caído, no podés indexar (S1 sigue necesitando AS400 si la config lo indica), pero al menos podés validar la config, correr `doctor`, hacer dry-runs.
-- **Onboarding más simple.** Nuevos usuarios empiezan con `csv-trigger-pipeline` y un CSV de ejemplo (`docs/samples/csv/TriggerExample.csv`). No necesitan setup de pyodbc + ODBC driver de iSeries para tocar la herramienta.
+- **Onboarding más simple.** Nuevos usuarios empiezan con `csv-trigger-pipeline` y un CSV de ejemplo (`reference-data/csv/TriggerExample.csv`). No necesitan setup de pyodbc + ODBC driver de iSeries para tocar la herramienta.
 - **Source uniforme con tests.** El mismo `TabularDataSource` (spec 003) sirve para tests con fixtures CSV y para producción con triggers CSV. Cero divergencia entre lo que testeamos y lo que corremos.
 
 ### Negativas / Tradeoffs

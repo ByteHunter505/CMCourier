@@ -6,7 +6,7 @@ CMCourier se controla con un único archivo YAML. Todo lo que hace una corrida �
 
 La fuente de verdad del schema es `src/cmcourier/config/schema.py`. Todos los modelos son Pydantic v2 con `frozen=True, extra="forbid"` — un typo en una key te explota al cargar, no en runtime. Eso es a propósito.
 
-> Si querés ver TODAS las opciones en un solo archivo anotado, leé [`docs/samples/config-reference.yaml`](../samples/config-reference.yaml). Acá tomamos un camino didáctico, no exhaustivo.
+> Si querés ver TODAS las opciones en un solo archivo anotado, leé [`docs/reference/config-reference.yaml`](../reference/config-reference.yaml). Acá tomamos un camino didáctico, no exhaustivo.
 
 ---
 
@@ -145,7 +145,7 @@ mapping:
   metadatos_csv_path: /data/MetadatosCM.csv
 ```
 
-El modo split separa el mapeo (`MapeoRVI_CM.csv`: código RVI → CMIS folder + type) del catálogo de metadatos por clase (`MetadatosCM.csv`: por clase CM, qué propiedades existen, cuáles son obligatorias, tipos). Los samples viven en `docs/samples/csv/`.
+El modo split separa el mapeo (`MapeoRVI_CM.csv`: código RVI → CMIS folder + type) del catálogo de metadatos por clase (`MetadatosCM.csv`: por clase CM, qué propiedades existen, cuáles son obligatorias, tipos). Los samples viven en [`reference-data/csv/`](../../reference-data/csv/).
 
 ---
 
@@ -450,4 +450,4 @@ Eso valida Pydantic, conectividad CMIS/AS400, completeness del mapping, sources 
 - [02 — Pipelines y cuándo usarlas](02-pipelines-and-how-to-use-them.md): ahora que tenés un config, cuál pipeline lanzar
 - [03 — Batched vs streaming](03-execution-modes-batched-vs-streaming.md): por qué elegir uno u otro
 - [05 — `doctor` en profundidad](05-doctor-deep-dive.md): validar el config antes de correr
-- [`docs/samples/config-reference.yaml`](../samples/config-reference.yaml): el archivo con TODAS las opciones anotadas
+- [`docs/reference/config-reference.yaml`](../reference/config-reference.yaml): el archivo con TODAS las opciones anotadas

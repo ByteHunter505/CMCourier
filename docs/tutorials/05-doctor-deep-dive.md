@@ -115,7 +115,7 @@ Fuente: `src/cmcourier/cli/doctor.py`.
 
 - **Qué valida**: que cada código de tipo RVI del archivo de mapping tenga su entrada CM (carpeta + tipo + propiedades).
 - **Falla típica**: alguna fila del mapping CSV tiene celdas vacías o un `CMISType` que no existe.
-- **Fix**: revisar el CSV de mapping en `docs/samples/csv/` como referencia; `inspect mapping-stats` te da el detalle.
+- **Fix**: revisar el CSV de mapping en [`reference-data/csv/`](../../reference-data/csv/) como referencia; `inspect mapping-stats` te da el detalle.
 
 ### `metadata_sources`
 

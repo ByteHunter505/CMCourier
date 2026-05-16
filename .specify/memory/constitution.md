@@ -145,7 +145,7 @@ CMCourier handles **bank customer data**: CIF numbers, customer names, account a
 **Rules**:
 - **No PII in default logs.** CIF, customer names, account numbers, card numbers, and full file paths are masked at `INFO` level and below. They surface only at `DEBUG`, behind an explicit `--debug-pii` flag, and only to local rotated log files — never to stdout/stderr in production.
 - **No credentials in git.** Ever. No real `username` / `password` in committed YAML — credentials arrive exclusively through the reserved environment variables. No secrets in test fixtures, commit messages, or PR descriptions.
-- **No PII in committed test fixtures.** Sample data under `docs/samples/` and `tests/fixtures/` is synthetic or anonymized. If a real-looking CIF, name, or account number ends up in git, it is replaced — no exceptions, no "fix in next commit".
+- **No PII in committed test fixtures.** Sample data under `reference-data/` and `tests/fixtures/` is synthetic or anonymized. If a real-looking CIF, name, or account number ends up in git, it is replaced — no exceptions, no "fix in next commit".
 - **Errors do not leak data to humans.** Exception traces written to log files may include domain identifiers (we need them for debugging). Messages displayed to operators, surfaced in TUIs, or returned in CLI output strip identifiers and replace them with masked tokens (`CIF=***456`).
 - **Audit trail is preserved.** The tracking store records *what* was migrated, *when*, and *with what outcome*. This data is retained for the regulatory window the bank specifies. Tracking records are not deleted casually.
 
@@ -204,8 +204,7 @@ These names are reserved for credential injection. No other use is permitted.
 
 - Source code under `src/cmcourier/`. Single importable package.
 - SDD specs / plans / tasks under `specs/<NNN-feature-slug>/`. Constitution and SDD memory under `.specify/memory/`. Both follow **GitHub Spec Kit** conventions.
-- Domain knowledge documents under `docs/domain/`.
-- Sample data and reference files under `docs/samples/`.
+- Reference data (CSVs of `MapeoRVI_CM` / `MetadatosCM`, RVABREP xlsx dump, sample CMIS responses) under `reference-data/`.
 - Test fixtures under `tests/fixtures/`. Never under `docs/`.
 - Logs under `./logs/` (gitignored).
 - Temp staging under system temp, never under repo root.

@@ -38,5 +38,5 @@ Si nunca tocaste el proyecto, leelos en orden. Cada uno se apoya en lo anterior.
 
 - [`docs/INDEX.md`](../INDEX.md) — mapa canónico
 - [`docs/how-to/README.md`](../how-to/README.md) — recetas concretas
-- [`docs/samples/config-reference.yaml`](../samples/config-reference.yaml) — config anotado con TODAS las opciones
+- [`docs/reference/config-reference.yaml`](../reference/config-reference.yaml) — config anotado con TODAS las opciones
 - [`docs/_internal/dossier.md`](../_internal/dossier.md) — fuente de verdad para escritores de docs

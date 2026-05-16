@@ -148,7 +148,7 @@ The orchestrator MUST inject the matching block(s) below as `## Project Standard
 ### When working with PII / banking data
 
 - See above ("When logging").
-- Test fixtures and sample data under `docs/samples/` and `tests/fixtures/` are synthetic or anonymized. No real CIFs, names, or account numbers in git.
+- Test fixtures and sample data under `reference-data/` and `tests/fixtures/` are synthetic or anonymized. No real CIFs, names, or account numbers in git.
 - Audit trail (the tracking store) is preserved for the regulatory window the bank specifies.
 
 ---

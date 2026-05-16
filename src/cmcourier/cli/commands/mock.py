@@ -317,7 +317,7 @@ def _materialize(
 # ---------------------------------------------------------------------------
 
 
-_DEFAULT_IDRVI_SOURCE = Path("docs/samples/csv/MapeoRVI_CM.csv")
+_DEFAULT_IDRVI_SOURCE = Path("reference-data/csv/MapeoRVI_CM.csv")
 
 
 @mock_group.command(name="rvabrep")
@@ -347,7 +347,7 @@ _DEFAULT_IDRVI_SOURCE = Path("docs/samples/csv/MapeoRVI_CM.csv")
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
     help=(
-        "CSV with an IDRVI column (default: docs/samples/csv/MapeoRVI_CM.csv). "
+        "CSV with an IDRVI column (default: reference-data/csv/MapeoRVI_CM.csv). "
         "Used as the population for the index7 / IDRVI column."
     ),
 )
