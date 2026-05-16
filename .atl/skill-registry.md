@@ -11,7 +11,6 @@ This registry catalogs all skills available to agents working on CMCourier. The 
 No project-level convention files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `GEMINI.md`, `copilot-instructions.md`) exist yet. The authoritative conventions for this project are:
 
 - **Engineering law**: `.specify/memory/constitution.md` (v1.0.0)
-- **Domain ground truth**: `docs/domain/CMCOURIER_REBIRTH.md`
 - **Roadmap of deferred features**: `docs/roadmap/POST-MVP.md`
 - **Contributor workflow**: `CONTRIBUTING.md`
 
@@ -76,7 +75,7 @@ Operational, not part of the registry per the `skill-registry` skill's conventio
 
 ## Compact Rules (Project Standards — Auto-Resolved per Sub-Agent Launch)
 
-The orchestrator MUST inject the matching block(s) below as `## Project Standards (auto-resolved)` in any sub-agent prompt that touches the corresponding context. These rules are **derived from** the Constitution and REBIRTH; they are not additional requirements, they are pre-digested versions of those documents for sub-agent prompts.
+The orchestrator MUST inject the matching block(s) below as `## Project Standards (auto-resolved)` in any sub-agent prompt that touches the corresponding context. These rules are **derived from** the Constitution; they are not additional requirements, they are pre-digested versions of that document for sub-agent prompts.
 
 ### When touching files in `src/cmcourier/domain/`
 
@@ -99,7 +98,7 @@ The orchestrator MUST inject the matching block(s) below as `## Project Standard
 - **Streaming over buffering** (Principle IV): `MultipartEncoder` for CMIS uploads, cursor streaming for DB reads, file iteration for CSV.
 - Thread-local connections for `pyodbc` — the iSeries Access ODBC driver is **NOT thread-safe**.
 - CMIS adapter: GET warmup (`?cmisselector=repositoryInfo`) before any POST; per-thread `requests.Session` with its own JSESSIONID.
-- HTTP retry policy: 4xx fails fast (do not retry); 5xx exponential backoff; `ConnectionError 10053` doubles the normal delay (REBIRTH §8.7).
+- HTTP retry policy: 4xx fails fast (do not retry); 5xx exponential backoff; `ConnectionError 10053` doubles the normal delay.
 
 ### When writing tests
 
@@ -158,4 +157,4 @@ The orchestrator MUST inject the matching block(s) below as `## Project Standard
 
 - This file is mode-independent — it is infrastructure, not an SDD artifact.
 - Re-run `/sdd-init` whenever skills are added/removed from the user installation, or when a project-level `AGENTS.md` / `CLAUDE.md` is added.
-- The compact rules above are kept short on purpose. Full rationale lives in the Constitution and REBIRTH.
+- The compact rules above are kept short on purpose. Full rationale lives in the Constitution.

@@ -22,12 +22,6 @@ La estructura sigue el [framework Diátaxis](https://diataxis.fr): la documentac
 |----------|---------|
 | [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) | Los 9 principios inmutables. Specs y código que los violan son rechazados sin debate |
 
-## Verdad de dominio
-
-| Documento | Propósito |
-|----------|---------|
-| la spec de dominio del proyecto | Especificación de dominio completa — sistema fuente RVI, sistema destino CMIS, esquema RVABREP, arquitectura de stages, resolución de metadatos, ensamblado de archivos, idempotencia, niveles de observabilidad |
-
 ## Planificación del proyecto
 
 | Documento | Propósito |

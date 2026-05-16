@@ -13,9 +13,7 @@
 
 CMCourier is a rewrite of `RVIMigration`, a tool that migrates documents from a legacy IBM RVI system on AS400 to IBM Content Manager via the CMIS REST API. The original tool worked but suffered from architectural drift: a 1341-line God Object, broken `run()` method, tangled responsibilities. This constitution exists so that history does not repeat itself.
 
-The full domain context lives in `docs/domain/CMCOURIER_REBIRTH.md`. That document is the **ground truth for the domain**. This constitution is the **ground truth for the engineering discipline**.
-
-Where the domain document and constitution agree, both apply. Where they appear to disagree, the domain document describes *what the system does*; this constitution dictates *how we build it*.
+This constitution is the **ground truth for the engineering discipline**. Domain interpretation lives in the active specs under `specs/` and in the working code under `src/cmcourier/`.
 
 ---
 
@@ -50,7 +48,7 @@ Every migration must be safely re-runnable. Interrupted, restarted, retried — 
 - `rvabrep_txn_num` is **the** idempotency key. It carries a `UNIQUE` constraint at the persistence layer.
 - Before processing any document, the tracking store must be consulted. If the document is in `UPLOADED` status, it is skipped — no re-resolution, no re-assembly, no re-upload.
 - Failed records may be retried only by transitioning `FAILED → PENDING` explicitly (via `retry-failed` command).
-- Status transitions follow the state machine in `CMCOURIER_REBIRTH.md §9.5`. No shortcuts.
+- Status transitions follow the state machine defined in the tracking store domain model. No shortcuts.
 
 **Rationale**: The system runs against a corporate AS400 over a corporate network with corporate firewalls. Things break. A migration of 200,000 documents that re-uploads on retry destroys storage budgets and audit trails.
 
@@ -280,8 +278,7 @@ When documents conflict, the order of precedence is:
 1. **This Constitution** (absolute, only overridden by amendment)
 2. **The active Spec** (governs a specific change)
 3. **The active Plan / Design** (governs implementation approach)
-4. **`docs/domain/CMCOURIER_REBIRTH.md`** (governs domain interpretation)
-5. **Existing code** (governs nothing — code is the output of the above, not the input)
+4. **Existing code** (governs nothing — code is the output of the above, not the input)
 
 ---
 
