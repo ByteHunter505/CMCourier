@@ -1,5 +1,7 @@
 # How-to: Cache cross-batch de metadatos (037, POST-MVP §9)
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 Saltea S3 (Resolución de Metadatos) en una re-corrida del mismo documento
 cuando las propiedades resueltas no están vencidas. Default OFF —
 el comportamiento single-batch es byte-idéntico a pre-037.

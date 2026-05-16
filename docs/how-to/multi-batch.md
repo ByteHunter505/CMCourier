@@ -1,5 +1,7 @@
 # How to: correr múltiples batches en vuelo (`processing.batches_in_flight`)
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 > Disponible desde el cambio **028** (2026-05-11). Permite que una
 > migración larga parta sus triggers en `batch`es y corra el prep
 > (S0-S4) de un `batch` superpuesto con el upload (S5) de otro.

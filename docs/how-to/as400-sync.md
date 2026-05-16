@@ -1,5 +1,7 @@
 # How to: Idempotencia distribuida AS400 NIARVILOG
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 > Disponible desde el cambio **034** (2026-05-11). POST-MVP §4 —
 > coordinar idempotencia cross-batch con la tabla centralizada del banco
 > ``RVILIB.NIARVILOG`` mientras se mantiene SQLite como la máquina

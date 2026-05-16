@@ -1,5 +1,7 @@
 # How-to: Lanes heavy / light de upload (036, POST-MVP §1)
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 Habilitar dos `lane`s adaptativos de upload cuando una porción conocida
 por el operador de tu batch es **sustancialmente más grande** que el resto,
 y podés afrontar el pequeño costo extra de coordinación a cambio de

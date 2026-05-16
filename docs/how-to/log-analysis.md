@@ -1,5 +1,7 @@
 # How to: analizar los logs de un batch offline (`cmcourier analyze`)
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 > Disponible desde el cambio **027** (2026-05-11). Lee los cinco niveles
 > de observabilidad y produce un reporte por-batch, una comparación
 > de a pares, o una serie de tendencias.

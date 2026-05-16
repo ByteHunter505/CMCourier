@@ -1,5 +1,7 @@
 # CMCourier — Roadmap Post-MVP
 
+> [← Volver al índice](../INDEX.md)
+
 > **Estado**: Documento vivo. Actualizado a medida que se difieren o completan nuevas funcionalidades.
 > **Última actualización**: 2026-05-14
 

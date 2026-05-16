@@ -1,5 +1,7 @@
 # How-to: Pre-flight de destino CMIS (038)
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 > Estado: `[0.41.0]` y posterior. Cubre los nuevos checks de doctor bajo
 > el grupo `cm-targets`, las columnas `CMISFolder` / `CMISPropertyId` de
 > los CSVs de mapping split, los eventos de trace de payload de upload,

@@ -1,5 +1,7 @@
 # How-to: Checklist de Validación (E2E completo, cross-platform)
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 Checklist comprensivo para validar que **CMCourier funciona en todos sus
 modos** contra una instancia local de Alfresco staging. Cubre setup
 inicial (config + env vars + dataset), conexiones, los 5 pipelines,

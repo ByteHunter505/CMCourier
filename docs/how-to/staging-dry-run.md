@@ -1,5 +1,7 @@
 # How-to: Dry-run de staging
 
+> [← Volver al índice](../INDEX.md) · [How-to](README.md)
+
 Un dry-run de staging valida la combinación **código + config + datos reales**
 contra un repositorio CMIS no productivo **antes** de la primera
 migración productiva. Hace aparecer los bugs que ningún test sintético

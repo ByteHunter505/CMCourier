@@ -1,52 +1,87 @@
-# Guías How-to — Recetas para Tareas Específicas
+# How-to — Recetas para Tareas Específicas
 
-> Documentación orientada a problemas. **"¿Cómo hago para…"**
+> [← Volver al índice](../INDEX.md)
 
-Una guía how-to asume que ya sabés qué es CMCourier y querés lograr un objetivo específico. Es una secuencia de pasos prácticos — sin narrativa, sin explicaciones profundas, sin teoría. Si querés *entender* cómo funciona algo, ver [`../explanation/README.md`](../explanation/README.md). Si sos completamente nuevo en el proyecto, empezá por el [README principal](../../README.md) y el [INDEX](../INDEX.md).
+Documentación orientada a problemas. **"¿Cómo hago para…"**
 
----
-
-## Convención de nombres
-
-Los archivos de este directorio se llaman `how-to-<task-slug>.md` o simplemente `<task-slug>.md` si el verbo es implícito. Los slugs son kebab-case, descriptivos y estables. Renombrar una guía existente es un cambio breaking para links externos — bumpear `CHANGELOG.md`.
-
-Ejemplos (ilustrativos, no shippeados actualmente):
-
-- `run-rvabrep-pipeline.md`
-- `configure-cmis-credentials.md`
-- `recover-from-failed-batch.md`
-- `add-a-new-trigger-source.md`
-- `tune-worker-count-for-throughput.md`
+Una guía how-to asume que ya sabés qué es CMCourier y querés lograr un objetivo específico. Es una secuencia de pasos prácticos — sin narrativa, sin teoría. Si querés *entender* cómo funciona algo, andá a [`../explanation/`](../explanation/README.md). Si sos nuevo en el proyecto, empezá por [`../ONBOARDING.md`](../ONBOARDING.md).
 
 ---
 
-## Guías disponibles
+## Para el operador
 
-*(ninguna todavía — esta sección crece a medida que los primeros comandos y pipelines se shippean)*
+Tareas comunes que ejecutás cuando corrés migraciones.
 
-| Guía | Objetivo | Audiencia |
-|-------|------|----------|
-| — | — | — |
+| Receta | Cuándo aplica |
+|--------|---------------|
+| [`operator/run-a-migration-from-csv.md`](operator/run-a-migration-from-csv.md) | Corrida estándar con CSV-trigger |
+| [`operator/run-a-streaming-load-against-staging.md`](operator/run-a-streaming-load-against-staging.md) | Volumen alto sin reventar memoria |
+| [`operator/recover-from-a-corrupted-tracking-db.md`](operator/recover-from-a-corrupted-tracking-db.md) | SQLite tracking dañado |
+| [`operator/retry-only-failed-records.md`](operator/retry-only-failed-records.md) | Re-correr solo lo que falló |
+| [`operator/tune-aimd-for-a-slow-link.md`](operator/tune-aimd-for-a-slow-link.md) | Ajustar AIMD para tu link |
+| [`operator/configure-heavy-light-lanes.md`](operator/configure-heavy-light-lanes.md) | Activar lanes para corpus mixto |
+| [`operator/wipe-staging-state.md`](operator/wipe-staging-state.md) | Limpiar staging entre corridas |
+| [`operator/interpret-the-tui-tabs.md`](operator/interpret-the-tui-tabs.md) | Atlas visual de las 5 tabs |
+
+Índice dedicado: [`operator/README.md`](operator/README.md).
+
+---
+
+## Para el desarrollador
+
+Cómo extender el sistema sin romper la arquitectura.
+
+| Receta | Cuándo aplica |
+|--------|---------------|
+| [`developer/add-a-new-config-field.md`](developer/add-a-new-config-field.md) | Extender el schema Pydantic |
+| [`developer/add-a-new-cmis-property.md`](developer/add-a-new-cmis-property.md) | Agregar metadata target a CMIS |
+| [`developer/add-a-new-source-system.md`](developer/add-a-new-source-system.md) | Implementar otro `IDataSource` |
+| [`developer/run-the-test-suite.md`](developer/run-the-test-suite.md) | Todas las maneras de correr tests |
+| [`developer/profile-a-bottleneck.md`](developer/profile-a-bottleneck.md) | Diagnosticar dónde se va el tiempo |
+
+Índice dedicado: [`developer/README.md`](developer/README.md).
+
+---
+
+## Por feature específica
+
+Guías más densas, cada una atada a una feature concreta del sistema.
+
+| Receta | Feature / Spec |
+|--------|----------------|
+| [`heavy-light-lanes.md`](heavy-light-lanes.md) | Lanes adaptativos heavy/light (036, POST-MVP §1) |
+| [`multi-batch.md`](multi-batch.md) | Multi-batch con `batches_in_flight` (028) |
+| [`as400-sync.md`](as400-sync.md) | Idempotencia distribuida AS400 NIARVILOG (034, POST-MVP §4) |
+| [`document-cache.md`](document-cache.md) | Cache cross-batch de metadatos (037, POST-MVP §9) |
+| [`log-analysis.md`](log-analysis.md) | Análisis offline con `cmcourier analyze` (027) |
+| [`mock-rvabrep-generator.md`](mock-rvabrep-generator.md) | Generar CSV RVABREP sintético (039) |
+| [`cmis-target-preflight.md`](cmis-target-preflight.md) | Pre-flight CMIS folders + properties (038) |
+| [`staging-dry-run.md`](staging-dry-run.md) | Dry-run con datos reales |
+| [`local-staging-simulation.md`](local-staging-simulation.md) | Alfresco + Docker para simular CMIS |
+| [`validation-checklist.md`](validation-checklist.md) | Checklist E2E cross-platform |
+
 ---
 
 ## Escribir una nueva how-to
 
-Al agregar una guía:
+1. Elegí un slug preciso basado en verbo (`run-X`, `recover-from-Y`, `configure-Z`).
+2. Decidí si va en `operator/`, `developer/`, o suelta acá (si está atada a una feature específica).
+3. Empezá con breadcrumb estándar:
+   ```
+   > [← Volver al índice](../INDEX.md) · [How-to](README.md)
+   ```
+   (Ajustá el path relativo a la profundidad real.)
+4. Estructurá: intro corta → **Cuándo aplica** → **Pre-requisitos** → **Pasos** numerados con comandos → **Verificación** → `## Ver también`.
+5. Listala en este README, en el subdirectorio README (si aplica), y en `docs/INDEX.md`.
 
-1. Elegí un slug preciso basado en verbo. El lector está leyendo esto porque quiere *hacer* algo.
-2. Abrí con una oración que dice qué va a lograr el lector.
-3. Listá prerrequisitos (herramientas instaladas, env vars seteadas, rol / permisos).
-4. Proveé los pasos como lista numerada con comandos copy-pasteables.
-5. Cerrá con un paso de verificación — ¿cómo sabe el lector que funcionó?
-6. Agregá la guía a la tabla de arriba y a `docs/INDEX.md`.
-
-Una how-to **no** es un tutorial. Los tutoriales enseñan un concepto guiando al lector por un ejemplo curado. Las how-tos resuelven un problema del mundo real que el lector ya tiene.
+Una how-to **no** es un tutorial. Los tutoriales enseñan; las how-tos resuelven un problema que el lector ya tiene. Si necesitás enseñar, andá a [`../tutorials/`](../tutorials/README.md).
 
 ---
 
-## Cross-references
+## Ver también
 
-- [`docs/INDEX.md`](../INDEX.md) — mapa canónico de toda la documentación
-- [`docs/explanation/README.md`](../explanation/README.md) — para "cómo funciona"
-- la spec de dominio del proyecto — verdad de dominio
-- [`CONTRIBUTING.md`](../../CONTRIBUTING.md) — convenciones de workflow
+- [`../tutorials/`](../tutorials/README.md) — para aprender, no para resolver
+- [`../explanation/`](../explanation/README.md) — para entender el por qué
+- [`../reference/`](../reference/README.md) — para lookup rápido de flags, fields, exceptions
+- [`../runbooks/`](../runbooks/README.md) — para incidentes en producción
+- [`../INDEX.md`](../INDEX.md) — mapa canónico

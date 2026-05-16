@@ -46,6 +46,10 @@ dmypy.json
 # Operational artifacts (created at runtime by CMCourier)
 logs/
 tmp/
+# Internal docs workspace (dossier + scratch for doc agents)
+docs/_internal/
+# Legacy sample code from the old project — operator workspace, not for commit
+docs/samples/cmis_service.py
 # /staging anchored to root — scripts/staging/ scaffolding stays tracked (039)
 /staging/
 # /sample synthetic dry-run data (rvabrep CSVs, materialized files, tracking DBs) — never commit
