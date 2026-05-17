@@ -52,6 +52,56 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.75.0] — 2026-05-16 — **Portability fixes para AS400 real**
+
+Tres bugs surgieron durante la primera preparación productiva contra
+el AS400 real del banco desde un cliente Windows. Los tres son fixes
+quirúrgicos (1-2 líneas + tests), ninguno cambia arquitectura. Se
+shippean juntos porque pertenecen al mismo dominio: "hacer que
+CMCourier funcione contra un AS400 real desde una compu nueva".
+
+### Fixed
+
+- **`doctor` `as400_connectivity`** usa ahora
+  `SELECT 1 FROM SYSIBM.SYSDUMMY1` (la pseudo-tabla canónica de DB2 /
+  iSeries) en lugar de `SELECT 1` solo. DB2 rechaza `SELECT` sin
+  `FROM` con sqlstate 42000, así que el check fallaba aunque la
+  conexión y las credenciales estuvieran OK.
+- **`mock generate --rvabrep-as400` respeta `indexing.source.query`**.
+  Pre-075 ignoraba completamente el `query` con WHERE / JOIN
+  definido en el YAML y ejecutaba `SELECT * FROM <table>` sobre la
+  tabla entera. Ahora si hay `source.query`, el adapter lo wrappea
+  como `(query) AS T` y solo procesa el subconjunto filtrado.
+- **`mock generate` fallback table prepende schema**. Cuando ni
+  `source.query` ni `connection.table` están seteados, el fallback
+  ahora es `{database}.RVABREP` (típicamente `RVILIB.RVABREP`) en
+  lugar de `RVABREP` bare, que fallaba con `table not found` cuando
+  la library no estaba en la library list del usuario AS400.
+- **Planner del `mock generate` ahora es permisivo ante
+  `image_type` desconocido**. Pre-075, cualquier valor de `ABABST`
+  distinto a `B` / `C` / `O` (ej. `T`, `P`, vacío, o un código del
+  banco que no estaba en el RVABREP del banco original) abortaba
+  toda la generación con `ConfigurationError`. Ahora el planner
+  emite un warning estructurado (`txn_num`, `image_type`,
+  `file_name`, `reason`) y skipea esa fila. El run sigue procesando
+  el resto. La misma lógica aplica al caso contradictorio
+  `ABABST=O` con filename no-PDF.
+
+### Notas
+
+- **Cambio de contrato en el planner**: pre-075 el comportamiento
+  era fail-fast; post-075 es warn-and-continue. Operadores que
+  dependían del fail-fast para detectar RVABREP malformado pueden
+  grep-ear los warnings post-run o usar `cmcourier analyze` para
+  agregarlos.
+- **Tests nuevos**: `test_doctor_as400_query.py` (3 tests),
+  `test_mock_generate_as400.py` (5 tests), `test_planner.py`
+  reemplaza el test de `raises` por 3 tests de skip + warning. Total:
+  8 tests nuevos, 1 reemplazado.
+- **Sin cambios funcionales** fuera de los tres fixes citados.
+
+---
+
 ## [0.74.0] — 2026-05-16 — **Sacar reference data de `docs/`**
 
 `docs/samples/` estaba mezclando documentación (un YAML anotado),
