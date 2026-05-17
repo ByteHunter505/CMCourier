@@ -52,6 +52,60 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.79.0] — 2026-05-17 — **Progress de upload en tiempo real**
+
+Pre-079, el sampler de bandwidth de la TUI (tab UPLOAD) solo
+recibía datos cuando un upload completaba. Para uploads de varios
+segundos (archivos grandes contra LAN de 1 Gbps), la TUI mostraba
+0 MB/s durante todo el upload y los datos aparecían de golpe al
+completion. Operativamente: imposible ver throughput en vivo de
+un upload puntual, imposible detectar throttling intermedio o
+sockets colgados a mitad de upload.
+
+### Fixed
+
+- **``CmisUploader._post_with_retries``** ahora envuelve el
+  ``MultipartEncoder`` (076) en un
+  ``MultipartEncoderMonitor`` con un callback de progreso. Cada
+  vez que el encoder transmite ≥ 1 MB acumulado (umbral
+  ``_PROGRESS_THRESHOLD_BYTES``), el callback emite un evento
+  ``cmis_upload_progress`` con ``bytes_delta``.
+- **``_BandwidthSampler``** gana ``record_progress(bytes_delta,
+  ts=None)``: agrega bytes al bucket del segundo current, sin
+  esperar al completion. Thread-safe vía el mismo lock existente.
+- **``_BandwidthHandler.emit``** ahora procesa también
+  ``cmis_upload_progress``. El branch ``cmis_upload`` (completion)
+  resta los ``progress_bytes`` ya reportados del ``size_bytes``
+  total para evitar double-counting.
+- **``_emit_network``** acepta ``progress_bytes=0`` (kwarg opcional)
+  y lo agrega al log record si es no-cero.
+
+### Notas
+
+- **Threshold de 1 MB**: para uploads chicos (< 1 MB) no se
+  emite ningún evento de progress — el completion event los
+  contabiliza con la lógica 069 existente. Para uploads grandes
+  (500 MB) → ~500 eventos de progress durante el upload, uno
+  por cada MB transmitido. La TUI ve ``current_mbps`` updateándose
+  cada segundo.
+- **Sin double-counting**: ``cumulative_bytes`` final coincide
+  exactamente con el ``size_bytes`` del upload, verificado por
+  tests.
+- **Edge case de retries**: si un upload falla a mitad y se
+  reintenta, los progress events del attempt fallido siguen
+  contados en el sampler. ``cumulative_bytes`` puede exceder
+  ligeramente el real (sobre-conteo en error transitorio).
+  Aceptable para telemetría — el contractual es el
+  ``migration_log`` del tracking, no los samplers de la TUI.
+- **Tests nuevos**: 11 en
+  ``tests/unit/observability/test_bandwidth_progress.py``
+  cubriendo el sampler (4), el handler (3), el branch de
+  completion con/sin progress_bytes (3), y un sanity test (1).
+- Total: **623 unit tests passed** (612 previos + 11 nuevos),
+  cero regresiones.
+
+---
+
 ## [0.78.0] — 2026-05-17 — **`MultipartEncoder` streaming para uploads CMIS (throughput fix)**
 
 S5 corría a **3 MB/s** contra IBM Content Manager v8 en producción,
