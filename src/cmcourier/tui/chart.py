@@ -33,6 +33,35 @@ def render_sparkline(values: list[float], *, y_max: float) -> str:
     return "".join(cells)
 
 
+# 079: ancho del label del eje Y (4 chars right-aligned + " │ " separator).
+_Y_AXIS_LABEL_WIDTH = 4
+_Y_AXIS_PREFIX = " │ "
+
+
+def _format_y_label(value: float) -> str:
+    """4-char right-aligned numeric label para el eje Y."""
+    if value >= 100:
+        return f"{int(round(value)):>4}"
+    if value >= 10:
+        return f"{value:>4.0f}"
+    return f"{value:>4.1f}"
+
+
+def _y_axis_label_for_row(row: int, height: int, cap: float) -> str:
+    """Devuelve la etiqueta de eje Y para la row dada (top=0, bottom=height-1).
+
+    Pone etiquetas en 4 ticks distribuidos sobre el alto del chart:
+    top (100%), 75%, 50%, 25%. Otras rows reciben spaces para mantener
+    el alineamiento.
+    """
+    step = max(1, height // 4)
+    if row % step != 0:
+        return " " * _Y_AXIS_LABEL_WIDTH
+    rows_from_bottom = height - 1 - row
+    fraction = (rows_from_bottom + 1) / height
+    return _format_y_label(cap * fraction)
+
+
 def render_bar_chart(
     values: list[float],
     *,
@@ -40,44 +69,61 @@ def render_bar_chart(
     height: int = 8,
     width_chars: int = 60,
     color: str = "green",
+    show_y_axis: bool = True,
 ) -> str:
-    """078: gráfico de barras vertical multi-línea con rich markup.
+    """078/079: gráfico de barras vertical multi-línea con rich markup.
 
-    Cada barra ocupa 2 columnas (bloque + espacio) para verse
-    "delgada" con aire entre barras. Resolución vertical:
-    ``height`` filas × 8 sub-niveles por celda = ``height * 8``
-    niveles totales — mucho mejor que los 8 del sparkline.
+    Cada barra ocupa 1 columna (barras pegadas — convención chart).
+    Resolución vertical: ``height`` filas × 8 sub-niveles por celda
+    = ``height * 8`` niveles totales.
 
-    Sub-sampling: si ``len(values)`` excede el ancho disponible
-    (``width_chars // 2`` barras), agrupa promediando.
+    Si ``show_y_axis=True`` (default), cada row se prefijia con una
+    etiqueta numérica derecha-alineada de 4 chars + `` │ ``, con
+    ticks en 100%/75%/50%/25% del cap. La línea de eje inferior
+    (rendered por el caller debajo del chart) debería alinearse
+    con el ``│`` para que el layout quede limpio.
+
+    Sub-sampling: si ``len(values) > width_chars``, agrupa
+    promediando para encajar.
 
     Devuelve un string multi-línea ya envuelto en ``[color]...[/color]``
-    rich markup. Textual ``Static`` lo renderiza con el color
-    correspondiente sin más config.
+    rich markup. Textual ``Static`` lo renderiza con el color.
 
     Casos edge:
-    * ``values`` vacío → devuelve ``height`` líneas en blanco del
-      ancho ``width_chars`` (preserva el layout del caller).
+    * ``values`` vacío → devuelve ``height`` líneas en blanco con
+      el prefix de eje (si aplica) — preserva alineamiento del caller.
     * ``y_max == 0`` + todos en cero → mismo blank fill.
     * ``y_max == 0`` con valores > 0 → auto-scale al max.
     * Si un valor con ratio > 0 cae en sub-nivel 0 por redondeo,
       forzamos un ``▁`` en la línea inferior (asegura visibilidad
       mínima de barras chiquitas).
     """
-    blank_line = " " * width_chars
+    prefix_width = _Y_AXIS_LABEL_WIDTH + len(_Y_AXIS_PREFIX) if show_y_axis else 0
+    blank_chart = " " * width_chars
     if not values:
-        return "\n".join([blank_line] * height)
+        lines: list[str] = []
+        for row in range(height):
+            if show_y_axis:
+                label = _y_axis_label_for_row(row, height, 0.0)
+                lines.append(label + _Y_AXIS_PREFIX + blank_chart)
+            else:
+                lines.append(blank_chart)
+        return "\n".join(lines)
     cap = y_max if y_max > 0 else max(values, default=0.0)
     if cap <= 0:
-        return "\n".join([blank_line] * height)
+        lines = []
+        for _row in range(height):
+            if show_y_axis:
+                lines.append(" " * prefix_width + blank_chart)
+            else:
+                lines.append(blank_chart)
+        return "\n".join(lines)
 
-    # Sub-sampling: cada barra son 2 chars, así que cabemos
-    # ``width_chars // 2`` barras.
-    max_bars = max(1, width_chars // 2)
-    if len(values) > max_bars:
-        chunk_size = len(values) / max_bars
+    # Sub-sampling: cada barra es 1 char, cabemos hasta ``width_chars`` barras.
+    if len(values) > width_chars:
+        chunk_size = len(values) / width_chars
         sampled: list[float] = []
-        for i in range(max_bars):
+        for i in range(width_chars):
             start = int(i * chunk_size)
             end = int((i + 1) * chunk_size)
             window = values[start:end] or [values[min(start, len(values) - 1)]]
@@ -99,7 +145,7 @@ def render_bar_chart(
         levels.append(level)
 
     # Renderizar de top a bottom.
-    lines: list[str] = []
+    lines = []
     for row in range(height):
         rows_from_bottom = height - 1 - row
         row_start = rows_from_bottom * 8
@@ -107,10 +153,13 @@ def render_bar_chart(
         for level in levels:
             in_row = max(0, min(8, level - row_start))
             chars.append(_BLOCKS[in_row])
-            chars.append(" ")
         # Pad a ``width_chars`` para que todas las filas tengan el
-        # mismo ancho (preserva el footer alineado debajo).
-        line = "".join(chars).rstrip()
-        line = line.ljust(width_chars)
-        lines.append(f"[{color}]{line}[/{color}]")
+        # mismo ancho.
+        bar_line = "".join(chars).ljust(width_chars)
+        if show_y_axis:
+            label = _y_axis_label_for_row(row, height, cap)
+            line = f"{label}{_Y_AXIS_PREFIX}[{color}]{bar_line}[/{color}]"
+        else:
+            line = f"[{color}]{bar_line}[/{color}]"
+        lines.append(line)
     return "\n".join(lines)
