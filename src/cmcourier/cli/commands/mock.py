@@ -29,7 +29,6 @@ import click
 from cmcourier.adapters.sources import As400DataSource, TabularDataSource
 from cmcourier.config.loader import load_config, load_secrets
 from cmcourier.config.schema import (
-    As400ConnectionConfig,
     As400RvabrepSource,
     IndexingColumnsModel,
     PipelineConfig,
@@ -242,7 +241,8 @@ def _build_source(
         raise ConfigurationError(
             "--rvabrep-as400 requires --config with an AS400 connection",
         )
-    conn = _extract_as400_connection(config)
+    source_cfg = _extract_as400_source(config)
+    conn = source_cfg.connection
     secrets = load_secrets()
     if not secrets.as400_username or not secrets.as400_password:
         raise ConfigurationError(
@@ -256,6 +256,26 @@ def _build_source(
                 if not value
             ],
         )
+    # 073: si el operador definió ``source.query`` con WHERE / JOIN /
+    # filtros, respetarlo — el adapter lo wrappea como ``(query) AS T``.
+    # Pre-073 esto se ignoraba y ``mock generate --rvabrep-as400`` leía
+    # la tabla entera siempre.
+    query = source_cfg.query.strip() if source_cfg.query else ""
+    if query:
+        return As400DataSource(
+            host=conn.host,
+            port=conn.port,
+            database=conn.database,
+            driver=conn.driver,
+            username=secrets.as400_username,
+            password=secrets.as400_password,
+            query=query,
+        )
+    # 073: cuando ni ``source.query`` ni ``connection.table`` están
+    # seteados, el fallback prepende el ``database`` como schema
+    # (``RVILIB.RVABREP``). Pre-073 el default era ``"RVABREP"`` bare,
+    # que fallaba con ``table not found`` cuando la library no estaba
+    # en la library list del usuario AS400.
     return As400DataSource(
         host=conn.host,
         port=conn.port,
@@ -263,16 +283,18 @@ def _build_source(
         driver=conn.driver,
         username=secrets.as400_username,
         password=secrets.as400_password,
-        table=conn.table or "RVABREP",
+        table=conn.table or f"{conn.database}.RVABREP",
     )
 
 
-def _extract_as400_connection(config: PipelineConfig) -> As400ConnectionConfig:
+def _extract_as400_source(config: PipelineConfig) -> As400RvabrepSource:
     # 048: la conexion AS400 para el source RVABREP vive ahora bajo
     # ``indexing.source``, no bajo la config del trigger.
+    # 073: devolvemos el ``source`` entero (no solo la connection) para
+    # que el caller pueda acceder al ``query`` configurado.
     source = config.indexing.source
     if isinstance(source, As400RvabrepSource):
-        return source.connection
+        return source
     raise ConfigurationError(
         "config does not define an AS400 indexing source — set "
         "indexing.source.kind: as400 with a connection block",
