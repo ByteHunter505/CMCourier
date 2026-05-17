@@ -52,6 +52,53 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.80.0] — 2026-05-17 — **Chart de UPLOAD multi-línea con barras delgadas verdes**
+
+El sparkline de bandwidth del tab UPLOAD (025 fase 3) era **una
+sola línea** de caracteres bloque Unicode. Era chico, sin contraste,
+sin color — operativamente difícil de leer durante una corrida real.
+
+### Changed
+
+- **``src/cmcourier/tui/chart.py``** gana
+  ``render_bar_chart(values, *, y_max, height=8, width_chars=60,
+  color="green")``. Devuelve un string multi-línea ya envuelto en
+  rich markup ``[color]...[/color]``. Resolución vertical de
+  ``height * 8`` sub-niveles (64 por default) — 8x más que el
+  sparkline. Las barras ocupan 2 columnas cada una (bloque +
+  espacio) para look "delgada" con aire entre barras.
+- **``src/cmcourier/tui/upload_tab.py``** reemplaza la llamada a
+  ``render_sparkline`` por ``render_bar_chart`` con altura 8,
+  ancho 60, color ``green``.
+- **Sub-sampling automático**: si la serie tiene más valores
+  que ``width_chars // 2`` barras (típicamente 30 para
+  ``width_chars=60``), los valores se agrupan promediando. La
+  serie de 60 segundos se ve como 30 barras de 2 segundos cada
+  una.
+- **Mínimo visible**: si un valor con ``ratio > 0`` cae en
+  sub-nivel 0 por redondeo, se fuerza un ``▁`` en la línea
+  inferior. Garantiza que cualquier bandwidth no-nulo se vea,
+  por más chico que sea.
+
+### Notas
+
+- **``render_sparkline`` permanece intacto** — ningún otro tab lo
+  usa hoy, pero preservamos la API por si alguien lo agrega en
+  el futuro. Cumple con open/closed (no rompemos consumers
+  potenciales).
+- **Color es configurable** vía el kwarg ``color``. Por default
+  ``green`` (Textual rich color name). Cualquier color rich
+  válido funciona.
+- **Tests nuevos**: 14 en
+  ``tests/unit/tui/test_chart_bar.py`` cubriendo edge cases
+  (vacío, todo cero, ceiling cero), rendering proporcional
+  (full, half, quarter), spacing entre barras, sub-sampling,
+  color markup, mínimo visible, y alineamiento de columnas.
+- Total: **637 unit tests passed** (623 previos + 14 nuevos),
+  cero regresiones.
+
+---
+
 ## [0.79.0] — 2026-05-17 — **Progress de upload en tiempo real**
 
 Pre-079, el sampler de bandwidth de la TUI (tab UPLOAD) solo
