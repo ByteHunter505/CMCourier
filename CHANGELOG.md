@@ -52,6 +52,57 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.76.0] — 2026-05-17 — **Strip whitespace de strings que vuelven del AS400**
+
+Los campos ``CHAR(N)`` de DB2 / iSeries vuelven *padded* a longitud
+fija con espacios — un ``CHAR(1)`` con valor lógico vacío llega a
+Python como ``" "``, un ``CHAR(8)`` con ``"SHORT1"`` llega como
+``"SHORT1  "``. Pre-076 ese padding filtraba al dominio y rompía
+múltiples cosas a la vez:
+
+* El check de "deleted" interpretaba ``ABACST = " "`` (un solo
+  espacio padding) como truthy y tiraba ``RVABREPDeletedError``,
+  haciendo que un RVABREP perfectamente válido apareciera como
+  "every record marked deleted".
+* El matching de triggers contra RVABREP fallaba silenciosamente
+  cuando ``"SHORT1  "`` no matcheaba ``"SHORT1"``.
+* La idempotency key (``rvabrep_txn_num``) terminaba en SQLite +
+  como ``cmis:name`` en CM con trailing whitespace.
+* Lookups en metadata sources AS400 fallaban por la misma razón
+  (``BRANCH_ID = "001     "`` ≠ ``"001"``).
+
+Estos no eran bugs separados — eran un único hueco en la frontera
+adapter-dominio. El adapter leakeaba un detalle de representación
+de DB2 al resto del sistema. El fix se aplica donde corresponde: en
+el adapter mismo.
+
+### Fixed
+
+- **``As400DataSource`` strippea trailing whitespace** de valores
+  ``str`` al materializar rows de pyodbc (``query()`` y
+  ``query_stream()``). Único punto de intervención — aplica a S1
+  indexing, S3 metadata sources AS400, ``mock generate
+  --rvabrep-as400``, y al passthrough ``cmcourier as400-query``.
+- Helper privado ``_normalize_row(columns, row)`` aplica
+  ``.strip()`` solo a valores ``str``. Tipos numéricos
+  (``int``/``float``/``Decimal``), ``date``/``datetime``,
+  ``bool``, ``bytes`` y ``None`` pasan sin tocar.
+
+### Notas
+
+- **No afecta CSVs** (``TabularDataSource``). Los CSVs no tienen
+  padding fixed-width; si vienen con espacios, son intencionales.
+- **Cambio observable** para operadores que hacían
+  ``cmcourier as400-query "SELECT ..."`` y veían los strings con
+  padding. Post-076 los ven trimmed. **Esto es deseable** — el
+  padding nunca era información, era ruido de representación.
+- **Tests nuevos**: 17 en
+  ``tests/unit/adapters/sources/test_as400_normalize.py`` cubriendo
+  cada tipo de valor + filas mixtas realistas. Total: **597 unit
+  tests passed** (580 previos + 17 nuevos).
+
+---
+
 ## [0.75.0] — 2026-05-16 — **Portability fixes para AS400 real**
 
 Tres bugs surgieron durante la primera preparación productiva contra
