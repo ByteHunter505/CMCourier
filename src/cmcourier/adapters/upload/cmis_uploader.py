@@ -123,8 +123,15 @@ class TokenBucket:
     """
 
     def __init__(self, mbps: float) -> None:
+        # 081: ``mbps`` se interpreta como **megabits per second**
+        # (convención estándar de networking — el nombre del field
+        # ``cmis.max_bandwidth_mbps`` lo dice explícitamente). Convertimos
+        # a bytes/seg dividiendo por 8: 1 Mbps = 1_000_000 bits/s =
+        # 125_000 bytes/s. Pre-081 el código trataba el valor como MB/s
+        # (megabytes/s) por error — un valor de "50" significaba 50 MB/s
+        # = 400 Mbps, 8x más permisivo de lo que el operador pedía.
         self._enabled = mbps > 0
-        self._rate = mbps * 1_000_000.0  # bytes/seg
+        self._rate = mbps * 125_000.0  # Mbps → bytes/seg
         self._tokens = 0.0
         self._last_refill = time.monotonic()
         self._lock = threading.Lock()

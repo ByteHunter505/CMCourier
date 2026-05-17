@@ -620,8 +620,9 @@ class TestTokenBucket:
         assert elapsed < 0.05  # sin throttling
 
     def test_single_thread_throttles_to_rate(self) -> None:
-        # 0.5 MB/s para 1 MB ≈ 2.0 s nominal.
-        bucket = TokenBucket(mbps=0.5)
+        # 081: ``mbps`` ahora son megabits/s. 4 Mbps = 0.5 MB/s.
+        # Para 1 MB a 0.5 MB/s ≈ 2.0 s nominal.
+        bucket = TokenBucket(mbps=4.0)
         start = time.monotonic()
         # Drena 1 MB en 10×100 KB de `chunks` (imita un upload real).
         for _ in range(10):
@@ -640,7 +641,8 @@ class TestTokenBucket:
         """
         import threading as _threading
 
-        bucket = TokenBucket(mbps=1.0)  # 1 MB/s agregado
+        # 081: 8 Mbps = 1 MB/s agregado.
+        bucket = TokenBucket(mbps=8.0)
         bytes_per_worker = 500_000  # 0.5 MB cada uno
         n_workers = 4
         results: list[float] = []
@@ -676,8 +678,8 @@ class TestBandwidthLimiter:
         size = 1_000_000  # 1 MB
         path = tmp_path / "blob.bin"
         path.write_bytes(b"x" * size)
-        # 0.5 MB/s en 1 MB ≈ 2.0 s nominal.
-        bucket = TokenBucket(mbps=0.5)
+        # 081: 4 Mbps = 0.5 MB/s. 1 MB en 0.5 MB/s ≈ 2.0 s nominal.
+        bucket = TokenBucket(mbps=4.0)
         with path.open("rb") as fh:
             limiter = BandwidthLimiter(fh, bucket)
             start = time.monotonic()

@@ -159,13 +159,19 @@ class TUIDataProvider:
         self._pool_stats = pool_stats
         self._concurrency_limit = concurrency_limit
         self._cmis_config = cmis_config
-        # 079: cachear el ceiling de bandwidth del chart de UPLOAD UNA VEZ
-        # al construir. Prioridad: throttle configurado (``max_bandwidth_mbps``)
-        # > velocidad detectada de la NIC física más rápida (Mbps → MB/s) >
-        # auto-scale al peak (0.0 = comportamiento pre-079 fallback).
-        configured_ceiling = float(cmis_config.max_bandwidth_mbps)
-        if configured_ceiling > 0:
-            self._bandwidth_ceiling_mbps = configured_ceiling
+        # 079: cachear el ceiling del chart de bandwidth UNA VEZ al
+        # construir. Prioridad: throttle configurado (Mbps) > velocidad
+        # detectada de la NIC física más rápida (Mbps) > auto-scale al
+        # peak. El chart muestra MB/s para coincidir con el sampler, así
+        # que ambas fuentes (config + NIC) se dividen por 8 para
+        # convertir Mbps → MB/s.
+        # 081: ``max_bandwidth_mbps`` ahora se interpreta como Mbps reales
+        # (megabits/s), igual que ``detect_link_speed_mbps()``. Pre-081
+        # el config se asumía como MB/s; ese mismatch resultaba en un
+        # ceiling 8x sobreestimado en el chart cuando había throttle.
+        configured_mbps = float(cmis_config.max_bandwidth_mbps)
+        if configured_mbps > 0:
+            self._bandwidth_ceiling_mbps = configured_mbps / 8.0
         else:
             link_mbps = detect_link_speed_mbps()
             self._bandwidth_ceiling_mbps = link_mbps / 8.0 if link_mbps > 0 else 0.0

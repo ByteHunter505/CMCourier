@@ -52,6 +52,61 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.83.0] — 2026-05-17 — **`max_bandwidth_mbps` honra la convención de networking (Mbps reales)**
+
+**Breaking change semántico**. Pre-083 el field
+``cmis.max_bandwidth_mbps`` decía "mbps" en su nombre pero se trataba
+internamente como megabytes/s. El operador configuraba ``50``
+esperando 50 Mbps (6.25 MB/s) y obtenía 50 MB/s (400 Mbps), 8x más
+permisivo de lo que pedía.
+
+### Changed
+
+- **``TokenBucket.__init__``**: ``rate = mbps × 125_000`` bytes/s
+  (1 Mbps = 1_000_000 bits/s = 125_000 bytes/s). Pre-083 era
+  ``mbps × 1_000_000`` que asumía megabytes.
+- **``TUIDataProvider``**: divide ``max_bandwidth_mbps`` por 8 al
+  cachear el ceiling del chart, para que el eje Y (en MB/s, donde
+  el sampler escribe) coincida con la unidad correcta.
+
+### Migración para operadores
+
+Si tu YAML tenía un valor que **funcionaba para un throughput
+deseado en MB/s**, multiplicalo por 8 antes de upgrade:
+
+```yaml
+# Pre-083 (interpretado como MB/s):
+cmis:
+  max_bandwidth_mbps: 50    # quedaba como 50 MB/s = 400 Mbps
+
+# Post-083 (interpretado como Mbps real):
+cmis:
+  max_bandwidth_mbps: 400   # 400 Mbps = 50 MB/s — mismo throughput
+```
+
+Si tu valor era pensado **como Mbps** desde el principio, no
+hace falta cambiar: el comportamiento ahora coincide con el nombre.
+
+### Notas
+
+- Tests existentes ajustados: ``TestTokenBucket`` y
+  ``TestBandwidthLimiter`` cambian ``mbps=0.5`` → ``mbps=4.0`` y
+  ``mbps=1.0`` → ``mbps=8.0`` para conservar el throughput de
+  prueba (0.5 MB/s y 1 MB/s respectivamente).
+- 5 tests nuevos en
+  ``tests/unit/adapters/upload/test_bandwidth_mbps_semantics.py``
+  verifican la conversión exacta — 8 Mbps = 1 MB/s, 80 Mbps =
+  10 MB/s, 1 Mbps = 125_000 bytes/s.
+- 1 test ajustado en ``test_data_provider`` para el nuevo ceiling
+  computation.
+- ``_BandwidthSampler.current_mbps()`` / ``peak_mbps()`` siguen
+  devolviendo MB/s a pesar del nombre. Esos siguen siendo
+  internamente confusos, pero su renombre toca demasiada
+  superficie del TUI — diferido hasta que aparezca otra confusión.
+- Total: **660 unit tests passed** (655 previos + 5 nuevos).
+
+---
+
 ## [0.82.0] — 2026-05-17 — **Fix crítico: `BandwidthLimiter` rompía 100% de uploads con throttle activo**
 
 Bug productivo crítico descubierto durante las pruebas de

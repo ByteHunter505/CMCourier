@@ -65,7 +65,9 @@ class TestTUIDataProvider:
         assert snap.pipeline == "csv-trigger"
         assert snap.is_complete is False
         assert snap.pool_capacity == 4
-        assert snap.bandwidth_ceiling_mbps == 50.0
+        # 081: max_bandwidth_mbps es Mbps real; el chart muestra MB/s
+        # (Mbps / 8). 50 Mbps = 6.25 MB/s.
+        assert snap.bandwidth_ceiling_mbps == 6.25
         assert PREP_STAGES == ("S0", "S1", "S2", "S3", "S4")
         assert UPLOAD_STAGE == "S5"
 
