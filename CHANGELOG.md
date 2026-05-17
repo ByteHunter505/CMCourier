@@ -52,6 +52,61 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.81.0] — 2026-05-17 — **Chart de UPLOAD con eje Y etiquetado + detección de link speed**
+
+Iteración del chart del 080 con tres ajustes operativos:
+
+1. **Barras pegadas**: el espacio entre barras del 080 confundía
+   más que ayudaba. Ahora cada barra ocupa 1 columna, sin aire —
+   convención de chart-of-bars estándar.
+2. **Eje Y con etiquetas numéricas**: cada row del chart se
+   prefijia con una etiqueta de 4 chars + ` │ ` separator. Ticks
+   en 100%/75%/50%/25% del cap. El operador lee la altura de cada
+   barra sin contar pixels.
+3. **Techo del eje Y desde la NIC**: cuando ``cmis.max_bandwidth_mbps``
+   no está configurado, ya no caemos al peak observed (que cambia
+   con cada upload). En su lugar, detectamos la velocidad de la
+   interfaz física más rápida UP via ``psutil.net_if_stats()`` y la
+   convertimos a MB/s (÷ 8). Para 1 Gbps NIC → cap = 125 MB/s.
+
+### Added
+
+- **``src/cmcourier/observability/network_info.py``** nuevo módulo
+  con ``detect_link_speed_mbps()`` — usa psutil para encontrar la
+  NIC física más rápida UP. Filtra interfaces virtuales por prefix
+  (``lo``, ``docker``, ``br-``, ``veth``, ``vboxnet``, ``tun``,
+  ``vpn``, ``Loopback``, ``utun``, etc.).
+
+### Changed
+
+- **``src/cmcourier/tui/chart.py``** `render_bar_chart`:
+  * Barras pegadas (sin spacing).
+  * Sub-sampling ahora basado en ``width_chars`` directo
+    (cada barra es 1 char), no en ``// 2``.
+  * Nuevo kwarg ``show_y_axis: bool = True`` — controla si cada
+    line se prefijia con el label del eje Y.
+- **``src/cmcourier/tui/data_provider.py``**: cachea el ceiling
+  de bandwidth UNA VEZ al construir, con prioridad
+  ``cmis.max_bandwidth_mbps`` > NIC link speed > auto-scale.
+- **``src/cmcourier/tui/upload_tab.py``**: footer del eje X
+  re-alineado al nuevo prefix del chart (4 chars label + ` └`).
+
+### Notas
+
+- **Comportamiento del ceiling**: si la detección de NIC falla
+  (ej. solo virtuales, psutil exception), el fallback es 0.0 →
+  auto-scale al peak. Comportamiento pre-079 como red de
+  seguridad.
+- **Tests nuevos**: 15 en
+  ``tests/unit/tui/test_chart_bar_y_axis.py`` (7) y
+  ``tests/unit/observability/test_network_info.py`` (8). Los
+  14 tests del 078 ahora pasan ``show_y_axis=False`` para
+  testear el core sin el prefix.
+- Total: **652 unit tests passed** (637 previos + 15 nuevos,
+  cero regresiones).
+
+---
+
 ## [0.80.0] — 2026-05-17 — **Chart de UPLOAD multi-línea con barras delgadas verdes**
 
 El sparkline de bandwidth del tab UPLOAD (025 fase 3) era **una
