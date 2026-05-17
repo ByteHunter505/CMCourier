@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cmcourier"
-version = "0.77.0"
+version = "0.78.0"
 description = "CMCourier - banking document migration tool from IBM RVI on AS400 to IBM Content Manager via CMIS."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,7 @@ dependencies = [
   "click>=8.1,<9.0",
   "pyodbc>=5.0,<6.0",
   "httpx[http2]>=0.27,<1.0",
+  "requests-toolbelt>=1.0,<2.0",
   "pandas>=2.0,<3.0",
   "openpyxl>=3.1,<4.0",
   "img2pdf>=0.5,<1.0",
@@ -108,7 +109,7 @@ module = [
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["img2pdf", "pyodbc", "PyPDF2"]
+module = ["img2pdf", "pyodbc", "PyPDF2", "requests_toolbelt"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

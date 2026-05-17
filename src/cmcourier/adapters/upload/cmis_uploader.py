@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from typing import IO, Any
 
 import httpx
+from requests_toolbelt import MultipartEncoder  # 076: true streaming multipart
 
 from cmcourier.domain.exceptions import (
     CMISClientError,
@@ -787,10 +788,31 @@ class CmisUploader(IUploader):
             try:
                 if real_attempts > 0:
                     stream.seek(0)
+                # 076: `MultipartEncoder` arma el body como un iterator
+                # lazy — los chunks van del disco directo al socket TCP
+                # sin buffearse el body entero en RAM. Pre-076 ``files=``
+                # lo buffeaba completo antes de transmitir, lo cual
+                # contra IBM CM v8 (HTTP/1.1 sin multiplexing) destruía
+                # el throughput. ``httpx`` no consume ``MultipartEncoder``
+                # directamente — lo envolvemos en un generator + pasamos
+                # ``Content-Length`` explícito vía ``encoder.len`` (así
+                # evitamos chunked transfer-encoding, que algunos
+                # servers viejos no manejan bien).
+                encoder = MultipartEncoder(fields={**data_fields, "content": file_field})
+
+                def _read_chunk(enc: MultipartEncoder = encoder) -> bytes:
+                    """8 KB chunk del encoder. ``enc`` default-arg
+                    bindea la instancia de esta iteration (B023).
+                    """
+                    return bytes(enc.read(8192))
+
                 resp = self._client.post(
                     url,
-                    data=data_fields,
-                    files={"content": file_field},
+                    content=iter(_read_chunk, b""),
+                    headers={
+                        "Content-Type": encoder.content_type,
+                        "Content-Length": str(encoder.len),
+                    },
                     timeout=self._timeout_s,
                 )
             except httpx.RequestError as exc:
