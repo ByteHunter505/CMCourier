@@ -4,7 +4,7 @@ from __future__ import annotations
 
 __all__ = ["render_upload"]
 
-from cmcourier.tui.chart import render_sparkline
+from cmcourier.tui.chart import render_bar_chart
 from cmcourier.tui.data_provider import UPLOAD_STAGE, TUISnapshot
 
 
@@ -90,11 +90,22 @@ def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
         chart_title += f"y: 0 → peak {snap.bandwidth_peak_mbps:.2f})"
     lines.append(chart_title)
     series_values = [v for _, v in snap.bandwidth_series]
-    if not series_values:
-        lines.append("  " + " " * 60)
+    # 078: chart multi-línea con barras delgadas verdes. 8 líneas de alto
+    # + footer del eje X. Si la serie está vacía, paddeamos con líneas
+    # en blanco para no desestabilizar el layout vertical del tab.
+    if series_values:
+        chart = render_bar_chart(
+            series_values,
+            y_max=snap.bandwidth_ceiling_mbps,
+            height=8,
+            width_chars=60,
+            color="green",
+        )
+        for chart_line in chart.split("\n"):
+            lines.append("  " + chart_line)
     else:
-        lines.append("  " + render_sparkline(series_values, y_max=snap.bandwidth_ceiling_mbps))
-        lines.append("  " + " " * 0 + "└" + "─" * 58 + "┘  -60s ............. now")
+        lines.extend(["  " + " " * 60] * 8)
+    lines.append("  └" + "─" * 58 + "┘  -60s ............. now")
 
     lines.append("")
     lines.append(" SLOW OPS (UPLOAD, top 5)")
