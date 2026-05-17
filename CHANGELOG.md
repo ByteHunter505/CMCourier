@@ -52,6 +52,65 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.77.0] — 2026-05-17 — **Normalizar `image_path` del RVABREP en IndexingService**
+
+El ``ABAICD`` (``image_path_column``) del RVABREP real del banco
+viene con leading forward-slash — convención del RVI heredado, que
+escribe paths "absolutos" desde la raíz del file share
+(ej. ``/RVI9/020526/0004``). Pre-077 ese path llegaba al assembler
+tal cual y al concatenarlo con ``assembly.source_root`` vía
+``Path / Path``, pathlib descartaba silenciosamente ``source_root``:
+
+```python
+>>> Path("sample/mockfiles") / "/RVI9/020526/0004" / "DOC.001"
+WindowsPath('/RVI9/020526/0004/DOC.001')   # source_root evaporado
+```
+
+Resultado: el assembler buscaba los archivos en el root del drive
+(``C:\RVI9\...`` en Windows, ``/RVI9/...`` en Linux), ignorando
+completamente la config ``assembly.source_root``. ``mock generate``
+materializaba los archivos en ``<root>/RVI9/...`` correctamente
+(porque su planner sí normaliza), pero la pipeline real no los
+encontraba — los dos interpretaban el mismo ``ABAICD`` de forma
+diferente.
+
+Misma clase de bug que 074 (CHAR padding): un detalle de
+representación del RVI/AS400 filtraba al dominio. Fix en la misma
+frontera adapter-source ↔ dominio.
+
+### Fixed
+
+- **``services/indexing.py:_row_to_document``** ahora normaliza
+  ``image_path`` antes de construir el ``RVABREPDocument``: aplana
+  backslashes a forward slashes, strippea whitespace, strippea
+  leading separators. Casos cubiertos:
+  - ``"/RVI9/020526/0004"`` → ``"RVI9/020526/0004"`` (caso real)
+  - ``"\RVI9\020526\0004"`` → ``"RVI9/020526/0004"``
+  - ``"//RVI9/..."`` → ``"RVI9/..."``
+  - ``"  /RVI9/...  "`` → ``"RVI9/..."``
+  - paths relativos quedan intactos.
+- Helper privado ``_normalize_image_path`` en
+  ``services/indexing.py``. No se reutiliza el helper homónimo del
+  planner del ``mock generate`` (que devuelve ``Path``) — para
+  mantener el tipo ``str`` del campo
+  ``RVABREPDocument.image_path``.
+
+### Notas
+
+- **Casos NO cubiertos** (siguen siendo "absolutos" para pathlib y
+  pisarían ``source_root``):
+  - ``"C:\some\path"`` (drive letter explícito) — raro en AS400.
+  - ``"\\server\share\path"`` (UNC) — el operador debe configurar
+    ``source_root`` como raíz del share.
+- **Tests nuevos**: 10 en
+  ``tests/unit/services/test_indexing_image_path.py`` cubriendo
+  los 5 casos del happy-path + edge cases (empty, only-separators,
+  internal/trailing separators preservados).
+- Total: **607 unit tests passed** (597 previos + 10 nuevos), cero
+  regresiones.
+
+---
+
 ## [0.76.0] — 2026-05-17 — **Strip whitespace de strings que vuelven del AS400**
 
 Los campos ``CHAR(N)`` de DB2 / iSeries vuelven *padded* a longitud
