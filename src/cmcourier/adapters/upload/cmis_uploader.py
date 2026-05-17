@@ -50,7 +50,10 @@ from dataclasses import dataclass
 from typing import IO, Any
 
 import httpx
-from requests_toolbelt import MultipartEncoder  # 076: true streaming multipart
+from requests_toolbelt import (  # 076 + 077: streaming multipart + progress
+    MultipartEncoder,
+    MultipartEncoderMonitor,
+)
 
 from cmcourier.domain.exceptions import (
     CMISClientError,
@@ -68,6 +71,10 @@ _log = logging.getLogger(__name__)
 _WINDOWS_ABORT_MARKER = "10053"
 _MAX_BACKOFF_S = 60.0
 _RESPONSE_BODY_TRUNCATION = 1024
+# 077: threshold mínimo de bytes acumulados antes de emitir un
+# ``cmis_upload_progress``. 1 MB filtra el ruido de uploads chicos sin
+# perder resolución útil en uploads grandes.
+_PROGRESS_THRESHOLD_BYTES = 1_048_576
 
 
 # ---------------------------------------------------------------------------
@@ -780,6 +787,10 @@ class CmisUploader(IUploader):
         # antes de cada `retry` — pero solo al file handle subyacente, ya
         # que BandwidthLimiter le reenvía el seek().
         stream = file_field[1]
+        # 077: contador de bytes reportados como progress events parciales.
+        # Vive afuera del loop así está accesible en el branch de
+        # retries-exhausted al final. Cada attempt lo resetea a 0.
+        reported_state: dict[str, int] = {"bytes": 0}
         while real_attempts < self._cfg.retry_max_attempts:
             with self._warm_lock:
                 need_warmup = not self._warm
@@ -790,17 +801,42 @@ class CmisUploader(IUploader):
                     stream.seek(0)
                 # 076: `MultipartEncoder` arma el body como un iterator
                 # lazy — los chunks van del disco directo al socket TCP
-                # sin buffearse el body entero en RAM. Pre-076 ``files=``
-                # lo buffeaba completo antes de transmitir, lo cual
-                # contra IBM CM v8 (HTTP/1.1 sin multiplexing) destruía
-                # el throughput. ``httpx`` no consume ``MultipartEncoder``
-                # directamente — lo envolvemos en un generator + pasamos
-                # ``Content-Length`` explícito vía ``encoder.len`` (así
-                # evitamos chunked transfer-encoding, que algunos
-                # servers viejos no manejan bien).
+                # sin buffearse el body entero en RAM.
+                # 077: lo envolvemos en ``MultipartEncoderMonitor`` para
+                # que un callback nos avise cuánto se transmitió cada
+                # chunk; emitimos eventos ``cmis_upload_progress`` cuando
+                # acumulamos ``_PROGRESS_THRESHOLD_BYTES``, así el TUI
+                # ve el throughput en vivo durante uploads largos en
+                # lugar de tener que esperar al completion.
                 encoder = MultipartEncoder(fields={**data_fields, "content": file_field})
+                # 077: reseteamos el contador por cada attempt — el upload
+                # arranca de cero después del ``stream.seek(0)``.
+                reported_state["bytes"] = 0
 
-                def _read_chunk(enc: MultipartEncoder = encoder) -> bytes:
+                def _progress_callback(
+                    monitor: MultipartEncoderMonitor,
+                    state: dict[str, int] = reported_state,
+                    tx: str = txn_num,
+                    bid: str = batch_id,
+                ) -> None:
+                    current = int(monitor.bytes_read)
+                    delta = current - state["bytes"]
+                    if delta < _PROGRESS_THRESHOLD_BYTES:
+                        return
+                    state["bytes"] = current
+                    _network_log.info(
+                        "cmis_upload_progress",
+                        extra={
+                            "kind": "cmis_upload_progress",
+                            "batch_id": bid,
+                            "txn_num": tx,
+                            "bytes_delta": delta,
+                        },
+                    )
+
+                monitored = MultipartEncoderMonitor(encoder, _progress_callback)
+
+                def _read_chunk(enc: MultipartEncoderMonitor = monitored) -> bytes:
                     """8 KB chunk del encoder. ``enc`` default-arg
                     bindea la instancia de esta iteration (B023).
                     """
@@ -810,8 +846,8 @@ class CmisUploader(IUploader):
                     url,
                     content=iter(_read_chunk, b""),
                     headers={
-                        "Content-Type": encoder.content_type,
-                        "Content-Length": str(encoder.len),
+                        "Content-Type": monitored.content_type,
+                        "Content-Length": str(monitored.len),
                     },
                     timeout=self._timeout_s,
                 )
@@ -837,10 +873,26 @@ class CmisUploader(IUploader):
                     self._warm = False
                 continue
             if 200 <= resp.status_code < 400:
-                self._emit_network(kind, t0, resp.status_code, size_bytes, url, batch_id)
+                self._emit_network(
+                    kind,
+                    t0,
+                    resp.status_code,
+                    size_bytes,
+                    url,
+                    batch_id,
+                    progress_bytes=reported_state["bytes"],
+                )
                 return resp
             if 400 <= resp.status_code < 500:
-                self._emit_network(kind, t0, resp.status_code, size_bytes, url, batch_id)
+                self._emit_network(
+                    kind,
+                    t0,
+                    resp.status_code,
+                    size_bytes,
+                    url,
+                    batch_id,
+                    progress_bytes=reported_state["bytes"],
+                )
                 raise CMISClientError(
                     status_code=resp.status_code, response_body=_truncate(resp.text)
                 )
@@ -860,7 +912,15 @@ class CmisUploader(IUploader):
                 self._backoff_sleep(real_attempts, doubled=False)
         assert last_exc is not None
         last_status = getattr(last_exc, "status_code", None)
-        self._emit_network(kind, t0, last_status, size_bytes, url, batch_id)
+        self._emit_network(
+            kind,
+            t0,
+            last_status,
+            size_bytes,
+            url,
+            batch_id,
+            progress_bytes=reported_state["bytes"],
+        )
         raise RetriesExhaustedError(
             txn_num=txn_num, attempts=self._cfg.retry_max_attempts
         ) from last_exc
@@ -873,6 +933,7 @@ class CmisUploader(IUploader):
         size_bytes: int | None,
         url: str,
         batch_id: str,
+        progress_bytes: int = 0,
     ) -> None:
         # ``batch_id`` es obligatorio: los _BandwidthHandler /
         # _SlowOpHandler por `batch` descartan cualquier record cuyo
@@ -889,6 +950,11 @@ class CmisUploader(IUploader):
             extra["status"] = status
         if size_bytes is not None:
             extra["size_bytes"] = size_bytes
+        # 077: cuántos bytes del upload se reportaron como progress
+        # events parciales. ``_BandwidthHandler`` resta esto del
+        # ``size_bytes`` para evitar double-counting.
+        if progress_bytes:
+            extra["progress_bytes"] = progress_bytes
         _network_log.info(kind, extra=extra)
 
     def _backoff_sleep(self, attempt: int, doubled: bool) -> None:
