@@ -104,8 +104,10 @@ def plan_files(
        ``False``;
     2. aplicar los filtros ``systems`` y ``document_types``;
     3. normalizar ``image_path`` (rechazando vacío);
-    4. `dispatch` entre PDF e imagen (lanzando ``ConfigurationError``
-       ante un ``image_type`` desconocido en filas no-PDF);
+    4. `dispatch` entre PDF e imagen; ante un ``image_type``
+       desconocido (o un ``ABABST=O`` con filename no-PDF — data
+       contradictoria), loguear un warning estructurado y skipear
+       esa fila — no abortar (073);
     5. dedup por ``(image_path, file_code)``, gana la primera fila;
     6. yieldea hasta ``filters.limit`` planes.
     """
@@ -154,6 +156,26 @@ def plan_files(
         else:
             image_type = _str(row.get(columns.image_type_column))
             kind = _dispatch_image_kind(image_type, txn)
+            if kind is None:
+                # 073: código de ``image_type`` desconocido o
+                # ``ABABST=O`` (PDF) sobre filename no-PDF. Antes
+                # abortábamos toda la generación; ahora loguamos un
+                # warning estructurado y skipeamos esta fila, así
+                # un RVABREP heterogéneo no tumba el run entero.
+                _log.warning(
+                    "skipping row: unrecognized image_type",
+                    extra={
+                        "txn_num": txn,
+                        "image_type": image_type,
+                        "file_name": file_name,
+                        "reason": (
+                            "pdf_code_on_non_pdf_filename"
+                            if image_type == _PDF_CODE
+                            else "unknown_image_type"
+                        ),
+                    },
+                )
+                continue
             plan = FilePlan(
                 dir_path=image_path,
                 file_code=file_code,
@@ -212,22 +234,23 @@ def _safe_pages(value: object) -> int:
     return max(1, n)
 
 
-def _dispatch_image_kind(image_type: str, txn: str) -> FileKind:
+def _dispatch_image_kind(image_type: str, txn: str) -> FileKind | None:
+    """Mapea ``ABABST`` a un :class:`FileKind`; devuelve ``None`` para
+    indicar al caller que skipee esa fila.
+
+    073: ante un código desconocido o un ``ABABST=O`` con filename
+    no-PDF (data contradictoria), devolvemos ``None`` en lugar de
+    abortar. El caller loguea el motivo y sigue con el resto de las
+    filas. Esto permite procesar un RVABREP de un banco real con
+    códigos heterogéneos sin que un valor inesperado tumbe la
+    generación entera.
+
+    El parámetro ``txn`` se conserva para que el caller pueda incluirlo
+    en el log structured (no se usa adentro de la función).
+    """
+    _ = txn  # documentado arriba; lo conservamos por contrato del caller
     if image_type == _TIFF_CODE:
         return "tiff"
     if image_type == _JPEG_CODE:
         return "jpeg"
-    if image_type == _PDF_CODE:
-        # Un filename no-PDF con ``ABABST=O`` es data contradictoria;
-        # se trata como código desconocido para que el operador lo
-        # note.
-        raise ConfigurationError(
-            "ABABST=O (PDF) on a row whose file_name is not .PDF",
-            txn_num=txn,
-            image_type=image_type,
-        )
-    raise ConfigurationError(
-        "unknown image_type",
-        txn_num=txn,
-        image_type=image_type,
-    )
+    return None
