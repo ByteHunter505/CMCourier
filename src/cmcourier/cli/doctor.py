@@ -376,7 +376,10 @@ def _check_as400_connectivity(config: PipelineConfig, secrets: Secrets) -> Check
             query=source.query,
         )
         try:
-            src.query("SELECT 1", [])
+            # 073: DB2 / AS400 exige una cláusula FROM. SYSIBM.SYSDUMMY1
+            # es la pseudo-tabla canónica de IBM para health checks
+            # (siempre 1 fila, 1 columna IBMREQD, sin permisos especiales).
+            src.query("SELECT 1 FROM SYSIBM.SYSDUMMY1", [])
         finally:
             src.close()
     except Exception as exc:  # noqa: BLE001
