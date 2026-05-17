@@ -95,10 +95,61 @@ class TestDispatch:
         assert plans[0].kind == "jpeg"
         assert plans[0].extensions == (".001",)
 
-    def test_unknown_image_type_raises(self) -> None:
-        row = _row(image_type="Z", file_name="X.001")
-        with pytest.raises(ConfigurationError, match="image_type"):
-            list(plan_files([row], _COLS, PlannerFilters(), _BOUNDS))
+    def test_unknown_image_type_is_skipped_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 073: pre-073 esto tiraba ``ConfigurationError`` y abortaba la
+        # generación entera. Ahora la fila se loguea como warning
+        # estructurado y se skipea — los demás docs del run siguen.
+        row = _row(image_type="Z", file_name="X.001", txn="TXN_BAD")
+        with caplog.at_level(logging.WARNING, logger="cmcourier.services.mock.planner"):
+            plans = list(plan_files([row], _COLS, PlannerFilters(), _BOUNDS))
+        assert plans == []
+        assert any(
+            "unrecognized image_type" in rec.getMessage()
+            and getattr(rec, "image_type", None) == "Z"
+            and getattr(rec, "txn_num", None) == "TXN_BAD"
+            and getattr(rec, "reason", None) == "unknown_image_type"
+            for rec in caplog.records
+        )
+
+    def test_pdf_code_on_non_pdf_filename_is_skipped_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 073: data contradictoria — ``ABABST=O`` (PDF) pero el filename
+        # no termina en .PDF. Pre-073 abortaba; ahora skipea con
+        # reason="pdf_code_on_non_pdf_filename".
+        row = _row(image_type="O", file_name="X.001", txn="TXN_CONFLICT")
+        with caplog.at_level(logging.WARNING, logger="cmcourier.services.mock.planner"):
+            plans = list(plan_files([row], _COLS, PlannerFilters(), _BOUNDS))
+        assert plans == []
+        assert any(
+            getattr(rec, "reason", None) == "pdf_code_on_non_pdf_filename"
+            and getattr(rec, "txn_num", None) == "TXN_CONFLICT"
+            for rec in caplog.records
+        )
+
+    def test_mixed_known_and_unknown_codes_yields_only_known(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 073: el RVABREP real puede tener códigos heterogéneos. El
+        # planner produce planes para los conocidos y loguea warnings
+        # para el resto — la corrida no se aborta.
+        rows = [
+            _row(image_type="B", file_name="A.001", txn="A"),
+            _row(image_type="Z", file_name="B.001", txn="B"),
+            _row(image_type="C", file_name="C.001", txn="C"),
+            _row(image_type="", file_name="D.001", txn="D"),
+            _row(image_type="O", file_name="E.PDF", txn="E"),
+        ]
+        with caplog.at_level(logging.WARNING, logger="cmcourier.services.mock.planner"):
+            plans = list(plan_files(rows, _COLS, PlannerFilters(), _BOUNDS))
+        kinds = [p.kind for p in plans]
+        # `A` (tiff/B), `C` (jpeg/C), `E` (pdf/O+.PDF) producen planes.
+        # `B` (Z desconocido) y `D` (vacío) loguean y skipean.
+        assert kinds == ["tiff", "jpeg", "pdf"]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 2
 
     def test_pdf_with_lowercase_extension_dispatches_as_pdf(self) -> None:
         # `is_pdf_filename` es case-insensitive; `ABABST` puede decir
