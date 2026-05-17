@@ -266,7 +266,7 @@ class IndexingService:
             index6=_str(row.get(cfg.index6_column)),
             index7=_str(row.get(cfg.index7_column)),
             image_type=_str(row.get(cfg.image_type_column)),
-            image_path=_str(row.get(cfg.image_path_column)),
+            image_path=_normalize_image_path(_str(row.get(cfg.image_path_column))),
             file_name=_str(row.get(cfg.file_name_column)),
             creation_date=parse_cymmdd(_str(row.get(cfg.creation_date_column))),
             last_view_date=_parse_last_view_date(row.get(cfg.last_view_date_column)),
@@ -285,6 +285,26 @@ def _str(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def _normalize_image_path(value: str) -> str:
+    """075: strippea leading separators del ``ABAICD`` antes de que
+    pase al dominio.
+
+    El RVI escribe el ``image_path`` con un leading ``/`` (paths
+    "absolutos" desde la raíz del file share, ej.
+    ``/RVI9/020526/0004``). Pre-075 ese path llegaba al assembler
+    tal cual, y al concatenarlo con ``assembly.source_root`` vía
+    ``Path / Path``, pathlib descartaba silenciosamente
+    ``source_root`` (``Path("a") / "/b"`` devuelve ``Path("/b")``).
+
+    Esta función aplana backslashes a forward slashes, strippea
+    whitespace, y después strippea separadores al inicio (en ese
+    orden, así inputs como ``"  /RVI9  "`` quedan ``"RVI9"`` y no
+    ``"/RVI9"``). Devuelve ``str`` para mantener el tipo del campo
+    ``RVABREPDocument.image_path``.
+    """
+    return value.replace("\\", "/").strip().lstrip("/")
 
 
 def _to_int(value: Any) -> int:
