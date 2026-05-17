@@ -170,6 +170,19 @@ class BandwidthLimiter:
     def close(self) -> None:
         self._stream.close()
 
+    def fileno(self) -> int:
+        """Delega al file handle subyacente.
+
+        080: ``requests_toolbelt.total_len()`` prueba ``fileno()`` para
+        medir el tamaño del file part al armar ``MultipartEncoder``.
+        Sin este método, ``total_len`` devuelve ``None`` silenciosamente
+        y el encoder tira ``TypeError: unsupported operand +: int + None``
+        al calcular ``Content-Length`` en su ``__init__``. Ese bug bloqueaba
+        100% de los uploads cuando ``cmis.max_bandwidth_mbps > 0`` (el
+        path donde el stream se envuelve en ``BandwidthLimiter``).
+        """
+        return self._stream.fileno()
+
     @property
     def name(self) -> str:
         return str(getattr(self._stream, "name", "<bandwidth-limited>"))

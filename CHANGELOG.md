@@ -52,6 +52,54 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.82.0] — 2026-05-17 — **Fix crítico: `BandwidthLimiter` rompía 100% de uploads con throttle activo**
+
+Bug productivo crítico descubierto durante las pruebas de
+throughput: con ``cmis.max_bandwidth_mbps > 0``, **100% de los
+uploads fallaban** con:
+
+```
+TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'
+  File ".../requests_toolbelt/multipart/encoder.py", line 488
+    self.len = len(self.headers) + total_len(self.body)
+```
+
+Causa: ``cmcourier`` envuelve el file handle en ``BandwidthLimiter``
+cuando hay throttle configurado. Pre-076 el adapter usaba
+``httpx.Client.post(files=...)`` que armaba el multipart internamente
+sin llegar al path problemático. Spec 076 cambió a
+``MultipartEncoder`` para streaming real, y ahí emergió: el
+``MultipartEncoder.__init__`` calcula ``Content-Length`` con
+``total_len(body)`` que prueba ``__len__`` → ``len`` → ``fileno`` →
+``getvalue`` y si no encuentra nada **devuelve ``None``
+silenciosamente**. El ``BandwidthLimiter`` no exponía ninguno.
+
+Por qué no se notó antes de las pruebas productivas: con
+``max_bandwidth_mbps == 0`` (default), el stream NO se envuelve
+y pasa el file handle nativo, que tiene ``fileno()``. El bug solo
+se manifestaba con throttle activado.
+
+### Fixed
+
+- **``BandwidthLimiter.fileno()``** nuevo método que delega al
+  stream subyacente. Con eso ``requests_toolbelt.total_len()`` obtiene
+  el fd, hace ``os.fstat`` y calcula el tamaño correcto del file part.
+
+### Notas
+
+- **Workaround temporal** sin el fix: setear
+  ``cmis.max_bandwidth_mbps: 0.0`` (sin throttle). Vuelve el path
+  donde el stream es el ``fh`` nativo.
+- **Gap de tests detectado**: los tests existentes del uploader
+  mockean httpx con ``respx`` y no entran al path de
+  ``MultipartEncoder.__init__`` con un ``BandwidthLimiter`` real.
+  Spec 080 cierra ese gap con 3 tests nuevos en
+  ``tests/unit/adapters/upload/test_bandwidth_limiter_fileno.py``
+  — incluyendo un regression test del bug exacto.
+- Total: **655 unit tests passed** (652 previos + 3 nuevos).
+
+---
+
 ## [0.81.0] — 2026-05-17 — **Chart de UPLOAD con eje Y etiquetado + detección de link speed**
 
 Iteración del chart del 080 con tres ajustes operativos:
