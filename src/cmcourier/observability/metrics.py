@@ -240,6 +240,31 @@ class _BandwidthSampler:
             for k in stale:
                 del self._buckets[k]
 
+    def record_progress(self, bytes_delta: int, ts: float | None = None) -> None:
+        """077: agrega ``bytes_delta`` al bucket del segundo current.
+
+        A diferencia de :meth:`record_upload` (que distribuye un total
+        sobre ``[started_at, completed_at]`` al completar el upload),
+        este método agrega bytes parciales al wall-clock second en
+        que se transmiten. Lo llama ``_BandwidthHandler`` con cada
+        evento ``cmis_upload_progress`` que emite el
+        ``MultipartEncoderMonitor`` del uploader.
+
+        Thread-safe vía el lock interno del sampler. El bucket se
+        elige según ``ts`` (default ``time.time()``).
+        """
+        if bytes_delta <= 0:
+            return
+        ts = ts if ts is not None else time.time()
+        bucket = int(ts)
+        cutoff = bucket - self._WINDOW_SECONDS
+        with self._lock:
+            self._cumulative_bytes += int(bytes_delta)
+            self._buckets[bucket] = self._buckets.get(bucket, 0) + int(bytes_delta)
+            stale = [k for k in self._buckets if k < cutoff]
+            for k in stale:
+                del self._buckets[k]
+
     def cumulative_bytes(self) -> int:
         """Total de bytes subidos desde que arrancó este sampler (nunca decae)."""
         with self._lock:
@@ -290,12 +315,40 @@ class _BandwidthHandler(logging.Handler):
         self._batch_id = batch_id
 
     def emit(self, record: logging.LogRecord) -> None:
-        if getattr(record, "kind", "") != "cmis_upload":
+        kind = getattr(record, "kind", "")
+        # 077: progress events parciales alimentan el bucket actual.
+        # Llegan durante el upload (no esperan a completion).
+        if kind == "cmis_upload_progress":
+            if getattr(record, "batch_id", None) != self._batch_id:
+                return
+            delta = getattr(record, "bytes_delta", None)
+            if delta is None:
+                return
+            try:
+                delta_int = int(delta)
+            except (TypeError, ValueError):
+                return
+            if delta_int <= 0:
+                return
+            self._sampler.record_progress(delta_int, ts=float(record.created))
+            return
+        if kind != "cmis_upload":
             return
         if getattr(record, "batch_id", None) != self._batch_id:
             return
         size = getattr(record, "size_bytes", None)
         if size is None:
+            return
+        # 077: si hubo progress events, ya los contabilizamos en
+        # ``record_progress``. Restamos esos bytes del total para evitar
+        # double-counting. El residuo (el "último chunk" que no alcanzó
+        # el threshold + cualquier discrepancia menor) se distribuye con
+        # la lógica 069. Cuando ``progress_bytes`` es 0 (uploads chiquitos
+        # que nunca dispararon el threshold), el comportamiento es
+        # idéntico a pre-077.
+        progress_bytes = int(getattr(record, "progress_bytes", 0) or 0)
+        residual = max(0, int(size) - progress_bytes)
+        if residual == 0:
             return
         # 069: deriva la ventana de transmisión a partir de ``duration_ms``
         # para que el sampler pueda distribuir los bytes uniformemente.
@@ -310,7 +363,7 @@ class _BandwidthHandler(logging.Handler):
             duration_s = 0.0
         started_at = completed_at - max(0.0, duration_s)
         self._sampler.record_upload(
-            int(size),
+            residual,
             started_at=started_at,
             completed_at=completed_at,
         )
