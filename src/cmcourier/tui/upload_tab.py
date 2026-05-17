@@ -90,9 +90,10 @@ def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
         chart_title += f"y: 0 → peak {snap.bandwidth_peak_mbps:.2f})"
     lines.append(chart_title)
     series_values = [v for _, v in snap.bandwidth_series]
-    # 078: chart multi-línea con barras delgadas verdes. 8 líneas de alto
-    # + footer del eje X. Si la serie está vacía, paddeamos con líneas
-    # en blanco para no desestabilizar el layout vertical del tab.
+    # 078: chart multi-línea, barras pegadas (079), color verde, con
+    # eje Y etiquetado (079). El prefix del chart es de 7 chars
+    # (4 label + 3 ` │ `); el footer del eje X tiene que alinearse
+    # con ese mismo prefix (label "0" right-aligned + " └").
     if series_values:
         chart = render_bar_chart(
             series_values,
@@ -100,12 +101,14 @@ def render_upload(snap: TUISnapshot, *, width: int = 76) -> str:
             height=8,
             width_chars=60,
             color="green",
+            show_y_axis=True,
         )
         for chart_line in chart.split("\n"):
             lines.append("  " + chart_line)
     else:
-        lines.extend(["  " + " " * 60] * 8)
-    lines.append("  └" + "─" * 58 + "┘  -60s ............. now")
+        lines.extend(["  " + " " * 67] * 8)
+    # Footer: "   0 └" (4-char label + " └") + 60 dashes + "┘"
+    lines.append("  " + "   0 └" + "─" * 60 + "┘  -60s ............. now")
 
     lines.append("")
     lines.append(" SLOW OPS (UPLOAD, top 5)")

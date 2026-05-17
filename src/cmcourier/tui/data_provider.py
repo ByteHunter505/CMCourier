@@ -32,6 +32,7 @@ from cmcourier.config.schema import CmisConfigModel
 from cmcourier.domain.models import DocDetail
 from cmcourier.domain.ports import ITrackingStore
 from cmcourier.observability.metrics import MetricsRecorder
+from cmcourier.observability.network_info import detect_link_speed_mbps
 from cmcourier.orchestrators.streaming import StreamingSnapshot
 from cmcourier.services.auto_tune import AutoTuneController
 from cmcourier.services.lane_controller import LaneController, LaneSnapshot
@@ -158,6 +159,16 @@ class TUIDataProvider:
         self._pool_stats = pool_stats
         self._concurrency_limit = concurrency_limit
         self._cmis_config = cmis_config
+        # 079: cachear el ceiling de bandwidth del chart de UPLOAD UNA VEZ
+        # al construir. Prioridad: throttle configurado (``max_bandwidth_mbps``)
+        # > velocidad detectada de la NIC física más rápida (Mbps → MB/s) >
+        # auto-scale al peak (0.0 = comportamiento pre-079 fallback).
+        configured_ceiling = float(cmis_config.max_bandwidth_mbps)
+        if configured_ceiling > 0:
+            self._bandwidth_ceiling_mbps = configured_ceiling
+        else:
+            link_mbps = detect_link_speed_mbps()
+            self._bandwidth_ceiling_mbps = link_mbps / 8.0 if link_mbps > 0 else 0.0
         self._uploader = uploader
         self._auto_tune = auto_tune
         self._lane_controller = lane_controller
@@ -296,7 +307,7 @@ class TUIDataProvider:
             # para corridas single-batch.
             bandwidth_current_mbps=self._upload_metrics.bandwidth.current_mbps(),
             bandwidth_peak_mbps=self._upload_metrics.bandwidth.peak_mbps(),
-            bandwidth_ceiling_mbps=self._cmis_config.max_bandwidth_mbps,
+            bandwidth_ceiling_mbps=self._bandwidth_ceiling_mbps,
             bandwidth_series=tuple(self._upload_metrics.bandwidth.series(60)),
             slow_ops_all=tuple(self._upload_metrics.aggregator_snapshot()),
             chunks_state=chunks_snapshot,
