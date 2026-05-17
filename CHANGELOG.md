@@ -52,6 +52,83 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.78.0] — 2026-05-17 — **`MultipartEncoder` streaming para uploads CMIS (throughput fix)**
+
+S5 corría a **3 MB/s** contra IBM Content Manager v8 en producción,
+mientras que el legacy ``RVIMigration`` llegaba a **45 MB/s** contra
+la misma infra y ``curl -F`` directo medía **55 MB/s** desde la
+misma compu. El cuello no era infra ni CM: era el armado del body
+multipart en CMCourier.
+
+Spec 060 migró de ``requests`` a ``httpx[http2]``. El cambio
+introdujo silenciosamente un bug de pre-buffering:
+``httpx.Client.post(files={...})`` lee el archivo entero a memoria
+para armar el body multipart como un único ``bytes`` blob antes de
+abrir el socket TCP. Con 20 workers paralelos subiendo docs de
+25 MB:
+
+* **20 × 25 MB = 500 MB** allocados en RAM antes de transmitir el
+  primer byte.
+* **20 threads** peleando por el GIL haciendo el armado en Python.
+* **GC pauses** cascading con tanta memoria alloc/free rápido.
+* Los sockets TCP **idle** durante toda la fase pre-buffer.
+
+El legacy (pre-060) usaba ``requests-toolbelt.MultipartEncoder``,
+que es un **iterator lazy**: lee chunks de 8 KB del disco
+on-demand y los manda **directo al socket TCP**. Cero buffer en
+RAM. Pre-076 ese comportamiento estaba perdido. Spec 060 probó
+solo contra Alfresco — HTTP/2 con frontend Apache absorbe el
+pre-buffer vía multiplexing. Contra IBM CM v8 (HTTP/1.1 puro, sin
+multiplexing) el bug es dominante.
+
+### Fixed
+
+- **``CmisUploader._post_with_retries``** ahora arma el body con
+  ``requests_toolbelt.MultipartEncoder`` y lo pasa a httpx como
+  ``content=iter(lambda: encoder.read(8192), b"")`` con
+  ``Content-Length`` explícito desde ``encoder.len``. Los chunks
+  del archivo van **directo del disco al socket TCP**, sin
+  buffer intermedio. Esperamos throughput equivalente al legacy
+  (~45 MB/s) o mejor en runs productivos contra IBM CM v8.
+- El encoder **se reconstruye en cada retry attempt** después del
+  ``stream.seek(0)`` existente. ``MultipartEncoder`` es lazy:
+  construirlo no toca el archivo, costo cero.
+- ``Content-Length`` viaja explícito en headers — evitamos
+  ``Transfer-Encoding: chunked`` que algunos servers viejos no
+  manejan bien.
+
+### Changed
+
+- **Re-agregada dep runtime ``requests-toolbelt>=1.0,<2.0``** en
+  ``pyproject.toml``. Spec 060 la había sacado al migrar a httpx;
+  la traemos de vuelta porque ``MultipartEncoder`` no tiene
+  equivalente nativo en httpx. **NO traemos ``requests`` ni
+  ``RequestsAdapter``** — seguimos con ``httpx[http2]`` para todo
+  lo demás (warmup, retry, HTTP/2 contra Alfresco).
+
+### Notas
+
+- **Cómo verificar el fix**: en el TUI tab UPLOAD durante un run
+  productivo, ``peak_mbps`` debería superar significativamente
+  los 7 MB/s previos, y ``current_mbps`` mantenerse sostenido
+  por encima de los 10 MB/s. Contra LAN corporativa de 1 Gbps,
+  esperamos 30-50+ MB/s.
+- **Tests nuevos**: 5 en
+  ``tests/unit/adapters/upload/test_multipart_encoder.py`` —
+  valida que el POST usa ``content=`` (no ``files=``/``data=``),
+  que el body es un iterable lazy (no bytes), que los campos
+  CMIS están presentes, y que el retry reconstruye el encoder
+  sin reusar uno consumido. Cero regresión en los 56 integration
+  tests del adapter (``respx`` sigue capturando el POST OK
+  aunque el formato del body interno cambió).
+- Total: **612 unit tests passed** (607 previos + 5 nuevos).
+- **Si el fix no resuelve los 3 MB/s**: hipótesis siguientes en
+  spec 076 (plan B) son GIL contention en httpx, Windows TCP
+  send buffers default, o algún cuello específico de IBM CM v8
+  que el legacy bypassaba.
+
+---
+
 ## [0.77.0] — 2026-05-17 — **Normalizar `image_path` del RVABREP en IndexingService**
 
 El ``ABAICD`` (``image_path_column``) del RVABREP real del banco
