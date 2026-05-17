@@ -92,7 +92,7 @@ class As400DataSource(IDataSource):
         try:
             cursor.execute(sql, params or [])
             columns = [col[0] for col in cursor.description or []]
-            rows = [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
+            rows = [_normalize_row(columns, row) for row in cursor.fetchall()]
             _network_log.info(
                 "as400_query",
                 extra={
@@ -134,7 +134,7 @@ class As400DataSource(IDataSource):
                     return
                 for row in rows:
                     yielded += 1
-                    yield dict(zip(columns, row, strict=False))
+                    yield _normalize_row(columns, row)
         except _pyodbc_error_type() as exc:
             raise IndexingError(
                 "AS400 query_stream failed",
@@ -227,6 +227,34 @@ class As400DataSource(IDataSource):
 # ---------------------------------------------------------------------------
 # Helpers a nivel de módulo
 # ---------------------------------------------------------------------------
+
+
+def _normalize_row(columns: list[str], row: Any) -> dict[str, Any]:
+    """074: strippea whitespace de valores ``str`` al materializar
+    una fila pyodbc.
+
+    Los campos ``CHAR(N)`` de DB2 / iSeries vuelven *padded* a
+    longitud fija con espacios — un ``CHAR(1)`` vacío llega como
+    ``" "``, un ``CHAR(8)`` con ``"SHORT1"`` llega como
+    ``"SHORT1  "``. Pre-074 ese padding filtraba al dominio y
+    rompía:
+
+    * el check de "deleted" (``if _str(row.get("ABACST")):``
+      interpretaba ``" "`` como truthy y tiraba
+      ``RVABREPDeletedError``);
+    * el matching de triggers contra el RVABREP (``"SHORT1  "``
+      != ``"SHORT1"``);
+    * la idempotency key (``rvabrep_txn_num``) que terminaba en
+      SQLite + CMIS con trailing spaces.
+
+    Strippeamos en la frontera adapter-dominio. Solo afecta
+    valores ``str``; tipos numéricos, ``date`` / ``datetime``,
+    ``bool``, ``bytes`` y ``None`` pasan sin tocar.
+    """
+    return {
+        col: (value.strip() if isinstance(value, str) else value)
+        for col, value in zip(columns, row, strict=False)
+    }
 
 
 def _import_pyodbc() -> None:
