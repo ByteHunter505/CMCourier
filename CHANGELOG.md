@@ -52,6 +52,174 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.87.0] — 2026-05-18 — **Cleanup de staged files post-S5_DONE**
+
+Bug productivo descubierto por el operador: "los archivos no se
+están borrando luego de que se cargan a CMIS". Verificado con `rg`:
+**cero llamadas a `unlink` en el orchestrator** pre-085. Los PDFs
+ensamblados en `temp_dir` quedaban en disco para siempre.
+
+Implicancia: un lote de 100k docs × ~500KB ≈ 50GB de basura
+acumulada. El operador tenía que limpiar a mano.
+
+### Added
+
+- **`StagedPipeline._cleanup_staged_file`**: borra `staged.path`
+  con `unlink(missing_ok=True)` después de un `mark_uploaded` /
+  `mark_stage_done` exitoso. Idempotente. `OSError` se loguea como
+  warning pero no propaga — un cleanup roto no debe revertir un
+  `S5_DONE` ya persistido.
+- **`AssemblyConfig.keep_staged_files: bool = False`** (schema):
+  opt-out para preservar `temp_dir/{txn_num}.pdf` post-upload
+  cuando el operador necesita inspeccionar el ensamblado para debug.
+- **`StagedPipeline.__init__`**: parámetro keyword-only nuevo
+  `keep_staged_files: bool = False`. Wired desde `wiring.py`.
+
+### Notas
+
+- **Solo se borran los staged en `temp_dir`** — `source_root` (los
+  archivos del RVI bajo `ABAICD/ABAJCD/`) **NO se tocan**. La fuente
+  del banco es read-only para CMCourier.
+- **Retry-safe**: si un S5 falla y se hace `cmcourier batch retry`,
+  S4 regenera el staged desde source. El cleanup no invalida retry.
+- **Migración**: si tu deploy actual asume que `temp_dir` persiste
+  los staged (raro, pero posible), poné `assembly.keep_staged_files:
+  true` en el YAML para preservar el comportamiento pre-085.
+- **Tests nuevos** en
+  `tests/unit/orchestrators/test_staged_cleanup_after_upload.py`.
+
+---
+
+## [0.86.0] — 2026-05-18 — **AS400 metadata source activo + `lookup_value_source` configurable**
+
+Descubierto en producción enriqueciendo metadata desde AS400. Pre-084
+dos problemas:
+
+1. **`source_type: "as400:<alias>"` tiraba `NotImplementedError`**.
+   El schema y el wiring ya registraban el adapter, pero el fetch
+   en runtime nunca se cableó.
+2. **Lookups CSV/AS400 estaban hardcoded contra el CIF del trigger**.
+   No había manera de buscar por otra clave (ej. `rvabrep.txn_num`
+   contra una tabla de operaciones, o `trigger.shortname` contra una
+   tabla de regiones).
+
+### Added
+
+- **`as400:<alias>` source type** funcional. El `MetadataService`
+  ahora resuelve fields contra `As400DataSource` con el mismo
+  contrato que CSV (prefetch al arranque, lookup O(1) en runtime).
+- **`FieldSourceItem.lookup_value_source`** (schema) — string con
+  formato `<scope>.<attr>`. Default `"trigger.cif"` preserva 100% el
+  comportamiento pre-084. Valores admitidos:
+  - `"trigger.cif"` / `"trigger.shortname"` / `"trigger.system_id"`
+    / `"trigger.<otro_attr>"` (lee atributo o `audit_row`)
+  - `"rvabrep.<col>"` (cualquier campo del `RVABREPDocument`:
+    `txn_num`, `index1..7`, `image_type`, etc.)
+- **`SourceConfig.lookup_value_source`** (dataclass del service) —
+  mismo campo, wired desde el schema.
+
+### Changed
+
+- **`MetadataService._fetch_csv` → `_fetch_lookup`** (unificado).
+  Maneja CSV y AS400 indistintamente — el port `IDataSource` ya
+  unifica el contrato. Nuevo helper privado `_resolve_lookup_value`
+  parsea `lookup_value_source`.
+- **`MetadataService._prefetch_csv_sources`**: extendido para
+  pre-cachear sources AS400 además de CSV. Nombre conservado por
+  backward-compat de tests.
+
+### Uso
+
+```yaml
+metadata:
+  sources:
+    clientes_as400:
+      kind: as400
+      as400_connection:
+        host: as400.banco.com
+        port: 446
+        database: PRODLIB
+      query: "SELECT CIF, NOMBRE FROM PRODLIB.CLIENTES WHERE ABACST <> 'D'"
+
+  field_sources:
+    # Lookup AS400 por CIF (default lookup_value_source)
+    BAC_Nombre_Cliente:
+      sources:
+        - source_type: "as400:clientes_as400"
+          lookup_key_column: "CIF"
+          lookup_value_column: "NOMBRE"
+
+    # Lookup por otra clave del RVABREP
+    BAC_Descripcion_Operacion:
+      sources:
+        - source_type: "as400:operaciones"
+          lookup_key_column: "TXN"
+          lookup_value_column: "DESC"
+          lookup_value_source: "rvabrep.txn_num"
+```
+
+### Notas
+
+- **Backward-compat total**: configs pre-084 cargan idénticamente.
+  `lookup_value_source` tiene default `"trigger.cif"` que es
+  exactamente el comportamiento hardcoded pre-084.
+- **Memoria**: el prefetch lee TODA la tabla AS400 al arranque. Para
+  datasets gigantes, el operador debe usar `query` con `WHERE` para
+  acotar.
+- **Tests nuevos**:
+  - `tests/unit/config/test_field_source_lookup_value_source.py`
+  - `tests/unit/services/test_metadata_as400_lookup.py`
+- Pareja con spec 083 (`field_sources` solo con `default_value`).
+
+---
+
+## [0.85.0] — 2026-05-18 — **`field_sources` admite solo `default_value` (constantes hardcodeadas)**
+
+Mejora descubierta configurando metadata productiva. Algunas propiedades
+CMIS son **constantes por operador** (banco emisor, tipo de canal,
+versión del modelo documental) — no salen de ningún source. Pre-083
+el schema exigía ``sources`` con ``min_length=1``, forzando al
+operador a inventar un source dummy garantizado a fallar para que el
+motor cayera al ``default_value``.
+
+### Changed
+
+- **`FieldConfig.sources`**: `Field(min_length=1)` → `Field(default_factory=list)`.
+  Se puede omitir o ser `[]`.
+- Nuevo `@model_validator` exige que al menos UNO de `sources`
+  non-empty o `default_value` no-`None` esté presente. Field
+  completamente vacío sigue siendo error.
+
+### Uso
+
+```yaml
+metadata:
+  field_sources:
+    BAC_BANCO:
+      default_value: "BAC"                # ← sin sources, OK
+
+    BAC_CIF:
+      sources:
+        - source_type: rvabrep
+          lookup_value_column: index2
+      default_value: "000000"             # ← legacy, sigue funcionando
+```
+
+### Notas
+
+- **Backward-compat total**: configs pre-083 con sources non-empty
+  siguen validando idénticamente.
+- El motor (`MetadataService._resolve_one`) ya soportaba sources
+  vacíos cayendo al default — el cambio es 100% del lado del schema.
+- **6 tests nuevos** entre
+  `tests/unit/config/test_field_config_default_only.py` y
+  `tests/unit/services/test_metadata_default_only.py`.
+- Pareja con spec 084 (AS400 metadata source): 083 cubre constantes,
+  084 cubre lookup dinámico AS400. Las dos juntas eliminan los
+  workarounds con sources dummy.
+
+---
+
 ## [0.84.0] — 2026-05-17 — **Writer thread del SQLiteTrackingStore resiliente**
 
 Bug productivo crítico: docs quedaban en ``S4_DONE`` aunque el

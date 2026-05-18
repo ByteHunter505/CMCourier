@@ -164,6 +164,7 @@ class StagedPipeline:
         heavy_light_lanes: HeavyLightLanesConfig | None = None,
         document_cache: DocumentCacheService | None = None,
         s4_process_pool: ProcessPoolExecutor | None = None,
+        keep_staged_files: bool = False,
     ) -> None:
         self._trigger_strategy = trigger_strategy
         self._indexing_service = indexing_service
@@ -218,6 +219,10 @@ class StagedPipeline:
         # para el trabajo CPU-bound. ``None`` corre S4 inline
         # (comportamiento pre-066, byte-idéntico).
         self._s4_process_pool = s4_process_pool
+        # 085: post-S5_DONE borra el ``StagedFile`` de ``temp_dir`` por
+        # default. Flag opt-out para debug (operador necesita
+        # inspeccionar el archivo ensamblado después del upload).
+        self._keep_staged_files = keep_staged_files
         # 036: coordinador de `lane`s heavy/light. None cuando el modo
         # dual está apagado (el default) — S5 mantiene el path legacy
         # de pool único.
@@ -1179,6 +1184,7 @@ class StagedPipeline:
                     txn, batch_id, StageStatus.S5_DONE, cm_object_id=cm_object_id
                 )
             item.cm_object_id = cm_object_id
+            self._cleanup_staged_file(item.staged_file)
             self._mark_completed(lane)
             return "done"
         finally:
@@ -1188,6 +1194,26 @@ class StagedPipeline:
             else:
                 assert self._lane_controller is not None
                 self._lane_controller.release(lane)
+
+    def _cleanup_staged_file(self, staged: StagedFile) -> None:
+        """085: borra el archivo ensamblado de ``temp_dir`` post-S5_DONE.
+
+        No-op si ``keep_staged_files=True``. Idempotente: ``missing_ok``
+        cubre el caso de que algún otro proceso ya lo haya borrado o que
+        el path nunca haya existido. Cualquier fallo se loguea pero no
+        propaga — el upload ya completó y mark_uploaded ya persistió;
+        un cleanup roto no debe revertir un S5_DONE legítimo.
+        """
+        if self._keep_staged_files:
+            return
+        try:
+            staged.path.unlink(missing_ok=True)
+        except OSError as exc:
+            _log.warning(
+                "failed to cleanup staged file path=%s err=%s",
+                staged.path,
+                exc,
+            )
 
     def _mark_completed(self, lane: Lane | None) -> None:
         if lane is None:
