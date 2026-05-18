@@ -186,6 +186,7 @@ def build_pipeline(
         heavy_light_lanes=config.processing.heavy_light_lanes,
         document_cache=document_cache,
         s4_process_pool=s4_process_pool,
+        keep_staged_files=config.assembly.keep_staged_files,
     )
 
 
@@ -497,6 +498,7 @@ def _metadata_config_from_schema(model: MetadataConfigModel) -> MetadataConfig:
                         if src.validation is not None
                         else None
                     ),
+                    lookup_value_source=src.lookup_value_source,
                 )
                 for src in fc.sources
             ),

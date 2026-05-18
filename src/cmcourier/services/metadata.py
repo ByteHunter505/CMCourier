@@ -81,12 +81,25 @@ class ValidationConfig:
 
 @dataclass(frozen=True, slots=True)
 class SourceConfig:
-    """Un paso de la cadena de fallback de un campo."""
+    """Un paso de la cadena de fallback de un campo.
+
+    084: ``lookup_value_source`` define **de dónde sale el valor**
+    que se va a buscar en la fuente de lookup (CSV o AS400). Default
+    ``"trigger.cif"`` preserva el contrato pre-084 (CSV indexado por
+    CIF del trigger). Sintaxis admitida:
+
+    - ``"trigger.cif"`` / ``"trigger.shortname"`` / ``"trigger.system_id"`` —
+      atributos del trigger (o equivalente en ``audit_row``).
+    - ``"rvabrep.<col>"`` — atributo del :class:`RVABREPDocument`
+      (cualquier columna del modelo: ``txn_num``, ``index1`` … ``index7``,
+      ``image_type``, etc.).
+    """
 
     source_type: str
     lookup_value_column: str
     lookup_key_column: str | None = None
     validation: ValidationConfig | None = None
+    lookup_value_source: str = "trigger.cif"
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,20 +185,29 @@ class MetadataService:
     # --- construcción --------------------------------------------------
 
     def _prefetch_csv_sources(self) -> None:
+        """084: prefetch para CSV **y** AS400. El nombre se conserva
+        por backward-compat — internamente cubre ambos tipos de lookup
+        source con el mismo contrato (``get_all()`` + indexado en
+        memoria por ``key_column``)."""
         seen_pairs: set[tuple[str, str, str]] = set()
         for fsc in self._config.field_sources.values():
             for sc in fsc.sources:
-                if not sc.source_type.startswith(_CSV_PREFIX):
+                if sc.source_type.startswith(_CSV_PREFIX):
+                    alias = sc.source_type[len(_CSV_PREFIX) :]
+                    prefix_label = "csv"
+                elif sc.source_type.startswith(_AS400_PREFIX):
+                    alias = sc.source_type[len(_AS400_PREFIX) :]
+                    prefix_label = "as400"
+                else:
                     continue
-                alias = sc.source_type[len(_CSV_PREFIX) :]
                 if alias not in self._sources_registry:
                     raise ConfigurationError(
-                        "unknown CSV alias referenced in metadata config",
+                        f"unknown {prefix_label} alias referenced in metadata config",
                         alias=alias,
                     )
                 if sc.lookup_key_column is None:
                     raise ConfigurationError(
-                        "csv source requires lookup_key_column",
+                        f"{prefix_label} source requires lookup_key_column",
                         source_type=sc.source_type,
                     )
                 triple = (alias, sc.lookup_key_column, sc.lookup_value_column)
@@ -367,12 +389,13 @@ class MetadataService:
             return self._fetch_rvabrep(sc, document)
         if sc.source_type.startswith(_CSV_PREFIX):
             alias = sc.source_type[len(_CSV_PREFIX) :]
-            return self._fetch_csv(sc, alias, trigger, cif_override=cif_override)
+            return self._fetch_lookup(
+                sc, alias, "csv", trigger, document, cif_override=cif_override
+            )
         if sc.source_type.startswith(_AS400_PREFIX):
-            raise NotImplementedError(
-                "as400:<alias> source type is not yet supported. "
-                "The AS400 adapter has not shipped; this source type "
-                "will activate when that adapter change merges."
+            alias = sc.source_type[len(_AS400_PREFIX) :]
+            return self._fetch_lookup(
+                sc, alias, "as400", trigger, document, cif_override=cif_override
             )
         raise ConfigurationError("unknown source_type", source_type=sc.source_type)
 
@@ -414,36 +437,94 @@ class MetadataService:
         value = getattr(document, sc.lookup_value_column)
         return None if value is None else str(value)
 
-    def _fetch_csv(
+    def _fetch_lookup(
         self,
         sc: SourceConfig,
         alias: str,
+        kind_label: str,
         trigger: Trigger,
+        document: RVABREPDocument,
         *,
         cif_override: str | None = None,
     ) -> str | None:
+        """084: path unificado de lookup contra CSV o AS400.
+
+        Pre-084 había solo ``_fetch_csv`` con CIF hardcoded. Ahora el
+        valor de lookup sale de ``sc.lookup_value_source`` (default
+        ``"trigger.cif"`` para backward-compat). AS400 hereda el mismo
+        contrato — el adapter ``As400DataSource`` ya implementa
+        ``IDataSource`` (``get_all`` + ``get_by_fields``)."""
         if alias not in self._sources_registry:
-            raise ConfigurationError("unknown CSV alias at resolution time", alias=alias)
+            raise ConfigurationError(
+                f"unknown {kind_label} alias at resolution time",
+                alias=alias,
+            )
         if sc.lookup_key_column is None:
             raise ConfigurationError(
-                "csv source requires lookup_key_column",
+                f"{kind_label} source requires lookup_key_column",
                 source_type=sc.source_type,
             )
-        # Convención: los lookups CSV indexan contra el CIF del trigger.
-        # 046: ``cif_override`` lleva el CIF self-healed de S3 cuando
-        # el trigger arrancó sin uno; cae a la proyección de CIF del
-        # propio trigger. Tanto ``ClientTrigger.cif`` como el
-        # ``audit_row()["cif"]`` de los triggers basados en fila pasan
-        # por ``_trigger_cif``.
-        cif = cif_override if cif_override is not None else _trigger_cif(trigger)
-        if cif is None:
-            return None  # sin CIF no se puede hacer lookup
+        lookup_value = self._resolve_lookup_value(
+            sc.lookup_value_source, trigger, document, cif_override=cif_override
+        )
+        if lookup_value is None:
+            return None
         if self._config.prefetch_enabled:
-            cache_key = (alias, sc.lookup_key_column, cif, sc.lookup_value_column)
+            cache_key = (alias, sc.lookup_key_column, lookup_value, sc.lookup_value_column)
             return self._csv_cache.get(cache_key)
-        # Fallback: query directa
-        rows = self._sources_registry[alias].get_by_fields({sc.lookup_key_column: cif})
+        rows = self._sources_registry[alias].get_by_fields({sc.lookup_key_column: lookup_value})
         if not rows:
             return None
         raw = rows[0].get(sc.lookup_value_column)
         return None if raw is None else str(raw)
+
+    def _resolve_lookup_value(
+        self,
+        spec: str,
+        trigger: Trigger,
+        document: RVABREPDocument,
+        *,
+        cif_override: str | None = None,
+    ) -> str | None:
+        """084: parsea ``lookup_value_source`` y devuelve el valor a
+        buscar en la fuente de lookup.
+
+        Sintaxis: ``"<scope>.<attr>"`` donde scope es ``trigger`` o
+        ``rvabrep``. Caso especial ``"trigger.cif"`` honra el CIF
+        self-healed (``cif_override``) para preservar la lógica
+        pre-084.
+        """
+        if "." not in spec:
+            raise ConfigurationError(
+                "lookup_value_source must be of the form '<scope>.<attr>' "
+                "(e.g. 'trigger.cif' or 'rvabrep.txn_num')",
+                lookup_value_source=spec,
+            )
+        scope, attr = spec.split(".", 1)
+        if scope == "trigger":
+            if attr == "cif":
+                return cif_override if cif_override is not None else _trigger_cif(trigger)
+            if hasattr(trigger, attr):
+                value = getattr(trigger, attr)
+                return None if value is None else str(value)
+            audit = trigger.audit_row()
+            if attr in audit:
+                v = audit[attr]
+                return None if v is None else str(v)
+            raise ConfigurationError(
+                "trigger has no such attribute for lookup_value_source",
+                attribute=attr,
+                trigger_kind=type(trigger).__name__,
+            )
+        if scope == "rvabrep":
+            if not hasattr(document, attr):
+                raise ConfigurationError(
+                    "RVABREPDocument has no such attribute for lookup_value_source",
+                    attribute=attr,
+                )
+            value = getattr(document, attr)
+            return None if value is None else str(value)
+        raise ConfigurationError(
+            "unknown scope in lookup_value_source (expected 'trigger' or 'rvabrep')",
+            scope=scope,
+        )

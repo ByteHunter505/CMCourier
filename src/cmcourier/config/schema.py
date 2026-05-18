@@ -350,11 +350,24 @@ class ValidationModel(BaseModel):
 
 
 class FieldSourceItem(BaseModel):
+    """084: ``lookup_value_source`` permite especificar de dónde sale
+    el valor de búsqueda para sources con prefijo ``csv:`` / ``as400:``.
+
+    Default ``"trigger.cif"`` preserva el contrato pre-084 (lookups
+    indexados por CIF del trigger). Sintaxis admitida:
+    ``"trigger.<attr>"`` (cif, shortname, system_id) o
+    ``"rvabrep.<col>"`` (txn_num, index1..index7, etc.).
+
+    Para sources `trigger` y `rvabrep` puros, ``lookup_value_source``
+    se ignora — esos paths leen directamente sin lookup.
+    """
+
     model_config = _STRICT
     source_type: str
     lookup_value_column: str
     lookup_key_column: str | None = None
     validation: ValidationModel | None = None
+    lookup_value_source: str = "trigger.cif"
 
     @field_validator("source_type")
     @classmethod
@@ -365,11 +378,36 @@ class FieldSourceItem(BaseModel):
             return value
         raise ValueError(f"unknown source_type: {value!r}")
 
+    @field_validator("lookup_value_source")
+    @classmethod
+    def _validate_lookup_value_source(cls, value: str) -> str:
+        if "." not in value:
+            raise ValueError(f"lookup_value_source must be '<scope>.<attr>' (got {value!r})")
+        scope = value.split(".", 1)[0]
+        if scope not in ("trigger", "rvabrep"):
+            raise ValueError(
+                f"lookup_value_source scope must be 'trigger' or 'rvabrep' (got {scope!r})"
+            )
+        return value
+
 
 class FieldConfig(BaseModel):
+    """083: ``sources`` puede ser vacío cuando ``default_value`` está
+    seteado — útil para metadata constante (ej. clasificación
+    hardcodeada, banco emisor). Si ambos están vacíos, falla la
+    validación porque el campo no podría resolver nunca."""
+
     model_config = _STRICT
-    sources: list[FieldSourceItem] = Field(min_length=1)
+    sources: list[FieldSourceItem] = Field(default_factory=list)
     default_value: str | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one_resolution_path(self) -> FieldConfig:
+        if not self.sources and self.default_value is None:
+            raise ValueError(
+                "FieldConfig requires at least one of `sources` (non-empty) or `default_value`"
+            )
+        return self
 
 
 class MetadataCacheConfig(BaseModel):
@@ -398,6 +436,14 @@ class MetadataConfigModel(BaseModel):
 
 
 class AssemblyConfig(BaseModel):
+    """085: ``keep_staged_files`` controla si los archivos ensamblados
+    bajo ``temp_dir`` se preservan después de un S5_DONE exitoso.
+
+    Default ``False`` — el orchestrator borra ``temp_dir/{txn_num}.pdf``
+    post-upload. ``True`` los preserva para debug / inspección manual.
+    Falla del unlink no aborta el upload (se loguea como warning).
+    """
+
     model_config = _STRICT
     source_root: DirectoryPath
     temp_dir: Path
@@ -408,6 +454,7 @@ class AssemblyConfig(BaseModel):
             "C": "image/jpeg",
         }
     )
+    keep_staged_files: bool = False
 
 
 class AutoTuneConfig(BaseModel):
