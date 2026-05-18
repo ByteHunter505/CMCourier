@@ -267,24 +267,41 @@ class SQLiteTrackingStore(ITrackingStore):
             _log.exception("tracking writer: failed to open writer connection")
             return
 
+        # 082: outer try/except defensivo. Cualquier excepción que escape
+        # del while (de ``_drain_batch``, ``queue.get`` con sentinel raro,
+        # etc.) NO debe matar el thread silenciosamente — eso causaría
+        # que ``mark_stage_done`` y demás escrituras encoladas se
+        # pierdan, y los docs queden colgados en su último stage
+        # persistido sin ningún error visible. Mantenemos el thread vivo
+        # loggeando todo lo que pase.
         while not self._stop.is_set() or not self._queue.empty():
-            batch = self._drain_batch()
-            if not batch:
-                continue
             try:
-                writer.execute("BEGIN")
-                for task in batch:
-                    writer.execute(task.sql, task.params)
-                writer.commit()
-            except sqlite3.Error:
-                _log.exception("tracking writer: batch commit failed (size=%d)", len(batch))
+                batch = self._drain_batch()
+                if not batch:
+                    continue
                 try:
-                    writer.rollback()
-                except sqlite3.Error:
-                    _log.exception("tracking writer: rollback also failed")
-            finally:
-                for _ in batch:
-                    self._queue.task_done()
+                    writer.execute("BEGIN")
+                    for task in batch:
+                        writer.execute(task.sql, task.params)
+                    writer.commit()
+                except Exception:
+                    # 082: capturar ``Exception`` (no solo ``sqlite3.Error``)
+                    # — pre-082 un ``TypeError`` / ``ValueError`` sobre un
+                    # param mal-typed escapaba, mataba el daemon thread, y
+                    # las escrituras siguientes se perdían sin trace.
+                    _log.exception(
+                        "tracking writer: batch commit failed (size=%d) — continuing",
+                        len(batch),
+                    )
+                    try:
+                        writer.rollback()
+                    except Exception:
+                        _log.exception("tracking writer: rollback also failed")
+                finally:
+                    for _ in batch:
+                        self._queue.task_done()
+            except Exception:
+                _log.exception("tracking writer: unexpected error in loop — continuing")
 
         writer.close()
 

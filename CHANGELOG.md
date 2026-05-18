@@ -52,6 +52,58 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.84.0] — 2026-05-17 — **Writer thread del SQLiteTrackingStore resiliente**
+
+Bug productivo crítico: docs quedaban en ``S4_DONE`` aunque el
+upload completaba exitosamente (eventos ``cmis_upload`` con status
+2xx en los logs). **Sin error visible. Sin ``S5_DONE`` ni
+``S5_FAILED`` en SQLite.** El pipeline seguía con el siguiente
+doc. Resultado neto: TODOS los uploads "fallaban" según el
+tracking, aunque CM los había recibido.
+
+### Causa raíz
+
+``SQLiteTrackingStore`` usa un **daemon thread** que drena una
+queue de escrituras. Pre-082 el except del loop capturaba **solo**
+``sqlite3.Error``:
+
+```python
+except sqlite3.Error:
+    _log.exception("tracking writer: batch commit failed (size=%d)", len(batch))
+```
+
+Si cualquier otra excepción (``TypeError``, ``ValueError``,
+``RuntimeError``…) escapaba dentro del while, el thread moría
+silenciosamente. Daemon threads no propagan al main thread — solo
+desaparecen. Las escrituras siguientes a la queue se perdían sin
+trace.
+
+### Fixed
+
+- **Inner try/except**: ``sqlite3.Error`` → ``Exception``. Cualquier
+  fallo de commit se loguea y se reintenta drenando.
+- **Outer try/except global** envolviendo el while entero — si una
+  excepción escapa de ``_drain_batch`` o cualquier helper, el
+  thread loguea y sigue vivo.
+- **Test regression**: monkey-patch ``_drain_batch`` para tirar
+  ``RuntimeError`` y verifica que el writer thread sigue
+  ``is_alive()`` después.
+
+### Notas
+
+- Síntoma típico antes del fix: ``cmcourier batch show <batch>``
+  reportaba todos los docs en ``S4_DONE`` aunque hubieran subido a CM.
+- ``s5_upload_attempt`` y ``cmis_upload`` events presentes en logs,
+  pero ningún ``stage_done`` post-S4.
+- Si los uploads sí estaban en CM, los datos son recuperables —
+  el tracking SQLite se puede re-sincronizar via ``cmcourier sync``
+  contra el repo CMIS (otra spec si se necesita).
+- **2 tests nuevos** en
+  ``tests/unit/adapters/tracking/test_writer_resilience.py``.
+- Total: **662 unit tests passed** (660 previos + 2 nuevos).
+
+---
+
 ## [0.83.0] — 2026-05-17 — **`max_bandwidth_mbps` honra la convención de networking (Mbps reales)**
 
 **Breaking change semántico**. Pre-083 el field
