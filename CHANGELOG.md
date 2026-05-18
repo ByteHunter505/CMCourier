@@ -52,6 +52,43 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.88.0] — 2026-05-18 — **`cmcourier sync` honra `tracking.as400_sync.columns`**
+
+Bug productivo descubierto activando el sync AS400. El operador
+configuró overrides de columnas en el YAML porque su tabla NIARVILOG
+no tiene los nombres canónicos. `batch run` los respetaba; el CLI
+`sync status` / `sync resolve` los **ignoraba silenciosamente** y
+usaba los defaults hardcodeados.
+
+Síntoma:
+
+```
+AS400 error: NIARVILOG niarvilog_cleanup_stale failed:
+SQL0206 - Column or global variable FINREI not found
+```
+
+### Fixed
+
+- **`sync.py:_load_stores`**: pasa
+  `columns=_niarvilog_columns_from_schema(sync_cfg.columns)` al
+  constructor de `As400NiarvilogStore` — alinea con el path que ya
+  funcionaba en `wiring.py`. Pre-086 el adapter caía a sus defaults
+  canónicos (`FINREI`, `PMRREI`, …) ignorando el YAML.
+
+### Notas
+
+- **Backward-compat total**: operadores sin override en el YAML
+  siguen viendo el comportamiento previo. Operadores con override
+  pasan de roto a funcional.
+- **No fixea** el bug semántico de `cleanup_stale_in_progress`
+  usando `finished_at` (FINREI) en vez de `started_at` (PMRREI) —
+  las filas en `STSCOD='I'` no tienen `finished_at` por
+  definición. Eso queda para spec 087 si surge en producción.
+- **1 test nuevo** en
+  `tests/unit/cli/commands/test_sync_honors_columns_override.py`.
+
+---
+
 ## [0.87.0] — 2026-05-18 — **Cleanup de staged files post-S5_DONE**
 
 Bug productivo descubierto por el operador: "los archivos no se
