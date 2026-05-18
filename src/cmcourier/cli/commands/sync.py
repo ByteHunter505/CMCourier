@@ -34,6 +34,7 @@ from cmcourier.adapters.tracking.as400_niarvilog import (
 )
 from cmcourier.config.loader import load_config, load_secrets
 from cmcourier.config.schema import PipelineConfig
+from cmcourier.config.wiring import _niarvilog_columns_from_schema
 from cmcourier.domain.exceptions import ConfigurationError
 
 _log = logging.getLogger(__name__)
@@ -89,6 +90,13 @@ def _load_stores(
         password=secrets.as400_password,
         library=sync_cfg.library,
         table=sync_cfg.table,
+        # 086: pre-086 el CLI `sync` construía el adapter SIN pasar
+        # `columns=`, así que el adapter usaba los defaults canónicos
+        # hardcodeados (FINREI, PMRREI, STSCOD…) ignorando el override
+        # de `tracking.as400_sync.columns` del YAML. El `batch run`
+        # (que pasa por `wiring.py`) sí honraba el override; sólo el
+        # CLI `sync status` / `sync resolve` estaba roto.
+        columns=_niarvilog_columns_from_schema(sync_cfg.columns),
         stale_in_progress_minutes=sync_cfg.stale_in_progress_minutes,
         retry_attempts=sync_cfg.retry_attempts,
         retry_base_delay_s=sync_cfg.retry_base_delay_s,
