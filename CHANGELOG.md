@@ -52,6 +52,53 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.89.0] — 2026-05-18 — **Adapter NIARVILOG conecta con `CommitMode=0` (sin commit control)**
+
+Bug productivo descubierto activando el sync AS400 contra una tabla
+NIARVILOG no journaled. Síntoma:
+
+```
+SQL7008 - RVIMGLOG in LIBHJJ not valid for operation
+```
+
+### Causa raíz
+
+El IBM i Access ODBC Driver, por default, abre la conexión con
+commitment control `*CHG` (commit on change). DB2 for i exige
+**journaling activo** sobre la tabla para escribir bajo `*CHG`. Si
+la tabla no está journaled → SQL7008 al primer UPDATE/INSERT.
+
+CMCourier no necesita commitment control: cada operación
+(`try_claim`, `mark_uploaded`, `mark_failed`, etc.) es una sola
+sentencia atómica. El claim atómico viene del predicado
+`WHERE STSCOD='N'` del UPDATE — no de la transacción.
+
+### Fixed
+
+- **`As400NiarvilogStore._build_connection_string`**: agrega
+  `CommitMode=0;` al connection string. `0` = `*NONE`. El
+  `conn.commit()` posterior queda como no-op inofensivo.
+- **Adapter `adapters/sources/as400.py` NO se toca** en 087. Solo
+  el NIARVILOG (que escribe). Si surge SQL7008 contra el RVABREP
+  source en otro ambiente, se replica el fix análogo en otra spec.
+
+### Notas
+
+- **Backward-compat total**: tablas journaled siguen funcionando
+  (no se aprovecha el journal, pero tampoco se requiere). Tablas
+  no journaled pasan de roto a funcional.
+- **Atomicidad preservada**: dos procesos haciendo claim simultáneo
+  siguen viendo uno ganar (1 row affected) y el otro perder
+  (0 rows affected) gracias al row-locking de DB2 independiente del
+  commit control.
+- **2 tests nuevos** en
+  `tests/unit/adapters/tracking/test_niarvilog_connection_string.py`.
+- Pareja con 086 (wiring del CLI sync). 086 dejó que el override de
+  columnas llegara al adapter; 087 hace que el adapter pueda
+  ejecutar contra cualquier tabla NIARVILOG (journaled o no).
+
+---
+
 ## [0.88.0] — 2026-05-18 — **`cmcourier sync` honra `tracking.as400_sync.columns`**
 
 Bug productivo descubierto activando el sync AS400. El operador

@@ -553,6 +553,15 @@ class As400NiarvilogStore:
         return self._conn
 
     def _build_connection_string(self) -> str:
+        # 087: ``CommitMode=0`` (= ``*NONE``) desactiva commitment control.
+        # Pre-087 el driver "IBM i Access ODBC Driver" abría con default
+        # ``*CHG`` que requiere que la tabla NIARVILOG esté journaled —
+        # tablas no-journaled rompían con SQL7008 "not valid for
+        # operation". CMCourier no usa transacciones multi-statement
+        # (claim atómico viene del ``WHERE STSCOD='N'``, no del commit),
+        # así que sin commitment control el comportamiento es idéntico
+        # contra tablas journaled o no. El ``conn.commit()`` queda como
+        # no-op inofensivo.
         return (
             f"DRIVER={{{self._cfg.driver}}};"
             f"SYSTEM={self._cfg.host};"
@@ -560,6 +569,7 @@ class As400NiarvilogStore:
             f"DATABASE={self._cfg.database};"
             f"UID={self._username};"
             f"PWD={self._password};"
+            f"CommitMode=0;"
         )
 
 
