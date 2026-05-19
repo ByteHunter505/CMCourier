@@ -330,6 +330,7 @@ def _build_trigger_strategy(
                 col_id_rvi=config.indexing.columns.index7_column,
                 file_name_column=config.indexing.columns.file_name_column,
             ),
+            recursive=trigger_cfg.recursive,
         )
     if isinstance(trigger_cfg, SingleDocTriggerConfig):
         raise ConfigurationError(

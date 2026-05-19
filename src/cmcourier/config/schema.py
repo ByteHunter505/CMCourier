@@ -134,11 +134,19 @@ class RvabrepTriggerConfig(BaseModel):
 
 
 class LocalScanTriggerConfig(BaseModel):
-    """Modo ``local_scan``."""
+    """Modo ``local_scan``.
+
+    088: ``recursive`` permite descender por todos los subdirectorios
+    del ``scan_path``. Default ``False`` preserva el comportamiento
+    pre-088 (solo el directorio raíz, ``Path.iterdir()``). Con
+    ``True`` el motor usa ``Path.rglob("*")`` y mantiene los mismos
+    filtros de filename (``*.PDF`` / ``*.001``).
+    """
 
     model_config = _STRICT
     kind: Literal["local_scan"]
     scan_path: DirectoryPath
+    recursive: bool = False
 
 
 class SingleDocTriggerConfig(BaseModel):
