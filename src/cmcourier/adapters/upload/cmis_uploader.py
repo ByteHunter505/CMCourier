@@ -112,6 +112,13 @@ class CmisConfig:
     # multiplexing HTTP/2 sobre pocas conexiones físicas serializa
     # el throughput agregado de uploads grandes paralelos.
     http2: bool = True
+    # 090: chunk size de lectura del MultipartEncoder. Pre-090
+    # ``enc.read(8192)`` hardcoded — con N workers paralelos el
+    # GIL serializaba los reads (cada chunk dispara CPU work en
+    # Python: format multipart, copy buffers, progress callback).
+    # Default 1 MiB minimiza GIL acquisitions y restaura el
+    # paralelismo real.
+    upload_chunk_bytes: int = 1 << 20
 
 
 # ---------------------------------------------------------------------------
@@ -863,11 +870,17 @@ class CmisUploader(IUploader):
 
                 monitored = MultipartEncoderMonitor(encoder, _progress_callback)
 
-                def _read_chunk(enc: MultipartEncoderMonitor = monitored) -> bytes:
-                    """8 KB chunk del encoder. ``enc`` default-arg
-                    bindea la instancia de esta iteration (B023).
+                chunk_bytes = self._cfg.upload_chunk_bytes
+
+                def _read_chunk(
+                    enc: MultipartEncoderMonitor = monitored,
+                    size: int = chunk_bytes,
+                ) -> bytes:
+                    """090: chunk size configurable (default 1 MiB).
+                    ``enc`` y ``size`` se bindean como default-args para
+                    capturar el valor de esta iteration (B023).
                     """
-                    return bytes(enc.read(8192))
+                    return bytes(enc.read(size))
 
                 resp = self._client.post(
                     url,

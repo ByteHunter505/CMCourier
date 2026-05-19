@@ -536,6 +536,12 @@ class CmisConfigModel(BaseModel):
     retry_base_delay_s: float = Field(default=2.0, ge=0)
     workers: int = Field(default=4, ge=1)
     http2: bool = True
+    # 090: chunk size de lectura del MultipartEncoder durante el upload.
+    # Pre-090 estaba hardcoded a 8192 (8 KB) — con N workers
+    # paralelos el GIL serializaba los reads (cada chunk dispara
+    # work CPU en Python). Default 1 MiB reduce las GIL acquisitions
+    # por un factor de 128, restaurando paralelismo real.
+    upload_chunk_bytes: int = Field(default=1 << 20, ge=4096, le=64 << 20)
     auto_tune: AutoTuneConfig = Field(default_factory=AutoTuneConfig)
 
 
