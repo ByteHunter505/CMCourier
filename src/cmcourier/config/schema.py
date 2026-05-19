@@ -515,7 +515,16 @@ class AutoTuneConfig(BaseModel):
 
 
 class CmisConfigModel(BaseModel):
-    """Perillas de conexión CMIS. Las credenciales viven en env vars, no acá."""
+    """Perillas de conexión CMIS. Las credenciales viven en env vars, no acá.
+
+    089: ``http2`` permite optar fuera de HTTP/2. Default ``True``
+    preserva el comportamiento de spec 060 (negociar h2 vía ALPN,
+    fallback a 1.1 si el server no anuncia h2). Setearlo ``False``
+    fuerza HTTP/1.1 — útil cuando muchos uploads paralelos
+    comparten flow-control window del lado server y serializan
+    el throughput agregado. Bajo HTTP/1.1 cada worker mantiene su
+    propia conexión TCP (hasta ``max_keepalive_connections``).
+    """
 
     model_config = _STRICT
     base_url: str
@@ -526,6 +535,7 @@ class CmisConfigModel(BaseModel):
     retry_max_attempts: int = Field(default=3, ge=1)
     retry_base_delay_s: float = Field(default=2.0, ge=0)
     workers: int = Field(default=4, ge=1)
+    http2: bool = True
     auto_tune: AutoTuneConfig = Field(default_factory=AutoTuneConfig)
 
 

@@ -148,6 +148,7 @@ def build_pipeline(
             retry_base_delay_s=config.cmis.retry_base_delay_s,
             pool_size=cmis_pool_size,
             unmask_pii=config.observability.unmask_pii,
+            http2=config.cmis.http2,
         )
     )
     tracking_store = SQLiteTrackingStore(config.tracking.db_path)

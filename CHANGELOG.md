@@ -52,6 +52,55 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.91.0] — 2026-05-18 — **`cmis.http2` toggle (opt-out de HTTP/2 multiplexing)**
+
+Bug productivo. Operador con link de 1 Gbps subiendo archivos
+> 50 MB con 30 workers se topaba en **20 MB/s agregado**, mientras
+que `curl` con UN archivo grande satura el link. CPU OK (workers
+busy), no es prep ni server-side per-doc.
+
+### Causa raíz
+
+CMCourier abría `httpx.Client` con `http2=True` hardcoded desde
+spec 060. httpx negocia HTTP/2 y reusa pocas conexiones TCP
+multiplexando muchos streams. El server CMIS, con
+`SETTINGS_INITIAL_WINDOW_SIZE` chico (default RFC: 64 KB/stream),
+serializa el throughput agregado de los 30 streams concurrentes.
+
+HTTP/1.1: cada worker mantiene su propia TCP exclusiva (hasta
+`max_keepalive_connections`), flow window independiente, escala
+con N workers.
+
+### Added
+
+- **`cmis.http2: bool = True`** (schema): flag opt-out. Default
+  `True` preserva spec 060.
+- **`CmisConfig.http2: bool = True`** (dataclass): mismo flag.
+- **`CmisUploader.__init__`** pasa `http2=config.http2` al
+  `httpx.Client` en vez del literal `True` hardcoded.
+
+### Uso
+
+```yaml
+cmis:
+  workers: 30
+  http2: false                  # ← fuerza HTTP/1.1
+```
+
+### Notas
+
+- **Backward-compat total**: configs pre-089 cargan idénticamente.
+- httpx con `http2=False` solo habla HTTP/1.1. Con `True` negocia
+  vía ALPN y cae a 1.1 si el server no anuncia h2 — comportamiento
+  preservado.
+- **4 tests nuevos** en
+  `tests/unit/adapters/upload/test_http2_toggle.py`.
+- Pareja conceptual con 088: 088 mejora la entrada (descubrir
+  archivos en subdirs), 089 mejora la salida (no serializar
+  uploads paralelos).
+
+---
+
 ## [0.90.0] — 2026-05-18 — **`local_scan` con flag `recursive`**
 
 El operador descubrió que el modo `local_scan` solo listaba el
