@@ -149,6 +149,7 @@ def build_pipeline(
             pool_size=cmis_pool_size,
             unmask_pii=config.observability.unmask_pii,
             http2=config.cmis.http2,
+            upload_chunk_bytes=config.cmis.upload_chunk_bytes,
         )
     )
     tracking_store = SQLiteTrackingStore(config.tracking.db_path)

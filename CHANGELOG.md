@@ -52,6 +52,64 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.92.0] — 2026-05-18 — **`cmis.upload_chunk_bytes` configurable (fix GIL contention en uploads paralelos)**
+
+Bug crítico de throughput. Operador reportó: 30 workers paralelos
+subiendo archivos >50 MB topaban en 20 MB/s agregado, mientras
+que `curl` con UN archivo grande satura el link a 100 MB/s. El
+fix de HTTP/2→HTTP/1.1 (spec 089) no movió la aguja. El cuello
+estaba dentro del proceso Python.
+
+### Causa raíz
+
+El uploader llamaba a ``enc.read(8192)`` literal — chunks de 8 KB
+sobre el MultipartEncoder. Para un archivo de 50 MB son 6400 reads
+por archivo. Cada read corre código Python (format multipart
+wire, copy buffers, progress callback). El **GIL serializa** ese
+trabajo entre los 30 threads workers, generando ~192,000
+GIL acquisitions por batch.
+
+Inconsistencia: el ``BandwidthLimiter`` (path alterno) ya usaba
+1 MiB chunks por default. Solo el path normal del MultipartEncoder
+quedó en 8 KB hardcoded.
+
+### Changed
+
+- **`cmis.upload_chunk_bytes: int`** (schema, default `1 << 20`
+  = 1 MiB). Rango `[4 KiB, 64 MiB]`. Configurable para que el
+  operador suba el chunk para archivos gigantes o lo baje si
+  tiene memoria limitada.
+- **`CmisConfig.upload_chunk_bytes: int = 1 << 20`** (dataclass
+  del adapter): mismo campo, propagado por wiring.
+- **`CmisUploader._read_chunk`**: reemplaza el literal `8192` por
+  `self._cfg.upload_chunk_bytes`.
+
+### Uso
+
+```yaml
+cmis:
+  workers: 30
+  upload_chunk_bytes: 1048576       # 1 MiB default — basta para casi todo
+  # upload_chunk_bytes: 4194304     # 4 MiB para archivos > 100 MB
+```
+
+### Notas
+
+- **Backward-compat**: configs sin override ahora usan 1 MiB en
+  vez de 8 KiB. **Estrictamente mejor** — no hay tradeoff
+  operacional. Speedup esperado: 3x-5x en escenarios de muchos
+  workers + archivos grandes.
+- **Memoria**: 30 workers × 1 MiB = 30 MiB de buffers. Despreciable.
+  Con 4 MiB: 120 MiB, todavía razonable.
+- **5 tests nuevos** en
+  `tests/unit/adapters/upload/test_upload_chunk_bytes.py`.
+- Pareja con 089: ambas atacan el mismo síntoma (throughput
+  agregado bajo con muchos workers) desde lados distintos. 089:
+  TCP exclusivas. 090: menos GIL contention. Aplicar ambas si una
+  sola no alcanza.
+
+---
+
 ## [0.91.0] — 2026-05-18 — **`cmis.http2` toggle (opt-out de HTTP/2 multiplexing)**
 
 Bug productivo. Operador con link de 1 Gbps subiendo archivos
