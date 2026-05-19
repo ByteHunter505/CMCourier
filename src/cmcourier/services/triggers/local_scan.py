@@ -65,10 +65,14 @@ class LocalScanTriggerStrategy(S0Strategy):
         scan_path: Path,
         rvabrep_source: IDataSource,
         columns: RvabrepColumnsConfig | None = None,
+        recursive: bool = False,
     ) -> None:
         self._scan_path = scan_path
         self._rvabrep = rvabrep_source
         self._columns = columns or RvabrepColumnsConfig()
+        # 088: descenso recursivo opcional. Default False preserva
+        # el comportamiento pre-088 (``iterdir`` plano).
+        self._recursive = recursive
 
     def acquire(self, source_descriptor: str = "") -> Iterator[Trigger]:
         """Yieldea un ``LocalScanTrigger`` por cada archivo escaneado (046).
@@ -86,7 +90,10 @@ class LocalScanTriggerStrategy(S0Strategy):
                 "scan_path is not a readable directory",
                 scan_path=str(self._scan_path),
             )
-        for entry in self._scan_path.iterdir():
+        # 088: ``rglob`` descenso recursivo opcional. ``iterdir`` (default)
+        # solo lista el primer nivel — comportamiento pre-088.
+        entries = self._scan_path.rglob("*") if self._recursive else self._scan_path.iterdir()
+        for entry in entries:
             if not entry.is_file() or not _is_trigger_filename(entry.name):
                 continue
             rows = self._rvabrep.get_by_fields({self._columns.file_name_column: entry.name})

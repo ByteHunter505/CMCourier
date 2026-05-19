@@ -52,6 +52,47 @@ Hitos operacionales fuera del documento de roadmap:
 
 ---
 
+## [0.90.0] — 2026-05-18 — **`local_scan` con flag `recursive`**
+
+El operador descubrió que el modo `local_scan` solo listaba el
+directorio raíz del `scan_path` — archivos bajo subdirectorios se
+ignoraban silenciosamente. El árbol natural del RVI es
+`source_root/<ABAICD>/<ABAJCD>/file.PDF`, así que apuntar a un raíz
+alto no procesaba nada.
+
+### Added
+
+- **`LocalScanTriggerConfig.recursive: bool = False`** (schema):
+  flag opt-in para descender por todos los subdirectorios. Default
+  `False` preserva el contrato pre-088.
+- **`LocalScanTriggerStrategy.__init__`** acepta `recursive: bool`.
+  Cuando `True`, usa `Path.rglob("*")` en vez de `Path.iterdir()`.
+  Los filtros de filename (`*.PDF` y `*.001`) y el lookup contra
+  RVABREP no cambian.
+
+### Uso
+
+```yaml
+trigger:
+  kind: local_scan
+  scan_path: C:\rvi-sources                # raíz del árbol RVI
+  recursive: true                          # ← nuevo
+```
+
+### Notas
+
+- **Backward-compat total**: configs pre-088 cargan idénticamente.
+- **Symlinks circulares**: `rglob` sigue symlinks por default en
+  Python 3.11/3.12. Edge case raro en Windows productivo — no
+  mitigado en 088.
+- **Performance**: `rglob` itera todo el árbol antes de filtrar.
+  Para árboles muy grandes, preferí `as400` trigger con `query`
+  filtrado.
+- **6 tests nuevos** en
+  `tests/unit/services/test_local_scan_recursive.py`.
+
+---
+
 ## [0.89.0] — 2026-05-18 — **Adapter NIARVILOG conecta con `CommitMode=0` (sin commit control)**
 
 Bug productivo descubierto activando el sync AS400 contra una tabla
