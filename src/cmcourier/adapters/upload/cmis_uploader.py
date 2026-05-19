@@ -105,6 +105,13 @@ class CmisConfig:
     # enmascarados como PII. Se togglea vía ``ObservabilityConfig.unmask_pii``;
     # nunca default-true.
     unmask_pii: bool = False
+    # 089: opt-out de HTTP/2. Default True preserva el comportamiento
+    # de spec 060 (negocia h2 vía ALPN, fallback a 1.1). Setearlo
+    # False fuerza HTTP/1.1 — cada worker mantiene su propia
+    # conexión TCP (hasta ``pool_size`` keepalive). Útil cuando
+    # multiplexing HTTP/2 sobre pocas conexiones físicas serializa
+    # el throughput agregado de uploads grandes paralelos.
+    http2: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +223,7 @@ class CmisUploader(IUploader):
         # no anuncia `h2`. Mismo comportamiento de cable que pre-060 contra
         # Tomcat directo; el `multiplexing` aparece contra Apache.
         self._client = httpx.Client(
-            http2=True,
+            http2=config.http2,
             auth=(config.username, config.password),
             verify=config.verify_ssl,
             limits=httpx.Limits(
